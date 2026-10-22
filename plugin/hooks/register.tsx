@@ -7,6 +7,7 @@ import { deployChanges, deploysFor, mcp, notify, processRequests, readCi, refres
 import { cacheDir, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { nextMeeting, readMeetings, refreshMeetings } from './meetings'
+import { checkUpdate, forget, heartbeat } from './upkeep'
 
 const PANE = 'inbox'
 const STALE_MS = 5 * 60_000
@@ -534,6 +535,8 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
 
   const live: News[] = []
   for (const { text, ticket: id } of cached ? deployChanges(cached, next) : []) {
+    // A ticket with a runbook gets it refreshed instead: its notification follows, opening the steps that turned done.
+    if (await requestRunbookRefresh($, id, '🚀 live in production')) continue
     live.push({ text, action: await ticketAction($, id, next.tickets.find(t => t.id === id)?.url) })
   }
   const news = cached && gh ? [...changes({ ...cached, tickets: tickets ? cached.tickets : [] }, next), ...live] : []
@@ -541,10 +544,27 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
   else for (const n of news) await notify($, '📥 Inbox', n.text, n.action)
 }
 
+// Asks the runbook app for a background refresh of the ticket's runbook; false when there is no runbook or no app running.
+const requestRunbookRefresh = async ($: $, id: string, reason: string) => {
+  const slug = id.toLowerCase()
+  const hasBook = await $.fs.stat(`${await home($)}/.config/cockpit/runbooks/${slug}.md`).then(() => true, () => false)
+  const isRunning = (await $.process.run(['pgrep', '-f', 'runbook\\.py cockpit-space'])).exitCode === 0
+  if (!hasBook || !isRunning) return false
+  const path = `${await cacheDir($)}/runbook-refresh-requests.json`
+  const queued = JSON.parse(await $.fs.read(path).catch(() => '[]')) as { slug: string; reason: string }[]
+  await $.fs.write(path, JSON.stringify([...queued.filter(r => r.slug !== slug), { slug, reason }]))
+  return true
+}
+
 // ---------------------------------------------------------------------------
 // Actions: peek in a herdr popup, open in the browser, or start Claude in a new space
 
-const openUrl = ($: $, url: string) => $.process.run(['open', url])
+let platform: string | undefined
+
+const openUrl = async ($: $, url: string) => {
+  platform ??= (await $.process.run(['uname'])).stdout.trim()
+  return $.process.run([platform === 'Darwin' ? 'open' : 'xdg-open', url])
+}
 
 const peek = async ($: $, pr: Pr) => {
   const opened = await herdr($, ['plugin', 'pane', 'open', '--plugin', 'cockpit', '--entrypoint', 'peek', '--placement', 'popup', '--env', `PEEK_URL=${pr.url}`])
@@ -622,6 +642,10 @@ export const register: Register = on => {
     $.clock.every(60_000, () => void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined))
     void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined)
     $.clock.every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
+    $.clock.every(60_000, () => void herdrHere($).then(here => heartbeat($, here)).catch(() => undefined))
+    void herdrHere($).then(here => heartbeat($, here)).catch(() => undefined)
+    $.clock.every(3600_000, () => void checkUpdate($).catch(() => undefined))
+    void checkUpdate($).catch(() => undefined)
     void refreshCi($).catch(() => undefined)
     void refresh($, false)
     $.ui.status(undefined)
@@ -739,6 +763,7 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    if (e.reason !== 'clear') await forget($).catch(() => undefined)
     // A /clear keeps the process: what the old conversation worked on must not follow the new one.
     if (e.reason === 'clear') {
       await update($, work, () => null)

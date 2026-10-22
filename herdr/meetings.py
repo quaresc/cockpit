@@ -17,6 +17,8 @@ import tty
 import unicodedata
 from datetime import datetime, timedelta
 
+import cockpit_config
+
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(HOME, ".cache", "cockpit", "meetings.json")
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
@@ -133,7 +135,7 @@ class Line:
 
 
 def open_url(state, url):
-    subprocess.run(["open", url], capture_output=True)
+    cockpit_config.open_url(url)
     state["note"], state["note_at"] = f"opened {url}", time.time()
 
 

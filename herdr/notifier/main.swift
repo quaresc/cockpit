@@ -1,5 +1,6 @@
 // Cockpit's macOS notifications: the cockpit logo, and a click that opens a URL or runs focus.sh with the action.
 //   cockpit-notify post <title> <body> [action]
+//   cockpit-notify status    prints whether macOS lets Cockpit notify
 import Cocoa
 import UserNotifications
 
@@ -9,7 +10,14 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     func applicationDidFinishLaunching(_ notification: Notification) {
         center.delegate = self
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "post"), args.count > i + 2 {
+        if args.contains("status") {
+            center.getNotificationSettings { settings in
+                let names = ["not asked yet", "denied", "allowed", "provisional", "ephemeral"]
+                let status = settings.authorizationStatus.rawValue
+                print(status < names.count ? names[status] : "unknown")
+                self.quit(after: 0)
+            }
+        } else if let i = args.firstIndex(of: "post"), args.count > i + 2 {
             post(title: args[i + 1], body: args[i + 2], action: args.count > i + 3 ? args[i + 3] : "")
         } else {
             // Launched by a click: the response arrives through the delegate, then the app leaves.

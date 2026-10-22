@@ -3,6 +3,9 @@
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 from urllib.parse import quote
 
 HOME = os.path.expanduser("~")
@@ -22,6 +25,20 @@ DEFAULTS = {
     "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
     "runbookTools": [],
 }
+
+
+def open_url(url):
+    """Opens a URL in the default browser, on macOS or Linux."""
+    subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", url], capture_output=True)
+
+
+def copy(text):
+    """Puts text on the clipboard: pbcopy on macOS, wl-copy or xclip on Linux; False when none exists."""
+    for command in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        if shutil.which(command[0]):
+            subprocess.run(command, input=text, text=True)
+            return True
+    return False
 
 
 def load():

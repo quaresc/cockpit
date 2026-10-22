@@ -34,7 +34,8 @@ The space refreshes it in the background and hands any step back to the session 
 
 ![Runbook space](docs/runbook.svg)
 
-When a refresh lands, the steps it turned done play in, one after the other:
+When a refresh lands, the steps it turned done play in, one after the other. A ticket going live in production
+refreshes its runbook by itself, and the notification that follows opens it there:
 
 ![A runbook refresh landing: three steps turn done](docs/runbook-done.svg)
 
@@ -67,9 +68,20 @@ Answer `y` to add the marketplace and pick a scope, then run `/cockpit:setup`. T
 and connectors to use, writes `~/.config/cockpit/config.json`, merges the sidebar and key settings into your herdr
 config (showing the diff first), creates the pinned spaces and prints the permission rules to add.
 
+## Keeping it healthy
+
+- `/cockpit:doctor` checks every part: tools, both installs and their versions, which Claude sessions run cockpit,
+  how fresh the inbox, CI and meetings data is, the space apps, notifications and the permission rules. It names
+  the fix for each problem and applies the safe ones once you agree.
+- A new version is announced by a notification; clicking it updates both halves, restarts the space apps and reloads
+  idle Claude sessions (`sh ~/.config/cockpit/herdr/update.sh` does the same).
+- herdr keeps one folder per installed version; cockpit removes the old ones at startup.
+
 ## Requirements
 
-- macOS (the apps open links with `open` and copy with `pbcopy`; Linux is untested)
+- macOS, or Linux: there links open with `xdg-open`, commands copy with `wl-copy` or `xclip`, notifications go
+  through `notify-send` (a click works where the notification daemon supports actions), and the Chrome window per
+  agent is off
 - herdr 0.9 or later, Claude Code with plugin hooks modules
 - Xcode command line tools (`swiftc`) for the notifications; without them cockpit falls back to herdr's own
 - `gh` signed in, `jq`, Python 3

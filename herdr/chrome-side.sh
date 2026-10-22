@@ -3,6 +3,7 @@
 #   claim <workspace>   open Chrome if needed, give the space its window, show it
 #   sync                show the focused space's window, minimize the others (herdr focus events)
 #   release <workspace> minimize the space's window and forget it (a closed space's window is closed on sync)
+[ "$(uname)" = Darwin ] || exit 0
 H="${HERDR_BIN_PATH:-herdr}"
 MAP="$HOME/.cache/cockpit/chrome-windows.json"
 LAST="$HOME/.cache/cockpit/chrome-focus"
