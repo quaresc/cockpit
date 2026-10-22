@@ -29,6 +29,13 @@ DEFAULTS = {
 }
 
 
+def script(name):
+    """One of the plugin's scripts, through the link that follows herdr's updates: an app that outlives its install
+    folder (herdr removes old ones) still reaches the current scripts."""
+    linked = os.path.join(HOME, ".config", "cockpit", "herdr", name)
+    return linked if os.path.exists(linked) else os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+
 def open_url(url):
     """Opens a URL in the default browser, on macOS or Linux."""
     subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", url], capture_output=True)

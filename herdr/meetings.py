@@ -24,7 +24,6 @@ CONFIG = cockpit_config.load()
 CACHE = os.path.join(HOME, ".cache", "cockpit", "meetings.json")
 BRIEFS = os.path.join(HOME, ".cache", "cockpit", "meeting-briefs")
 FOCUS = os.path.join(HOME, ".cache", "cockpit", "meetings-focus.json")
-BRIEF_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meeting-brief.sh")
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
@@ -155,7 +154,11 @@ def prepare(state, m):
     if os.path.exists(brief_path(m, ".pending")):
         state["note"], state["note_at"] = "already preparing that brief", time.time()
         return
-    subprocess.Popen(["sh", BRIEF_SCRIPT, m["id"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    brief_script = cockpit_config.script("meeting-brief.sh")
+    if not os.path.exists(brief_script):
+        state["note"], state["note_at"] = f"cannot write briefs: {brief_script} is missing", time.time()
+        return
+    subprocess.Popen(["sh", brief_script, m["id"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     state["open"].add(m["id"])
     state["note"], state["note_at"] = f"preparing the brief of {m['title']}, about a minute", time.time()
 
