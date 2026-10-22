@@ -18,14 +18,18 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     }
 
     func post(title: String, body: String, action: String) {
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if !granted { FileHandle.standardError.write("cockpit-notify: not allowed (\(error?.localizedDescription ?? "denied in System Settings"))\n".data(using: .utf8)!) }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
             content.userInfo = ["action": action]
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            self.center.add(request) { _ in self.quit(after: 0.3) }
+            self.center.add(request) { error in
+                if let error { FileHandle.standardError.write("cockpit-notify: \(error.localizedDescription)\n".data(using: .utf8)!) }
+                self.quit(after: 0.3)
+            }
         }
     }
 
