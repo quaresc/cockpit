@@ -17,7 +17,11 @@ ensure() {
     fg=$("$H" pane process-info --pane "$pane" | jq -r '.result.process_info.foreground_processes | map(.cmdline) | join(" ")')
     case "$fg" in
       *"$app"*) return 0 ;;
-      *zsh* | *bash* | *fish* | -sh*) "$H" pane run "$pane" "sh '$LINK/$app-loop.sh'" >/dev/null; return 0 ;;
+      # A clean line first: an app that died with mouse reporting on leaves mouse codes typed at the prompt.
+      *zsh* | *bash* | *fish* | -sh*)
+        "$H" pane send-keys "$pane" C-c >/dev/null 2>&1
+        "$H" pane run "$pane" "printf '\\033[?1003l\\033[?1006l\\033[?1000l'; clear; sh '$LINK/$app-loop.sh'" >/dev/null
+        return 0 ;;
       "") sleep 1 ;;
       *) return 0 ;;
     esac
