@@ -32,7 +32,8 @@ esac
 installed=$(claude plugin list 2>/dev/null | awk '/cockpit@cockpit/ {found=1} found && /Version:/ {print $2; exit}')
 [ -n "$installed" ] && ok "Claude plugin cockpit $installed" || fail "Claude plugin not installed → /plugin install cockpit --marketplace quaresc/cockpit"
 latest=$(jq -r '.latest // empty' "$CACHE/update.json" 2>/dev/null)
-[ -n "$latest" ] && [ -n "$installed" ] && [ "$latest" != "$installed" ] &&
+newest=$(printf '%s\n%s\n' "$latest" "$installed" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+[ -n "$latest" ] && [ -n "$installed" ] && [ "$latest" != "$installed" ] && [ "$newest" = "$latest" ] &&
   warn "cockpit $latest is published → sh $LINK/update.sh"
 
 # Claude sessions: each one in herdr should beat with the installed version
