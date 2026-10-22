@@ -36,6 +36,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
     "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}"
   },
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
+  "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
   "chromeSideWindow": false,
   "herdrPluginRoot": "",

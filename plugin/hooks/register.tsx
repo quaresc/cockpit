@@ -6,6 +6,7 @@ import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../t
 import { deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, ticketAction, withLock } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
+import { maybeBrief } from './brief'
 import { nextMeeting, readMeetings, refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
 
@@ -637,7 +638,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'inbox', description: 'Toggle the PR review / Linear inbox pane' })
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
-    $.clock.every(60_000, () => void refresh($, false))
+    $.clock.every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     $.clock.every(60_000, () => void refreshCi($).catch(() => undefined))
     $.clock.every(60_000, () => void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined))
     void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined)

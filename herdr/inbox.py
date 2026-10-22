@@ -28,6 +28,7 @@ CACHE = os.path.join(HOME, ".cache", "cockpit")
 INBOX = os.path.join(CACHE, "inbox.json")
 REFRESH = os.path.join(CACHE, "refresh-request")
 CI = os.path.join(CACHE, "ci.json")
+BRIEF = os.path.join(CACHE, "brief.json")
 REQUESTS = os.path.join(CACHE, "requests")
 MUTED = os.path.join(HOME, ".config", "cockpit", "muted.json")
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
@@ -56,6 +57,7 @@ ICON = {
     "circleci": "", "docker": "", "sandbox": "", "rocket": "", "fix": "",
     "rerun": "", "redeploy": "", "open": "", "mute": "", "plan": "",
     "continue": "", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "argo": "󰠳", "deploy": "",
+    "today": "", "calendar": "", "dismiss": "",
     "ok": "", "fail": "", "running": "", "approved": "", "changes": "",
     "waiting": "", "fold": "", "unfold": "", "user": "", "team": "",
     "work": "", "backlog": "", "progress": "",
@@ -312,6 +314,16 @@ def set_muted(state, repo, is_muted):
     note(state, f"{'muted' if is_muted else 'unmuted'} {repo}")
 
 
+def dismiss_brief(state):
+    """Hides today's brief; tomorrow's shows again."""
+    brief = load(BRIEF, {})
+    brief["dismissed"] = True
+    with open(BRIEF + ".tmp", "w", encoding="utf-8") as handle:
+        json.dump(brief, handle)
+    os.replace(BRIEF + ".tmp", BRIEF)
+    note(state, "brief dismissed until tomorrow")
+
+
 def request_refresh(state):
     os.makedirs(CACHE, exist_ok=True)
     with open(REFRESH, "w", encoding="utf-8") as handle:
@@ -431,6 +443,21 @@ def build(state, cols):
     head.primary = lambda: request_refresh(state)
     for error in data.get("errors", []) + ([ci["error"]] if ci.get("error") else []):
         line().add(error, RED)
+
+    # The morning brief the mod writes once a day, until dismissed.
+    brief = load(BRIEF, {})
+    if brief.get("date") == datetime.now().strftime("%Y-%m-%d") and not brief.get("dismissed") and brief.get("lines"):
+        line()
+        written = datetime.fromtimestamp(brief["at"] / 1000).strftime("%H:%M")
+        top = line().add(f"{ICON['today']}  ", ORANGE).add("Today", BOLD + ORANGE).add(f"   morning brief, {written}", DIM)
+        top.buttons = [("dismiss", lambda: dismiss_brief(state), "x", False)]
+        top.primary = lambda: dismiss_brief(state)
+        for entry in brief["lines"]:
+            style = {"bad": RED, "warn": ORANGE, "good": GREEN}.get(entry.get("tone"), "")
+            item = line().add(" " * LEAD).add(f"{ICON.get(entry['icon'], '·')}  ", style or DIM).add(entry["text"], style)
+            if entry.get("url"):
+                item.buttons = [("open", lambda u=entry["url"]: open_url(state, u), "o", True)]
+                item.primary = lambda u=entry["url"]: open_url(state, u)
 
     alerts = []  # (text, style, url, stage to extend)
     for stage in sorted({b["stage"] for b in data.get("sandboxes") or []}):
@@ -849,7 +876,7 @@ def handle(state, data):
 
 
 def stamp():
-    return tuple(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (INBOX, MUTED, CI))
+    return tuple(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (INBOX, MUTED, CI, BRIEF))
 
 
 def main():

@@ -19,6 +19,7 @@ DEFAULTS = {
     "circleci": {"enabled": False, "server": "circleci", "imageJob": ""},
     "backstage": {"enabled": False, "server": "backstage", "stagePrefix": "", "sandboxArgoUrl": "", "workflowUrl": ""},
     "calendar": {"enabled": False, "server": "claude.ai Google Calendar"},
+    "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "notifications": True,
     "chromeSideWindow": False,
     "herdrPluginRoot": "",

@@ -11,6 +11,9 @@ one agent per space, pinned spaces for what surrounds the work, and a footer in 
   plan-limit counts on the inbox space.
 - **Session footer**: the ticket, PR, Figma, Notion, Slack and Argo links of what the conversation works on, the next
   meeting, plan limits when tight, and the context window in use.
+- **Morning brief**: on weekdays from 08:30, one notification and a Today section at the top of the inbox: the
+  day's meetings, reviews waiting on you, failing or mergeable PRs, CI that failed overnight, tickets that moved or
+  went live since the last brief. `brief.at` and `brief.weekends` in the config change when it comes.
 - **Notifications** (macOS): with the cockpit icon, and a click that leads somewhere useful: the PR's checks when CI
   ends, the ticket or PR when something changes, the agent's space when it finishes or waits for you, the meeting's
   video link, and the runbook, playing its newly done steps, when a refresh or a deploy completes.
