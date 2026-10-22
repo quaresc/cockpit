@@ -40,7 +40,7 @@ HOVER = "\033[48;2;30;30;34m"
 PILL_MAIN = ("\033[38;2;255;199;153m", "\033[48;2;255;199;153m\033[38;2;16;16;16m")
 PILL = ("\033[38;2;44;44;48m", "\033[48;2;44;44;48m\033[38;2;210;210;210m")
 PILL_FOCUS = ("\033[38;2;245;245;245m", "\033[48;2;245;245;245m\033[38;2;16;16;16m\033[1m")
-ICON = {"run": "", "runbook": "", "copy": "", "open": "", "update": "", "delete": "",
+ICON = {"done": "", "run": "", "runbook": "", "copy": "", "open": "", "update": "", "delete": "",
         "fold": "", "unfold": "", "merged": "", "note": ""}
 OPEN = ("⬜", "⏳", "🟡", "❌")
 NUM, STATUS, WHERE, COMMAND, ACTIONS = 4, 22, 30, 36, 24
@@ -312,6 +312,25 @@ def owner_of(book):
     return (owner or {}).get("pane", "-"), (owner or {}).get("session", "-")
 
 
+def mark_done(state, book, step):
+    """Marks a step done by hand: its status cell becomes "✅ done <day>", which plays the done animation on reload."""
+    with open(book["path"], encoding="utf-8") as handle:
+        lines = handle.read().split("\n")
+    for i, line in enumerate(lines):
+        cells = line.split("|")
+        if line.strip().startswith("|") and len(cells) > 5 and cells[1].strip() == step["n"]:
+            cells[4] = f" ✅ done {time.strftime('%d %b')} "
+            lines[i] = "|".join(cells)
+            break
+    else:
+        note(state, f"step {step['n']} not found in {book['slug']}")
+        return
+    with open(book["path"] + ".tmp", "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+    os.replace(book["path"] + ".tmp", book["path"])
+    note(state, f"{book['slug']} step {step['n']} marked done")
+
+
 def run_step(state, book, step):
     """Asks the runbook's own Claude conversation to run the step, resumed if it is closed."""
     key = f"run-{book['slug']}-{step['n']}"
@@ -475,6 +494,7 @@ def build(state, cols):
                 row.add(fit(step["command"], COMMAND), ORANGE, lambda c=step["command"]: copy(state, c))
             if not is_done:
                 buttons.insert(0, ("run", lambda b=book, s=step: run_step(state, b, s), True))
+                buttons.insert(1, ("done", lambda b=book, s=step: mark_done(state, b, s), False))
             row.buttons = buttons
             row.primary = buttons[0][1] if buttons else (lambda: None)
         for text in book["notes"]:

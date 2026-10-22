@@ -38,7 +38,8 @@ A branch with a built image gets a `sandbox` button. A sandbox still running a m
 
 ### Runbook
 
-Merges, deploys, migrations and prod commands, in order. `run` hands a step back to the session that wrote it.
+Merges, deploys, migrations and prod commands, in order. `run` hands a step back to the session that wrote it,
+`done` checks it off yourself.
 
 ![Runbook space](docs/runbook.svg)
 
