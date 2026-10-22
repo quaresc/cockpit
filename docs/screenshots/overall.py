@@ -28,14 +28,18 @@ rows = [("[1]   inbox", None, True), ("    1 you · 2 team", DIMC, False),
 for i, (text, fg, bold) in enumerate(rows):
     put(3 + i, 2, text, fg, bold=bold)
 put(16, 2, "agents", DIMC)
-agents = [("✓", TEAL, "[6] daily-quotas-api", "◑ 52%", ORANGE, " api · ENG-412", DIMC),
-          ("●", ORANGE, "[7] quota-banner", "◔ 31%", DIMC, " web · ENG-413   5/9", ORANGE),
-          ("✓", TEAL, "[8] quota-copy", "◔ 18%", DIMC, " web · ENG-414", RED),
-          ("○", DIMC, "[9] invoice-csv", "◕ 74%", RED, " billing · ENG-398", DIMC)]
-for i, (state, sc, name, ctx, cc, work, wc) in enumerate(agents):
-    r = 18 + i * 2
+# Two agents on web's quota-ui branch: both rows carry the same-branch warning.
+agents = [("✓", TEAL, "[6] daily-quotas-api", "◑ 52%", ORANGE, " api · ENG-412", DIMC, ""),
+          ("●", ORANGE, "[7] quota-banner", "◔ 31%", DIMC, " web · ENG-413   5/9", ORANGE, "⚠ same branch as quota-copy"),
+          ("✓", TEAL, "[8] quota-copy", "◔ 18%", DIMC, " web · ENG-413", DIMC, "⚠ same branch as quota-banner"),
+          ("○", DIMC, "[9] invoice-csv", "◕ 74%", RED, " billing · ENG-398", DIMC, "")]
+r = 18
+for i, (state, sc, name, ctx, cc, work, wc, clash) in enumerate(agents):
     put(r, 2, state, sc); put(r, 4, name, bold=i == 1); put(r, 4 + len(name), "  " + ctx, cc)
     put(r + 1, 4, work, wc)
+    if clash:
+        put(r + 2, 4, clash, RED, bold=True)
+    r += 3 if clash else 2
 for r in range(1, ROWS + 1):
     put(r, SIDE + 1, "│", "2C2C30")
 
