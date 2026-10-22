@@ -1,20 +1,44 @@
-# cockpit
+<p align="center"><img src="docs/logo.svg" width="112" alt="cockpit logo"></p>
 
-A cockpit for running many Claude Code agents side by side in [herdr](https://herdr.dev): one agent per space,
-pinned spaces for what surrounds the work, and a footer in every session that says where it stands.
+<h1 align="center">cockpit</h1>
 
-- **Inbox space**: review requests, my PRs as stacked trees with CI and review state, Linear tickets grouped by
-  project or status, CircleCI runs, deploys and sandboxes, with hover and keyboard buttons (review, fix CI, rerun,
-  open, done…).
-- **Terminal, to-do, runbook and meetings spaces**: a shell in your repos folder, a Markdown to-do list, the
-  `/runbook` tables of what is left to ship, and today's meetings from Google Calendar.
-- **Session footer**: the ticket, PR, Figma, Notion, Slack and Argo links of what the conversation works on, the
-  next meeting, plan limits when tight, and the context window in use.
-- **Sidebar**: context percentage and repo · ticket under each agent, review / CI / ticket counts on the inbox.
+<p align="center">A cockpit for running many Claude Code agents side by side in <a href="https://herdr.dev">herdr</a>:<br>
+one agent per space, pinned spaces for what surrounds the work, and a footer in every session that says where it stands.</p>
+
+![The cockpit: herdr sidebar with pinned spaces and agents, a Claude session and its footer](docs/overview.svg)
+
+- **Sidebar**: context percentage and repo · ticket under each agent, coloured by its PR's CI; review, CI, ticket and
+  plan-limit counts on the inbox space.
+- **Session footer**: the ticket, PR, Figma, Notion, Slack and Argo links of what the conversation works on, the next
+  meeting, plan limits when tight, and the context window in use.
 - **Chrome per agent** (optional): an agent using Claude in Chrome gets its own window beside the terminal, shown
   only while its space is focused.
 
 Everything is optional except herdr and GitHub: `/cockpit:setup` asks which parts to turn on.
+
+### Inbox
+
+Review requests, then your work: Linear tickets grouped by project (or status) with their stacked PRs, CI progress
+and failures, deploys and sandboxes. A hovered or selected row shows its buttons: review, fix CI, rerun, redeploy,
+continue, done.
+
+![Inbox space](docs/inbox.svg)
+
+### Runbook
+
+`/runbook` writes where a feature stands as a table: merges, deploys, migrations and production commands, in order.
+The space refreshes it in the background and hands any step back to the session that wrote it.
+
+![Runbook space](docs/runbook.svg)
+
+### To-do and meetings
+
+A Markdown to-do list (also `/todo <text>` from any session) with clickable tickets and links, and the next meetings
+from Google Calendar, with a footer pill and a notification five minutes before each.
+
+![To-do space](docs/todo.svg)
+
+![Meetings space](docs/meetings.svg)
 
 ## Install
 
@@ -70,6 +94,8 @@ and writes the results to `~/.cache/cockpit`. The herdr apps only read those fil
 `prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings. In the apps:
 `j`/`k` move between rows, `h`/`l` or Tab between buttons, Enter presses, `R` refreshes, `g` switches the inbox's
 ticket grouping between project and status.
+
+Screenshots are the real apps on fictional data; [`docs/screenshots`](docs/screenshots) regenerates them.
 
 ## License
 
