@@ -19,7 +19,7 @@ export type MergedPr = { repo: string; slug: string; url: string; number: number
 
 export type DeployedPr = { repo: string; number: number; isLive: boolean; tag: string | null }
 
-export type Sandbox = { stage: string; product: string; branch: string; health: string; expiresAt: string }
+export type Sandbox = { stage: string; product: string; branch: string; health: string; expiresAt: string; activated?: boolean }
 
 export type Ticket = {
   id: string
@@ -41,6 +41,7 @@ export type TicketLinks = {
   slack?: string
   argo?: { url: string; label: string }
   workflow?: { url: string; label: string }
+  app?: { url: string; label: string }
   at: number
 }
 
@@ -89,6 +90,7 @@ export type Meeting = {
   join?: string
   response: string
   attendees: number
+  description?: string
 }
 
 export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string }

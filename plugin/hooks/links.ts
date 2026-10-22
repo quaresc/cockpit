@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, TicketLinks } from '../types'
 
-import { mcp } from './ci'
+import { mcp, sandboxUrl } from './ci'
 import { cacheDir, fill, loadConfig } from './config'
 
 type $ = EngineInterface
@@ -140,9 +140,12 @@ export async function argoFor($: $, repo: string | undefined, branch: string | u
   const boxes = inbox?.sandboxes ?? []
   const box = boxes.find(b => b.product === repo && b.branch === branch) ?? boxes.find(b => b.product === repo)
   const stage = mentioned ?? box?.stage
-  const out: { argo?: { url: string; label: string }; workflow?: { url: string; label: string } } = {}
-  const sandboxUrl = stage ? fill(sandboxArgoUrl, { stage }) : undefined
-  if (stage && sandboxUrl) out.argo = { url: sandboxUrl, label: prefix ? stage.replace(prefix, '') : stage }
+  const out: { argo?: { url: string; label: string }; workflow?: { url: string; label: string }; app?: { url: string; label: string } } = {}
+  const argoUrl = stage ? fill(sandboxArgoUrl, { stage }) : undefined
+  if (stage && argoUrl) out.argo = { url: argoUrl, label: prefix ? stage.replace(prefix, '') : stage }
+  // The app itself on the sandbox running this repo, beside its ArgoCD page.
+  const appUrl = box && repo ? await sandboxUrl($, box.stage, repo).catch(() => undefined) : undefined
+  if (appUrl) out.app = { url: appUrl, label: 'app' }
   if (!repo) return out
   const app = (await productionApps($)).find(a => a.repository?.toLowerCase().endsWith(`/${repo.toLowerCase()}`) && a.type !== 'cdn')
   if (!app) return out

@@ -3,7 +3,8 @@ import type { EngineInterface, Register, RenderChildren, SessionMeasureInput } f
 
 import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../types'
 
-import { deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, ticketAction, withLock } from './ci'
+import { activityOf, clashWith, logActivity } from './activity'
+import { announceSandboxes, deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, startDeployWatch, ticketAction, withLock } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { maybeBrief } from './brief'
@@ -113,6 +114,13 @@ const herdrHere = async ($: $) => {
   return pane && { pane: pane.pane_id, space: pane.workspace_id }
 }
 
+// herdrHere for every tool call would be one herdr call each: the answer is kept a minute.
+let hereCache: { at: number; value: Awaited<ReturnType<typeof herdrHere>> } | undefined
+const hereSoon = async ($: $) => {
+  if (!hereCache || Date.now() - hereCache.at > 60_000) hereCache = { at: Date.now(), value: await herdrHere($) }
+  return hereCache.value
+}
+
 const inboxSpace = async ($: $) => {
   if (!(await isInHerdr($))) return undefined
   const { exitCode, stdout } = await herdr($, ['workspace', 'list'])
@@ -130,6 +138,13 @@ const spaceOf = async ($: $) => {
   const spaces = JSON.parse(stdout)?.result?.workspaces as { workspace_id: string; label: string; focused: boolean }[] | undefined
   const space = spaces?.find(w => w.workspace_id === here.space)
   return space && { id: space.workspace_id, label: space.label.replace(/^\[\d+\]\s*/, ''), isFocused: space.focused }
+}
+
+const spaceLabel = async ($: $, id: string) => {
+  const { exitCode, stdout } = await herdr($, ['workspace', 'list'])
+  if (exitCode !== 0) return undefined
+  const spaces = JSON.parse(stdout)?.result?.workspaces as { workspace_id: string; label: string }[] | undefined
+  return spaces?.find(w => w.workspace_id === id)?.label.replace(/^\[\d+\]\s*/, '')
 }
 
 const FINISHED_AFTER_MS = 30_000
@@ -278,6 +293,10 @@ const reportUsage = async ($: $, e: SessionMeasureInput) => {
   const text = label && `${ICON.branch} ${label}${run?.isRunning ? `  ${ICON.circleci} ${run.done}/${run.total}` : ''}`
   const tone = !text ? undefined : run?.isRunning ? 'work_run' : pr && isFailing(pr) ? 'work_fail' : 'work'
   for (const name of ['work', 'work_run', 'work_fail', 'work_ok']) set(name, name === tone ? text : undefined)
+  // Two agents on one branch overwrite each other: both rows say so.
+  const other = current && branch ? await clashWith($, current.repo, branch, here.space) : undefined
+  const otherLabel = other ? (await spaceLabel($, other)) ?? other : undefined
+  set('clash', otherLabel ? `⚠ same branch as ${otherLabel}` : undefined)
   await herdr($, args)
 }
 
@@ -323,7 +342,7 @@ const refreshLinks = async ($: $, prompt = '') => {
   const repo = current?.repo ?? found.pr?.url.match(/github\.com\/[^/]+\/([^/]+)\/pull/)?.[1]
   const prBranch = data?.mine.find(p => p.url === found.pr?.url)?.branch
   Object.assign(found, await argoFor($, repo, branch ?? prBranch, text, data).catch(() => ({})))
-  const isEmpty = !found.id && !found.figma && !found.notion && !found.slack && !found.pr && !found.argo
+  const isEmpty = !found.id && !found.figma && !found.notion && !found.slack && !found.pr && !found.argo && !found.app
   await update($, ticket, () => id ?? null)
   await update($, links, () => (isEmpty ? null : found))
 }
@@ -332,7 +351,7 @@ const refreshLinks = async ($: $, prompt = '') => {
 const ICON = {
   review: '\uf441', ok: '\uf49e', fail: '\uf52f', linear: '\uf41b', gauge: '\u{f029a}', branch: '\uf418',
   circleci: '\ue78c', pr: '\uf407', figma: '\u{f03d8}', notion: '\u{f0b15}', slack: '\uf198', brain: '\u{f09d1}',
-  argo: '\u{f0833}', workflow: '\uf52e', calendar: '\uf455',
+  argo: '\u{f0833}', workflow: '\uf52e', calendar: '\uf455', app: '\uf0ac',
 }
 
 // A rounded pill: the caps take the fill colour as their foreground.
@@ -533,9 +552,11 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
   })
   await $.fs.write(`${await cacheDir($)}/inbox.json`, JSON.stringify(next))
   await update($, inbox, () => next)
+  await announceSandboxes($, next.sandboxes ?? []).catch(() => undefined)
 
   const live: News[] = []
   for (const { text, ticket: id } of cached ? deployChanges(cached, next) : []) {
+    await startDeployWatch($, id, next.deploys?.[id] ?? []).catch(() => undefined)
     // A ticket with a runbook gets it refreshed instead: its notification follows, opening the steps that turned done.
     if (await requestRunbookRefresh($, id, '🚀 live in production')) continue
     live.push({ text, action: await ticketAction($, id, next.tickets.find(t => t.id === id)?.url) })
@@ -643,8 +664,12 @@ export const register: Register = on => {
     $.clock.every(60_000, () => void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined))
     void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined)
     $.clock.every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
-    $.clock.every(60_000, () => void herdrHere($).then(here => heartbeat($, here)).catch(() => undefined))
-    void herdrHere($).then(here => heartbeat($, here)).catch(() => undefined)
+    const beat = async () => {
+      const current = await read($, work)
+      await heartbeat($, await hereSoon($), current ? { repo: current.repo, branch: await branchOf($, current) } : undefined)
+    }
+    $.clock.every(60_000, () => void beat().catch(() => undefined))
+    void beat().catch(() => undefined)
     $.clock.every(3600_000, () => void checkUpdate($).catch(() => undefined))
     void checkUpdate($).catch(() => undefined)
     void refreshCi($).catch(() => undefined)
@@ -703,6 +728,8 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
+    const done = activityOf(String(e.tool), e as unknown as Record<string, unknown>, (await read($, work))?.dir ?? '')
+    if (done && e.agentId === undefined) void hereSoon($).then(here => logActivity($, here?.space, done)).catch(() => undefined)
     // Browser work gets this space's own Chrome window beside the terminal, Chrome opened if needed.
     if (String(e.tool).startsWith('mcp__claude-in-chrome__')) await claimChrome($).catch(() => undefined)
     return next(e)
@@ -711,6 +738,10 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) void refreshLinks($).catch(() => undefined)
     if (e.agentId === undefined && e.reason === 'answer') void notifyFinished($, e.durationMs, e.answer).catch(() => undefined)
+    if (e.agentId === undefined && e.reason === 'answer') {
+      const first = e.answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? ''
+      void hereSoon($).then(here => logActivity($, here?.space, { kind: 'turn', text: first.slice(0, 200) })).catch(() => undefined)
+    }
     return next(e)
   })
 
@@ -743,6 +774,7 @@ export const register: Register = on => {
         {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
+        {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}
         {meeting && chip('lk-meeting', meeting.label, meeting.url, meeting.isSoon ? 'main' : 'quiet')}
         {tight.map(l => (
           <Text key={`lim-${l.name}`} color={l.percent >= 80 ? 'error' : 'warning'}>
@@ -775,7 +807,7 @@ export const register: Register = on => {
     const here = await herdrHere($).catch(() => undefined)
     if (here) {
       const args = ['pane', 'report-metadata', here.pane, '--source', 'cockpit']
-      for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail']) args.push('--clear-token', name)
+      for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail', 'clash']) args.push('--clear-token', name)
       void herdr($, args)
     }
     return next(e)

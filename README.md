@@ -11,6 +11,18 @@ one agent per space, pinned spaces for what surrounds the work, and a footer in 
   plan-limit counts on the inbox space.
 - **Session footer**: the ticket, PR, Figma, Notion, Slack and Argo links of what the conversation works on, the next
   meeting, plan limits when tight, and the context window in use.
+- **After a deploy** (optional): some time after a ticket goes live, a headless Claude compares errors and latency
+  before and after with your observability tools, adds the verdict to the runbook, and notifies: "✅ ENG-412 after
+  deploy · no change" or "⚠️ errors up 3×". Set `deployWatch` in the config.
+- **Sandboxes**: a branch whose image is built gets a `sandbox` button that creates one with your defaults
+  (`platform.sandboxDefaults`); a notification says when it is healthy, and the footer links the app. A sandbox
+  still running a merged branch gets a `stop` button.
+- **Same-branch warning**: two agents on one repo and branch both show a red line in the sidebar before they
+  overwrite each other.
+- **Recap**: coming back to a space after 10 minutes or more, where the agent finished something, opens a popup with
+  what it did: its answers, the files it changed, its last commands, and whether it waits for you.
+- **Meeting prep**: the five-minute meeting notification adds the state of the tickets and PRs the meeting names, or
+  whose project its title names, with their runbook's steps left.
 - **Morning brief**: on weekdays from 08:30, one notification and a Today section at the top of the inbox: the
   day's meetings, reviews waiting on you, failing or mergeable PRs, CI that failed overnight, tickets that moved or
   went live since the last brief. `brief.at` and `brief.weekends` in the config change when it comes.

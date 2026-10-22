@@ -8,7 +8,16 @@ export type Config = {
   github: { enabled: boolean; org: string }
   linear: { enabled: boolean; server: string; teams: string[] }
   circleci: { enabled: boolean; server: string; imageJob: string }
-  platform: { enabled: boolean; server: string; stagePrefix: string; sandboxArgoUrl: string; workflowUrl: string }
+  platform: {
+    enabled: boolean
+    server: string
+    stagePrefix: string
+    sandboxArgoUrl: string
+    workflowUrl: string
+    sandboxDefaults: Record<string, unknown>
+  }
+  deployWatch: { enabled: boolean; afterMinutes: number; tools: string[] }
+  recap: { enabled: boolean; awayMinutes: number }
   calendar: { enabled: boolean; server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
@@ -21,7 +30,9 @@ const DEFAULTS: Config = {
   github: { enabled: true, org: '' },
   linear: { enabled: false, server: 'claude.ai Linear', teams: [] },
   circleci: { enabled: false, server: 'circleci', imageJob: '' },
-  platform: { enabled: false, server: 'platform', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '' },
+  platform: { enabled: false, server: 'platform', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '', sandboxDefaults: {} },
+  deployWatch: { enabled: false, afterMinutes: 30, tools: [] },
+  recap: { enabled: true, awayMinutes: 10 },
   calendar: { enabled: false, server: 'claude.ai Google Calendar' },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
@@ -57,6 +68,8 @@ export async function loadConfig($: $): Promise<Config> {
     platform: { ...DEFAULTS.platform, ...raw.platform },
     calendar: { ...DEFAULTS.calendar, ...raw.calendar },
     brief: { ...DEFAULTS.brief, ...raw.brief },
+    deployWatch: { ...DEFAULTS.deployWatch, ...raw.deployWatch },
+    recap: { ...DEFAULTS.recap, ...raw.recap },
   }
   const dir = await home($)
   const expand = (path: string) => path.replace(/^~(?=\/|$)/, dir).replace(/\/$/, '')

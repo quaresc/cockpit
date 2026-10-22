@@ -8,8 +8,11 @@
     "server": "platform",
     "stagePrefix": "preview-",
     "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}",
-    "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}"
+    "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}",
+    "sandboxDefaults": { "settingA": false }
   },
+  "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
+  "recap": { "enabled": true, "awayMinutes": 10 },
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
