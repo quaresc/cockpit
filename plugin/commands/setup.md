@@ -20,7 +20,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
    - Platform only: `stagePrefix`, `sandboxArgoUrl` (with `{stage}`) and `workflowUrl` (with `{namespace}` and `{name}`).
    - CircleCI only: `imageJob`, the job that pushes the image a sandbox runs, or empty.
 
-6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` set to the plugin root, and `enabled: false` for every feature I did not pick. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. Merge into an existing file instead of replacing it, and show the result.
+6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` left empty (the mod finds the herdr plugin in herdr's registry, which follows its updates), and `enabled: false` for every feature I did not pick. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. Merge into an existing file instead of replacing it, and show the result.
 
 ```json
 {
