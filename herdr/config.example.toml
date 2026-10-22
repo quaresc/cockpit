@@ -1,5 +1,5 @@
-# Cockpit's part of ~/.config/herdr/config.toml. /cockpit:setup merges it, replacing PLUGIN_ROOT
-# with the herdr plugin's folder; keys already set in your config keep your value.
+# Cockpit's part of ~/.config/herdr/config.toml, merged by /cockpit:setup; keys already set in your config keep your value.
+# ~/.config/cockpit/herdr is a link the plugin keeps on its current install folder.
 
 [ui]
 # One agent per space: the tab row only appears in a space holding several tabs.
@@ -46,29 +46,29 @@ claude = [
 [[keys.command]]
 key = "prefix+i"
 type = "shell"
-command = "sh PLUGIN_ROOT/focus-space.sh inbox"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh inbox"
 description = "inbox space"
 
 [[keys.command]]
 key = "prefix+t"
 type = "shell"
-command = "sh PLUGIN_ROOT/focus-space.sh terminal"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh terminal"
 description = "terminal space"
 
 [[keys.command]]
 key = "prefix+d"
 type = "shell"
-command = "sh PLUGIN_ROOT/focus-space.sh to-do"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh to-do"
 description = "to-do space"
 
 [[keys.command]]
 key = "prefix+u"
 type = "shell"
-command = "sh PLUGIN_ROOT/focus-space.sh runbook"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh runbook"
 description = "runbook space"
 
 [[keys.command]]
 key = "prefix+m"
 type = "shell"
-command = "sh PLUGIN_ROOT/focus-space.sh meetings"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh meetings"
 description = "meetings space"
