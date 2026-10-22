@@ -37,6 +37,10 @@ const hhmm = (iso: string) => {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+// At most three PR references, the rest counted.
+const refs = (prs: { repo: string; number: number }[]) =>
+  prs.slice(0, 3).map(pr => `${pr.repo}#${pr.number}`).join(', ') + (prs.length > 3 ? ` +${prs.length - 3}` : '')
+
 function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | null, previous: Brief | null, today: string) {
   const lines: BriefLine[] = []
   const now = Date.now()
@@ -54,26 +58,27 @@ function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | nul
   const fresh = (iso: string) => now - Date.parse(iso) < 60 * 86_400_000
   const direct = inbox.direct.filter(pr => fresh(pr.updatedAt))
   if (direct.length > 0) {
-    const names = direct.slice(0, 2).map(pr => `${pr.repo}#${pr.number}`).join(', ')
-    lines.push({ icon: 'review', text: `${plural(direct.length, 'review')} for you: ${names}${direct.length > 2 ? '…' : ''}`, url: direct[0]?.url, tone: 'warn' })
+    lines.push({ icon: 'review', text: `${plural(direct.length, 'review')} for you: ${refs(direct)}`, url: direct[0]?.url, tone: 'warn' })
   }
 
   const failing = inbox.mine.filter(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR')
   if (failing.length > 0) {
-    lines.push({ icon: 'fail', text: `${plural(failing.length, 'PR')} of yours failing CI: ${failing.map(pr => `${pr.repo}#${pr.number}`).join(', ')}`, url: failing[0] && `${failing[0].url}/checks`, tone: 'bad' })
+    lines.push({ icon: 'fail', text: `${plural(failing.length, 'PR')} of yours failing CI: ${refs(failing)}`, url: failing[0] && `${failing[0].url}/checks`, tone: 'bad' })
   }
   const changes = inbox.mine.filter(pr => pr.review === 'CHANGES_REQUESTED')
   if (changes.length > 0) {
-    lines.push({ icon: 'changes', text: `changes requested on ${changes.map(pr => `${pr.repo}#${pr.number}`).join(', ')}`, url: changes[0]?.url, tone: 'warn' })
+    lines.push({ icon: 'changes', text: `changes requested on ${refs(changes)}`, url: changes[0]?.url, tone: 'warn' })
   }
   const ready = inbox.mine.filter(pr => pr.review === 'APPROVED' && pr.ci === 'SUCCESS')
   if (ready.length > 0) {
-    lines.push({ icon: 'approved', text: `ready to merge: ${ready.map(pr => `${pr.repo}#${pr.number}`).join(', ')}`, url: ready[0]?.url, tone: 'good' })
+    lines.push({ icon: 'approved', text: `${plural(ready.length, 'PR')} ready to merge: ${refs(ready)}`, url: ready[0]?.url, tone: 'good' })
   }
 
-  // CI that ended in failure since the previous brief, or in the last 16 hours.
+  // CI that ended in failure since the previous brief, or in the last 16 hours, on branches not already listed as failing.
   const since = previous?.at ?? now - 16 * 3600_000
-  const overnight = (ci?.runs ?? []).filter(r => !r.isRunning && r.outcome === 'failed' && Date.parse(r.createdAt) > since)
+  const overnight = (ci?.runs ?? [])
+    .filter(r => !r.isRunning && r.outcome === 'failed' && Date.parse(r.createdAt) > since)
+    .filter(r => !failing.some(pr => pr.repo === r.repo && pr.branch === r.branch))
   for (const run of overnight.slice(0, 3)) {
     const pr = inbox.mine.find(p => p.repo === run.repo && p.branch === run.branch)
     lines.push({ icon: 'circleci', text: `CI failed overnight on ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, url: pr && `${pr.url}/checks`, tone: 'bad' })
