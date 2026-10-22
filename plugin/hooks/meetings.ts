@@ -87,23 +87,6 @@ function markBriefable(meetings: Meeting[], skip: string[]) {
   return meetings
 }
 
-// From leadMinutes before a briefable meeting, a headless Claude writes its brief (herdr/meeting-brief.sh); once per meeting.
-async function startBriefs($: $, meetings: Meeting[]) {
-  const { meetingBrief } = await loadConfig($)
-  if (!meetingBrief.enabled) return
-  const script = `${await home($)}/.config/cockpit/herdr/meeting-brief.sh`
-  if (!(await $.fs.stat(script).then(() => true, () => false))) return
-  const dir = `${await cacheDir($)}/meeting-briefs`
-  for (const m of meetings) {
-    const until = Date.parse(m.start) - Date.now()
-    if (!m.briefable || until > meetingBrief.leadMinutes * 60_000 || Date.parse(m.end) < Date.now()) continue
-    const name = m.id.replace(/[^A-Za-z0-9_-]/g, '_')
-    const isKnown = await $.fs.stat(`${dir}/${name}.md`).then(() => true, () => $.fs.stat(`${dir}/${name}.pending`).then(() => true, () => false))
-    if (isKnown) continue
-    await $.process.run(['sh', '-c', 'nohup sh "$0" "$1" >/dev/null 2>&1 &', script, m.id])
-  }
-}
-
 // The first two lines of a meeting's brief, when it has one.
 async function briefLines($: $, m: Meeting) {
   const name = m.id.replace(/[^A-Za-z0-9_-]/g, '_')
@@ -156,7 +139,6 @@ export function refreshMeetings($: $, isForced = false) {
           const until = Date.parse(m.start) - Date.now()
           return until > 0 && until <= NOTIFY_BEFORE_MS && !state.notified.includes(m.id)
         })
-        await startBriefs($, state.meetings).catch(() => undefined)
         for (const m of soon) {
           // With a brief, the notification carries its opening lines and opens it; without, the call itself.
           const brief = await briefLines($, m)

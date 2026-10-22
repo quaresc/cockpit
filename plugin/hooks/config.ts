@@ -18,7 +18,7 @@ export type Config = {
   }
   deployWatch: { enabled: boolean; afterMinutes: number; tools: string[] }
   recap: { enabled: boolean; awayMinutes: number }
-  meetingBrief: { enabled: boolean; leadMinutes: number; skip: string[]; tools: string[] }
+  meetingBrief: { enabled: boolean; skip: string[]; tools: string[] }
   calendar: { enabled: boolean; server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
@@ -34,7 +34,7 @@ const DEFAULTS: Config = {
   platform: { enabled: false, server: 'platform', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '', sandboxDefaults: {} },
   deployWatch: { enabled: false, afterMinutes: 30, tools: [] },
   recap: { enabled: true, awayMinutes: 10 },
-  meetingBrief: { enabled: true, leadMinutes: 30, skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },
+  meetingBrief: { enabled: true, skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },
   calendar: { enabled: false, server: 'claude.ai Google Calendar' },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,

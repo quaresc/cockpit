@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 import cockpit_config
 
 HOME = os.path.expanduser("~")
+CONFIG = cockpit_config.load()
 CACHE = os.path.join(HOME, ".cache", "cockpit", "meetings.json")
 BRIEFS = os.path.join(HOME, ".cache", "cockpit", "meeting-briefs")
 FOCUS = os.path.join(HOME, ".cache", "cockpit", "meetings-focus.json")
@@ -257,7 +258,7 @@ def build(state, cols):
         if brief is not None:
             row.buttons.insert(0, ("brief", lambda m=m: toggle_brief(state, m), False))
             row.buttons.append(("redo", lambda m=m: prepare(state, m), False))
-        elif m.get("briefable") and not is_past:
+        elif m.get("briefable") and not is_past and CONFIG["meetingBrief"]["enabled"]:
             row.buttons.append(("prepare", lambda m=m: prepare(state, m), False))
         row.primary = row.buttons[0][1]
         if is_preparing:
