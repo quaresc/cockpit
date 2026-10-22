@@ -29,12 +29,20 @@ Read the full event with get_event (id $id) for its description and attachments.
 links or names, with the tools you have; my assigned tickets and PRs are in $CACHE/inbox.json, and a ticket's runbook,
 when it has one, in ~/.config/cockpit/runbooks/<ticket lowercased>.md. Use nothing else: no Slack, no web.
 
-Format, plain Markdown, at most 15 lines, factual, no filler:
-- first line: why the meeting exists, in one sentence
+Format, plain Markdown, at most 15 lines in all, headings included. Every line under 90 characters, links aside:
+one point per bullet, ticket keys rather than titles, no filler.
+- first line: why the meeting exists, in one short sentence
 - ## Where it stands: up to 3 bullets
-- ## Open questions: up to 3 bullets
-- ## Bring: up to 3 points or questions for me to raise
-- ## Links: up to 5 '- [title](url)' lines; attachments you could not read go here by name
+- ## Open questions: up to 2 bullets
+- ## Bring: up to 2 points or questions for me to raise
+- ## Links: up to 4 '- [short title](url)' lines; attachments you could not read go here by name
 Leave out a section with nothing to say. Write the file, then reply with nothing."
 cd "$REPOS" && claude -p "$prompt" --model sonnet --permission-mode acceptEdits --add-dir "$DIR" --add-dir "$HOME/.config/cockpit/runbooks" \
   --add-dir "$CACHE" --allowedTools "$@" >"$CACHE/meeting-brief-$name.log" 2>&1
+
+# Whatever came back: 15 non-empty lines at most, and prose lines cut at 90 characters (link lines keep their URL).
+brief="$DIR/$name.md"
+[ -f "$brief" ] && awk 'NF && n < 15 {
+  if ($0 !~ /\]\(http/ && length($0) > 90) $0 = substr($0, 1, 89) "…"
+  print; n++
+}' "$brief" > "$brief.tmp" && mv "$brief.tmp" "$brief"
