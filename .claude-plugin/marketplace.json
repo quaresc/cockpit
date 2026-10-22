@@ -1,0 +1,14 @@
+{
+  "name": "cockpit",
+  "owner": {
+    "name": "quaresc"
+  },
+  "description": "A cockpit for running many Claude Code agents in herdr",
+  "plugins": [
+    {
+      "name": "cockpit",
+      "source": "./plugin",
+      "description": "A cockpit for running many Claude Code agents in herdr: PR and ticket inbox, context and links footer, runbooks, meetings"
+    }
+  ]
+}
