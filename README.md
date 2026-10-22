@@ -34,6 +34,17 @@ The space refreshes it in the background and hands any step back to the session 
 
 ![Runbook space](docs/runbook.svg)
 
+When a refresh lands, the steps it turned done play in, one after the other:
+
+![A runbook refresh landing: three steps turn done](docs/runbook-done.svg)
+
+### Notifications
+
+macOS notifications carry the cockpit icon, and a click leads where the news is: the PR's checks, the agent's space,
+the runbook playing its done steps, the meeting's video call. herdr's own popups stay in-app so none arrives twice.
+
+![Cockpit notifications sliding in, each with where its click leads](docs/notifications.svg)
+
 ### To-do and meetings
 
 A Markdown to-do list (also `/todo <text>` from any session) with clickable tickets and links, and the next meetings

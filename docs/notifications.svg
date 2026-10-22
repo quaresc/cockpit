@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="508" viewBox="0 0 900 508">
+<defs><linearGradient id="desk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B1B24"/><stop offset="1" stop-color="#0F0F12"/></linearGradient></defs>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Helvetica,Arial,sans-serif}@keyframes n0{0%,4.4%{transform:translateX(460px);opacity:0}9.4%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n0{animation:n0 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c0{0%,9.4%{opacity:0}13.4%,88%{opacity:1}96%,100%{opacity:0}}.c0{animation:c0 9.0s linear infinite}@keyframes n1{0%,12.2%{transform:translateX(460px);opacity:0}17.2%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n1{animation:n1 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c1{0%,17.2%{opacity:0}21.2%,88%{opacity:1}96%,100%{opacity:0}}.c1{animation:c1 9.0s linear infinite}@keyframes n2{0%,20.0%{transform:translateX(460px);opacity:0}25.0%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n2{animation:n2 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c2{0%,25.0%{opacity:0}29.0%,88%{opacity:1}96%,100%{opacity:0}}.c2{animation:c2 9.0s linear infinite}@keyframes n3{0%,27.8%{transform:translateX(460px);opacity:0}32.8%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n3{animation:n3 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c3{0%,32.8%{opacity:0}36.8%,88%{opacity:1}96%,100%{opacity:0}}.c3{animation:c3 9.0s linear infinite}@keyframes n4{0%,35.6%{transform:translateX(460px);opacity:0}40.6%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n4{animation:n4 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c4{0%,40.6%{opacity:0}44.6%,88%{opacity:1}96%,100%{opacity:0}}.c4{animation:c4 9.0s linear infinite}@media (prefers-reduced-motion:reduce){g{animation:none!important;opacity:1!important}}</style>
+<rect width="100%" height="100%" rx="12" fill="url(#desk)" stroke="#2C2C30"/>
+<text x="28" y="486" fill="#707070" font-size="12">macOS notifications from cockpit, each click leading somewhere useful</text>
+<g class="c0" opacity="0">
+  <text x="448" y="70.0" text-anchor="end" fill="#FFC799" font-size="14">click → the PR&#x27;s checks</text>
+</g>
+<g class="n0">
+  <rect x="470" y="28" width="400" height="74" rx="18" fill="#2A2A30" fill-opacity="0.96" stroke="#3A3A42"/>
+  <g transform="translate(484 45) scale(0.078125)">
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#101010" stroke="#2C2C30" stroke-width="8"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 362.1 376.1" fill="none" stroke="#2C2C30" stroke-width="34" stroke-linecap="round"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 378.9 183.9" fill="none" stroke="#FFC799" stroke-width="34" stroke-linecap="round"/>
+  <line x1="256" y1="270" x2="346.1" y2="206.9" stroke="#F5F5F5" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="256" cy="270" r="24" fill="#FFC799"/>
+  <circle cx="210" cy="420" r="13" fill="#99FFE4"/><circle cx="256" cy="420" r="13" fill="#FFC799"/><circle cx="302" cy="420" r="13" fill="#505050"/>
+</g>
+  <text x="536" y="52" fill="#9A9AA2" font-size="11" letter-spacing="0.6">COCKPIT</text>
+  <text x="854" y="52" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
+  <text x="536" y="71" fill="#F2F2F2" font-size="14" font-weight="600">🔁 CircleCI</text>
+  <text x="536" y="89" fill="#C8C8CE" font-size="13">🟢 CI passed: web me/eng-413-quota-ui</text>
+</g><g class="c1" opacity="0">
+  <text x="448" y="158.0" text-anchor="end" fill="#FFC799" font-size="14">click → back to that agent&#x27;s space</text>
+</g>
+<g class="n1">
+  <rect x="470" y="116" width="400" height="74" rx="18" fill="#2A2A30" fill-opacity="0.96" stroke="#3A3A42"/>
+  <g transform="translate(484 133) scale(0.078125)">
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#101010" stroke="#2C2C30" stroke-width="8"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 362.1 376.1" fill="none" stroke="#2C2C30" stroke-width="34" stroke-linecap="round"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 378.9 183.9" fill="none" stroke="#FFC799" stroke-width="34" stroke-linecap="round"/>
+  <line x1="256" y1="270" x2="346.1" y2="206.9" stroke="#F5F5F5" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="256" cy="270" r="24" fill="#FFC799"/>
+  <circle cx="210" cy="420" r="13" fill="#99FFE4"/><circle cx="256" cy="420" r="13" fill="#FFC799"/><circle cx="302" cy="420" r="13" fill="#505050"/>
+</g>
+  <text x="536" y="140" fill="#9A9AA2" font-size="11" letter-spacing="0.6">COCKPIT</text>
+  <text x="854" y="140" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
+  <text x="536" y="159" fill="#F2F2F2" font-size="14" font-weight="600">✓ quota-banner</text>
+  <text x="536" y="177" fill="#C8C8CE" font-size="13">Banner done: tests pass, CI running on web#1836</text>
+</g><g class="c2" opacity="0">
+  <text x="448" y="246.0" text-anchor="end" fill="#FFC799" font-size="14">click → the runbook, playing its done steps</text>
+</g>
+<g class="n2">
+  <rect x="470" y="204" width="400" height="74" rx="18" fill="#2A2A30" fill-opacity="0.96" stroke="#3A3A42"/>
+  <g transform="translate(484 221) scale(0.078125)">
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#101010" stroke="#2C2C30" stroke-width="8"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 362.1 376.1" fill="none" stroke="#2C2C30" stroke-width="34" stroke-linecap="round"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 378.9 183.9" fill="none" stroke="#FFC799" stroke-width="34" stroke-linecap="round"/>
+  <line x1="256" y1="270" x2="346.1" y2="206.9" stroke="#F5F5F5" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="256" cy="270" r="24" fill="#FFC799"/>
+  <circle cx="210" cy="420" r="13" fill="#99FFE4"/><circle cx="256" cy="420" r="13" fill="#FFC799"/><circle cx="302" cy="420" r="13" fill="#505050"/>
+</g>
+  <text x="536" y="228" fill="#9A9AA2" font-size="11" letter-spacing="0.6">COCKPIT</text>
+  <text x="854" y="228" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
+  <text x="536" y="247" fill="#F2F2F2" font-size="14" font-weight="600">📋 ENG-410 · Daily quotas</text>
+  <text x="536" y="265" fill="#C8C8CE" font-size="13">3 steps done · 3 to do</text>
+</g><g class="c3" opacity="0">
+  <text x="448" y="334.0" text-anchor="end" fill="#FFC799" font-size="14">click → the video call</text>
+</g>
+<g class="n3">
+  <rect x="470" y="292" width="400" height="74" rx="18" fill="#2A2A30" fill-opacity="0.96" stroke="#3A3A42"/>
+  <g transform="translate(484 309) scale(0.078125)">
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#101010" stroke="#2C2C30" stroke-width="8"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 362.1 376.1" fill="none" stroke="#2C2C30" stroke-width="34" stroke-linecap="round"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 378.9 183.9" fill="none" stroke="#FFC799" stroke-width="34" stroke-linecap="round"/>
+  <line x1="256" y1="270" x2="346.1" y2="206.9" stroke="#F5F5F5" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="256" cy="270" r="24" fill="#FFC799"/>
+  <circle cx="210" cy="420" r="13" fill="#99FFE4"/><circle cx="256" cy="420" r="13" fill="#FFC799"/><circle cx="302" cy="420" r="13" fill="#505050"/>
+</g>
+  <text x="536" y="316" fill="#9A9AA2" font-size="11" letter-spacing="0.6">COCKPIT</text>
+  <text x="854" y="316" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
+  <text x="536" y="335" fill="#F2F2F2" font-size="14" font-weight="600">📅 Meeting</text>
+  <text x="536" y="353" fill="#C8C8CE" font-size="13">Quotas design review in 5 min</text>
+</g><g class="c4" opacity="0">
+  <text x="448" y="422.0" text-anchor="end" fill="#FFC799" font-size="14">click → the agent that needs you</text>
+</g>
+<g class="n4">
+  <rect x="470" y="380" width="400" height="74" rx="18" fill="#2A2A30" fill-opacity="0.96" stroke="#3A3A42"/>
+  <g transform="translate(484 397) scale(0.078125)">
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#101010" stroke="#2C2C30" stroke-width="8"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 362.1 376.1" fill="none" stroke="#2C2C30" stroke-width="34" stroke-linecap="round"/>
+  <path d="M 149.9 376.1 A 150 150 0 1 1 378.9 183.9" fill="none" stroke="#FFC799" stroke-width="34" stroke-linecap="round"/>
+  <line x1="256" y1="270" x2="346.1" y2="206.9" stroke="#F5F5F5" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="256" cy="270" r="24" fill="#FFC799"/>
+  <circle cx="210" cy="420" r="13" fill="#99FFE4"/><circle cx="256" cy="420" r="13" fill="#FFC799"/><circle cx="302" cy="420" r="13" fill="#505050"/>
+</g>
+  <text x="536" y="404" fill="#9A9AA2" font-size="11" letter-spacing="0.6">COCKPIT</text>
+  <text x="854" y="404" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
+  <text x="536" y="423" fill="#F2F2F2" font-size="14" font-weight="600">⏸ invoice-csv</text>
+  <text x="536" y="441" fill="#C8C8CE" font-size="13">Claude is waiting for you</text>
+</g>
+</svg>
