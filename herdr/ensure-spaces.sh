@@ -16,7 +16,7 @@ ensure() {
     fg=$("$H" pane process-info --pane "$pane" | jq -r '.result.process_info.foreground_processes | map(.cmdline) | join(" ")')
     case "$fg" in
       *"$app"*) return 0 ;;
-      *zsh* | *bash* | *fish* | -sh*) "$H" pane run "$pane" "sh '$ROOT/$app-loop.sh'" >/dev/null; return 0 ;;
+      *zsh* | *bash* | *fish* | -sh*) "$H" pane run "$pane" "sh '$LINK/$app-loop.sh'" >/dev/null; return 0 ;;
       "") sleep 1 ;;
       *) return 0 ;;
     esac

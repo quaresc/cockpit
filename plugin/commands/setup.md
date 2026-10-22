@@ -44,7 +44,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 }
 ```
 
-7. **herdr config.** Read `<plugin_root>/config.example.toml`, replace `PLUGIN_ROOT` with the plugin root, and merge it into `~/.config/herdr/config.toml`: keep every key I already set, add the missing ones, and never duplicate a `[[keys.command]]` with the same `key`. Back the file up as `config.toml.bak-<date>`, show me the diff, write it once I agree, then run `herdr server reload-config`.
+7. **herdr config.** Read `<plugin_root>/config.example.toml` and merge it into `~/.config/herdr/config.toml`: keep every key I already set, add the missing ones, and never duplicate a `[[keys.command]]` with the same `key`. Back the file up as `config.toml.bak-<date>`, show me the diff, write it once I agree, then run `herdr server reload-config`.
 
 8. **Spaces.** Run `sh <plugin_root>/ensure-spaces.sh` then `sh <plugin_root>/pin-spaces.sh`, and check with `herdr workspace list` that the pinned spaces exist.
 
