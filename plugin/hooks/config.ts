@@ -10,6 +10,7 @@ export type Config = {
   circleci: { enabled: boolean; server: string; imageJob: string }
   platform: { enabled: boolean; server: string; stagePrefix: string; sandboxArgoUrl: string; workflowUrl: string }
   calendar: { enabled: boolean; server: string }
+  brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
   chromeSideWindow: boolean
   herdrPluginRoot: string
@@ -22,6 +23,7 @@ const DEFAULTS: Config = {
   circleci: { enabled: false, server: 'circleci', imageJob: '' },
   platform: { enabled: false, server: 'platform', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '' },
   calendar: { enabled: false, server: 'claude.ai Google Calendar' },
+  brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
   chromeSideWindow: false,
   herdrPluginRoot: '',
@@ -54,6 +56,7 @@ export async function loadConfig($: $): Promise<Config> {
     circleci: { ...DEFAULTS.circleci, ...raw.circleci },
     platform: { ...DEFAULTS.platform, ...raw.platform },
     calendar: { ...DEFAULTS.calendar, ...raw.calendar },
+    brief: { ...DEFAULTS.brief, ...raw.brief },
   }
   const dir = await home($)
   const expand = (path: string) => path.replace(/^~(?=\/|$)/, dir).replace(/\/$/, '')
