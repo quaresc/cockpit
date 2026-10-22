@@ -91,6 +91,11 @@ export type Meeting = {
   response: string
   attendees: number
   description?: string
+  series?: string
+  people?: string[]
+  attachments?: { title: string; url: string }[]
+  // Whether it gets a meeting brief: not a daily, not declined, someone else invited, not in meetingBrief.skip.
+  briefable?: boolean
 }
 
 export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string }

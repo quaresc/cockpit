@@ -39,6 +39,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   },
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
   "recap": { "enabled": true, "awayMinutes": 10 },
+  "meetingBrief": { "enabled": true, "leadMinutes": 30, "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,

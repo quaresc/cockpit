@@ -21,6 +21,9 @@ import cockpit_config
 
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(HOME, ".cache", "cockpit", "meetings.json")
+BRIEFS = os.path.join(HOME, ".cache", "cockpit", "meeting-briefs")
+FOCUS = os.path.join(HOME, ".cache", "cockpit", "meetings-focus.json")
+BRIEF_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meeting-brief.sh")
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
@@ -29,7 +32,7 @@ HOVER, NOW_BG = "\033[48;2;30;30;34m", "\033[48;2;48;38;30m"
 PILL_MAIN = ("\033[38;2;255;199;153m", "\033[48;2;255;199;153m\033[38;2;16;16;16m")
 PILL = ("\033[38;2;44;44;48m", "\033[48;2;44;44;48m\033[38;2;210;210;210m")
 PILL_FOCUS = ("\033[38;2;245;245;245m", "\033[48;2;245;245;245m\033[38;2;16;16;16m\033[1m")
-ICON = {"calendar": "", "join": "\U000f0567", "open": "", "people": "", "now": "",
+ICON = {"brief": "", "prepare": "", "redo": "", "calendar": "", "join": "\U000f0567", "open": "", "people": "", "now": "",
         "accepted": "", "tentative": "", "needsAction": ""}
 TIME, DURATION, PEOPLE, ACTIONS = 14, 8, 6, 26
 
@@ -96,7 +99,7 @@ def report(state):
 class Line:
     def __init__(self):
         self.parts, self.spans, self.buttons, self.button_spans = [], [], [], []
-        self.primary, self.background = None, ""
+        self.primary, self.background, self.meeting = None, "", None
 
     def add(self, text, style="", action=None):
         start = sum(width(t) for t, _ in self.parts)
@@ -132,6 +135,51 @@ class Line:
         if background:
             out = background + out.replace(RESET, RESET + background) + RESET
         return out
+
+
+def brief_path(m, suffix=".md"):
+    return os.path.join(BRIEFS, re.sub(r"[^A-Za-z0-9_-]", "_", m["id"]) + suffix)
+
+
+def read_brief(m):
+    try:
+        with open(brief_path(m), encoding="utf-8") as handle:
+            return [l.rstrip() for l in handle.read().splitlines()]
+    except OSError:
+        return None
+
+
+def prepare(state, m):
+    """Writes (or rewrites) a meeting's brief in the background; the row says so until it lands."""
+    if os.path.exists(brief_path(m, ".pending")):
+        state["note"], state["note_at"] = "already preparing that brief", time.time()
+        return
+    subprocess.Popen(["sh", BRIEF_SCRIPT, m["id"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    state["open"].add(m["id"])
+    state["note"], state["note_at"] = f"preparing the brief of {m['title']}, about a minute", time.time()
+
+
+def toggle_brief(state, m):
+    state["open"] ^= {m["id"]}
+
+
+def take_focus(state):
+    """A click on a meeting notification: that meeting's brief open and in view."""
+    try:
+        at = os.path.getmtime(FOCUS)
+    except OSError:
+        return False
+    if at <= state["focus_at"]:
+        return False
+    state["focus_at"] = at
+    try:
+        with open(FOCUS, encoding="utf-8") as handle:
+            target = json.load(handle).get("id")
+    except (OSError, ValueError):
+        return False
+    state["open"].add(target)
+    state["scroll_to"], state["has_keyboard"], state["hover"] = target, False, -1
+    return True
 
 
 def open_url(state, url):
@@ -201,9 +249,27 @@ def build(state, cols):
         row.add(fit(f"{ICON['people']} {m['attendees']}" if m["attendees"] > 1 else "", PEOPLE), DIM)
         if is_now:
             row.background = NOW_BG
+        row.meeting = m["id"]
+        brief = read_brief(m)
+        is_preparing = os.path.exists(brief_path(m, ".pending"))
         row.buttons = ([("join", lambda m=m: open_url(state, m["join"]), True)] if m.get("join") else []) + [
             ("open", lambda m=m: open_url(state, m["url"]), not m.get("join"))]
+        if brief is not None:
+            row.buttons.insert(0, ("brief", lambda m=m: toggle_brief(state, m), False))
+            row.buttons.append(("redo", lambda m=m: prepare(state, m), False))
+        elif m.get("briefable") and not is_past:
+            row.buttons.append(("prepare", lambda m=m: prepare(state, m), False))
         row.primary = row.buttons[0][1]
+        if is_preparing:
+            line().add(" " * 6).add("preparing the brief…", DIM + ORANGE)
+        if brief is not None and m["id"] in state["open"]:
+            for text in brief:
+                if not text.strip():
+                    continue
+                is_heading = text.startswith("#")
+                shown = text.lstrip("# ").strip() if is_heading else text
+                line().add(" " * 6).add(shown, BOLD if is_heading else "")
+            line()
 
     line()
     if state["note"] and time.time() - state["note_at"] < 6:
@@ -228,6 +294,9 @@ def draw(state):
     cols, rows = size()
     lines = build(state, cols)
     state["lines"] = lines
+    target = state.pop("scroll_to", None)
+    if target:
+        state["top"] = next((max(0, i - 2) for i, l in enumerate(lines) if l.meeting == target), state["top"])
     selectable = [i for i, l in enumerate(lines) if l.primary]
     state["selectable"] = selectable
     if selectable:
@@ -307,7 +376,7 @@ def handle(state, data):
 
 def main():
     state = {"data": load(), "sel": 0, "top": 0, "hover": -1, "btn": -1, "has_keyboard": False,
-             "note": "", "note_at": 0, "lines": [], "selectable": []}
+             "note": "", "note_at": 0, "lines": [], "selectable": [], "open": set(), "focus_at": time.time()}
     report(state["data"])
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
@@ -317,7 +386,12 @@ def main():
         seen, last_size, last_minute = None, None, None
         while True:
             mtime = os.path.getmtime(CACHE) if os.path.exists(CACHE) else 0
+            # A brief landing or starting redraws too.
+            briefs = os.path.getmtime(BRIEFS) if os.path.exists(BRIEFS) else 0
+            mtime = (mtime, briefs)
             minute = int(time.time() // 60)
+            if take_focus(state):
+                draw(state)
             if (mtime, size(), minute) != (seen, last_size, last_minute):
                 seen, last_size, last_minute = mtime, size(), minute
                 state["data"] = load()
