@@ -13,7 +13,7 @@
   },
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
   "recap": { "enabled": true, "awayMinutes": 10 },
-  "meetingBrief": { "enabled": true, "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
+  "meetingBrief": { "enabled": true, "model": "sonnet", "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,

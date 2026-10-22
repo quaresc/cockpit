@@ -110,7 +110,7 @@ live in `~/.config/cockpit`.
 | `brief` | When the morning brief comes, and whether on weekends. |
 | `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
 | `recap` | How long you need to be away before the recap shows. |
-| `meetingBrief` | Titles that get no brief, and the read-only tools a brief may use (e.g. Notion). |
+| `meetingBrief` | The model, titles that get no brief, and the read-only tools a brief may use (e.g. Notion). |
 | `chromeSideWindow` | One Chrome window per agent (macOS, iTerm2, Chrome). |
 | `spaces` | Which pinned spaces exist, in sidebar order. |
 | `runbookTools` | Extra tools the runbook refresh may use. |
