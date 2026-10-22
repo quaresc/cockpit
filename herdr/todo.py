@@ -84,7 +84,7 @@ def write_items(items):
 def report(items):
     """The count on the to-do space's sidebar row."""
     open_count = sum(1 for i in items if not i["done"])
-    workspace = os.environ.get("HERDR_WORKSPACE_ID")
+    workspace = os.environ.get("HERDR_WORKSPACE_ID") if os.environ.get("COCKPIT_SPACE") else None
     if not workspace:
         return
     value = f"{ICON['open']}  {open_count} open" if open_count else f"{ICON['done']}  all done"

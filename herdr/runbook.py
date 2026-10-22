@@ -118,7 +118,7 @@ def stamp():
 
 def report(books):
     """The count on the runbook space's sidebar row."""
-    workspace = os.environ.get("HERDR_WORKSPACE_ID")
+    workspace = os.environ.get("HERDR_WORKSPACE_ID") if os.environ.get("COCKPIT_SPACE") else None
     if not workspace:
         return
     left = sum(1 for b in books for s in b["steps"] if s["status"].startswith(OPEN))

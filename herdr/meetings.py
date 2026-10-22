@@ -70,7 +70,7 @@ def until_text(start, now):
 
 def report(state):
     """The next meeting on the meetings space's sidebar row."""
-    workspace = os.environ.get("HERDR_WORKSPACE_ID")
+    workspace = os.environ.get("HERDR_WORKSPACE_ID") if os.environ.get("COCKPIT_SPACE") else None
     if not workspace:
         return
     now = datetime.now().astimezone()
