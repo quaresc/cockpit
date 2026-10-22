@@ -9,6 +9,7 @@ hovered or selected, like the inbox.
 import os
 import re
 import select
+import signal
 import subprocess
 import sys
 import termios
@@ -402,6 +403,9 @@ def main():
              "hover": -1, "btn": -1, "input": None, "editing": None, "show_done": False, "has_keyboard": False, "note": "",
              "note_at": 0, "lines": [], "selectable": [], "confirm": None, "confirm_at": 0}
     report(state["items"])
+    # Stopped by a signal (an update restarting the app), it still restores the terminal on the way out.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     sys.stdout.write("\033[?1049h\033[?25l\033[?1003h\033[?1006h\033]2;to-do\007")

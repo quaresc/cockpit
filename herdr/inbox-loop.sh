@@ -3,6 +3,8 @@
 while :; do
   # Entered on every run, so an update of the plugin reaches the next one.
   cd "$(dirname "$0")" || exit 1
+  # Mouse reporting off first, in case the previous run died without switching it off.
+  printf '\033[?1003l\033[?1006l\033[?1000l'
   # The extra argument marks the app as cockpit's, for update.sh to restart it.
   python3 inbox.py cockpit-space
   sleep 1

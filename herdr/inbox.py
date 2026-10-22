@@ -10,6 +10,7 @@ import json
 import os
 import re
 import select
+import signal
 import shlex
 import subprocess
 import sys
@@ -906,6 +907,9 @@ def stamp():
 def main():
     state = {"open": set(), "sel": 0, "top": 0, "hover": -1, "note": "", "note_at": 0, "work_mode": "feature", "btn": -1, "choice": None, "pending": {}, "outcome": {},
              "lines": [], "selectable": [], "has_keyboard": False}
+    # Stopped by a signal (an update restarting the app), it still restores the terminal on the way out.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     # 1003 reports every mouse move, which is what shows the hovered row's buttons.
