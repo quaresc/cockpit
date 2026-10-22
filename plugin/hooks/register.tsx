@@ -3,7 +3,7 @@ import type { EngineInterface, Register, RenderChildren, SessionMeasureInput } f
 
 import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../types'
 
-import { deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, withLock } from './ci'
+import { deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, ticketAction, withLock } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { nextMeeting, readMeetings, refreshMeetings } from './meetings'
@@ -117,6 +117,28 @@ const inboxSpace = async ($: $) => {
   if (exitCode !== 0) return undefined
   const spaces = JSON.parse(stdout)?.result?.workspaces as { workspace_id: string; label: string }[] | undefined
   return spaces?.find(w => w.label.includes('inbox'))?.workspace_id
+}
+
+// This session's space: its id, its label without the "[N] " prefix, and whether it is the one in view.
+const spaceOf = async ($: $) => {
+  const here = await herdrHere($)
+  if (!here) return undefined
+  const { exitCode, stdout } = await herdr($, ['workspace', 'list'])
+  if (exitCode !== 0) return undefined
+  const spaces = JSON.parse(stdout)?.result?.workspaces as { workspace_id: string; label: string; focused: boolean }[] | undefined
+  const space = spaces?.find(w => w.workspace_id === here.space)
+  return space && { id: space.workspace_id, label: space.label.replace(/^\[\d+\]\s*/, ''), isFocused: space.focused }
+}
+
+const FINISHED_AFTER_MS = 30_000
+
+// A long turn that ended while its space was out of view: a notification whose click leads back to it.
+const notifyFinished = async ($: $, durationMs: number, answer: string) => {
+  if (durationMs < FINISHED_AFTER_MS) return
+  const space = await spaceOf($)
+  if (!space || space.isFocused) return
+  const line = answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? 'Done.'
+  await notify($, `✓ ${space.label}`, line.length > 140 ? `${line.slice(0, 139)}…` : line, `workspace:${space.id}`)
 }
 
 const exists = async ($: $, path: string) => {
@@ -420,22 +442,24 @@ const fetchLinear = async ($: $): Promise<Ticket[] | null> => {
   return issues.filter(t => rank(t) >= 0).sort((a, b) => rank(a) - rank(b))
 }
 
-// What changed since the previous fetch, worth a notification.
+type News = { text: string; action: string }
+
+// What changed since the previous fetch, worth a notification, each with where its click leads.
 const changes = (prev: Inbox, next: Inbox) => {
-  const out: string[] = []
+  const out: News[] = []
   const before = new Map(prev.mine.map(pr => [pr.url, pr]))
   const known = new Set(prev.direct.map(pr => pr.url))
-  for (const pr of next.direct) if (!known.has(pr.url)) out.push(`👀 Review requested: ${pr.repo}#${pr.number} ${pr.title}`)
+  for (const pr of next.direct) if (!known.has(pr.url)) out.push({ text: `👀 Review requested: ${pr.repo}#${pr.number} ${pr.title}`, action: pr.url })
   for (const pr of next.mine) {
     const was = before.get(pr.url)
     if (!was) continue
-    if (isFailing(pr) && !isFailing(was)) out.push(`🔴 CI failing: ${pr.repo}#${pr.number}`)
-    if (pr.review !== was.review && pr.review === 'APPROVED') out.push(`✅ Approved: ${pr.repo}#${pr.number}`)
-    if (pr.review !== was.review && pr.review === 'CHANGES_REQUESTED') out.push(`❌ Changes requested: ${pr.repo}#${pr.number}`)
+    if (isFailing(pr) && !isFailing(was)) out.push({ text: `🔴 CI failing: ${pr.repo}#${pr.number}`, action: `${pr.url}/checks` })
+    if (pr.review !== was.review && pr.review === 'APPROVED') out.push({ text: `✅ Approved: ${pr.repo}#${pr.number}`, action: pr.url })
+    if (pr.review !== was.review && pr.review === 'CHANGES_REQUESTED') out.push({ text: `❌ Changes requested: ${pr.repo}#${pr.number}`, action: `${pr.url}/files` })
   }
   if (prev.tickets.length > 0) {
     const ids = new Set(prev.tickets.map(t => t.id))
-    for (const t of next.tickets) if (!ids.has(t.id)) out.push(`🎫 Assigned: ${t.id} ${t.title}`)
+    for (const t of next.tickets) if (!ids.has(t.id)) out.push({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url })
   }
   return out
 }
@@ -508,9 +532,13 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
   await $.fs.write(`${await cacheDir($)}/inbox.json`, JSON.stringify(next))
   await update($, inbox, () => next)
 
-  const news = cached && gh ? [...changes({ ...cached, tickets: tickets ? cached.tickets : [] }, next), ...deployChanges(cached, next)] : []
-  if (news.length > 3) await notify($, `📥 ${news.length} updates`, news.slice(0, 3).join('\n') + '\n…')
-  else for (const line of news) await notify($, '📥 Inbox', line)
+  const live: News[] = []
+  for (const { text, ticket: id } of cached ? deployChanges(cached, next) : []) {
+    live.push({ text, action: await ticketAction($, id, next.tickets.find(t => t.id === id)?.url) })
+  }
+  const news = cached && gh ? [...changes({ ...cached, tickets: tickets ? cached.tickets : [] }, next), ...live] : []
+  if (news.length > 3) await notify($, `📥 ${news.length} updates`, news.slice(0, 3).map(n => n.text).join('\n') + '\n…', 'space:inbox')
+  else for (const n of news) await notify($, '📥 Inbox', n.text, n.action)
 }
 
 // ---------------------------------------------------------------------------
@@ -657,6 +685,7 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) void refreshLinks($).catch(() => undefined)
+    if (e.agentId === undefined && e.reason === 'answer') void notifyFinished($, e.durationMs, e.answer).catch(() => undefined)
     return next(e)
   })
 

@@ -92,7 +92,7 @@ export function refreshMeetings($: $, isForced = false) {
           const until = Date.parse(m.start) - Date.now()
           return until > 0 && until <= NOTIFY_BEFORE_MS && !state.notified.includes(m.id)
         })
-        for (const m of soon) await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min`)
+        for (const m of soon) await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min`, m.join ?? m.url)
         const live = new Set(state.meetings.map(m => m.id))
         state.notified = [...state.notified.filter(id => live.has(id)), ...soon.map(m => m.id)]
         await $.fs.write(`${await cacheDir($)}/meetings.json`, JSON.stringify(state))
