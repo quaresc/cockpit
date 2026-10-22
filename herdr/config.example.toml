@@ -45,6 +45,7 @@ claude = [
     { token = "$work_run", fg = "#FFC799", dim = true },
     { token = "$work_fail", fg = "#FF8080" },
   ],
+  [{ token = "$clash", fg = "#FF8080", bold = true }],
 ]
 
 # Jump to the pinned spaces.

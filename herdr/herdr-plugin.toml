@@ -1,6 +1,6 @@
 id = "cockpit"
 name = "Cockpit"
-version = "0.4.0"
+version = "0.5.0"
 min_herdr_version = "0.7.5"
 description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, a Chrome window per agent"
 platforms = ["macos", "linux"]
@@ -47,6 +47,10 @@ on = "tab.focused"
 command = ["sh", "chrome-side.sh", "sync"]
 
 [[events]]
+on = "tab.focused"
+command = ["sh", "recap-check.sh"]
+
+[[events]]
 on = "pane.agent_status_changed"
 command = ["sh", "agent-status.sh"]
 
@@ -61,3 +65,11 @@ placement = "popup"
 width = "85%"
 height = "85%"
 command = ["sh", "peek.sh"]
+
+[[panes]]
+id = "recap"
+title = "Recap"
+placement = "popup"
+width = "70%"
+height = "60%"
+command = ["sh", "recap.sh"]

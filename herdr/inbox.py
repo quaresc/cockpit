@@ -57,7 +57,7 @@ ICON = {
     "circleci": "", "docker": "", "sandbox": "", "rocket": "", "fix": "",
     "rerun": "", "redeploy": "", "open": "", "mute": "", "plan": "",
     "continue": "", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "argo": "󰠳", "deploy": "",
-    "today": "", "calendar": "", "dismiss": "",
+    "stop": "", "today": "", "calendar": "", "dismiss": "",
     "ok": "", "fail": "", "running": "", "approved": "", "changes": "",
     "waiting": "", "fold": "", "unfold": "", "user": "", "team": "",
     "work": "", "backlog": "", "progress": "",
@@ -295,6 +295,18 @@ def redeploy(state, box, row):
                         "label": f"redeploy {box['product']} on {box['stage']}"}, row, "redeploying…")
 
 
+def create_sandbox(state, pr):
+    key = f"sandbox-{pr['repo']}-{pr.get('branch')}"
+    if confirmed(state, key):
+        request(state, {"type": "create-sandbox", "product": pr["repo"], "branch": pr.get("branch"),
+                        "label": f"sandbox for {pr['repo']} {pr.get('branch')}"}, pr["url"], "creating…")
+
+
+def stop_sandbox(state, stage):
+    if confirmed(state, f"stop-{stage}"):
+        request(state, {"type": "stop-sandbox", "stage": stage, "label": f"stop {stage}"}, f"sandbox-{stage}", "stopping…")
+
+
 def extend(state, stage, days=2):
     if confirmed(state, f"extend-{stage}"):
         request(state, {"type": "extend", "stage": stage, "days": days, "label": f"extend {stage}"}, f"sandbox-{stage}", "extending…")
@@ -475,11 +487,19 @@ def build(state, cols):
         if not ci_run["isRunning"] and ci_run["outcome"] == "failed" and age_days(ci_run["createdAt"]) * 24 <= RED_ALERT_HOURS:
             job = f" · {ci_run['failed']['job']}" if ci_run.get("failed") else ""
             alerts.append((f"ci failed on {ci_run['repo']} {ci_run['branch']}{job}", RED, None, None))
+    # A running sandbox whose branch has merged: it can stop, keeping its setup.
+    merged = {(m["repo"], m["branch"]) for m in data.get("merged") or []}
+    for box in data.get("sandboxes") or []:
+        if box.get("activated") and (box["product"], box["branch"]) in merged:
+            alerts.append((f"sandbox {box['stage']} runs merged {box['product']} {box['branch']}", ORANGE, sandbox_url(box["stage"]), ("stop", box["stage"])))
     if alerts:
         line()
         for text, style, url, stage in alerts:
             item = line().add(f" {ICON['alert']}  ", style).add(text, style)
-            if stage:
+            if isinstance(stage, tuple):
+                item.buttons.append((asking(state, f"stop-{stage[1]}", "stop"), lambda s=stage[1]: stop_sandbox(state, s), "a", True))
+                row_status(item, f"sandbox-{stage[1]}")
+            elif stage:
                 item.buttons.append((asking(state, f"extend-{stage}", "extend 2 days"), lambda stage=stage: extend(state, stage), "a", True))
                 row_status(item, f"sandbox-{stage}")
             if url:
@@ -571,6 +591,10 @@ def build(state, cols):
             if box and image_ready:
                 item.buttons.append((asking(state, f"redeploy-{box['stage']}-{box['product']}", "redeploy"), lambda: redeploy(state, box, pr["url"]),
                                      "d", not item.buttons))
+            # A green image with no sandbox running it yet: one click creates one with the configured defaults.
+            if not box and image_ready and CONFIG["backstage"]["enabled"]:
+                item.buttons.append((asking(state, f"sandbox-{pr['repo']}-{pr.get('branch')}", "sandbox"), lambda: create_sandbox(state, pr),
+                                     "s", not item.buttons))
             # ArgoCD: the sandbox running this branch, else the production app; then its latest prod deploy.
             links = (data.get("deployLinks") or {}).get(pr["repo"]) or {}
             argo = (sandbox_url(box["stage"]) if box else None) or links.get("argo")

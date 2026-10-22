@@ -1,9 +1,9 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { Meeting, MeetingsState } from '../types'
+import type { Inbox, Meeting, MeetingsState } from '../types'
 
 import { notify, withLock } from './ci'
-import { cacheDir, loadConfig } from './config'
+import { cacheDir, home, loadConfig } from './config'
 
 type $ = EngineInterface
 
@@ -23,6 +23,7 @@ type GEvent = {
   start?: { dateTime?: string; date?: string }
   end?: { dateTime?: string; date?: string }
   attendees?: { self?: boolean; responseStatus?: string; resource?: boolean }[]
+  description?: string
 }
 
 export async function readMeetings($: $): Promise<MeetingsState | null> {
@@ -63,9 +64,31 @@ async function fetchMeetings($: $): Promise<Meeting[]> {
         join: e.conferenceUrl ?? e.hangoutLink ?? (e.location?.startsWith('http') ? e.location : undefined),
         response: me?.responseStatus ?? 'accepted',
         attendees: (e.attendees ?? []).filter(a => !a.resource).length,
+        description: e.description?.slice(0, 2000),
       }
     })
     .filter(m => m.response !== 'declined')
+}
+
+const OPEN_STEP = /^\|\s*\d+\s*\|[^|]*\|[^|]*\|\s*(⬜|⏳|🟡|❌)/
+
+// What the meeting is about, from the tickets and PRs it names or whose project its title names: their state and runbook.
+async function prepFor($: $, meeting: Meeting) {
+  const inbox = JSON.parse(await $.fs.read(`${await cacheDir($)}/inbox.json`)) as Inbox
+  const text = `${meeting.title}\n${meeting.description ?? ''}`
+  const lower = text.toLowerCase()
+  const tickets = inbox.tickets.filter(t =>
+    lower.includes(t.id.toLowerCase()) || (t.project && t.project.length >= 4 && lower.includes(t.project.toLowerCase())),
+  )
+  const prs = inbox.mine.filter(pr => text.includes(pr.url) || text.includes(`${pr.repo}#${pr.number}`))
+  const parts: string[] = []
+  for (const t of tickets.filter(t => !t.parentId).slice(0, 2)) {
+    const book = await $.fs.read(`${await home($)}/.config/cockpit/runbooks/${t.id.toLowerCase()}.md`).catch(() => '')
+    const open = book.split('\n').filter(l => OPEN_STEP.test(l)).length
+    parts.push(book ? `${t.id}: ${t.status}, runbook ${open} to do` : `${t.id}: ${t.status}`)
+  }
+  for (const pr of prs.slice(0, 2)) parts.push(`${pr.repo}#${pr.number}: ${pr.review === 'APPROVED' ? 'approved' : 'in review'}, CI ${(pr.ci ?? 'none').toLowerCase()}`)
+  return parts.length > 0 ? `\n${parts.join('\n')}` : ''
 }
 
 let inflight: Promise<void> | undefined
@@ -92,7 +115,10 @@ export function refreshMeetings($: $, isForced = false) {
           const until = Date.parse(m.start) - Date.now()
           return until > 0 && until <= NOTIFY_BEFORE_MS && !state.notified.includes(m.id)
         })
-        for (const m of soon) await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min`, m.join ?? m.url)
+        for (const m of soon) {
+          const prep = await prepFor($, m).catch(() => '')
+          await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min${prep}`, m.join ?? m.url)
+        }
         const live = new Set(state.meetings.map(m => m.id))
         state.notified = [...state.notified.filter(id => live.has(id)), ...soon.map(m => m.id)]
         await $.fs.write(`${await cacheDir($)}/meetings.json`, JSON.stringify(state))

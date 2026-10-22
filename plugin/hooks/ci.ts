@@ -241,6 +241,18 @@ export async function deploysFor($: $, tickets: Inbox['tickets'], merged: Merged
   return out
 }
 
+// Some time after a ticket goes live, a headless Claude compares errors and latency before and after, adds the verdict
+// to the runbook and notifies once (herdr/watch-deploy.sh); one watch per ticket.
+export async function startDeployWatch($: $, ticket: string, prs: DeployedPr[]) {
+  if (!(await loadConfig($)).deployWatch.enabled || prs.length === 0) return
+  const script = `${await home($)}/.config/cockpit/herdr/watch-deploy.sh`
+  if (!(await $.fs.stat(script).then(() => true, () => false))) return
+  const repos = [...new Set(prs.map(p => p.repo))].join(',')
+  const tag = prs.map(p => p.tag).find(t => t) ?? ''
+  const log = `${await cacheDir($)}/watch-${ticket.toLowerCase()}.log`
+  await $.process.run(['sh', '-c', 'nohup sh "$0" "$1" "$2" "$3" >"$4" 2>&1 &', script, ticket, repos, tag, log])
+}
+
 export function deployChanges(prev: Inbox, next: Inbox) {
   const out: { text: string; ticket: string }[] = []
   for (const [ticket, prs] of Object.entries(next.deploys ?? {})) {
@@ -258,6 +270,7 @@ export function deployChanges(prev: Inbox, next: Inbox) {
 type SandboxNode = {
   id: string
   expiresAt: string
+  activated?: boolean
   status: { health: string }
   products?: { name: string; enabled: boolean; revision?: string }[]
 }
@@ -278,7 +291,7 @@ export async function sandboxesFor($: $): Promise<Sandbox[]> {
   return (sandboxes ?? []).flatMap(box =>
     (box.products ?? [])
       .filter(p => p.enabled && p.revision && !['main', 'master'].includes(p.revision))
-      .map(p => ({ stage: box.id, product: p.name, branch: p.revision ?? '', health: box.status.health, expiresAt: box.expiresAt })),
+      .map(p => ({ stage: box.id, product: p.name, branch: p.revision ?? '', health: box.status.health, expiresAt: box.expiresAt, activated: box.activated })),
   )
 }
 
@@ -290,6 +303,8 @@ type Request =
   | { type: 'redeploy'; stage: string; product: string; label: string }
   | { type: 'release'; ticket: string; label: string }
   | { type: 'extend'; stage: string; days: number; label: string }
+  | { type: 'create-sandbox'; product: string; branch: string; label: string }
+  | { type: 'stop-sandbox'; stage: string; label: string }
 
 type SandboxFlags = {
   id: string
@@ -333,6 +348,52 @@ async function dropTicket($: $, id: string) {
   await $.fs.write(path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
 }
 
+type SandboxStatus = { sandbox: { activated: boolean; products: { name: string; urls: { label?: string; url: string }[] }[] } }
+
+// A product's first URL on a sandbox, cached ten minutes per sandbox.
+const statusCache = new Map<string, { at: number; status: SandboxStatus }>()
+export async function sandboxUrl($: $, stage: string, product: string) {
+  const hit = statusCache.get(stage)
+  const status = hit && Date.now() - hit.at < 10 * 60_000 ? hit.status : await mcp<SandboxStatus>($, 'backstage', 'sandbox-manager_get-sandbox-status', { stage })
+  statusCache.set(stage, { at: Date.now(), status })
+  return status.sandbox.products.find(p => p.name === product)?.urls[0]?.url
+}
+
+// Sandboxes created from the inbox, announced once ArgoCD reports them healthy.
+type Pending = { stage: string; product: string; branch: string; at: number }
+
+export async function announceSandboxes($: $, sandboxes: Sandbox[]) {
+  const path = `${await cacheDir($)}/pending-sandboxes.json`
+  const pending = await readJson<Pending[]>($, path)
+  if (!pending?.length) return
+  const left: Pending[] = []
+  for (const p of pending) {
+    const box = sandboxes.find(s => s.stage === p.stage)
+    if (box?.health === 'Healthy') {
+      const url = await sandboxUrl($, p.stage, p.product).catch(() => undefined)
+      await notify($, '🧪 Sandbox ready', `${p.product} ${p.branch} on ${p.stage}`, url ?? (await sandboxAction($, p.stage)))
+    } else if (Date.now() - p.at < 3 * 3600_000) {
+      left.push(p)
+    }
+  }
+  await $.fs.write(path, JSON.stringify(left))
+}
+
+async function createSandbox($: $, product: string, branch: string) {
+  const defaults = (await loadConfig($)).backstage.sandboxDefaults
+  const created = await mcp<{ sandbox?: { id: string }; id?: string; stage?: string }>($, 'backstage', 'sandbox-manager_create-sandbox', {
+    ...defaults,
+    products: [{ name: product, branch }],
+  })
+  const stage = created.sandbox?.id ?? created.id ?? created.stage ?? ''
+  if (stage) {
+    const path = `${await cacheDir($)}/pending-sandboxes.json`
+    const pending = (await readJson<Pending[]>($, path)) ?? []
+    await $.fs.write(path, JSON.stringify([...pending, { stage, product, branch, at: Date.now() }]))
+  }
+  return stage
+}
+
 async function sandboxAction($: $, stage: string) {
   return fill((await loadConfig($)).backstage.sandboxArgoUrl, { stage }) ?? 'space:inbox'
 }
@@ -360,6 +421,14 @@ export async function processRequests($: $, onDone: () => void) {
         await mcp($, 'backstage', 'sandbox-manager_redeploy-sandbox', { stage: request.stage, applications: [request.product] })
         await result(true, 'redeploying')
         await notify($, '🧪 Sandbox', `Redeploying ${request.product} on ${request.stage}`, await sandboxAction($, request.stage))
+      } else if (request.type === 'create-sandbox') {
+        const stage = await createSandbox($, request.product, request.branch)
+        await result(true, stage ? `creating ${stage}` : 'creating')
+        await notify($, '🧪 Sandbox', `Creating ${stage || 'a sandbox'} for ${request.product} ${request.branch}; a notification follows when it is up`, stage ? await sandboxAction($, stage) : 'space:inbox')
+      } else if (request.type === 'stop-sandbox') {
+        await mcp($, 'backstage', 'sandbox-manager_activate-sandbox', { stage: request.stage, activated: false })
+        await result(true, 'stopped')
+        await notify($, '🧪 Sandbox', `${request.stage} stopped; it keeps its setup and extend switches it back on`, 'space:inbox')
       } else if (request.type === 'extend') {
         await extend($, request.stage, request.days)
         await result(true, `extended by ${request.days} days`)

@@ -14,10 +14,10 @@ export async function ownVersion($: $) {
 }
 
 // One file per running session, so /cockpit:doctor can tell which sessions run which version, and which run none.
-export async function heartbeat($: $, here: { pane: string; space: string } | undefined) {
+export async function heartbeat($: $, here: { pane: string; space: string } | undefined, work?: { repo: string; branch?: string }) {
   const dir = `${await cacheDir($)}/sessions`
   await $.process.run(['mkdir', '-p', dir])
-  const beat = { version: await ownVersion($), at: Date.now(), pane: here?.pane ?? null, space: here?.space ?? null }
+  const beat = { version: await ownVersion($), at: Date.now(), pane: here?.pane ?? null, space: here?.space ?? null, repo: work?.repo, branch: work?.branch }
   await $.fs.write(`${dir}/${await $.session.id()}.json`, JSON.stringify(beat))
 }
 

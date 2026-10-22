@@ -19,6 +19,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
    - each enabled connector's `server`: the exact name from step 3.
    - Backstage only: `stagePrefix`, `sandboxArgoUrl` (with `{stage}`) and `workflowUrl` (with `{namespace}` and `{name}`).
    - CircleCI only: `imageJob`, the job that pushes the image a sandbox runs, or empty.
+   - `deployWatch`: on only when an observability connector (Datadog or similar) is connected; `tools` lists its `mcp__<server>` prefix.
 
 6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` left empty (the mod finds the herdr plugin in herdr's registry, which follows its updates), and `enabled: false` for every feature I did not pick. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. Merge into an existing file instead of replacing it, and show the result.
 
@@ -33,8 +34,11 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
     "server": "backstage",
     "stagePrefix": "preview-",
     "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}",
-    "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}"
+    "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}",
+    "sandboxDefaults": { "monitoringEnabled": false }
   },
+  "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
+  "recap": { "enabled": true, "awayMinutes": 10 },
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
