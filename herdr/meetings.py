@@ -9,6 +9,7 @@ import json
 import os
 import re
 import select
+import signal
 import subprocess
 import sys
 import termios
@@ -382,6 +383,9 @@ def main():
     state = {"data": load(), "sel": 0, "top": 0, "hover": -1, "btn": -1, "has_keyboard": False,
              "note": "", "note_at": 0, "lines": [], "selectable": [], "open": set(), "focus_at": time.time()}
     report(state["data"])
+    # Stopped by a signal (an update restarting the app), it still restores the terminal on the way out.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     sys.stdout.write("\033[?1049h\033[?25l\033[?1003h\033[?1006h\033]2;meetings\007")
