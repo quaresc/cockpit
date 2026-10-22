@@ -15,6 +15,8 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Runbook.** `/runbook` writes down what's left to ship a ticket and keeps it up to date.
 - **To-do and meetings.** A Markdown to-do list (`/todo <text>` from any session) and your calendar.
 - **Notifications** (macOS) that open the right thing: the PR's checks, the agent's space, the meeting, the runbook.
+- **Meeting briefs.** Half an hour before a meeting, Claude reads the invite, its linked docs and tickets, and writes
+  why it exists, where things stand and what to bring. Dailies are skipped.
 - **Morning brief.** At 8:30 on weekdays: meetings, reviews waiting, PRs failing or ready, overnight CI failures,
   tickets that moved.
 - **Recap.** Come back to a space after a while and a popup tells you what the agent did.
@@ -108,6 +110,7 @@ live in `~/.config/cockpit`.
 | `brief` | When the morning brief comes, and whether on weekends. |
 | `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
 | `recap` | How long you need to be away before the recap shows. |
+| `meetingBrief` | How early briefs are written, titles to skip, and the read-only tools allowed (e.g. Notion). |
 | `chromeSideWindow` | One Chrome window per agent (macOS, iTerm2, Chrome). |
 | `spaces` | Which pinned spaces exist, in sidebar order. |
 | `runbookTools` | Extra tools the runbook refresh may use. |

@@ -22,8 +22,10 @@ type GEvent = {
   location?: string
   start?: { dateTime?: string; date?: string }
   end?: { dateTime?: string; date?: string }
-  attendees?: { self?: boolean; responseStatus?: string; resource?: boolean }[]
+  attendees?: { self?: boolean; responseStatus?: string; resource?: boolean; email?: string; displayName?: string }[]
   description?: string
+  recurringEventId?: string
+  attachments?: { title?: string; fileUrl?: string }[]
 }
 
 export async function readMeetings($: $): Promise<MeetingsState | null> {
@@ -65,9 +67,48 @@ async function fetchMeetings($: $): Promise<Meeting[]> {
         response: me?.responseStatus ?? 'accepted',
         attendees: (e.attendees ?? []).filter(a => !a.resource).length,
         description: e.description?.slice(0, 2000),
+        series: e.recurringEventId,
+        people: (e.attendees ?? []).filter(a => !a.self && !a.resource && a.responseStatus !== 'declined').map(a => a.displayName ?? a.email ?? '?').slice(0, 15),
+        attachments: (e.attachments ?? []).filter(a => a.fileUrl).map(a => ({ title: a.title ?? 'file', url: a.fileUrl ?? '' })),
       }
     })
     .filter(m => m.response !== 'declined')
+}
+
+// A series seen on three days or more of the week is a daily: it gets no brief.
+function markBriefable(meetings: Meeting[], skip: string[]) {
+  const days = new Map<string, Set<string>>()
+  for (const m of meetings) if (m.series) days.set(m.series, (days.get(m.series) ?? new Set()).add(m.start.slice(0, 10)))
+  for (const m of meetings) {
+    const isDaily = m.series !== undefined && (days.get(m.series)?.size ?? 0) >= 3
+    const isSkipped = skip.some(word => m.title.toLowerCase().includes(word.toLowerCase()))
+    m.briefable = !isDaily && !isSkipped && (m.people?.length ?? 0) > 0 && m.response !== 'declined'
+  }
+  return meetings
+}
+
+// From leadMinutes before a briefable meeting, a headless Claude writes its brief (herdr/meeting-brief.sh); once per meeting.
+async function startBriefs($: $, meetings: Meeting[]) {
+  const { meetingBrief } = await loadConfig($)
+  if (!meetingBrief.enabled) return
+  const script = `${await home($)}/.config/cockpit/herdr/meeting-brief.sh`
+  if (!(await $.fs.stat(script).then(() => true, () => false))) return
+  const dir = `${await cacheDir($)}/meeting-briefs`
+  for (const m of meetings) {
+    const until = Date.parse(m.start) - Date.now()
+    if (!m.briefable || until > meetingBrief.leadMinutes * 60_000 || Date.parse(m.end) < Date.now()) continue
+    const name = m.id.replace(/[^A-Za-z0-9_-]/g, '_')
+    const isKnown = await $.fs.stat(`${dir}/${name}.md`).then(() => true, () => $.fs.stat(`${dir}/${name}.pending`).then(() => true, () => false))
+    if (isKnown) continue
+    await $.process.run(['sh', '-c', 'nohup sh "$0" "$1" >/dev/null 2>&1 &', script, m.id])
+  }
+}
+
+// The first two lines of a meeting's brief, when it has one.
+async function briefLines($: $, m: Meeting) {
+  const name = m.id.replace(/[^A-Za-z0-9_-]/g, '_')
+  const text = await $.fs.read(`${await cacheDir($)}/meeting-briefs/${name}.md`).catch(() => '')
+  return text.split('\n').map(l => l.replace(/^[#>*\-\s]+/, '').trim()).filter(l => l.length > 0).slice(0, 2)
 }
 
 const OPEN_STEP = /^\|\s*\d+\s*\|[^|]*\|[^|]*\|\s*(⬜|⏳|🟡|❌)/
@@ -109,15 +150,18 @@ export function refreshMeetings($: $, isForced = false) {
             else state = { ...state, error: `Calendar: ${err.message.replace(/^cockpit: /, '')}` }
             return null
           })
-          if (meetings) state = { ...state, at: Date.now(), meetings, error: undefined }
+          if (meetings) state = { ...state, at: Date.now(), meetings: markBriefable(meetings, (await loadConfig($)).meetingBrief.skip), error: undefined }
         }
         const soon = state.meetings.filter(m => {
           const until = Date.parse(m.start) - Date.now()
           return until > 0 && until <= NOTIFY_BEFORE_MS && !state.notified.includes(m.id)
         })
+        await startBriefs($, state.meetings).catch(() => undefined)
         for (const m of soon) {
-          const prep = await prepFor($, m).catch(() => '')
-          await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min${prep}`, m.join ?? m.url)
+          // With a brief, the notification carries its opening lines and opens it; without, the call itself.
+          const brief = await briefLines($, m)
+          const prep = brief.length > 0 ? `\n${brief.join('\n')}` : await prepFor($, m).catch(() => '')
+          await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min${prep}`, brief.length > 0 ? `meeting:${m.id}` : (m.join ?? m.url))
         }
         const live = new Set(state.meetings.map(m => m.id))
         state.notified = [...state.notified.filter(id => live.has(id)), ...soon.map(m => m.id)]
