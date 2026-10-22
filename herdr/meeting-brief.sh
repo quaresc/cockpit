@@ -37,6 +37,11 @@ for id in $(printf '%s' "$tickets" | jq -r '.[]?.id' 2>/dev/null); do
 --- runbook $id
 $(head -30 "$book")"
 done
+# The live state of all my work, to check older notes against.
+live=$(jq -c '{tickets: [.tickets[] | {id, status}],
+  open_prs: [.mine[] | {pr: "\(.repo)#\(.number)", branch, review, ci}],
+  merged_prs: [(.merged // [])[] | {pr: "\(.repo)#\(.number)", branch, merged: .mergedAt[0:10]}],
+  live_in_prod: (.deploys // {})}' "$CACHE/inbox.json" 2>/dev/null)
 event=$(printf '%s' "$meeting" | jq -c '{title, start, end, people, attachments, description: ((.description // "") | gsub("<[^>]*>"; " ") | .[0:1500])}')
 
 prompt="Write the brief for this meeting to $DIR/$name.md, so I come prepared. Work from what is below; open a linked
@@ -45,6 +50,11 @@ Notion page or ticket only when it is essential and not covered here, at most tw
 Meeting: $event
 My tickets it relates to: ${tickets:-[]}
 My PRs it names: ${prs:-[]}$books
+
+Live state of my work, fetched minutes ago: ${live:-{}}
+This live state and the runbooks are current. Memory notes and older documents can be stale: when they disagree
+with the live state (a ticket's status, a PR merged or not, something live in prod), trust the live state and drop
+the stale claim.
 
 Format, plain Markdown, at most 15 lines in all, headings included, no title heading. Every bullet fits on one line
 under 90 characters, never wrapped onto a second line; links aside. One point per bullet, ticket keys rather than
