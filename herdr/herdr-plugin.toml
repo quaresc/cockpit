@@ -1,0 +1,59 @@
+id = "cockpit"
+name = "Cockpit"
+version = "0.1.0"
+min_herdr_version = "0.7.5"
+description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, a Chrome window per agent"
+platforms = ["macos", "linux"]
+
+[[startup]]
+command = ["sh", "sync-spaces.sh"]
+
+[[events]]
+on = "tab.renamed"
+command = ["sh", "sync-spaces.sh"]
+
+[[events]]
+on = "pane.moved"
+command = ["sh", "sync-spaces.sh"]
+
+[[events]]
+on = "workspace.created"
+command = ["sh", "pin-spaces.sh"]
+
+[[events]]
+on = "workspace.moved"
+command = ["sh", "pin-spaces.sh"]
+
+[[events]]
+on = "workspace.reordered"
+command = ["sh", "pin-spaces.sh"]
+
+[[events]]
+on = "worktree.created"
+command = ["sh", "pin-spaces.sh"]
+
+[[events]]
+on = "worktree.opened"
+command = ["sh", "pin-spaces.sh"]
+
+[[startup]]
+command = ["sh", "pin-spaces.sh"]
+
+[[startup]]
+command = ["sh", "ensure-spaces.sh"]
+
+[[events]]
+on = "tab.focused"
+command = ["sh", "chrome-side.sh", "sync"]
+
+[[events]]
+on = "workspace.closed"
+command = ["sh", "ensure-spaces.sh"]
+
+[[panes]]
+id = "peek"
+title = "Peek"
+placement = "popup"
+width = "85%"
+height = "85%"
+command = ["sh", "peek.sh"]

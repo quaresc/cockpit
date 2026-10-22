@@ -1,0 +1,19 @@
+{
+  "reposDir": "~/code",
+  "github": { "enabled": true, "org": "my-org" },
+  "linear": { "enabled": true, "server": "claude.ai Linear", "teams": ["ENG"] },
+  "circleci": { "enabled": false, "server": "circleci", "imageJob": "docker_build" },
+  "platform": {
+    "enabled": false,
+    "server": "platform",
+    "stagePrefix": "preview-",
+    "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}",
+    "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}"
+  },
+  "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
+  "notifications": true,
+  "chromeSideWindow": false,
+  "herdrPluginRoot": "",
+  "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
+  "runbookTools": []
+}
