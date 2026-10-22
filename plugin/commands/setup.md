@@ -44,10 +44,12 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 }
 ```
 
-7. **herdr config.** Read `<plugin_root>/config.example.toml` and merge it into `~/.config/herdr/config.toml`: keep every key I already set, add the missing ones, and never duplicate a `[[keys.command]]` with the same `key`. Back the file up as `config.toml.bak-<date>`, show me the diff, write it once I agree, then run `herdr server reload-config`.
+7. **herdr config.** Read `<plugin_root>/config.example.toml` and merge it into `~/.config/herdr/config.toml`: keep every key I already set, add the missing ones, and never duplicate a `[[keys.command]]` with the same `key`. The one key to replace is `ui.toast.delivery`: set it to `herdr` so herdr's system popups do not double cockpit's, and say so. Back the file up as `config.toml.bak-<date>`, show me the diff, write it once I agree, then run `herdr server reload-config`.
 
 8. **Spaces.** Run `sh <plugin_root>/ensure-spaces.sh` then `sh <plugin_root>/pin-spaces.sh`, and check with `herdr workspace list` that the pinned spaces exist.
 
-9. **Permissions.** Background refreshes call MCP tools outside any turn, so auto mode needs allow rules for them. Print the block to add to `permissions` in `~/.claude/settings.json`: `allow` with one `mcp__<server>` entry per enabled connector (the server name with every character outside `A-Za-z0-9_-` turned into `_`), and `deny` with the destructive tools of those servers the cockpit never uses, such as `cancel_workflow`, `rollback_deploy_component`, `delete_*`, `create_event`, `update_event`, `delete_event` and `respond_to_event`. Edit the file only if I say so.
+9. **Notifications (macOS).** Run `sh <plugin_root>/notifier/build.sh` (it needs `swiftc`, from `xcode-select --install`), then `sh <plugin_root>/notify.sh "Cockpit" "Notifications are on" "space:inbox"`, and ask me to click Allow when macOS asks about Cockpit's notifications.
 
-10. **Finish.** Tell me that Claude sessions started before now load the footer and the background refreshes once restarted, that the inbox space fills within a minute of the first session starting, and list the herdr keys `prefix+i/t/d/u/m`.
+10. **Permissions.** Background refreshes call MCP tools outside any turn, so auto mode needs allow rules for them. Print the block to add to `permissions` in `~/.claude/settings.json`: `allow` with one `mcp__<server>` entry per enabled connector (the server name with every character outside `A-Za-z0-9_-` turned into `_`), and `deny` with the destructive tools of those servers the cockpit never uses, such as `cancel_workflow`, `rollback_deploy_component`, `delete_*`, `create_event`, `update_event`, `delete_event` and `respond_to_event`. Edit the file only if I say so.
+
+11. **Finish.** Tell me that Claude sessions started before now load the footer and the background refreshes once restarted, that the inbox space fills within a minute of the first session starting, and list the herdr keys `prefix+i/t/d/u/m`.

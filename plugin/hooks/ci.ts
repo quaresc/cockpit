@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Sandbox } from '../types'
 
-import { cacheDir, loadConfig } from './config'
+import { cacheDir, fill, home, loadConfig } from './config'
 
 type $ = EngineInterface
 
@@ -13,9 +13,20 @@ const LOCK_STALE_MS = 2 * 60_000
 // ---------------------------------------------------------------------------
 // Shared plumbing
 
-export async function notify($: $, title: string, body: string) {
+// A system notification; a click opens `action`, a URL or a focus.sh target such as space:inbox or runbook:<slug>.
+export async function notify($: $, title: string, body: string, action = '') {
   if (!(await loadConfig($)).notifications) return
-  await $.process.run(['herdr', 'notification', 'show', title, '--body', body, '--sound', 'request'], { timeoutMs: 10_000 })
+  const script = `${await home($)}/.config/cockpit/herdr/notify.sh`
+  const isLinked = await $.fs.stat(script).then(() => true, () => false)
+  const command = isLinked ? ['sh', script, title, body, action] : ['herdr', 'notification', 'show', title, '--body', body, '--sound', 'request']
+  await $.process.run(command, { timeoutMs: 30_000 })
+}
+
+// Where a click on a ticket's notification goes: its runbook when there is one, else the ticket.
+export async function ticketAction($: $, id: string, url: string | undefined, steps: string[] = []) {
+  const slug = id.toLowerCase()
+  const hasRunbook = await $.fs.stat(`${await home($)}/.config/cockpit/runbooks/${slug}.md`).then(() => true, () => false)
+  return hasRunbook ? `runbook:${slug}${steps.length > 0 ? `:${steps.join(',')}` : ''}` : (url ?? 'space:inbox')
 }
 
 // A refused background call, said in one line that names the permission rule to add.
@@ -116,16 +127,19 @@ async function detailsOf($: $, run: RunNode, base: Omit<CiRun, 'done' | 'total'>
   }
 }
 
-function ciChanges(prev: CiState, next: CiState) {
+// A finished run's notification, its click opening the checks of the branch's PR.
+function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
   const before = new Map(prev.runs.map(r => [`${r.repo}/${r.branch}`, r]))
-  const out: string[] = []
+  const out: { text: string; action: string }[] = []
   for (const run of next.runs) {
     if (run.isRunning) continue
     const was = before.get(`${run.repo}/${run.branch}`)
     const isNewlyEnded = was ? was.runId !== run.runId || was.isRunning : Date.parse(run.createdAt) > prev.at
     if (!isNewlyEnded) continue
-    if (run.outcome === 'succeeded') out.push(`🟢 CI passed: ${run.repo} ${run.branch}`)
-    else if (run.outcome === 'failed') out.push(`🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`)
+    const pr = inbox?.mine.find(p => p.repo === run.repo && p.branch === run.branch)
+    const action = pr ? `${pr.url}/checks` : 'space:inbox'
+    if (run.outcome === 'succeeded') out.push({ text: `🟢 CI passed: ${run.repo} ${run.branch}`, action })
+    else if (run.outcome === 'failed') out.push({ text: `🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, action })
   }
   return out
 }
@@ -181,7 +195,8 @@ export function refreshCi($: $, isForced = false) {
         }
         const state: CiState = { at: Date.now(), runs: next, version: CI_VERSION }
         await $.fs.write(`${await cacheDir($)}/ci.json`, JSON.stringify(state))
-        if (prev) for (const line of ciChanges(prev, state)) await notify($, '🔁 CircleCI', line)
+        const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
+        if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, '🔁 CircleCI', change.text, change.action)
       })
     } finally {
       ciInflight = undefined
@@ -227,11 +242,11 @@ export async function deploysFor($: $, tickets: Inbox['tickets'], merged: Merged
 }
 
 export function deployChanges(prev: Inbox, next: Inbox) {
-  const out: string[] = []
+  const out: { text: string; ticket: string }[] = []
   for (const [ticket, prs] of Object.entries(next.deploys ?? {})) {
     const wasLive = (prev.deploys?.[ticket] ?? []).length > 0 && (prev.deploys?.[ticket] ?? []).every(p => p.isLive)
     if (prs.length > 0 && prs.every(p => p.isLive) && !wasLive) {
-      out.push(`🚀 Live in production: ${ticket} (${prs.map(p => `${p.repo} ${p.tag}`).join(', ')})`)
+      out.push({ text: `🚀 Live in production: ${ticket} (${prs.map(p => `${p.repo} ${p.tag}`).join(', ')})`, ticket })
     }
   }
   return out
@@ -318,6 +333,10 @@ async function dropTicket($: $, id: string) {
   await $.fs.write(path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
 }
 
+async function sandboxAction($: $, stage: string) {
+  return fill((await loadConfig($)).backstage.sandboxArgoUrl, { stage }) ?? 'space:inbox'
+}
+
 export async function processRequests($: $, onDone: () => void) {
   const dir = `${await cacheDir($)}/requests`
   const entries = await $.fs.list(dir).catch(() => [])
@@ -336,27 +355,28 @@ export async function processRequests($: $, onDone: () => void) {
       if (request.type === 'rerun') {
         await mcp($, 'circleci', 'rerun_workflow', { workflow: request.workflowId, from_failed: true })
         await result(true, 'rerun started')
-        await notify($, '🔁 CircleCI', `Rerunning failed jobs: ${request.label}`)
+        await notify($, '🔁 CircleCI', `Rerunning failed jobs: ${request.label}`, 'space:inbox')
       } else if (request.type === 'redeploy') {
         await mcp($, 'backstage', 'sandbox-manager_redeploy-sandbox', { stage: request.stage, applications: [request.product] })
         await result(true, 'redeploying')
-        await notify($, '🧪 Sandbox', `Redeploying ${request.product} on ${request.stage}`)
+        await notify($, '🧪 Sandbox', `Redeploying ${request.product} on ${request.stage}`, await sandboxAction($, request.stage))
       } else if (request.type === 'extend') {
         await extend($, request.stage, request.days)
         await result(true, `extended by ${request.days} days`)
-        await notify($, '🧪 Sandbox', `${request.stage} extended by ${request.days} days and redeploying`)
+        await notify($, '🧪 Sandbox', `${request.stage} extended by ${request.days} days and redeploying`, await sandboxAction($, request.stage))
       } else {
         const state = await release($, request.ticket)
+        const url = (await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`))?.tickets.find(t => t.id === request.ticket)?.url
         await dropTicket($, request.ticket)
         await result(true, `moved to ${state}`)
-        await notify($, '🎫 Linear', `${request.ticket} moved to ${state}`)
+        await notify($, '🎫 Linear', `${request.ticket} moved to ${state}`, await ticketAction($, request.ticket, url))
       }
       // Whatever changed, the next fetch picks it up now rather than in five minutes.
       await $.process.run(['touch', `${await cacheDir($)}/refresh-request`])
       onDone()
     } catch (err) {
       await result(false, shortError(err as Error))
-      await notify($, '⚠️ Cockpit', `${request.label}: ${(err as Error).message}`)
+      await notify($, '⚠️ Cockpit', `${request.label}: ${(err as Error).message}`, 'space:inbox')
     }
   }
 }

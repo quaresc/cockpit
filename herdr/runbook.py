@@ -27,6 +27,11 @@ INBOX = os.path.join(HOME, ".cache", "cockpit", "inbox.json")
 CONFIG = cockpit_config.load()
 REPOS = CONFIG["reposDir"]
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
+FOCUS = os.path.join(HOME, ".cache", "cockpit", "runbook-focus.json")
+NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notify.sh")
+# A step that turns done plays for FLASH seconds, each one CASCADE seconds after the previous.
+FLASH, CASCADE = 2.6, 0.3
+SPINNER = "◐◓◑◒"
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
 GREEN, RED, ORANGE, LINK = "\033[38;2;153;255;228m", "\033[38;2;255;128;128m", "\033[38;2;255;199;153m", "\033[4m"
@@ -107,6 +112,77 @@ def read_books():
         except OSError:
             continue
     return books
+
+
+def done_steps(book):
+    return [s["n"] for s in book["steps"] if not s["status"].startswith(OPEN)]
+
+
+def play(state, slug, steps):
+    """Starts the done animation of these steps, one after the other."""
+    start = time.time()
+    for i, n in enumerate(steps):
+        state["flash"][(slug, n)] = start + i * CASCADE
+
+
+def reload(state):
+    """Reads the runbooks again; a step that was open and is now done plays its animation."""
+    books, before = read_books(), state.get("done")
+    state["books"], state["done"] = books, {b["slug"]: done_steps(b) for b in books}
+    if before is None:
+        return
+    for book in books:
+        if book["slug"] in before:
+            newly = [n for n in state["done"][book["slug"]] if n not in before[book["slug"]]]
+            if newly:
+                play(state, book["slug"], newly)
+                state["newly"][book["slug"]] = newly
+
+
+def take_focus(state):
+    """A click on a runbook notification: that runbook opened and scrolled to, its steps played as done."""
+    try:
+        at = os.path.getmtime(FOCUS)
+    except OSError:
+        return False
+    if at <= state["focus_at"]:
+        return False
+    state["focus_at"] = at
+    request = load_json(FOCUS, {})
+    slugs = [b["slug"] for b in state["books"]]
+    slug = request.get("slug")
+    if slug not in slugs:
+        return False
+    if slugs.index(slug) == 0:
+        state["toggled"].discard(slug)
+    else:
+        state["toggled"].add(slug)
+    book = state["books"][slugs.index(slug)]
+    play(state, slug, request.get("steps") or done_steps(book))
+    state["scroll_to"], state["has_keyboard"], state["hover"] = slug, False, -1
+    return True
+
+
+def is_in_view():
+    """Whether the runbook space is the one herdr shows now."""
+    try:
+        spaces = json.loads(subprocess.run([HERDR, "workspace", "list"], capture_output=True, text=True, timeout=5).stdout)
+        return any(w["focused"] and "runbook" in w["label"] for w in spaces["result"]["workspaces"])
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+        return False
+
+
+def announce(state, slug):
+    """A finished background refresh: a notification whose click opens the runbook and plays its new done steps."""
+    book = next((b for b in state["books"] if b["slug"] == slug), None)
+    if not book or is_in_view():
+        return
+    newly = state["newly"].pop(slug, [])
+    todo = sum(1 for s in book["steps"] if s["status"].startswith(OPEN))
+    body = f"{len(newly)} step{'s' if len(newly) != 1 else ''} done · {todo} to do" if newly else f"no change · {todo} to do"
+    action = f"runbook:{slug}" + (f":{','.join(newly)}" if newly else "")
+    subprocess.Popen(["sh", NOTIFY, f"📋 {book['title'] or slug}", body, action], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
 
 
 def stamp():
@@ -191,6 +267,8 @@ def update(state, book):
     state["refreshing"][slug] = subprocess.Popen(command, cwd=REPOS, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                                  start_new_session=True)
     state["refresh_started"][slug] = time.time()
+    state["announced"].discard(slug)
+    state["newly"].pop(slug, None)
     note(state, f"refreshing {slug} in the background")
 
 
@@ -252,6 +330,8 @@ class Line:
     def __init__(self):
         self.parts, self.spans, self.buttons, self.button_spans = [], [], [], []
         self.primary = None
+        self.bg = ""
+        self.book = None
 
     def add(self, text, style="", action=None):
         start = sum(width(t) for t, _ in self.parts)
@@ -283,8 +363,9 @@ class Line:
             out += style + piece + RESET
             used += width(piece)
         out += " " * max(0, cols - used)
-        if is_active and self.primary:
-            out = HOVER + out.replace(RESET, RESET + HOVER) + RESET
+        background = HOVER if is_active and self.primary else self.bg
+        if background:
+            out = background + out.replace(RESET, RESET + background) + RESET
         return out
 
 
@@ -332,6 +413,7 @@ def build(state, cols):
             head.add(status[0], status[1])
         else:
             head.add("\ue0b6", PILL_MAIN[0], refresh).add(f"{ICON['update']} refresh", PILL_MAIN[1], refresh).add("\ue0b4", PILL_MAIN[0], refresh)
+        head.book = book["slug"]
         head.buttons = [("delete", lambda b=book: delete(state, b), False)]
         head.primary = lambda b=book: state["toggled"].__ixor__({b["slug"]})
         if not is_open:
@@ -343,7 +425,20 @@ def build(state, cols):
             row = line().add(" " * 4)
             is_done = not step["status"].startswith(OPEN)
             row.add(fit(step["n"], NUM) + " ", DIM)
-            row.add(fit(step["status"], STATUS) + " ", "" if not is_done else DIM)
+            started = state["flash"].get((book["slug"], step["n"]))
+            t = time.time() - started if started is not None else None
+            if t is not None and t < 0:
+                row.add(fit(f"{SPINNER[0]} " + step["status"].split(" ", 1)[-1], STATUS) + " ", DIM)
+            elif t is not None and t < 0.5:
+                row.add(fit(f"{SPINNER[int(t * 14) % 4]} " + step["status"].split(" ", 1)[-1], STATUS) + " ", ORANGE)
+            elif t is not None and t < FLASH:
+                # The tint fades from teal to nothing; a spark shows for the first second.
+                fade = 1 - (t - 0.5) / (FLASH - 0.5)
+                row.bg = "\033[48;2;%d;%d;%dm" % (int(16 + 24 * fade), int(16 + 84 * fade), int(16 + 64 * fade))
+                status = step["status"] + (" ✦" if t < 1.5 else "")
+                row.add(fit(status, STATUS) + " ", BOLD + GREEN)
+            else:
+                row.add(fit(step["status"], STATUS) + " ", "" if not is_done else DIM)
             row.add(fit(step["step"], step_room) + " ", DIM if is_done else "")
             ref = PR_REF.match(step["where"])
             buttons = []
@@ -387,6 +482,9 @@ def draw(state):
     cols, rows = size()
     lines = build(state, cols)
     state["lines"] = lines
+    target = state.pop("scroll_to", None)
+    if target:
+        state["top"] = next((i for i, l in enumerate(lines) if l.book == target), state["top"])
     selectable = [i for i, l in enumerate(lines) if l.primary]
     state["selectable"] = selectable
     if selectable:
@@ -467,7 +565,9 @@ def handle(state, data):
 def main():
     os.makedirs(DIR, exist_ok=True)
     state = {"books": read_books(), "toggled": set(), "refreshing": {}, "refresh_started": {}, "sel": 0, "top": 0, "hover": -1, "btn": -1, "has_keyboard": False,
-             "note": "", "note_at": 0, "lines": [], "selectable": [], "confirm": None, "confirm_at": 0}
+             "note": "", "note_at": 0, "lines": [], "selectable": [], "confirm": None, "confirm_at": 0,
+             "flash": {}, "newly": {}, "announced": set(), "focus_at": time.time()}
+    reload(state)
     report(state["books"])
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
@@ -478,21 +578,31 @@ def main():
         while True:
             now = stamp()
             if now != seen:
-                seen, state["books"] = now, read_books()
+                seen = now
+                reload(state)
                 report(state["books"])
+                draw(state)
+            for slug, proc in list(state["refreshing"].items()):
+                if proc.poll() == 0 and slug not in state["announced"]:
+                    state["announced"].add(slug)
+                    announce(state, slug)
+            if take_focus(state):
+                draw(state)
+            state["flash"] = {k: v for k, v in state["flash"].items() if time.time() - v < FLASH}
+            if state["flash"]:
                 draw(state)
             # A running refresh redraws every second for its timer, and once more when it ends.
             busy = any(proc.poll() is None for proc in state["refreshing"].values())
             if size() != last_size or busy or busy != state.get("was_busy"):
                 last_size, state["was_busy"] = size(), busy
                 draw(state)
-            ready, _, _ = select.select([fd], [], [], 1.0)
+            ready, _, _ = select.select([fd], [], [], 0.06 if state["flash"] else 1.0)
             if ready:
                 data = os.read(fd, 4096).decode("utf-8", "replace")
                 if data == "\x03":
                     break
                 if handle(state, data):
-                    state["books"] = read_books()
+                    reload(state)
                     draw(state)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)

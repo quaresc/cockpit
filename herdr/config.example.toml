@@ -8,6 +8,11 @@ sidebar_width = 34
 # Attention queue: blocked and finished agents float to the top of the agent panel.
 agent_panel_sort = "priority"
 
+# Cockpit sends the system notifications itself, with its icon and a click that leads somewhere useful;
+# herdr keeps its own as in-app toasts so none arrives twice.
+[ui.toast]
+delivery = "herdr"
+
 # Spaces: the pinned ones by name, then the counts the cockpit mod reports on the inbox space.
 [ui.sidebar.spaces]
 rows = [

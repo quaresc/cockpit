@@ -11,6 +11,9 @@ one agent per space, pinned spaces for what surrounds the work, and a footer in 
   plan-limit counts on the inbox space.
 - **Session footer**: the ticket, PR, Figma, Notion, Slack and Argo links of what the conversation works on, the next
   meeting, plan limits when tight, and the context window in use.
+- **Notifications** (macOS): with the cockpit icon, and a click that leads somewhere useful: the PR's checks when CI
+  ends, the ticket or PR when something changes, the agent's space when it finishes or waits for you, the meeting's
+  video link, and the runbook, playing its newly done steps, when a refresh or a deploy completes.
 - **Chrome per agent** (optional): an agent using Claude in Chrome gets its own window beside the terminal, shown
   only while its space is focused.
 
@@ -57,6 +60,7 @@ config (showing the diff first), creates the pinned spaces and prints the permis
 
 - macOS (the apps open links with `open` and copy with `pbcopy`; Linux is untested)
 - herdr 0.9 or later, Claude Code with plugin hooks modules
+- Xcode command line tools (`swiftc`) for the notifications; without them cockpit falls back to herdr's own
 - `gh` signed in, `jq`, Python 3
 - A Nerd Font in the terminal (icons and pill buttons); FiraCode Nerd Font Mono is what it was drawn with
 - Optional connectors in Claude Code: Linear, CircleCI, Google Calendar, Backstage
