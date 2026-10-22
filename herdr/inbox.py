@@ -161,7 +161,7 @@ def note(state, text):
 
 
 def open_url(state, url):
-    run(["open", url])
+    cockpit_config.open_url(url)
     note(state, f"opened {url}")
 
 

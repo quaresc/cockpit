@@ -3,9 +3,13 @@
 #   workspace:<id>                    the space of that agent
 #   space:<name>                      a pinned space, e.g. space:inbox
 #   runbook:<slug>[:<step>,<step>]    the runbook space, that runbook open and its steps played as done
-PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+#   update                            cockpit updated, in the background
+#   http(s)://…                       opened in the browser
+PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
 . "$(dirname "$0")/lib.sh"
 case "${1:-}" in
+  http://* | https://*) open_url "$1"; exit 0 ;;
+  update) nohup sh "$ROOT/update.sh" >"$HOME/.cache/cockpit/update.log" 2>&1 & exit 0 ;;
   workspace:*) "$H" workspace focus "${1#workspace:}" >/dev/null 2>&1 ;;
   space:*) sh "$ROOT/focus-space.sh" "${1#space:}" ;;
   runbook:*)
@@ -19,4 +23,4 @@ case "${1:-}" in
     ;;
 esac
 terminal=$(cat "$HOME/.cache/cockpit/terminal-app" 2>/dev/null)
-[ -n "$terminal" ] && open -b "$terminal"
+[ "$OS" = Darwin ] && [ -n "$terminal" ] && open -b "$terminal"

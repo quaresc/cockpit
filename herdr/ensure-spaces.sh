@@ -1,6 +1,7 @@
 #!/bin/sh
 # Makes sure the pinned spaces exist and run their app, e.g. after herdr restores a session.
 . "$(dirname "$0")/lib.sh"
+prune_installs
 
 ensure() {
   name=$1 label=$2 app=$3

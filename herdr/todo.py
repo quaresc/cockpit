@@ -141,7 +141,7 @@ def open_link(state, token):
     if not url:
         note(state, f"no Linear workspace known for {token.upper()}")
         return
-    subprocess.run(["open", url], capture_output=True)
+    cockpit_config.open_url(url)
     note(state, f"opened {url}")
 
 

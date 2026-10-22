@@ -1,6 +1,6 @@
 id = "cockpit"
 name = "Cockpit"
-version = "0.2.1"
+version = "0.3.0"
 min_herdr_version = "0.7.5"
 description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, a Chrome window per agent"
 platforms = ["macos", "linux"]

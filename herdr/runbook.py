@@ -28,6 +28,7 @@ CONFIG = cockpit_config.load()
 REPOS = CONFIG["reposDir"]
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 FOCUS = os.path.join(HOME, ".cache", "cockpit", "runbook-focus.json")
+REQUESTS = os.path.join(HOME, ".cache", "cockpit", "runbook-refresh-requests.json")
 NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notify.sh")
 # A step that turns done plays for FLASH seconds, each one CASCADE seconds after the previous.
 FLASH, CASCADE = 2.6, 0.3
@@ -163,6 +164,22 @@ def take_focus(state):
     return True
 
 
+def take_requests(state):
+    """Refreshes the mod asks for, e.g. when a ticket goes live: each one announces itself, with its reason, when done."""
+    requests = load_json(REQUESTS, [])
+    if not requests:
+        return
+    try:
+        os.remove(REQUESTS)
+    except OSError:
+        pass
+    for request in requests:
+        book = next((b for b in state["books"] if b["slug"] == request.get("slug")), None)
+        if book:
+            update(state, book)
+            state["reasons"][book["slug"]] = request.get("reason", "")
+
+
 def is_in_view():
     """Whether the runbook space is the one herdr shows now."""
     try:
@@ -180,6 +197,8 @@ def announce(state, slug):
     newly = state["newly"].pop(slug, [])
     todo = sum(1 for s in book["steps"] if s["status"].startswith(OPEN))
     body = f"{len(newly)} step{'s' if len(newly) != 1 else ''} done · {todo} to do" if newly else f"no change · {todo} to do"
+    reason = state["reasons"].pop(slug, "")
+    body = f"{reason} · {body}" if reason else body
     action = f"runbook:{slug}" + (f":{','.join(newly)}" if newly else "")
     subprocess.Popen(["sh", NOTIFY, f"📋 {book['title'] or slug}", body, action], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=True)
@@ -212,7 +231,9 @@ def note(state, text):
 
 
 def copy(state, command):
-    subprocess.run(["pbcopy"], input=command, text=True)
+    if not cockpit_config.copy(command):
+        note(state, "no clipboard tool: install wl-copy or xclip")
+        return
     note(state, f"copied: {command}")
 
 
@@ -221,7 +242,7 @@ def open_pr(state, repo, number):
     if not url:
         note(state, f"no URL known for {repo}#{number}: set github.org in the cockpit config")
         return
-    subprocess.run(["open", url], capture_output=True)
+    cockpit_config.open_url(url)
     note(state, f"opened {url}")
 
 
@@ -566,7 +587,7 @@ def main():
     os.makedirs(DIR, exist_ok=True)
     state = {"books": read_books(), "toggled": set(), "refreshing": {}, "refresh_started": {}, "sel": 0, "top": 0, "hover": -1, "btn": -1, "has_keyboard": False,
              "note": "", "note_at": 0, "lines": [], "selectable": [], "confirm": None, "confirm_at": 0,
-             "flash": {}, "newly": {}, "announced": set(), "focus_at": time.time()}
+             "flash": {}, "newly": {}, "announced": set(), "focus_at": time.time(), "reasons": {}}
     reload(state)
     report(state["books"])
     fd = sys.stdin.fileno()
@@ -588,6 +609,7 @@ def main():
                     announce(state, slug)
             if take_focus(state):
                 draw(state)
+            take_requests(state)
             state["flash"] = {k: v for k, v in state["flash"].items() if time.time() - v < FLASH}
             if state["flash"]:
                 draw(state)
