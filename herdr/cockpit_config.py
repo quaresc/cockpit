@@ -20,7 +20,7 @@ DEFAULTS = {
     "backstage": {"enabled": False, "server": "backstage", "stagePrefix": "", "sandboxArgoUrl": "", "workflowUrl": ""},
     "calendar": {"enabled": False, "server": "claude.ai Google Calendar"},
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
-    "meetingBrief": {"enabled": True, "leadMinutes": 30, "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
+    "meetingBrief": {"enabled": True, "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
     "notifications": True,
     "chromeSideWindow": False,
     "herdrPluginRoot": "",

@@ -94,7 +94,7 @@ export type Meeting = {
   series?: string
   people?: string[]
   attachments?: { title: string; url: string }[]
-  // Whether it gets a meeting brief: not a daily, not declined, someone else invited, not in meetingBrief.skip.
+  // Whether the meetings app offers a brief: not a daily, not declined, someone else invited, not in meetingBrief.skip.
   briefable?: boolean
 }
 
