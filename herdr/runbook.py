@@ -29,7 +29,7 @@ REPOS = CONFIG["reposDir"]
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 FOCUS = os.path.join(HOME, ".cache", "cockpit", "runbook-focus.json")
 REQUESTS = os.path.join(HOME, ".cache", "cockpit", "runbook-refresh-requests.json")
-NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notify.sh")
+NOTIFY = cockpit_config.script("notify.sh")
 # A step that turns done plays for FLASH seconds, each one CASCADE seconds after the previous.
 FLASH, CASCADE = 2.6, 0.3
 SPINNER = "◐◓◑◒"
@@ -326,7 +326,7 @@ def run_step(state, book, step):
               + (f", command `{step['command']}`" if step["command"] else "")
               + ". Check its preconditions first. For anything that touches production, show me exactly what it will do and wait"
               " for my go before running it. Then update that step's status in the runbook.")
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ask-session.sh")
+    script = cockpit_config.script("ask-session.sh")
     subprocess.Popen(["sh", script, pane or "-", session or "-", prompt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=True)
     note(state, f"step {step['n']} sent to its session" + (" (resuming it)" if session != "-" else ""))
