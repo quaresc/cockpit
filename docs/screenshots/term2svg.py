@@ -62,11 +62,12 @@ SIZE = 14
 CW, LH, PAD, BAR = SIZE * 0.6, SIZE * 1.45, 18, 34
 
 
-def rows_svg(screen, ys, chars, cover=False):
-    """The rows' cells as SVG; `cover` first paints each row's background, to draw over an earlier frame."""
+def rows_svg(screen, ys, chars, cover=False, at=None):
+    """The rows' cells as SVG; `cover` first paints each row's background, to draw over an earlier frame.
+    `at` draws them from that display row on instead of at their own place."""
     out = []
-    for y in ys:
-        line = screen.buffer[y]; x = 0; base = BAR + PAD + y * LH
+    for n, y in enumerate(ys):
+        line = screen.buffer[y]; x = 0; base = BAR + PAD + ((at + n) if at is not None else y) * LH
         if cover:
             out.append(f'<rect x="{PAD - 2}" y="{base:.1f}" width="{screen.columns * CW + 4:.1f}" height="{LH + 0.6:.1f}" fill="{BG}"/>')
         texts, run, fills = [], None, []
@@ -129,3 +130,23 @@ def last_used_row(screen):
     for y in range(screen.lines - 1, -1, -1):
         if any(screen.buffer[y][x].data.strip() or color(screen.buffer[y][x].bg, None) for x in range(screen.columns)): return y + 1
     return 1
+
+
+def run_steps(argv, cols, rows, env, keys, cwd=None, settle=1.5, gap=0.5):
+    """Runs a TUI and returns its screen text after start-up and after each key, one key every `gap` seconds."""
+    pid, fd = pty.fork()
+    if pid == 0:
+        if cwd: os.chdir(cwd)
+        os.execvpe(argv[0], argv, {**os.environ, **env})
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    out, shots, start, sent = b"", [], time.time(), 0
+    while sent <= len(keys):
+        if select.select([fd], [], [], 0.05)[0]:
+            try: out += os.read(fd, 1 << 16)
+            except OSError: break
+        if time.time() - start > settle + gap * sent:
+            shots.append(out.decode("utf-8", "replace"))
+            if sent < len(keys): os.write(fd, keys[sent].encode())
+            sent += 1
+    os.kill(pid, signal.SIGKILL)
+    return shots

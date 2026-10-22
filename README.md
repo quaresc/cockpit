@@ -2,69 +2,59 @@
 
 <h1 align="center">cockpit</h1>
 
-<p align="center">A cockpit for running many Claude Code agents side by side in <a href="https://herdr.dev">herdr</a>:<br>
-one agent per space, pinned spaces for what surrounds the work, and a footer in every session that says where it stands.</p>
+<p align="center">Run a handful of Claude Code agents in <a href="https://herdr.dev">herdr</a> without losing track of them.<br>
+One agent per space, a few pinned spaces for everything around the code, and the right links in every session.</p>
 
-![The cockpit: herdr sidebar with pinned spaces and agents, a Claude session and its footer](docs/overview.svg)
+![herdr with the cockpit sidebar, a Claude session and its footer](docs/overview.svg)
 
-- **Sidebar**: context percentage and repo · ticket under each agent, coloured by its PR's CI; review, CI, ticket and
-  plan-limit counts on the inbox space.
-- **Session footer**: the ticket, PR, Figma, Notion, Slack and Argo links of what the conversation works on, the next
-  meeting, plan limits when tight, and the context window in use.
-- **After a deploy** (optional): some time after a ticket goes live, a headless Claude compares errors and latency
-  before and after with your observability tools, adds the verdict to the runbook, and notifies: "✅ ENG-412 after
-  deploy · no change" or "⚠️ errors up 3×". Set `deployWatch` in the config.
-- **Sandboxes**: a branch whose image is built gets a `sandbox` button that creates one with your defaults
-  (`backstage.sandboxDefaults`); a notification says when it is healthy, and the footer links the app. A sandbox
-  still running a merged branch gets a `stop` button.
-- **Same-branch warning**: two agents on one repo and branch both show a red line in the sidebar before they
-  overwrite each other.
-- **Recap**: coming back to a space after 10 minutes or more, where the agent finished something, opens a popup with
-  what it did: its answers, the files it changed, its last commands, and whether it waits for you.
-- **Meeting prep**: the five-minute meeting notification adds the state of the tickets and PRs the meeting names, or
-  whose project its title names, with their runbook's steps left.
-- **Morning brief**: on weekdays from 08:30, one notification and a Today section at the top of the inbox: the
-  day's meetings, reviews waiting on you, failing or mergeable PRs, CI that failed overnight, tickets that moved or
-  went live since the last brief. `brief.at` and `brief.weekends` in the config change when it comes.
-- **Notifications** (macOS): with the cockpit icon, and a click that leads somewhere useful: the PR's checks when CI
-  ends, the ticket or PR when something changes, the agent's space when it finishes or waits for you, the meeting's
-  video link, and the runbook, playing its newly done steps, when a refresh or a deploy completes.
-- **Chrome per agent** (optional): an agent using Claude in Chrome gets its own window beside the terminal, shown
-  only while its space is focused.
+- **Sidebar.** Each agent shows its context use and the repo and ticket it's on. The line turns red when its PR fails
+  CI, or when another agent is on the same branch. The inbox space shows reviews, CI, tickets and plan limits.
+- **Footer.** Links to the ticket, PR, Figma, Notion, Slack thread, Argo and sandbox the conversation is about, plus
+  the next meeting and context use.
+- **Inbox.** Review requests, then your tickets by project with their stacked PRs, CI, deploys and sandboxes.
+- **Runbook.** `/runbook` writes down what's left to ship a ticket and keeps it up to date.
+- **To-do and meetings.** A Markdown to-do list (`/todo <text>` from any session) and your calendar.
+- **Notifications** (macOS) that open the right thing: the PR's checks, the agent's space, the meeting, the runbook.
+- **Morning brief.** At 8:30 on weekdays: meetings, reviews waiting, PRs failing or ready, overnight CI failures,
+  tickets that moved.
+- **Recap.** Come back to a space after a while and a popup tells you what the agent did.
+- **After a deploy** (optional). Half an hour after a ticket goes live, Claude checks errors and latency and tells you
+  if anything moved.
+- **Chrome per agent** (optional). An agent using Claude in Chrome gets its own window next to the terminal.
 
-Everything is optional except herdr and GitHub: `/cockpit:setup` asks which parts to turn on.
+Only herdr and GitHub are required. `/cockpit:setup` asks about the rest.
 
 ### Inbox
 
-Review requests, then your work: Linear tickets grouped by project (or status) with their stacked PRs, CI progress
-and failures, deploys and sandboxes. A hovered or selected row shows its buttons: review, fix CI, rerun, redeploy,
-continue, done.
+Hover a row (or use `j`/`k`) for its buttons: review, fix CI, rerun, continue, done.
 
 ![Inbox space](docs/inbox.svg)
 
+A branch with a built image gets a `sandbox` button. A sandbox still running a merged branch gets `stop`.
+
+![Sandbox and stop buttons](docs/sandboxes.svg)
+
 ### Runbook
 
-`/runbook` writes where a feature stands as a table: merges, deploys, migrations and production commands, in order.
-The space refreshes it in the background and hands any step back to the session that wrote it.
+Merges, deploys, migrations and prod commands, in order. `run` hands a step back to the session that wrote it.
 
 ![Runbook space](docs/runbook.svg)
 
-When a refresh lands, the steps it turned done play in, one after the other. A ticket going live in production
-refreshes its runbook by itself, and the notification that follows opens it there:
+It refreshes in the background, and by itself when the ticket goes live. Steps that just got done light up:
 
-![A runbook refresh landing: three steps turn done](docs/runbook-done.svg)
+![A refresh landing: three steps turn done](docs/runbook-done.svg)
+
+### Recap
+
+![Recap popup](docs/recap.svg)
 
 ### Notifications
 
-macOS notifications carry the cockpit icon, and a click leads where the news is: the PR's checks, the agent's space,
-the runbook playing its done steps, the meeting's video call. herdr's own popups stay in-app so none arrives twice.
+herdr's own popups stay in-app, so nothing arrives twice.
 
-![Cockpit notifications sliding in, each with where its click leads](docs/notifications.svg)
+![Notifications, each with where a click leads](docs/notifications.svg)
 
 ### To-do and meetings
-
-A Markdown to-do list (also `/todo <text>` from any session) with clickable tickets and links, and the next meetings
-from Google Calendar, with a footer pill and a notification five minutes before each.
 
 ![To-do space](docs/todo.svg)
 
@@ -78,66 +68,58 @@ In a Claude Code session inside herdr:
 /plugin install cockpit --marketplace quaresc/cockpit
 ```
 
-Answer `y` to add the marketplace and pick a scope, then run `/cockpit:setup`. The setup installs the herdr half
-(`herdr plugin install quaresc/cockpit/herdr`) when it is missing, checks the prerequisites, asks which features
-and connectors to use, writes `~/.config/cockpit/config.json`, merges the sidebar and key settings into your herdr
-config (showing the diff first), creates the pinned spaces and prints the permission rules to add.
+Answer `y`, pick a scope, then run `/cockpit:setup`. It installs the herdr half, asks which features you want,
+writes your config, merges its settings into herdr's config (diff first), and lists the permission rules to add.
 
-## Keeping it healthy
-
-- `/cockpit:doctor` checks every part: tools, both installs and their versions, which Claude sessions run cockpit,
-  how fresh the inbox, CI and meetings data is, the space apps, notifications and the permission rules. It names
-  the fix for each problem and applies the safe ones once you agree.
-- A new version is announced by a notification; clicking it updates both halves, restarts the space apps and reloads
-  idle Claude sessions (`sh ~/.config/cockpit/herdr/update.sh` does the same).
-- herdr keeps one folder per installed version; cockpit removes the old ones at startup.
+Later, `/cockpit:doctor` checks everything and says how to fix what's broken. New versions arrive as a
+notification: click it to update.
 
 ## Requirements
 
-- macOS, or Linux: there links open with `xdg-open`, commands copy with `wl-copy` or `xclip`, notifications go
-  through `notify-send` (a click works where the notification daemon supports actions), and the Chrome window per
-  agent is off
-- herdr 0.9 or later, Claude Code with plugin hooks modules
-- Xcode command line tools (`swiftc`) for the notifications; without them cockpit falls back to herdr's own
-- `gh` signed in, `jq`, Python 3
-- A Nerd Font in the terminal (icons and pill buttons); FiraCode Nerd Font Mono is what it was drawn with
-- Optional connectors in Claude Code: Linear, CircleCI, Google Calendar, Backstage
+- macOS. Linux should work (`xdg-open`, `wl-copy` or `xclip`, `notify-send`) but is untested, and has no Chrome window.
+- herdr 0.9+, and Claude Code with plugin hooks modules
+- `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
+- A Nerd Font. It's drawn with FiraCode Nerd Font Mono.
+- Optional connectors: Linear, CircleCI, Google Calendar, Backstage, Datadog
 
-## How it fits together
+## How it works
 
 ```
-plugin/   Claude Code plugin: a hooks module (hooks/*.ts) and the /runbook, /todo, /inbox and /cockpit:setup commands
-herdr/    herdr plugin: the space apps (inbox.py, todo.py, runbook.py, meetings.py) and the scripts herdr runs on events
+plugin/   Claude Code plugin: the hooks module, and /runbook, /todo, /inbox, /cockpit:setup, /cockpit:doctor
+herdr/    herdr plugin: the space apps, and the scripts herdr runs on events
 ```
 
-The Claude Code side does every network call, from whichever session gets there first (a lock keeps it to one),
-and writes the results to `~/.cache/cockpit`. The herdr apps only read those files and drop action requests
-(rerun, redeploy, done…) in `~/.cache/cockpit/requests`, which the next session picks up. Your own lists live in
-`~/.config/cockpit`: `todo.md`, `runbooks/`, `muted.json`.
+Network calls happen in your Claude sessions, one at a time thanks to a lock, and land in `~/.cache/cockpit`. The
+herdr apps only read those files. Their buttons leave requests that the next session carries out. Your own lists
+live in `~/.config/cockpit`.
 
 ## Configuration
 
-`~/.config/cockpit/config.json`, read again every 30 seconds. See [`config.example.json`](config.example.json).
+`~/.config/cockpit/config.json`, re-read every 30 seconds. See [`config.example.json`](config.example.json).
 
-| Key | What it does |
+| Key | |
 | --- | --- |
-| `reposDir` | Folder holding your git checkouts: new agent spaces start there, and the footer follows the repo a session works in |
-| `github.org` | Limits your own PRs to one organization; empty for all |
-| `linear.teams` | Team keys a ticket mention may use, besides those of the tickets assigned to you |
-| `<connector>.server` | The connector's name as `claude mcp list` shows it |
-| `circleci.imageJob` | The job that pushes the image a sandbox runs; enables the redeploy button |
-| `backstage.*` | Deploy status and sandboxes through Backstage's ship and sandbox-manager plugins, with Argo links built from the URL templates |
-| `chromeSideWindow` | One Chrome window per agent, beside the terminal (macOS, iTerm2, Chrome) |
-| `spaces` | Which pinned spaces exist, in sidebar order |
-| `runbookTools` | Extra tools the background runbook refresh may call |
+| `reposDir` | Where your checkouts live. New agent spaces start there. |
+| `github.org` | Only list your PRs from this org. Empty for all. |
+| `linear.teams` | Team keys to recognise in ticket mentions, on top of your tickets' own. |
+| `<connector>.server` | The connector's name in `claude mcp list`. |
+| `circleci.imageJob` | The job that builds the image a sandbox runs. Enables `sandbox` and `redeploy`. |
+| `backstage.*` | Deploys and sandboxes. Argo links come from the URL templates, new sandboxes from `sandboxDefaults`. |
+| `brief` | When the morning brief comes, and whether on weekends. |
+| `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
+| `recap` | How long you need to be away before the recap shows. |
+| `chromeSideWindow` | One Chrome window per agent (macOS, iTerm2, Chrome). |
+| `spaces` | Which pinned spaces exist, in sidebar order. |
+| `runbookTools` | Extra tools the runbook refresh may use. |
 
 ## Keys
 
-`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings. In the apps:
-`j`/`k` move between rows, `h`/`l` or Tab between buttons, Enter presses, `R` refreshes, `g` switches the inbox's
-ticket grouping between project and status.
+`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings.
 
-Screenshots are the real apps on fictional data; [`docs/screenshots`](docs/screenshots) regenerates them.
+In the apps: `j`/`k` rows, `h`/`l` or Tab buttons, Enter to press, `R` to refresh, `g` to group tickets by project
+or status.
+
+Screenshots show the real apps on made-up data. [`docs/screenshots`](docs/screenshots) regenerates them.
 
 ## License
 

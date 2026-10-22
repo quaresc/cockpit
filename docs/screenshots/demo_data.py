@@ -43,14 +43,15 @@ inbox = {
     "merged": [{"repo": "api", "slug": "acme/api", "url": "https://github.com/acme/api/pull/2190", "number": 2190,
                 "branch": "me/eng-412-quota-model", "mergeSha": "abc123", "mergedAt": iso(hours=20)}],
     "deploys": {"ENG-412": [{"repo": "api", "number": 2190, "tag": "v2026.10.22", "isLive": True}]},
-    "sandboxes": [{"stage": "preview-quotas", "product": "web", "branch": "me/eng-413-quota-ui", "health": "Healthy", "expiresAt": fut(hours=2)}],
+    "sandboxes": [{"stage": "preview-quotas", "product": "api", "branch": "me/eng-412-quota-model", "health": "Healthy", "expiresAt": fut(hours=30), "activated": True},
+                  {"stage": "preview-billing", "product": "billing", "branch": "me/eng-398-invoice-csv", "health": "Healthy", "expiresAt": fut(hours=2), "activated": True}],
     "deployLinks": {"api": {"argo": "https://argocd.example.com/applications/api", "workflow": {"url": "https://argo.example.com/w/1", "label": "v2026.10.22"}}},
 }
 ci = {"at": int(now.timestamp() * 1000), "version": 2, "runs": [
     {"repo": "web", "branch": "me/eng-414-quota-copy", "runId": "r1", "createdAt": iso(minutes=14), "isRunning": False, "outcome": "failed",
      "workflowId": "w1", "done": 9, "total": 9, "failed": {"job": "lint", "jobId": "j1", "step": "eslint", "tests": []}, "dockerTag": "skipped"},
-    {"repo": "web", "branch": "me/eng-413-quota-ui", "runId": "r2", "createdAt": iso(minutes=4), "isRunning": True, "outcome": "",
-     "workflowId": "w2", "done": 5, "total": 9},
+    {"repo": "web", "branch": "me/eng-413-quota-ui", "runId": "r2", "createdAt": iso(minutes=4), "isRunning": False, "outcome": "succeeded",
+     "workflowId": "w2", "done": 9, "total": 9, "dockerTag": "succeeded"},
     {"repo": "api", "branch": "me/eng-412-daily-quotas", "runId": "r3", "createdAt": iso(hours=1), "isRunning": False, "outcome": "succeeded",
      "workflowId": "w3", "done": 7, "total": 7, "dockerTag": "succeeded"}]}
 
@@ -65,6 +66,15 @@ meetings = {"at": int(now.timestamp() * 1000), "notified": [], "meetings": [
         ("1:1 with Maya", 1, 14, 0, 14, 30, "accepted", 2), ("Billing sync", 1, 16, 0, 16, 30, "tentative", 6),
         ("Team daily", 2, 9, 30, 9, 45, "accepted", 8), ("Sprint review", 2, 15, 0, 16, 0, "needsAction", 14)])]}
 
+os.makedirs(os.path.join(cache, "activity"), exist_ok=True)
+with open(os.path.join(cache, "activity", "w7.jsonl"), "w") as f:
+    for mins, kind, text in [(48, "edit", "src/settings/QuotaBanner.tsx"), (46, "edit", "src/settings/SearchForm.tsx"),
+                             (44, "command", "yarn test src/settings"), (41, "edit", "src/settings/QuotaBanner.test.tsx"),
+                             (38, "command", "yarn test src/settings"), (35, "turn", "The banner reads dailyLimit and usedToday and disables New search at the limit."),
+                             (20, "command", "yarn lint --fix"), (18, "command", "git commit -m \"Quota banner and disabled state\""),
+                             (17, "command", "git push"), (16, "turn", "Pushed to me/eng-413-quota-ui; CI is green and the image is built."),
+                             (5, "turn", "Should the banner also show on the mobile layout? The frame only covers desktop.")]:
+        f.write(json.dumps({"at": int((now - timedelta(minutes=mins)).timestamp() * 1000), "kind": kind, "text": text}) + "\n")
 with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox, f)
 with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
