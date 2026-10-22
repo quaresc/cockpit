@@ -14,42 +14,26 @@ trap 'rm -f "$DIR/$name.pending"' EXIT
 
 meeting=$(jq -c --arg id "$id" '.meetings[] | select(.id == $id)' "$CACHE/meetings.json")
 [ -n "$meeting" ] || exit 1
+calendar=$(jq -r '.calendar.server // "claude.ai Google Calendar"' "$CONFIG")
 linear=$(jq -r 'if .linear.enabled then .linear.server else empty end' "$CONFIG")
 prefix() { printf 'mcp__%s' "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/_/g')"; }
 
-set -- Write
+set -- Read Write "$(prefix "$calendar")__get_event"
 [ -n "$linear" ] && set -- "$@" "$(prefix "$linear")__get_issue" "$(prefix "$linear")__list_comments"
 for tool in $(jq -r '.meetingBrief.tools // [] | .[]' "$CONFIG"); do set -- "$@" "$tool"; done
 
-# Everything known locally goes in the prompt, so the model writes instead of searching: the event, my tickets the
-# meeting names (by key or project), their runbooks, and my PRs it names.
-text=$(printf '%s' "$meeting" | jq -r '"\(.title)\n\(.description // "")"' | sed 's/<[^>]*>/ /g')
-lower=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')
-tickets=$(jq -c --arg t "$lower" '
-  [.tickets[] | select((.id | ascii_downcase) as $id | $t | contains($id))]
-  + [.tickets[] | select(.project != null and (.project | length) >= 4 and ($t | contains(.project | ascii_downcase)))]
-  | unique_by(.id) | map({id, title, status, project})' "$CACHE/inbox.json" 2>/dev/null)
-prs=$(jq -c --arg t "$text" '[.mine[] | select(($t | contains(.url)) or ($t | contains("\(.repo)#\(.number)"))) | {repo, number, title, review, ci}]' "$CACHE/inbox.json" 2>/dev/null)
-books=""
-for id in $(printf '%s' "$tickets" | jq -r '.[]?.id' 2>/dev/null); do
-  book="$HOME/.config/cockpit/runbooks/$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]').md"
-  [ -f "$book" ] && books="$books
---- runbook $id
-$(head -30 "$book")"
-done
 # The live state of all my work, to check older notes against.
 live=$(jq -c '{tickets: [.tickets[] | {id, status}],
   open_prs: [.mine[] | {pr: "\(.repo)#\(.number)", branch, review, ci}],
   merged_prs: [(.merged // [])[] | {pr: "\(.repo)#\(.number)", branch, merged: .mergedAt[0:10]}],
   live_in_prod: (.deploys // {})}' "$CACHE/inbox.json" 2>/dev/null)
-event=$(printf '%s' "$meeting" | jq -c '{title, start, end, people, attachments, description: ((.description // "") | gsub("<[^>]*>"; " ") | .[0:1500])}')
 
-prompt="Write the brief for this meeting to $DIR/$name.md, so I come prepared. Work from what is below; open a linked
-Notion page or ticket only when it is essential and not covered here, at most two. No Slack, no web.
+prompt="Write the brief for this meeting to $DIR/$name.md, so I come prepared. Meeting, from my calendar:
+$meeting
 
-Meeting: $event
-My tickets it relates to: ${tickets:-[]}
-My PRs it names: ${prs:-[]}$books
+Read the full event with get_event (id $id) for its description and attachments. Open the Notion pages and tickets it
+links or names, with the tools you have; my assigned tickets and PRs are in $CACHE/inbox.json, and a ticket's runbook,
+when it has one, in ~/.config/cockpit/runbooks/<ticket lowercased>.md. Use nothing else: no Slack, no web.
 
 Live state of my work, fetched minutes ago: ${live:-{}}
 This live state and the runbooks are current. Memory notes and older documents can be stale: when they disagree
@@ -63,11 +47,11 @@ titles, no filler.
 - ## Where it stands: up to 3 bullets
 - ## Open questions: up to 2 bullets
 - ## Bring: up to 2 points or questions for me to raise
-- ## Links: up to 4 '- [short title](url)' lines; attachments go here by name
+- ## Links: up to 4 '- [short title](url)' lines; attachments you could not read go here by name
 Leave out a section with nothing to say. Write the file, then reply with nothing."
 model=$(jq -r '.meetingBrief.model // "sonnet"' "$CONFIG")
-cd "$REPOS" && claude -p "$prompt" --model "$model" --effort medium --permission-mode acceptEdits --add-dir "$DIR" \
-  --allowedTools "$@" </dev/null >"$CACHE/meeting-brief-$name.log" 2>&1
+cd "$REPOS" && claude -p "$prompt" --model "$model" --permission-mode acceptEdits --add-dir "$DIR" \
+  --add-dir "$HOME/.config/cockpit/runbooks" --add-dir "$CACHE" --allowedTools "$@" </dev/null >"$CACHE/meeting-brief-$name.log" 2>&1
 
 # Whatever came back: wrapped bullets joined, prose lines cut at 90 characters (link lines keep their URL),
 # 15 non-empty lines at most.
