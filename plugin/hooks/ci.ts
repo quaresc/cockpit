@@ -3,6 +3,8 @@ import type { EngineInterface } from 'claude-code'
 import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Sandbox } from '../types'
 
 import { cacheDir, fill, home, loadConfig } from './config'
+import { checkRequest } from './protocol'
+import type { Outcome } from './protocol'
 
 type $ = EngineInterface
 
@@ -298,14 +300,6 @@ export async function sandboxesFor($: $): Promise<Sandbox[]> {
 // ---------------------------------------------------------------------------
 // Requests the herdr inbox app drops in ~/.cache/cockpit/requests: CircleCI reruns, sandbox redeploys
 
-type Request =
-  | { type: 'rerun'; workflowId: string; label: string }
-  | { type: 'redeploy'; stage: string; product: string; label: string }
-  | { type: 'release'; ticket: string; label: string }
-  | { type: 'extend'; stage: string; days: number; label: string }
-  | { type: 'create-sandbox'; product: string; branch: string; label: string }
-  | { type: 'stop-sandbox'; stage: string; label: string }
-
 type SandboxFlags = {
   id: string
   activated: boolean
@@ -406,45 +400,56 @@ export async function processRequests($: $, onDone: () => void) {
     const claimed = `${dir}/claimed-${entry.name}`
     // mv is atomic: whichever session moves the file handles it.
     if ((await $.process.run(['mv', `${dir}/${entry.name}`, claimed])).exitCode !== 0) continue
-    const request = await readJson<Request>($, claimed)
+    const raw = await readJson<unknown>($, claimed)
     await $.process.run(['rm', '-f', claimed])
-    if (!request) continue
-    // The app waits for this file to show the outcome on the row it came from.
-    const result = (ok: boolean, message: string) =>
-      $.fs.write(`${dir}/results/${entry.name}`, JSON.stringify({ ok, message, at: Date.now() }))
+    if (raw === null) continue
+    // The app waits for this file to show the outcome on the row it came from; the .claimed marker says a session took it.
+    const results = `${dir}/results/${entry.name}`
+    const result = async (state: Outcome['state'], message: string) => {
+      const outcome: Outcome = { ok: state === 'done', state, message, at: Date.now() }
+      await $.fs.write(results, JSON.stringify(outcome))
+      await $.process.run(['rm', '-f', `${results}.claimed`])
+    }
+    const checked = checkRequest(raw)
+    if ('refusal' in checked) {
+      await result('refused', checked.refusal)
+      continue
+    }
+    const { request } = checked
+    await $.fs.write(`${results}.claimed`, String(Date.now()))
     try {
       if (request.type === 'rerun') {
         await mcp($, 'circleci', 'rerun_workflow', { workflow: request.workflowId, from_failed: true })
-        await result(true, 'rerun started')
+        await result('done', 'rerun started')
         await notify($, '🔁 CircleCI', `Rerunning failed jobs: ${request.label}`, 'space:inbox')
       } else if (request.type === 'redeploy') {
         await mcp($, 'platform', 'sandboxes_redeploy', { stage: request.stage, applications: [request.product] })
-        await result(true, 'redeploying')
+        await result('done', 'redeploying')
         await notify($, '🧪 Sandbox', `Redeploying ${request.product} on ${request.stage}`, await sandboxAction($, request.stage))
       } else if (request.type === 'create-sandbox') {
         const stage = await createSandbox($, request.product, request.branch)
-        await result(true, stage ? `creating ${stage}` : 'creating')
+        await result('done', stage ? `creating ${stage}` : 'creating')
         await notify($, '🧪 Sandbox', `Creating ${stage || 'a sandbox'} for ${request.product} ${request.branch}; a notification follows when it is up`, stage ? await sandboxAction($, stage) : 'space:inbox')
       } else if (request.type === 'stop-sandbox') {
         await mcp($, 'platform', 'sandboxes_activate', { stage: request.stage, activated: false })
-        await result(true, 'stopped')
+        await result('done', 'stopped')
         await notify($, '🧪 Sandbox', `${request.stage} stopped; it keeps its setup and extend switches it back on`, 'space:inbox')
       } else if (request.type === 'extend') {
         await extend($, request.stage, request.days)
-        await result(true, `extended by ${request.days} days`)
+        await result('done', `extended by ${request.days} days`)
         await notify($, '🧪 Sandbox', `${request.stage} extended by ${request.days} days and redeploying`, await sandboxAction($, request.stage))
       } else {
         const state = await release($, request.ticket)
         const url = (await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`))?.tickets.find(t => t.id === request.ticket)?.url
         await dropTicket($, request.ticket)
-        await result(true, `moved to ${state}`)
+        await result('done', `moved to ${state}`)
         await notify($, '🎫 Linear', `${request.ticket} moved to ${state}`, await ticketAction($, request.ticket, url))
       }
       // Whatever changed, the next fetch picks it up now rather than in five minutes.
       await $.process.run(['touch', `${await cacheDir($)}/refresh-request`])
       onDone()
     } catch (err) {
-      await result(false, shortError(err as Error))
+      await result('failed', shortError(err as Error))
       await notify($, '⚠️ Cockpit', `${request.label}: ${(err as Error).message}`, 'space:inbox')
     }
   }

@@ -39,7 +39,8 @@ A branch with a built image gets a `sandbox` button. A sandbox still running a m
 ### Runbook
 
 Merges, deploys, migrations and prod commands, in order. `run` hands a step back to the session that wrote it,
-`done` checks it off yourself.
+`done` checks it off yourself. The session reports how the step went with cockpit's `report_step` tool, which sets its
+status; the outcome shows under the step, `session` jumps to it meanwhile, and a session that forgets is reminded once.
 
 ![Runbook space](docs/runbook.svg)
 
@@ -93,8 +94,9 @@ herdr/    herdr plugin: the space apps, and the scripts herdr runs on events
 ```
 
 Network calls happen in your Claude sessions, one at a time thanks to a lock, and land in `~/.cache/cockpit`. The
-herdr apps only read those files. Their buttons leave requests that the next session carries out. Your own lists
-live in `~/.config/cockpit`.
+herdr apps only read those files. Their buttons leave requests that the next session checks against
+`plugin/hooks/protocol.ts`, carries out and answers. The apps share one terminal layer, `herdr/view.py`. Your own
+lists live in `~/.config/cockpit`.
 
 ## Configuration
 

@@ -9,18 +9,14 @@ requests the mod carries out. A row shows its buttons only while hovered or sele
 import json
 import os
 import re
-import select
-import signal
 import shlex
 import subprocess
-import sys
-import termios
 import time
-import tty
-import unicodedata
 from datetime import datetime, timezone
 
 import cockpit_config
+import view
+from view import BOLD, DIM, GREEN, HERDR, ORANGE, RED, Button, Line, asking, confirmed, fit, note, width
 
 HOME = os.path.expanduser("~")
 CONFIG = cockpit_config.load()
@@ -32,7 +28,6 @@ CI = os.path.join(CACHE, "ci.json")
 BRIEF = os.path.join(CACHE, "brief.json")
 REQUESTS = os.path.join(CACHE, "requests")
 MUTED = os.path.join(HOME, ".config", "cockpit", "muted.json")
-HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 
 
 def sandbox_url(stage):
@@ -43,14 +38,6 @@ OLD_REVIEW_DAYS = 60
 STALE_PR_DAYS = 30
 SANDBOX_WARN_HOURS = 3
 RED_ALERT_HOURS = 2
-
-# Vesper colours: warm orange accent, teal for good, red for broken, the rest dim.
-DIM, BOLD, RESET, INV = "\033[2m", "\033[1m", "\033[0m", "\033[7m"
-GREEN, RED, ORANGE = "\033[38;2;153;255;228m", "\033[38;2;255;128;128m", "\033[38;2;255;199;153m"
-HOVER = "\033[48;2;30;30;34m"
-PILL_MAIN = ("\033[38;2;255;199;153m", "\033[48;2;255;199;153m\033[38;2;16;16;16m")
-PILL = ("\033[38;2;44;44;48m", "\033[48;2;44;44;48m\033[38;2;210;210;210m")
-PILL_FOCUS = ("\033[38;2;245;245;245m", "\033[48;2;245;245;245m\033[38;2;16;16;16m\033[1m")
 
 # Nerd Font glyphs present in FiraCode Nerd Font 3.0.
 ICON = {
@@ -71,24 +58,6 @@ LEAD, REF, NOTES, AGE, ACTIONS = 4, 28, 16, 6, 46
 
 # ---------------------------------------------------------------------------
 # Text helpers
-
-
-def width(text):
-    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 0 if unicodedata.combining(c) else 1 for c in text)
-
-
-def fit(text, cells):
-    """Cuts or pads text to exactly `cells` terminal cells."""
-    if cells <= 0:
-        return ""
-    if width(text) <= cells:
-        return text + " " * (cells - width(text))
-    out = ""
-    for c in text:
-        if width(out + c) > cells - 1:
-            break
-        out += c
-    return out + "…" + " " * (cells - 1 - width(out))
 
 
 def age_days(iso):
@@ -142,13 +111,6 @@ def is_deploying(ticket):
     return ticket["statusType"] == "started" and bool(re.search("deploy", ticket["status"], re.I))
 
 
-def load(path, default):
-    try:
-        with open(path, encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        return default
-
 
 # ---------------------------------------------------------------------------
 # Actions
@@ -156,11 +118,6 @@ def load(path, default):
 
 def run(argv):
     return subprocess.run(argv, capture_output=True, text=True, timeout=15)
-
-
-def note(state, text):
-    state["note"] = text
-    state["note_at"] = time.time()
 
 
 def open_url(state, url):
@@ -239,46 +196,33 @@ def continue_ticket(state, ticket, prs):
     start_space(state, cwd, ticket["id"].lower(), prompt)
 
 
-def confirmed(state, key):
-    """True on the second click within 6 seconds; the first one turns the button into "sure?"."""
-    pending = state.get("confirm")
-    if pending and pending[0] == key and time.time() - pending[1] < 6:
-        state["confirm"] = None
-        return True
-    state["confirm"] = (key, time.time())
-    return False
-
-
-def asking(state, key, label):
-    """The label of a button waiting for its confirming click."""
-    pending = state.get("confirm")
-    return "sure?" if pending and pending[0] == key and time.time() - pending[1] < 6 else label
-
-
 def request(state, payload, row, working):
-    os.makedirs(REQUESTS, exist_ok=True)
     name = f"{int(time.time() * 1000)}-{payload['type']}.json"
-    path = os.path.join(REQUESTS, name)
-    with open(path + ".tmp", "w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
-    os.rename(path + ".tmp", path)
+    view.write_json(os.path.join(REQUESTS, name), payload)
     state["pending"][row] = {"file": name, "working": working, "label": payload["label"], "at": time.time()}
+
+
+# A request waits this long for a Claude session to take it, and this long in all for its outcome.
+CLAIM_WAIT, ANSWER_WAIT = 120, 600
 
 
 def settle(state):
     """Moves finished requests from pending to their outcome, read from the file the mod writes."""
     for row, job in list(state["pending"].items()):
         path = os.path.join(REQUESTS, "results", job["file"])
-        outcome = load(path, None)
+        outcome = view.load_json(path, None)
         if outcome is None:
-            if time.time() - job["at"] > 120:
-                state["outcome"][row] = {"ok": False, "message": "no Claude session picked it up", "at": time.time()}
+            waited, is_claimed = time.time() - job["at"], os.path.exists(path + ".claimed")
+            if waited > ANSWER_WAIT or (waited > CLAIM_WAIT and not is_claimed):
+                message = "the session that took it never answered" if is_claimed else "no Claude session picked it up"
+                state["outcome"][row] = {"ok": False, "message": message, "at": time.time()}
                 del state["pending"][row]
             continue
         os.remove(path)
         del state["pending"][row]
-        state["outcome"][row] = {**outcome, "at": time.time()}
-        note(state, f"{job['label']}: {outcome['message']}")
+        message = f"refused: {outcome['message']}" if outcome.get("state") == "refused" else outcome["message"]
+        state["outcome"][row] = {**outcome, "message": message, "at": time.time()}
+        note(state, f"{job['label']}: {message}")
     for row, outcome in list(state["outcome"].items()):
         if time.time() - outcome["at"] > 10:
             del state["outcome"][row]
@@ -319,7 +263,7 @@ def mark_done(state, ticket):
 
 
 def set_muted(state, repo, is_muted):
-    muted = set(load(MUTED, []))
+    muted = set(view.load_json(MUTED, []))
     muted = muted | {repo} if is_muted else muted - {repo}
     os.makedirs(os.path.dirname(MUTED), exist_ok=True)
     with open(MUTED, "w", encoding="utf-8") as handle:
@@ -329,11 +273,9 @@ def set_muted(state, repo, is_muted):
 
 def dismiss_brief(state):
     """Hides today's brief; tomorrow's shows again."""
-    brief = load(BRIEF, {})
+    brief = view.load_json(BRIEF, {})
     brief["dismissed"] = True
-    with open(BRIEF + ".tmp", "w", encoding="utf-8") as handle:
-        json.dump(brief, handle)
-    os.replace(BRIEF + ".tmp", BRIEF)
+    view.write_json(BRIEF, brief)
     note(state, "brief dismissed until tomorrow")
 
 
@@ -352,63 +294,10 @@ def toggle(state, group):
 # Layout: lines with clickable spans, and buttons drawn only on the active line
 
 
-class Line:
-    def __init__(self):
-        self.parts = []  # (text, style)
-        self.spans = []  # (start, end, action)
-        self.buttons = []  # (label, action, key, is_main)
-        self.button_spans = []
-        self.status = None  # (text, style): a request in flight or its outcome, shown instead of the buttons
-        self.primary = None
-
-    def add(self, text, style="", action=None):
-        start = sum(width(t) for t, _ in self.parts)
-        self.parts.append((text, style))
-        if action:
-            self.spans.append((start, start + width(text), action))
-        return self
-
-    def keys(self):
-        return {key: fn for _, fn, key, _ in self.buttons}
-
-    def render(self, cols, is_active, focus=-1):
-        # The buttons (or a request's status) sit at the right edge and cover the end of the row
-        # while it is active, so no column is reserved for them the rest of the time.
-        tail = []
-        if self.status:
-            tail = [self.status]
-        elif is_active and self.buttons:
-            for n, (label, fn, _, is_main) in enumerate(self.buttons):
-                cap, body = PILL_FOCUS if n == focus else PILL_MAIN if is_main else PILL
-                text = f"{ICON.get(label.split()[0], ICON['open'])} {label}"
-                tail += [("\ue0b6", cap, fn), (text, body, fn), ("\ue0b4", cap, fn), (" ", "", None)]
-        tail_width = sum(width(t[0]) for t in tail)
-        room_for_parts = cols - tail_width - (2 if tail else 0)
-        out, used = "", 0
-        for text, style in self.parts:
-            room = room_for_parts - used
-            if room <= 0:
-                break
-            piece = text if width(text) <= room else fit(text, room)
-            out += style + piece + RESET
-            used += width(piece)
-        out += " " * max(0, cols - tail_width - used)
-        self.button_spans = []
-        position = max(used, cols - tail_width)
-        for text, style, *action in tail:
-            out += style + text + RESET
-            if action and action[0]:
-                self.button_spans.append((position, position + width(text), action[0]))
-            position += width(text)
-        if is_active and self.primary:
-            out = HOVER + out.replace(RESET, RESET + HOVER) + RESET
-        return out
-
-
 def build(state, cols):
-    data = load(INBOX, None)
-    muted = set(load(MUTED, []))
-    ci = load(CI, {"runs": []})
+    data = view.load_json(INBOX, None)
+    muted = set(view.load_json(MUTED, []))
+    ci = view.load_json(CI, {"runs": []})
     runs = {(r["repo"], r["branch"]): r for r in ci.get("runs", [])}
     lines = []
 
@@ -452,24 +341,24 @@ def build(state, cols):
     # Header, then what needs attention now.
     updated = datetime.fromtimestamp(data["at"] / 1000).strftime("%H:%M")
     head = line().add(f"{ICON['inbox']}  ", ORANGE).add("Inbox", BOLD + ORANGE).add(f"   updated {updated}", DIM)
-    head.buttons = [("refresh", lambda: request_refresh(state), "R", False)]
+    head.buttons = [Button("refresh", lambda: request_refresh(state), "R", False)]
     head.primary = lambda: request_refresh(state)
     for error in data.get("errors", []) + ([ci["error"]] if ci.get("error") else []):
         line().add(error, RED)
 
     # The morning brief the mod writes once a day, until dismissed.
-    brief = load(BRIEF, {})
+    brief = view.load_json(BRIEF, {})
     if brief.get("date") == datetime.now().strftime("%Y-%m-%d") and not brief.get("dismissed") and brief.get("lines"):
         line()
         written = datetime.fromtimestamp(brief["at"] / 1000).strftime("%H:%M")
         top = line().add(f"{ICON['today']}  ", ORANGE).add("Today", BOLD + ORANGE).add(f"   morning brief, {written}", DIM)
-        top.buttons = [("dismiss", lambda: dismiss_brief(state), "x", False)]
+        top.buttons = [Button("dismiss", lambda: dismiss_brief(state), "x", False)]
         top.primary = lambda: dismiss_brief(state)
         for entry in brief["lines"]:
             style = {"bad": RED, "warn": ORANGE, "good": GREEN}.get(entry.get("tone"), "")
             item = line().add(" " * LEAD).add(f"{ICON.get(entry['icon'], '·')}  ", style or DIM).add(entry["text"], style)
             if entry.get("url"):
-                item.buttons = [("open", lambda u=entry["url"]: open_url(state, u), "o", True)]
+                item.buttons = [Button("open", lambda u=entry["url"]: open_url(state, u), "o", True)]
                 item.primary = lambda u=entry["url"]: open_url(state, u)
 
     alerts = []  # (text, style, url, stage to extend)
@@ -498,13 +387,13 @@ def build(state, cols):
         for text, style, url, stage in alerts:
             item = line().add(f" {ICON['alert']}  ", style).add(text, style)
             if isinstance(stage, tuple):
-                item.buttons.append((asking(state, f"stop-{stage[1]}", "stop"), lambda s=stage[1]: stop_sandbox(state, s), "a", True))
+                item.buttons.append(Button(asking(state, f"stop-{stage[1]}", "stop"), lambda s=stage[1]: stop_sandbox(state, s), "a", True))
                 row_status(item, f"sandbox-{stage[1]}")
             elif stage:
-                item.buttons.append((asking(state, f"extend-{stage}", "extend 2 days"), lambda stage=stage: extend(state, stage), "a", True))
+                item.buttons.append(Button(asking(state, f"extend-{stage}", "extend 2 days"), lambda stage=stage: extend(state, stage), "a", True))
                 row_status(item, f"sandbox-{stage}")
             if url:
-                item.buttons.append(("open", lambda url=url: open_url(state, url), "o", False))
+                item.buttons.append(Button("open", lambda url=url: open_url(state, url), "o", False))
                 item.primary = lambda url=url: open_url(state, url)
     line()
 
@@ -515,9 +404,9 @@ def build(state, cols):
         item.add(fit(f"{pr['repo']}#{pr['number']}", REF), DIM, lambda: details(state, pr))
         item.add(fit(pr["title"], title_room(LEAD + REF + 2)) + "  ", "", lambda: details(state, pr))
         item.add(fit(first_name(pr), NOTES), DIM).add(fit(ago(pr["updatedAt"]), AGE), DIM)
-        item.buttons = [("review", lambda: review(state, pr), "a", True), ("open", lambda: open_url(state, pr["url"]), "o", False)]
+        item.buttons = [Button("review", lambda: review(state, pr), "a", True), Button("open", lambda: open_url(state, pr["url"]), "o", False)]
         if not pr["isDirect"]:
-            item.buttons.append(("mute", lambda: set_muted(state, pr["repo"], True), "m", False))
+            item.buttons.append(Button("mute", lambda: set_muted(state, pr["repo"], True), "m", False))
         item.primary = lambda: details(state, pr)
 
     shown = [pr for pr in data["team"] if pr["repo"] not in muted]
@@ -580,30 +469,30 @@ def build(state, cols):
         item.add(fit("  ".join(notes), NOTES), ORANGE).add(fit(ago(pr["updatedAt"]), AGE), DIM)
         if state["choice"] == ("fix", pr["url"]):
             item.buttons = [
-                ("this PR", lambda: fix_ci(state, pr, ci_run, "here"), "a", True),
-                ("new PR", lambda: fix_ci(state, pr, ci_run, "new"), "n", False),
-                ("cancel", lambda: state.update(choice=None, btn=-1), "c", False),
+                Button("this PR", lambda: fix_ci(state, pr, ci_run, "here"), "a", True),
+                Button("new PR", lambda: fix_ci(state, pr, ci_run, "new"), "n", False),
+                Button("cancel", lambda: state.update(choice=None, btn=-1), "c", False),
             ]
         else:
             if is_failing(pr):
-                item.buttons.append(("fix ci", lambda: ask_fix(state, pr), "a", True))
+                item.buttons.append(Button("fix ci", lambda: ask_fix(state, pr), "a", True))
             if ci_run and ci_run.get("outcome") == "failed" and ci_run.get("workflowId") and not ci_run["isRunning"]:
-                item.buttons.append((asking(state, f"rerun-{ci_run['workflowId']}", "rerun"), lambda: rerun(state, pr, ci_run), "u", False))
+                item.buttons.append(Button(asking(state, f"rerun-{ci_run['workflowId']}", "rerun"), lambda: rerun(state, pr, ci_run), "u", False))
             if box and image_ready:
-                item.buttons.append((asking(state, f"redeploy-{box['stage']}-{box['product']}", "redeploy"), lambda: redeploy(state, box, pr["url"]),
+                item.buttons.append(Button(asking(state, f"redeploy-{box['stage']}-{box['product']}", "redeploy"), lambda: redeploy(state, box, pr["url"]),
                                      "d", not item.buttons))
             # A green image with no sandbox running it yet: one click creates one with the configured defaults.
             if not box and image_ready and CONFIG["platform"]["enabled"]:
-                item.buttons.append((asking(state, f"sandbox-{pr['repo']}-{pr.get('branch')}", "sandbox"), lambda: create_sandbox(state, pr),
+                item.buttons.append(Button(asking(state, f"sandbox-{pr['repo']}-{pr.get('branch')}", "sandbox"), lambda: create_sandbox(state, pr),
                                      "s", not item.buttons))
             # ArgoCD: the sandbox running this branch, else the production app; then its latest prod deploy.
             links = (data.get("deployLinks") or {}).get(pr["repo"]) or {}
             argo = (sandbox_url(box["stage"]) if box else None) or links.get("argo")
             if argo:
-                item.buttons.append(("argo", lambda: open_url(state, argo), "A", False))
+                item.buttons.append(Button("argo", lambda: open_url(state, argo), "A", False))
             if links.get("workflow"):
-                item.buttons.append(("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
-            item.buttons.append(("open", lambda: open_url(state, pr["url"]), "o", False))
+                item.buttons.append(Button("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
+            item.buttons.append(Button("open", lambda: open_url(state, pr["url"]), "o", False))
         item.primary = lambda: details(state, pr)
         row_status(item, pr["url"])
         if ci_run and ci_run.get("failed") and not ci_run["isRunning"]:
@@ -663,18 +552,18 @@ def build(state, cols):
         deployed = (data.get("deploys") or {}).get(ticket["id"]) or []
         if deploying:
             if deployed and all(d["isLive"] for d in deployed):
-                item.buttons.append((asking(state, f"done-{ticket['id']}", "done"), lambda: mark_done(state, ticket), "a", True))
+                item.buttons.append(Button(asking(state, f"done-{ticket['id']}", "done"), lambda: mark_done(state, ticket), "a", True))
         elif ticket["statusType"] == "started":
-            item.buttons.append(("continue", lambda: continue_ticket(state, ticket, prs), "a", True))
+            item.buttons.append(Button("continue", lambda: continue_ticket(state, ticket, prs), "a", True))
         else:
-            item.buttons.append(("plan", lambda: plan(state, ticket), "a", True))
+            item.buttons.append(Button("plan", lambda: plan(state, ticket), "a", True))
         if deploying and deployed:
             links = (data.get("deployLinks") or {}).get(deployed[0]["repo"]) or {}
             if links.get("argo"):
-                item.buttons.append(("argo", lambda: open_url(state, links["argo"]), "A", False))
+                item.buttons.append(Button("argo", lambda: open_url(state, links["argo"]), "A", False))
             if links.get("workflow"):
-                item.buttons.append(("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
-        item.buttons.append(("open", lambda: open_url(state, ticket["url"]), "o", False))
+                item.buttons.append(Button("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
+        item.buttons.append(Button("open", lambda: open_url(state, ticket["url"]), "o", False))
         item.primary = lambda: open_url(state, ticket["url"])
         row_status(item, ticket["id"])
         for done in deployed:
@@ -776,7 +665,7 @@ def build(state, cols):
     fold("stale", sum(len(pr_subtree(r)) for r in pr_groups[3]), f"stale, no update in {STALE_PR_DAYS} days", lambda: pr_rows(3))
 
     line()
-    if state["note"] and time.time() - state["note_at"] < 8:
+    if view.noted(state, 8):
         line().add(state["note"], ORANGE)
     else:
         line().add("hover a row for its buttons · click for details · j/k rows · h/l or tab buttons · enter press · a main action · o open · g group by · R refresh", DIM)
@@ -784,160 +673,43 @@ def build(state, cols):
 
 
 # ---------------------------------------------------------------------------
-# Terminal loop: alternate screen, SGR mouse with motion, redraw on input or file change
+# The loop
 
 
-def size():
-    try:
-        return os.get_terminal_size()
-    except OSError:
-        return os.terminal_size((120, 40))
-
-
-def active_index(state):
-    if state["has_keyboard"] and state["selectable"]:
-        return state["selectable"][state["sel"]]
-    return state["hover"]
-
-
-def draw(state):
-    cols, rows = size()
-    lines = build(state, cols)
-    state["lines"] = lines
-    selectable = [i for i, l in enumerate(lines) if l.primary]
-    state["selectable"] = selectable
-    if selectable:
-        state["sel"] = min(state["sel"], len(selectable) - 1)
-        if state["has_keyboard"]:
-            current = selectable[state["sel"]]
-            state["top"] = min(max(state["top"], current - rows + 1), current)
-    state["top"] = max(0, min(state["top"], max(0, len(lines) - rows)))
-    active = active_index(state)
-    out = ["\033[H"]
-    for row in range(rows):
-        index = state["top"] + row
-        line = lines[index] if index < len(lines) else None
-        focus = state["btn"] if state["has_keyboard"] and index == active and line else -1
-        if line and focus >= len(line.buttons):
-            focus = state["btn"] = len(line.buttons) - 1
-        text = line.render(cols, index == active, focus) if line else " " * cols
-        out.append(text + ("\r\n" if row < rows - 1 else ""))
-    sys.stdout.write("".join(out))
-    sys.stdout.flush()
-
-
-def click(state, x, y):
-    index = state["top"] + y - 1
-    if 0 <= index < len(state["lines"]):
-        line = state["lines"][index]
-        for start, end, action in line.button_spans + line.spans:
-            if start <= x - 1 < end:
-                action()
-                return
-
-
-def key(state, data):
-    selectable = state["selectable"]
-    current = state["lines"][selectable[state["sel"]]] if selectable else None
-    state["has_keyboard"] = True
-    buttons = current.buttons if current else []
-    if data in ("j", "k", "\033[B", "\033[A", "\033[6~", "\033[5~", " "):
-        state["btn"], state["choice"] = -1, None
-    if data in ("j", "\033[B"):
-        state["sel"] = min(state["sel"] + 1, max(0, len(selectable) - 1))
-    elif data in ("k", "\033[A"):
-        state["sel"] = max(state["sel"] - 1, 0)
-    elif data in ("\033[6~", " "):
-        state["sel"] = min(state["sel"] + 10, max(0, len(selectable) - 1))
-    elif data == "\033[5~":
-        state["sel"] = max(state["sel"] - 10, 0)
-    elif data in ("l", "\033[C", "\t") and buttons:
-        state["btn"] = min(state["btn"] + 1, len(buttons) - 1)
-    elif data in ("h", "\033[D", "\033[Z"):
-        state["btn"] = max(state["btn"] - 1, -1)
-    elif data in ("\r", "\n") and current:
-        if 0 <= state["btn"] < len(buttons):
-            buttons[state["btn"]][1]()
-        elif current.primary:
-            current.primary()
-    elif data == "\033" and state["choice"]:
+def on_key(state, data):
+    """Moving off a row drops its "fix ci" choice; Esc cancels it; R refreshes, g switches how tickets group."""
+    if data in ("j", "k", view.DOWN, view.UP, view.PAGE_DOWN, view.PAGE_UP):
+        state["choice"] = None
+        return False
+    if data == "\033" and state["choice"]:
         state["choice"], state["btn"] = None, -1
     elif data == "R":
         request_refresh(state)
     elif data == "g":
         state["work_mode"] = "status" if state["work_mode"] == "feature" else "feature"
-    elif current and data in current.keys():
-        current.keys()[data]()
-
-
-MOUSE = re.compile(r"\033\[<(\d+);(\d+);(\d+)([Mm])")
-
-
-def handle(state, data):
-    """Returns whether the screen needs drawing again."""
-    position, changed = 0, False
-    for match in MOUSE.finditer(data):
-        button, x, y, kind = int(match[1]), int(match[2]), int(match[3]), match[4]
-        if button == 64:
-            state["top"] = max(0, state["top"] - 3)
-            changed = True
-        elif button == 65:
-            state["top"] += 3
-            changed = True
-        elif button & 32:
-            index = state["top"] + y - 1
-            if index != state["hover"] or state["has_keyboard"]:
-                state["hover"], state["has_keyboard"], changed = index, False, True
-        elif button == 0 and kind == "M":
-            state["hover"], state["has_keyboard"] = state["top"] + y - 1, False
-            click(state, x, y)
-            changed = True
-        position = match.end()
-    rest = data[position:] if position else data
-    if rest and not rest.startswith("\033[<"):
-        key(state, rest)
-        changed = True
-    return changed
+    else:
+        return False
+    return True
 
 
 def stamp():
     return tuple(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (INBOX, MUTED, CI, BRIEF))
 
 
+def poll(state):
+    """Requests in flight are checked every second; the caches changing, and every 30 s for the ages, redraw."""
+    busy = bool(state["pending"] or state["outcome"] or state["confirm"])
+    settle(state)
+    seen = (stamp(), int(time.time() // 30))
+    if seen == state["seen"]:
+        return busy
+    state["seen"] = seen
+    return True
+
+
 def main():
-    state = {"open": set(), "sel": 0, "top": 0, "hover": -1, "note": "", "note_at": 0, "work_mode": "feature", "btn": -1, "choice": None, "pending": {}, "outcome": {},
-             "lines": [], "selectable": [], "has_keyboard": False}
-    # Stopped by a signal (an update restarting the app), it still restores the terminal on the way out.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
-    fd = sys.stdin.fileno()
-    saved = termios.tcgetattr(fd)
-    # 1003 reports every mouse move, which is what shows the hovered row's buttons.
-    sys.stdout.write("\033[?1049h\033[?25l\033[?1003h\033[?1006h\033]2;inbox\007")
-    try:
-        tty.setraw(fd)
-        seen, last_size, last_tick = None, None, None
-        while True:
-            now_stamp, now_size, tick = stamp(), size(), int(time.time() // 30)
-            # Requests in flight are checked every second, and a pending "sure?" expires on screen.
-            busy = bool(state["pending"] or state["outcome"] or state.get("confirm"))
-            settle(state)
-            if busy or (now_stamp, now_size, tick) != (seen, last_size, last_tick):
-                seen, last_size, last_tick = now_stamp, now_size, tick
-                if state.get("confirm") and time.time() - state["confirm"][1] >= 6:
-                    state["confirm"] = None
-                draw(state)
-            ready, _, _ = select.select([fd], [], [], 1.0)
-            if ready:
-                data = os.read(fd, 4096).decode("utf-8", "replace")
-                if data == "\x03":
-                    break
-                if handle(state, data):
-                    draw(state)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-        sys.stdout.write("\033[?1003l\033[?1006l\033[?25h\033[?1049l")
-        sys.stdout.flush()
+    state = view.new_state(open=set(), work_mode="feature", choice=None, pending={}, outcome={}, seen=None)
+    view.App("inbox", state, build, ICON, poll=poll, on_key=on_key).run()
 
 
 if __name__ == "__main__":

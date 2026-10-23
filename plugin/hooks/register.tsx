@@ -10,6 +10,7 @@ import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { maybeBrief } from './brief'
 import { nextMeeting, readMeetings, refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
+import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, reportStep, settleTurn } from './handoffs'
 
 const PANE = 'inbox'
 const STALE_MS = 5 * 60_000
@@ -659,6 +660,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'inbox', description: 'Toggle the PR review / Linear inbox pane' })
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
+    await $.tool.register(REPORT_SPEC).catch(() => undefined)
     $.clock.every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     $.clock.every(60_000, () => void refreshCi($).catch(() => undefined))
     $.clock.every(60_000, () => void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined))
@@ -726,6 +728,10 @@ export const register: Register = on => {
     return { text: 'Inbox opened.' }
   })
 
+  on('tool.call', { tool: REPORT_TOOL_FULL }, async ($, e) => reportStep($, e as unknown as Record<string, unknown>))
+  // It writes cockpit's own files and one runbook status cell, so it needs no permission prompt.
+  on('tool.check', { tool: REPORT_TOOL_FULL }, async () => ({ decision: 'allow' }))
+
   on('tool.call', async ($, e, next) => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
     const done = activityOf(String(e.tool), e as unknown as Record<string, unknown>, (await read($, work))?.dir ?? '')
@@ -738,6 +744,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) void refreshLinks($).catch(() => undefined)
     if (e.agentId === undefined && e.reason === 'answer') void notifyFinished($, e.durationMs, e.answer).catch(() => undefined)
+    if (e.agentId === undefined && e.reason === 'answer') void settleTurn($).catch(() => undefined)
     if (e.agentId === undefined && e.reason === 'answer') {
       const first = e.answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? ''
       void hereSoon($).then(here => logActivity($, here?.space, { kind: 'turn', text: first.slice(0, 200) })).catch(() => undefined)
@@ -747,6 +754,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     void refreshLinks($, e.text).catch(() => undefined)
+    void hereSoon($).then(here => bindHandoff($, e.text, here?.pane, e.origin?.kind === 'plugin')).catch(() => undefined)
     return next(e)
   })
 
