@@ -8,10 +8,10 @@ import { announceSandboxes, deployChanges, deploysFor, mcp, notify, processReque
 import { cacheDir, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { maybeBrief } from './brief'
-import { nextMeeting, readMeetings, refreshMeetings } from './meetings'
+import { refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, reportStep, settleTurn } from './handoffs'
-import { SHOW_SPEC, SHOW_TOOL_FULL, show } from './show'
+import { SHOW_SPEC, SHOW_TOOL_FULL, show, toggleView, viewsOf } from './show'
 
 const PANE = 'inbox'
 const STALE_MS = 5 * 60_000
@@ -26,7 +26,7 @@ const note = atom({ plugin: 'cockpit', key: 'note' } as const, '')
 const muted = atom({ plugin: 'cockpit', key: 'muted' } as const, [])
 const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 const usage = atom({ plugin: 'cockpit', key: 'usage' } as const, null)
-const meetingChip = atom({ plugin: 'cockpit', key: 'meeting' } as const, null)
+const views = atom({ plugin: 'cockpit', key: 'views' } as const, [])
 const ticket = atom({ plugin: 'cockpit', key: 'ticket' } as const, null)
 const links = atom({ plugin: 'cockpit', key: 'links' } as const, null)
 
@@ -266,7 +266,7 @@ const reportUsage = async ($: $, e: SessionMeasureInput) => {
     resetsAt: l.resetsAt,
   }))
   $.ui.status(undefined)
-  await update($, usage, () => ({ percent: context.percent, limits: limits.map(l => ({ name: l.name, percent: l.percent })) }))
+  await update($, usage, () => ({ limits: limits.map(l => ({ name: l.name, percent: l.percent })) }))
 
   if (limits.length > 0) {
     await $.fs.write(`${await cacheDir($)}/limits.json`, JSON.stringify({ at: Date.now(), limits }))
@@ -318,6 +318,12 @@ const conversationText = async ($: $) =>
     .map(m => `${m.text} ${m.toolUses.map(t => `${JSON.stringify(t.input)} ${(t.text ?? '').slice(0, 2000)}`).join(' ')}`)
     .join('\n')
 
+// This session's views for the footer, redrawn only when one appears, opens or hides.
+const refreshViews = async ($: $) => {
+  const next = await viewsOf($, await $.session.id())
+  if (JSON.stringify(next) !== JSON.stringify(await read($, views))) await update($, views, () => next)
+}
+
 // What this conversation works on: the ticket it names last (else its branch's), and the links it cites.
 const refreshLinks = async ($: $, prompt = '') => {
   const text = `${await conversationText($)}\n${prompt}`
@@ -352,26 +358,12 @@ const refreshLinks = async ($: $, prompt = '') => {
 // Nerd Font glyphs present in FiraCode Nerd Font 3.0 (no Figma, Notion or Linear logos: a palette, a boxed N, an issue).
 const ICON = {
   review: '\uf441', ok: '\uf49e', fail: '\uf52f', linear: '\uf41b', gauge: '\u{f029a}', branch: '\uf418',
-  circleci: '\ue78c', pr: '\uf407', figma: '\u{f03d8}', notion: '\u{f0b15}', slack: '\uf198', brain: '\u{f09d1}',
-  argo: '\u{f0833}', workflow: '\uf52e', calendar: '\uf455', app: '\uf0ac',
+  circleci: '\ue78c', pr: '\uf407', figma: '\u{f03d8}', notion: '\u{f0b15}', slack: '\uf198', view: '\uf080',
+  argo: '\u{f0833}', workflow: '\uf52e', app: '\uf0ac',
 }
 
 // A rounded pill: the caps take the fill colour as their foreground.
 const PILL = { main: { fill: '#FFC799', ink: '#101010' }, quiet: { fill: '#2C2C30', ink: '#D2D2D2' } }
-
-// The footer's meeting pill: the meeting running now, else the next one, its time said the short way.
-const drawMeeting = async ($: $) => {
-  const next = nextMeeting(await readMeetings($))
-  if (!next) return update($, meetingChip, () => null)
-  const start = new Date(next.start)
-  const until = (start.getTime() - Date.now()) / 60_000
-  const day = start.toDateString() === new Date().toDateString()
-    ? ''
-    : start.toDateString() === new Date(Date.now() + DAY_MS).toDateString() ? 'tomorrow ' : `${['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][start.getDay()]} `
-  const when = until <= 0 ? 'now' : until < 60 ? `in ${Math.ceil(until)}m` : `${day}${hhmm(next.start)}`
-  const title = next.title.length > 22 ? `${next.title.slice(0, 21)}…` : next.title
-  await update($, meetingChip, () => ({ label: `${ICON.calendar} ${when} · ${title}`, url: next.join ?? next.url, isSoon: until <= 15 }))
-}
 
 const glyph = (percent: number) => (percent < 12.5 ? '○' : percent < 37.5 ? '◔' : percent < 62.5 ? '◑' : percent < 87.5 ? '◕' : '●')
 
@@ -665,8 +657,10 @@ export const register: Register = on => {
     await $.tool.register(SHOW_SPEC).catch(() => undefined)
     $.clock.every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     $.clock.every(60_000, () => void refreshCi($).catch(() => undefined))
-    $.clock.every(60_000, () => void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined))
-    void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined)
+    $.clock.every(60_000, () => void refreshMeetings($).catch(() => undefined))
+    void refreshMeetings($).catch(() => undefined)
+    // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
+    $.clock.every(3_000, () => void refreshViews($).catch(() => undefined))
     $.clock.every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
     const beat = async () => {
       const current = await read($, work)
@@ -680,7 +674,7 @@ export const register: Register = on => {
     void refresh($, false)
     $.ui.status(undefined)
     void refreshLinks($).catch(() => undefined)
-    // Draw the footer and the agent row now, not after the next turn. A resumed session has no
+    // Draw the agent row now, not after the next turn. A resumed session has no
     // figure until its first response, so the window is estimated locally until then.
     void (async () => {
       const u = await $.session.usage()
@@ -733,7 +727,11 @@ export const register: Register = on => {
   on('tool.call', { tool: REPORT_TOOL_FULL }, async ($, e) => reportStep($, e as unknown as Record<string, unknown>))
   // It writes cockpit's own files and one runbook status cell, so it needs no permission prompt.
   on('tool.check', { tool: REPORT_TOOL_FULL }, async () => ({ decision: 'allow' }))
-  on('tool.call', { tool: SHOW_TOOL_FULL }, async ($, e) => show($, e as unknown as Record<string, unknown>, await herdrHere($)))
+  on('tool.call', { tool: SHOW_TOOL_FULL }, async ($, e) => {
+    const answer = await show($, e as unknown as Record<string, unknown>, await herdrHere($))
+    await refreshViews($).catch(() => undefined)
+    return answer
+  })
   // It writes the view to cockpit's cache and splits a pane beside this session, nothing else.
   on('tool.check', { tool: SHOW_TOOL_FULL }, async () => ({ decision: 'allow' }))
 
@@ -767,16 +765,16 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const current = await read($, usage)
     const found = await read($, links)
-    const meeting = await read($, meetingChip)
-    const percent = current?.percent
+    const shown = await read($, views)
     const tight = (current?.limits ?? []).filter(l => l.percent >= 50)
-    const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => (
-      <Button key={key} plain onPress={() => openUrl($, url)}>
+    const pill = (key: string, label: string, onPress: () => unknown, tone: keyof typeof PILL = 'quiet') => (
+      <Button key={key} plain onPress={onPress}>
         <Text color={PILL[tone].fill}>{'\ue0b6'}</Text>
         <Text backgroundColor={PILL[tone].fill} color={PILL[tone].ink}>{label}</Text>
         <Text color={PILL[tone].fill}>{'\ue0b4'}</Text>
       </Button>
     )
+    const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => openUrl($, url), tone)
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
@@ -788,17 +786,12 @@ export const register: Register = on => {
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
         {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}
-        {meeting && chip('lk-meeting', meeting.label, meeting.url, meeting.isSoon ? 'main' : 'quiet')}
+        {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)), v.isOpen ? 'main' : 'quiet'))}
         {tight.map(l => (
           <Text key={`lim-${l.name}`} color={l.percent >= 80 ? 'error' : 'warning'}>
             {l.name} {Math.round(l.percent)}%
           </Text>
         ))}
-        {percent !== undefined && (
-          <Text dimColor={percent < 70} color={percent >= 85 ? 'error' : percent >= 70 ? 'warning' : undefined}>
-            {ICON.brain} {Math.round(percent)}%
-          </Text>
-        )}
       </Box>
     )
   })
@@ -816,6 +809,7 @@ export const register: Register = on => {
       await update($, usage, () => null)
       await update($, ticket, () => null)
       await update($, links, () => null)
+      await update($, views, () => [])
     }
     const here = await herdrHere($).catch(() => undefined)
     if (here) {

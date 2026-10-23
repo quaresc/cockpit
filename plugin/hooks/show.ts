@@ -1,5 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
+import type { ViewChip } from '../types'
+
 import { cacheDir, loadConfig } from './config'
 
 type $ = EngineInterface
@@ -37,6 +39,8 @@ export const SHOW_SPEC = {
 }
 
 type Block = Record<string, unknown>
+type Placement = (typeof PLACEMENTS)[number]
+type Spec = { title: string; blocks: Block[]; at: number; session?: string; placement?: Placement }
 
 const isText = (v: unknown): v is string => typeof v === 'string'
 const list = (values: readonly string[]) => values.map(v => JSON.stringify(v)).join(', ')
@@ -78,7 +82,7 @@ function blockError(block: Block, at: string): string | undefined {
 export function viewError(input: Record<string, unknown>): string | undefined {
   if (!isText(input.pane) || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(input.pane)) return 'at /pane: a short name of lowercase letters, digits and dashes, such as quota-chart'
   if (!isText(input.title)) return 'at /title: a string'
-  if (input.placement !== undefined && !PLACEMENTS.includes(input.placement as (typeof PLACEMENTS)[number])) return `at /placement: one of ${list(PLACEMENTS)}`
+  if (input.placement !== undefined && !PLACEMENTS.includes(input.placement as Placement)) return `at /placement: one of ${list(PLACEMENTS)}`
   if (!Array.isArray(input.blocks) || input.blocks.length === 0) return 'at /blocks: a non-empty list of blocks'
   for (const [n, block] of (input.blocks as unknown[]).entries()) {
     if (typeof block !== 'object' || block === null) return `at /blocks/${n}: a block is an object with a type`
@@ -96,7 +100,7 @@ async function isOpen($: $, dir: string, name: string) {
   return /^\d+$/.test(pid) && (await $.process.run(['kill', '-0', pid])).exitCode === 0
 }
 
-async function openPane($: $, here: { pane: string }, name: string, placement: (typeof PLACEMENTS)[number]) {
+async function openPane($: $, here: { pane: string }, name: string, placement: Placement) {
   const script = `${(await loadConfig($)).herdrPluginRoot}/show.py`
   if (!(await $.fs.stat(script).then(() => true, () => false))) return `the cockpit herdr plugin has no ${script} yet: update it`
   const split = await $.process.run(['herdr', 'pane', 'split', here.pane, '--direction', placement === 'down' ? 'down' : 'right'], { timeoutMs: 10_000 })
@@ -115,10 +119,42 @@ export async function show($: $, input: Record<string, unknown>, here: { pane: s
   if (error) return { deny: error }
   const name = input.pane as string
   const dir = `${await cacheDir($)}/show`
-  const spec = { title: input.title, blocks: input.blocks, at: Date.now() }
+  const placement = (input.placement as Placement | undefined) ?? 'right'
+  const spec: Spec = { title: input.title as string, blocks: input.blocks as Block[], at: Date.now(), session: await $.session.id(), placement }
   await $.fs.write(`${dir}/${name}.json`, JSON.stringify(spec))
   if (await isOpen($, dir, name)) return { result: `Updated the ${name} pane.` }
   if (!here) return { result: `Wrote the view to ${dir}/${name}.json, but this session is not in herdr, so no pane opened.` }
-  const failure = await openPane($, here, name, (input.placement as (typeof PLACEMENTS)[number] | undefined) ?? 'right')
-  return failure ? { deny: failure } : { result: `Opened the ${name} pane beside this session; q in it closes it.` }
+  const failure = await openPane($, here, name, placement)
+  return failure ? { deny: failure } : { result: `Opened the ${name} pane beside this session; q hides it, its footer chip brings it back.` }
+}
+
+// ---------------------------------------------------------------------------
+// The footer chips: this session's latest views, open or hidden
+
+const CHIPS = 3
+const KEEP_MS = 7 * 86_400_000
+
+export async function viewsOf($: $, session: string): Promise<ViewChip[]> {
+  const dir = `${await cacheDir($)}/show`
+  const entries = (await $.fs.list(dir).catch(() => [])).filter(e => e.name.endsWith('.json'))
+  const specs = await Promise.all(entries.map(async e => {
+    const spec = JSON.parse(await $.fs.read(`${dir}/${e.name}`).catch(() => 'null')) as Spec | null
+    return spec && { ...spec, name: e.name.slice(0, -5) }
+  }))
+  // A week-old view is gone for good, chip and file.
+  for (const spec of specs) if (spec && Date.now() - spec.at > KEEP_MS) await $.process.run(['rm', '-f', `${dir}/${spec.name}.json`])
+  const mine = specs.filter((s): s is Spec & { name: string } => s !== null && s.session === session).sort((a, b) => b.at - a.at).slice(0, CHIPS)
+  return Promise.all(mine.map(async s => ({ name: s.name, isOpen: await isOpen($, dir, s.name) })))
+}
+
+// A chip's press: an open view's pane closes, a hidden one opens again where it was.
+export async function toggleView($: $, name: string, here: { pane: string } | undefined) {
+  const dir = `${await cacheDir($)}/show`
+  if (await isOpen($, dir, name)) {
+    const pid = (await $.fs.read(`${dir}/${name}.pid`)).trim()
+    await $.process.run(['kill', pid])
+    return
+  }
+  const spec = JSON.parse(await $.fs.read(`${dir}/${name}.json`).catch(() => 'null')) as Spec | null
+  if (spec && here) await openPane($, here, name, spec.placement ?? 'right')
 }

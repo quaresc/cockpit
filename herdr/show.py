@@ -2,7 +2,7 @@
 """A view a Claude session shows beside itself: markdown, tables, charts and diffs, from ~/.cache/cockpit/show/<name>.json.
 
 The cockpit mod's show tool writes that file and opens this app in a herdr pane split from the session's own. Each later
-call with the same name rewrites the file and the pane redraws; a repo diff also follows the working tree. q closes it.
+call with the same name rewrites the file and the pane redraws; a repo diff also follows the working tree. q hides it.
 """
 
 import atexit
@@ -379,9 +379,9 @@ def build(state, cols):
         elif kind == "diff":
             diff(block, cols, line, state, n)
     line()
-    files = " · j/k files · enter folds a file" if any(b["type"] == "diff" for b in spec.get("blocks", [])) else ""
+    files = " · j/k files · enter folds" if any(b["type"] == "diff" for b in spec.get("blocks", [])) else ""
     files += " · r reviewr" if state["review"] else ""
-    line().add(view.noted(state) or f"q close · space/b page · g/G top/bottom{files}", DIM)
+    line().add(view.noted(state) or f"q hide · space/b page · g/G top/bottom{files}", DIM)
     return lines
 
 
