@@ -1,8 +1,8 @@
 id = "cockpit"
 name = "Cockpit"
-version = "0.6.12"
+version = "0.6.13"
 min_herdr_version = "0.7.5"
-description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, a Chrome window per agent"
+description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, links opened in terminal-browser beside the agent"
 platforms = ["macos", "linux"]
 
 [[startup]]
@@ -41,10 +41,6 @@ command = ["sh", "pin-spaces.sh"]
 
 [[startup]]
 command = ["sh", "ensure-spaces.sh"]
-
-[[events]]
-on = "tab.focused"
-command = ["sh", "chrome-side.sh", "sync"]
 
 [[events]]
 on = "tab.focused"

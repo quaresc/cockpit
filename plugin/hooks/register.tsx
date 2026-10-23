@@ -604,16 +604,11 @@ const startSpace = async ($: $, cwd: string, label: string, command: string) => 
   await update($, note, () => `started "${label}"`)
 }
 
-let chromeClaimedAt = 0
-
-const claimChrome = async ($: $) => {
-  // One claim every 30 s is enough: it also brings the window back after another space hid it.
-  if (Date.now() - chromeClaimedAt < 30_000) return
-  const { chromeSideWindow, herdrPluginRoot } = await loadConfig($)
-  const here = chromeSideWindow && herdrPluginRoot ? await herdrHere($) : undefined
-  if (!here) return
-  await $.process.run(['sh', `${herdrPluginRoot}/chrome-side.sh`, 'claim', here.space], { timeoutMs: 30_000 })
-  chromeClaimedAt = Date.now()
+// A link beside the conversation: terminal-browser split right of this session's pane when the config turns it on.
+const browse = async ($: $, url: string) => {
+  const { terminalBrowser, herdrPluginRoot } = await loadConfig($)
+  if (!terminalBrowser || !herdrPluginRoot) return openUrl($, url)
+  return $.process.run(['sh', `${herdrPluginRoot}/browse.sh`, url, await $.session.id()], { timeoutMs: 20_000 })
 }
 
 const repoDir = async ($: $, pr: Pr) => {
@@ -748,8 +743,6 @@ export const register: Register = on => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
     const done = activityOf(String(e.tool), e as unknown as Record<string, unknown>, (await read($, work))?.dir ?? '')
     if (done && e.agentId === undefined) void hereSoon($).then(here => logActivity($, here?.space, done)).catch(() => undefined)
-    // Browser work gets this space's own Chrome window beside the terminal, Chrome opened if needed.
-    if (String(e.tool).startsWith('mcp__claude-in-chrome__')) await claimChrome($).catch(() => undefined)
     return next(e)
   })
 
@@ -783,18 +776,18 @@ export const register: Register = on => {
         <Text color={PILL[tone].fill}>{'\ue0b4'}</Text>
       </Button>
     )
-    const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => openUrl($, url), tone)
-    // A ticket, PR, page, thread or design opens in a pane beside the session; `o` there still opens the browser.
+    const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => browse($, url), tone)
+    // A ticket or a page opens in a pane beside the session, where it reads as text; `o` there still opens the browser.
     const reader = (key: string, label: string, kind: ReaderKind, ref: string, url: string, tone: keyof typeof PILL = 'quiet') =>
       pill(key, label, () => hereSoon($).then(here => openReader($, kind, ref, url, here)).then(() => refreshViews($)), tone)
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
         {found?.id && reader('lk-linear', `${ICON.linear} ${found.id}`, 'linear', found.id, found.url, 'main')}
-        {found?.pr && reader('lk-pr', `${ICON.pr} ${found.pr.number}`, 'pr', found.pr.url, found.pr.url)}
-        {found?.figma && reader('lk-figma', `${ICON.figma} figma`, 'figma', found.figma, found.figma)}
+        {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url)}
+        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma)}
         {found?.notion && reader('lk-notion', `${ICON.notion} notion`, 'notion', found.notion, found.notion)}
-        {found?.slack && reader('lk-slack', `${ICON.slack} slack`, 'slack', found.slack, found.slack)}
+        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
         {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}

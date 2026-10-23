@@ -46,6 +46,11 @@ SERIES = [ORANGE, GREEN, BLUE, PINK, RED]
 # Text: inline Markdown, wrapped to the pane
 
 
+def browse(url):
+    """A link from this pane, opened beside the session that showed it (terminal-browser when the config asks for it)."""
+    cockpit_config.browse(url, view.load_json(SPEC, {}).get("session"))
+
+
 INLINE = re.compile(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(<?(https?://[^)\s>]+)>?\)")
 
 
@@ -60,7 +65,7 @@ def inline(text, style=""):
         elif match[2] is not None:
             out.append((match[2], ORANGE, None))
         else:
-            out.append((match[3], style + LINK, lambda url=match[4]: cockpit_config.open_url(url)))
+            out.append((match[3], style + LINK, lambda url=match[4]: browse(url)))
         position = match.end()
     if position < len(text):
         out.append((text[position:], style, None))
@@ -424,7 +429,7 @@ def ci(block, cols, line):
                if p["repo"] == block["repo"] and p.get("branch") == block["branch"]), None)
     head = line().add(f"  {block['repo']} · {block['branch']}", BOLD)
     if pr:
-        head.add(f"   #{pr['number']} {pr['title']}", DIM, lambda: cockpit_config.open_url(pr["url"]))
+        head.add(f"   #{pr['number']} {pr['title']}", DIM, lambda: browse(pr["url"]))
     if not run:
         line().add("  no CircleCI run known for this branch yet", DIM)
         return
@@ -712,7 +717,7 @@ def on_key(state, data):
         state["review"]()
         return True
     if data == "o" and (state["spec"] or {}).get("url"):
-        cockpit_config.open_url(state["spec"]["url"])
+        browse(state["spec"]["url"])
         note(state, f"opened {state['spec']['url']}")
         return True
     if data not in moves:
