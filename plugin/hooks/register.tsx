@@ -4,8 +4,9 @@ import type { EngineInterface, Register, RenderChildren, SessionMeasureInput } f
 import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../types'
 
 import { activityOf, clashWith, logActivity } from './activity'
+import { browse } from './browser'
 import { announceSandboxes, deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, startDeployWatch, ticketAction, withLock } from './ci'
-import { cacheDir, home, loadConfig } from './config'
+import { cacheDir, fill, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { maybeBrief } from './brief'
 import { refreshMeetings } from './meetings'
@@ -109,13 +110,13 @@ const herdr = ($: $, args: string[]) => $.process.run(['herdr', ...args], { time
 
 const isInHerdr = async ($: $) => (await $.env.get('HERDR_ENV')) === '1'
 
-// The pane and space this session sits in now; a pane moved to another space gets a new id.
+// The pane, tab and space this session sits in now; a pane moved to another space gets a new id.
 const herdrHere = async ($: $) => {
   if (!(await isInHerdr($))) return undefined
   const { exitCode, stdout } = await herdr($, ['pane', 'current', '--current'])
   if (exitCode !== 0) return undefined
-  const pane = JSON.parse(stdout)?.result?.pane as { pane_id: string; workspace_id: string } | undefined
-  return pane && { pane: pane.pane_id, space: pane.workspace_id }
+  const pane = JSON.parse(stdout)?.result?.pane as { pane_id: string; tab_id: string; workspace_id: string } | undefined
+  return pane && { pane: pane.pane_id, tab: pane.tab_id, space: pane.workspace_id }
 }
 
 // herdrHere for every tool call would be one herdr call each: the answer is kept a minute.
@@ -577,16 +578,9 @@ const requestRunbookRefresh = async ($: $, id: string, reason: string) => {
 // ---------------------------------------------------------------------------
 // Actions: peek in a herdr popup, open in the browser, or start Claude in a new space
 
-let platform: string | undefined
-
-const openUrl = async ($: $, url: string) => {
-  platform ??= (await $.process.run(['uname'])).stdout.trim()
-  return $.process.run([platform === 'Darwin' ? 'open' : 'xdg-open', url])
-}
-
 const peek = async ($: $, pr: Pr) => {
   const opened = await herdr($, ['plugin', 'pane', 'open', '--plugin', 'cockpit', '--entrypoint', 'peek', '--placement', 'popup', '--env', `PEEK_URL=${pr.url}`])
-  if (opened.exitCode !== 0) await openUrl($, pr.url)
+  if (opened.exitCode !== 0) await browse($, pr.url, { size: 0.6 })
 }
 
 const startSpace = async ($: $, cwd: string, label: string, command: string) => {
@@ -604,11 +598,42 @@ const startSpace = async ($: $, cwd: string, label: string, command: string) => 
   await update($, note, () => `started "${label}"`)
 }
 
-// A link beside the conversation: terminal-browser split right of this session's pane when the config turns it on.
-const browse = async ($: $, url: string) => {
-  const { terminalBrowser, herdrPluginRoot } = await loadConfig($)
-  if (!terminalBrowser || !herdrPluginRoot) return openUrl($, url)
-  return $.process.run(['sh', `${herdrPluginRoot}/browse.sh`, url, await $.session.id()], { timeoutMs: 20_000 })
+// The page terminal-browser shows beside this session, for the model to know what "this page" is; undefined without one.
+const pageBeside = async ($: $) => {
+  if ((await loadConfig($)).terminalBrowser === false) return undefined
+  const here = await hereSoon($)
+  if (!here) return undefined
+  const listed = await $.process.run(['sh', '-c', 'PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH" exec terminal-browser ls --json'], {
+    env: { HERDR_PANE_ID: here.pane, HERDR_TAB_ID: here.tab },
+    timeoutMs: 2_000,
+  }).catch(() => undefined)
+  if (listed?.exitCode !== 0) return undefined
+  const browsers = (JSON.parse(listed.stdout) as { browsers?: { tabs?: { url: string; title?: string; active?: boolean }[] }[] }).browsers ?? []
+  return browsers.flatMap(b => b.tabs ?? []).find(t => t.active)
+}
+
+let toldPage = ''
+
+// Once per page: the next prompt carries the page beside the session, so "this page" means it.
+const pageContext = async ($: $) => {
+  const page = await pageBeside($).catch(() => undefined)
+  if (!page || page.url === toldPage) return []
+  toldPage = page.url
+  return [`The browser beside this conversation shows "${page.title || page.url}" at ${page.url}. ` +
+    'When the person says "this page" they mean it; read or drive it with `terminal-browser action -- snapshot` (the side-browser skill).']
+}
+
+const toolPrefix = (server: string) => `mcp__${server.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/_$/, '')}`
+
+// After this session creates, redeploys or updates a sandbox, its ArgoCD page opens beside it to follow the rollout.
+const followSandbox = async ($: $, tool: string, args: Record<string, unknown>, text: string) => {
+  const { backstage } = await loadConfig($)
+  if (!backstage.enabled || !tool.startsWith(`${toolPrefix(backstage.server)}__sandbox-manager_`)) return
+  if (!/_(create|redeploy|update)-sandbox$/.test(tool)) return
+  const prefix = backstage.stagePrefix.replace(/[^a-z0-9-]/gi, '')
+  const named = typeof args.stage === 'string' ? args.stage : prefix ? text.match(new RegExp(`\\b${prefix}[a-z0-9-]+`))?.[0] : undefined
+  const url = named ? fill(backstage.sandboxArgoUrl, { stage: named }) : undefined
+  if (url) await browse($, url, { size: 0.5 })
 }
 
 const repoDir = async ($: $, pr: Pr) => {
@@ -743,7 +768,9 @@ export const register: Register = on => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
     const done = activityOf(String(e.tool), e as unknown as Record<string, unknown>, (await read($, work))?.dir ?? '')
     if (done && e.agentId === undefined) void hereSoon($).then(here => logActivity($, here?.space, done)).catch(() => undefined)
-    return next(e)
+    const out = await next(e)
+    if (!out.deny && !out.isError) void followSandbox($, String(e.tool), e as unknown as Record<string, unknown>, out.text ?? '').catch(() => undefined)
+    return out
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -760,7 +787,8 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     void refreshLinks($, e.text).catch(() => undefined)
     void hereSoon($).then(here => bindHandoff($, e.text, here?.pane, e.origin?.kind === 'plugin')).catch(() => undefined)
-    return next(e)
+    const page = e.command || e.origin?.kind !== 'composer' ? [] : await pageContext($)
+    return next(page.length > 0 ? { ...e, context: [...(e.context ?? []), ...page] } : e)
   })
 
   on('ui.render', { component: 'SessionMode' }, async ($, e) => {
@@ -776,7 +804,7 @@ export const register: Register = on => {
         <Text color={PILL[tone].fill}>{'\ue0b4'}</Text>
       </Button>
     )
-    const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => browse($, url), tone)
+    const chip = (key: string, label: string, url: string, size: number, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => browse($, url, { size }), tone)
     // A ticket or a page opens in a pane beside the session, where it reads as text; `o` there still opens the browser.
     const reader = (key: string, label: string, kind: ReaderKind, ref: string, url: string, tone: keyof typeof PILL = 'quiet') =>
       pill(key, label, () => hereSoon($).then(here => openReader($, kind, ref, url, here)).then(() => refreshViews($)), tone)
@@ -784,13 +812,13 @@ export const register: Register = on => {
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
         {found?.id && reader('lk-linear', `${ICON.linear} ${found.id}`, 'linear', found.id, found.url, 'main')}
-        {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url)}
-        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma)}
+        {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url, 0.6)}
+        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma, 0.6)}
         {found?.notion && reader('lk-notion', `${ICON.notion} notion`, 'notion', found.notion, found.notion)}
-        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
-        {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
-        {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
-        {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}
+        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack, 0.45)}
+        {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url, 0.5)}
+        {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url, 0.5)}
+        {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url, 0.6)}
         {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)), v.isOpen ? 'main' : 'quiet'))}
         {tight.map(l => (
           <Text key={`lim-${l.name}`} color={l.percent >= 80 ? 'error' : 'warning'}>
@@ -877,7 +905,7 @@ export const register: Register = on => {
         {prLabel(pr, pr.isDirect ? '•' : '·', width - 3 - 19 - meta - 23)}
         <Text dimColor> {cut(meta > 6 ? `${pr.author} ${ago(pr.updatedAt)}` : ago(pr.updatedAt), meta - 2)} </Text>
         <Button key={`rv-${pr.url}`} label="rev" onPress={() => reviewPr($, pr)} />
-        <Button key={`op-${pr.url}`} label="web" onPress={() => openUrl($, pr.url)} />
+        <Button key={`op-${pr.url}`} label="web" onPress={() => browse($, pr.url, { size: 0.6 })} />
         {!pr.isDirect && <Button key={`mu-${pr.url}`} label="mute" onPress={() => setMuted($, pr.repo, true)} />}
       </Box>
     )
@@ -887,7 +915,7 @@ export const register: Register = on => {
         {prLabel(pr, prIcons(pr), width - 5 - 19 - 22)}
         <Text dimColor> {cut(ago(pr.updatedAt), 4)}</Text>
         {isFailing(pr) && <Button key={`ci-${pr.url}`} label="why?" onPress={() => investigateCi($, pr)} />}
-        <Button key={`op-${pr.url}`} label="web" onPress={() => openUrl($, pr.url)} />
+        <Button key={`op-${pr.url}`} label="web" onPress={() => browse($, pr.url, { size: 0.6 })} />
       </Box>
     )
 
@@ -895,7 +923,7 @@ export const register: Register = on => {
       const pr = prForTicket(data, t)
       return (
         <Box key={`t-${t.id}`} flexDirection="row">
-          <Button key={`tk-${t.id}`} plain onPress={() => openUrl($, t.url)}>
+          <Button key={`tk-${t.id}`} plain onPress={() => browse($, t.url)}>
             <Text color="suggestion">{cut(t.id, 10)} </Text>
             <Text dimColor>{cut(t.status, 16)} </Text>
             <Text>{cut(t.title, width - 11 - 17 - 12 - 11)}</Text>
