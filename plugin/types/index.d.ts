@@ -45,7 +45,10 @@ export type TicketLinks = {
   at: number
 }
 
-export type Usage = { percent?: number; limits: { name: string; percent: number }[] }
+export type Usage = { limits: { name: string; percent: number }[] }
+
+// A view the show tool opened, as its footer chip: open in a pane, or hidden and one press away.
+export type ViewChip = { name: string; isOpen: boolean }
 
 export type Inbox = {
   at: number
@@ -129,7 +132,7 @@ declare module 'claude-code' {
       usage: Usage | null
       ticket: string | null
       links: TicketLinks | null
-      meeting: { label: string; url: string; isSoon: boolean } | null
+      views: ViewChip[]
     }
   }
 }

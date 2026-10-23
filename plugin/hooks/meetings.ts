@@ -155,11 +155,3 @@ export function refreshMeetings($: $, isForced = false) {
   })()
   return inflight
 }
-
-// The meeting to show in a session's footer: the one running now, else the next one today or later.
-export function nextMeeting(state: MeetingsState | null) {
-  const now = Date.now()
-  return (state?.meetings ?? [])
-    .filter(m => Date.parse(m.end) > now)
-    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))[0]
-}
