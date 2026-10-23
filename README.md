@@ -11,8 +11,9 @@ One agent per space, a few pinned spaces for everything around the code, and the
   CI, or when another agent is on the same branch. The inbox space shows reviews, CI, tickets and plan limits.
 - **Footer.** Links to the ticket, PR, Figma, Notion, Slack thread, Argo and sandbox the conversation is about, plus
   a chip per view the agent showed: press it to hide or bring back that pane.
-- **Show.** Ask an agent for a chart, a table or a diff and it opens in a pane beside the conversation, like an
-  artifact: query results as line or bar charts, a repo's diff following the working tree.
+- **Show.** Ask an agent for a chart, a table, a flow chart or a diff and it opens in a pane beside the conversation,
+  like an artifact: query results as line or bar charts, processes as laid-out flow charts, a repo's diff following the
+  working tree.
 - **Inbox.** Review requests, then your tickets by project with their stacked PRs, CI, deploys and sandboxes.
 - **Runbook.** `/runbook` writes down what's left to ship a ticket and keeps it up to date.
 - **To-do and meetings.** A Markdown to-do list (`/todo <text>` from any session) and your calendar.
@@ -52,10 +53,15 @@ It refreshes in the background, and by itself when the ticket goes live. Steps t
 
 ### Show
 
-Ask for a chart, a table or a diff, and the agent draws it in a herdr pane beside the conversation with cockpit's
-`show` tool. Asking again updates the same pane. `q` hides it to a chip in the footer, and the chip brings it back.
+Ask for a chart, a table, a flow chart or a diff, and the agent draws it in a herdr pane beside the conversation with
+cockpit's `show` tool. Asking again updates the same pane. `q` hides it to a chip in the footer, and the chip brings it back.
 
 ![An agent charts a query beside the conversation, then the pane hides to its footer chip and comes back](docs/show.svg)
+
+A flow chart is nodes and edges: the pane lays them out top to bottom or left to right, routes the arrows and runs
+loops around the side.
+
+![A flow chart with a decision and a loop back](docs/show-flow.svg)
 
 A repo diff follows the working tree as the agent edits. With [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr)
 installed, its `reviewr` button opens the same changes for line comments that go back to the agent.

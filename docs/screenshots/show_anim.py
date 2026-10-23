@@ -1,5 +1,5 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
-back. Also a still of a repo diff with its reviewr button. Both from fictional data, the panes drawn by the real show.py."""
+back. Also stills of a flow chart and of a repo diff with its reviewr button, from fictional data, drawn by the real show.py."""
 import json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import run, rows_svg, screen_of, svg, window
@@ -107,6 +107,18 @@ for i, (duration, screen) in enumerate(frames):
 body = rows_svg(frames[0][1], range(ROWS), chars) + "".join(layers)
 open(os.path.join(OUT, "show.svg"), "w").write(window(COLS, ROWS, "herdr · show", chars, body, style))
 print(len(frames), "frames,", f"{anim:.1f}s loop")
+
+# The flow chart still: a sign-in that refreshes an expired token, with a loop back.
+N = lambda i, label, kind="box": {"id": i, "label": label, "kind": kind}
+E = lambda a, b, label=None: {"from": a, "to": b, **({"label": label} if label else {})}
+signin = {"title": "Calling the API", "blocks": [{"type": "flow", "nodes": [
+    N("req", "Request from the app", "round"), N("valid", "Access token valid?", "decision"), N("api", "Call the API"),
+    N("refresh", "Refresh the token"), N("login", "Send to sign-in", "round"), N("done", "Show the data", "round")],
+    "edges": [E("req", "valid"), E("valid", "api", "yes"), E("valid", "refresh", "no"), E("refresh", "valid", "new token"),
+              E("refresh", "login", "refused"), E("api", "done")]}]}
+chart_flow = pane("flow", signin, 72, 30)
+used = max(y for y in range(30) if "".join(chart_flow.buffer[y][x].data for x in range(72)).strip()) + 1
+open(os.path.join(OUT, "show-flow.svg"), "w").write(svg(chart_flow, "show · flow", crop_rows=used))
 
 # The diff still: a small repo with work in progress, reviewr installed so the header carries its button.
 repo = os.path.join(HOME, "code", "web")
