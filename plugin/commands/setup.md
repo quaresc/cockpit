@@ -10,7 +10,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 
 3. **Connectors.** Run `claude mcp list` and note the exact names of the connected servers for Linear, CircleCI, Google Calendar and Platform, if any.
 
-4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, Linear tickets, CircleCI runs, Google Calendar meetings, Platform deploys and sandboxes, a Chrome window per agent beside the terminal (macOS, iTerm2 and Chrome only). Mark the ones whose connector is missing as such in their description.
+4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, Linear tickets, CircleCI runs, Google Calendar meetings, Platform deploys and sandboxes, links opened in terminal-browser beside the agent (installs it with `brew install --cask terminal-browser` when missing). Mark the ones whose connector is missing as such in their description.
 
 5. **Values.** Propose each from what you can detect, and ask only what you cannot settle:
    - `reposDir`: the folder holding the git checkouts; look for one with several `*/.git` among `~/code`, `~/src`, `~/dev`, `~/Work/*`, `~/projects`.
@@ -43,7 +43,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
-  "chromeSideWindow": false,
+  "terminalBrowser": false,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
   "runbookTools": []
@@ -56,6 +56,6 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 
 9. **Notifications (macOS).** Run `sh <plugin_root>/notifier/build.sh` (it needs `swiftc`, from `xcode-select --install`), then `sh <plugin_root>/notify.sh "Cockpit" "Notifications are on" "space:inbox"`, and ask me to click Allow when macOS asks about Cockpit's notifications.
 
-10. **Permissions.** Background refreshes call MCP tools outside any turn, so auto mode needs allow rules for them. Print the block to add to `permissions` in `~/.claude/settings.json`: `allow` with one `mcp__<server>` entry per enabled connector (the server name with every character outside `A-Za-z0-9_-` turned into `_`), plus the read-only tools the footer chips and live panes call: `notion-fetch`, `slack_read_thread`, Figma's `create_session` and `get_screenshot`, Datadog's `get_datadog_metric`, and Metabase's `execute_question` and `query`, each as `mcp__<server>__<tool>` for the connectors I have; and `deny` with the destructive tools of those servers the cockpit never uses, such as `cancel_workflow`, `rollback_deploy_component`, `delete_*`, `create_event`, `update_event`, `delete_event` and `respond_to_event`. Edit the file only if I say so.
+10. **Permissions.** Background refreshes call MCP tools outside any turn, so auto mode needs allow rules for them. Print the block to add to `permissions` in `~/.claude/settings.json`: `allow` with one `mcp__<server>` entry per enabled connector (the server name with every character outside `A-Za-z0-9_-` turned into `_`), plus the read-only tools the footer chips and live panes call: `notion-fetch`, Datadog's `get_datadog_metric`, and Metabase's `execute_question` and `query`, each as `mcp__<server>__<tool>` for the connectors I have; and `deny` with the destructive tools of those servers the cockpit never uses, such as `cancel_workflow`, `rollback_deploy_component`, `delete_*`, `create_event`, `update_event`, `delete_event` and `respond_to_event`. Edit the file only if I say so.
 
 11. **Finish.** Tell me that `/cockpit:doctor` checks the whole setup at any time, that Claude sessions started before now load the footer and the background refreshes once restarted, that the inbox space fills within a minute of the first session starting, and list the herdr keys `prefix+i/t/d/u/m`.

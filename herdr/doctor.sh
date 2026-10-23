@@ -86,6 +86,15 @@ if [ "$(jq -r '.notifications // true' "$CONFIG" 2>/dev/null)" = true ]; then
   [ "$delivery" = herdr ] && ok "herdr toasts in-app" || warn "herdr ui.toast.delivery is \"${delivery:-system}\": notifications arrive twice → set it to \"herdr\""
 fi
 
+# terminal-browser for the footer chips and show panes' links
+if [ "$(jq -r '.terminalBrowser // false' "$CONFIG" 2>/dev/null)" = true ]; then
+  command -v terminal-browser >/dev/null && ok "terminal-browser $(terminal-browser --version 2>/dev/null | awk '{print $2}')" ||
+    fail "terminalBrowser is on but terminal-browser is missing: links open in the default browser → brew install --cask terminal-browser"
+  grep -Eq '^[[:space:]]*kitty_graphics[[:space:]]*=[[:space:]]*false' "$HOME/.config/herdr/config.toml" 2>/dev/null &&
+    fail "herdr kitty_graphics is off: terminal-browser panes stay blank → set it to true under [experimental]" ||
+    ok "herdr kitty graphics on"
+fi
+
 # Permission rules for the background MCP calls
 for source in linear circleci platform calendar; do
   enabled "$source" || continue
@@ -97,10 +106,10 @@ done
 
 # The read-only tools the footer chips and live show panes call
 allowed() { jq -e --arg r "$1" '.permissions.allow // [] | any(. as $a | $r == $a or ($r | startswith($a + "__")))' "$HOME/.claude/settings.json" >/dev/null 2>&1; }
-for pair in "notion:notion-fetch" "slack:slack_read_thread" "figma:get_screenshot" "datadog:get_datadog_metric" "metabase:query"; do
+for pair in "notion:notion-fetch" "datadog:get_datadog_metric" "metabase:query"; do
   source=${pair%%:*} tool=${pair#*:}
   server=$(jq -r --arg s "$source" '.[$s].server // empty' "$CONFIG" 2>/dev/null)
-  [ -n "$server" ] || server=$(printf '%s' "$source" | sed 's/notion/claude.ai Notion/;s/slack/claude.ai Slack/;s/figma/claude.ai Figma/;s/datadog/claude.ai Datadog/')
+  [ -n "$server" ] || server=$(printf '%s' "$source" | sed 's/notion/claude.ai Notion/;s/datadog/claude.ai Datadog/')
   rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')__$tool"
   allowed "$rule" && ok "allow rule for $rule" || warn "no allow rule for $rule: its footer chip or live pane asks or is refused → add it to permissions.allow"
 done
