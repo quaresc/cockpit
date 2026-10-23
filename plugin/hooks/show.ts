@@ -12,17 +12,22 @@ export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
 
 const PLACEMENTS = ['right', 'down', 'zoomed'] as const
-const BLOCKS = ['markdown', 'table', 'chart', 'diff'] as const
+const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'diff'] as const
+const NODE_KINDS = ['box', 'round', 'decision'] as const
+const MAX_NODES = 60
 const MAX_ROWS = 5000
 const MAX_PATCH = 500_000
 
 export const SHOW_SPEC = {
   name: SHOW_TOOL,
   description:
-    'Shows a chart, a table, a diff or Markdown in a terminal pane beside this session, like an artifact. Use it to graph ' +
-    'query results (Metabase, SQL), to show a diff of a repo or a patch, or for a long table. Blocks: ' +
+    'Shows a chart, a table, a flow chart, a diff or Markdown in a terminal pane beside this session, like an artifact. ' +
+    'Use it to graph query results (Metabase, SQL), to draw a process, flow or architecture, to show a diff of a repo or ' +
+    'a patch, or for a long table. Never draw diagrams in ASCII inside markdown: use a flow block. Blocks: ' +
     '{type:"chart", kind:"line"|"bar", columns, rows, x:<column>, y:[<columns>]} with rows as arrays of values (a line ' +
-    'chart for values over time, a bar chart for categories); {type:"table", columns, rows}; {type:"diff", repo:<absolute ' +
+    'chart for values over time, a bar chart for categories); {type:"table", columns, rows}; {type:"flow", nodes:[{id, ' +
+    'label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], direction?:"down"|"right"}, laid out and routed ' +
+    'for you, "round" for start and end, "decision" for a question; {type:"diff", repo:<absolute ' +
     'path>, base?:<git ref, default HEAD>} which follows the working tree, or {type:"diff", patch:<unified diff>}; ' +
     '{type:"markdown", text}. Any block takes a title. Call it again with the same pane name to update that pane.',
   inputSchema: {
@@ -51,6 +56,7 @@ function blockError(block: Block, at: string): string | undefined {
   if (!BLOCKS.includes(type as (typeof BLOCKS)[number])) return `at ${at}: unknown block type ${JSON.stringify(type)}; allowed: ${list(BLOCKS)}`
   if (block.title !== undefined && !isText(block.title)) return `at ${at}/title: a title is a string`
   if (type === 'markdown') return isText(block.text) ? undefined : `at ${at}/text: markdown needs its text as a string`
+  if (type === 'flow') return flowError(block, at)
   if (type === 'diff') {
     const hasPatch = isText(block.patch)
     const hasRepo = isText(block.repo) && block.repo.startsWith('/')
@@ -76,6 +82,30 @@ function blockError(block: Block, at: string): string | undefined {
   const yIndexes = y.map(c => columns.indexOf(c as string))
   const textual = yIndexes.find(i => rows.some(r => (r as unknown[])[i] !== null && typeof (r as unknown[])[i] !== 'number'))
   if (textual !== undefined) return `at ${at}/y: column ${JSON.stringify(columns[textual])} holds values that are not numbers; cast them in the query`
+  return undefined
+}
+
+function flowError(block: Block, at: string): string | undefined {
+  if (block.direction !== undefined && block.direction !== 'down' && block.direction !== 'right') return `at ${at}/direction: "down" or "right"`
+  const nodes = block.nodes
+  if (!Array.isArray(nodes) || nodes.length === 0 || nodes.length > MAX_NODES) return `at ${at}/nodes: a list of 1 to ${MAX_NODES} nodes, each {id, label, kind?}`
+  const ids = new Set<string>()
+  for (const [n, node] of nodes.entries()) {
+    const { id, label, kind } = (node ?? {}) as Block
+    if (!isText(id) || id === '' || !isText(label)) return `at ${at}/nodes/${n}: a node is {id, label} with both strings`
+    if (ids.has(id)) return `at ${at}/nodes/${n}/id: ${JSON.stringify(id)} is already the id of another node`
+    if (kind !== undefined && !NODE_KINDS.includes(kind as (typeof NODE_KINDS)[number])) return `at ${at}/nodes/${n}/kind: one of ${list(NODE_KINDS)}`
+    ids.add(id)
+  }
+  const edges = block.edges ?? []
+  if (!Array.isArray(edges)) return `at ${at}/edges: a list of {from, to, label?}`
+  for (const [n, edge] of edges.entries()) {
+    const { from, to, label } = (edge ?? {}) as Block
+    for (const [name, end] of [['from', from], ['to', to]] as const) {
+      if (!isText(end) || !ids.has(end)) return `at ${at}/edges/${n}/${name}: ${JSON.stringify(end)} is not a node id; ids: ${list([...ids])}`
+    }
+    if (label !== undefined && !isText(label)) return `at ${at}/edges/${n}/label: a string`
+  }
   return undefined
 }
 

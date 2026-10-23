@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""A view a Claude session shows beside itself: markdown, tables, charts and diffs, from ~/.cache/cockpit/show/<name>.json.
+"""A view a Claude session shows beside itself: markdown, tables, charts, flow charts and diffs, read from
+~/.cache/cockpit/show/<name>.json.
 
 The cockpit mod's show tool writes that file and opens this app in a herdr pane split from the session's own. Each later
 call with the same name rewrites the file and the pane redraws; a repo diff also follows the working tree. q hides it.
@@ -14,6 +15,7 @@ import time
 from datetime import datetime
 
 import cockpit_config
+import flow
 import view
 from view import BOLD, CAP_CLOSE, CAP_OPEN, DIM, GREEN, HERDR, LINK, ORANGE, PILL_MAIN, RED, Line, fit, note, width
 
@@ -242,6 +244,17 @@ def bar_chart(block, cols, line):
 
 
 # ---------------------------------------------------------------------------
+# Flow charts: laid out and routed by flow.py
+
+
+def flow_chart(block, cols, line):
+    for row in flow.draw(block["nodes"], block.get("edges", []), block.get("direction", "down"), cols - 4):
+        item = line().add("  ")
+        for text, style in row:
+            item.add(text, style)
+
+
+# ---------------------------------------------------------------------------
 # Diffs: a patch given whole, or a repo's working tree against a base, read again every few seconds
 
 
@@ -376,6 +389,8 @@ def build(state, cols):
             table(block, cols, line)
         elif kind == "chart":
             (bar_chart if block.get("kind") == "bar" else line_chart)(block, cols, line)
+        elif kind == "flow":
+            flow_chart(block, cols, line)
         elif kind == "diff":
             diff(block, cols, line, state, n)
     line()
