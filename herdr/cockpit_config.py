@@ -73,7 +73,7 @@ def fill(template, **values):
 
 def tool_prefix(server):
     """The tool-name prefix Claude Code gives an MCP server, e.g. "claude.ai Linear" -> mcp__claude_ai_Linear."""
-    return "mcp__" + re.sub(r"[^A-Za-z0-9_-]", "_", server)
+    return "mcp__" + re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9_-]", "_", server)).rstrip("_")
 
 
 def _inbox():

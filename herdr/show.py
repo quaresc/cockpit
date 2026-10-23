@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""A view a Claude session shows beside itself: markdown, tables, charts, flow charts and diffs, read from
-~/.cache/cockpit/show/<name>.json.
+"""A view a Claude session shows beside itself, read from ~/.cache/cockpit/show/<name>.json: markdown, tables, charts,
+flow and sequence diagrams, pictures, diffs, logs, CI runs, and questions whose answers go back to the session.
 
 The cockpit mod's show tool writes that file and opens this app in a herdr pane split from the session's own. Each later
-call with the same name rewrites the file and the pane redraws; a repo diff also follows the working tree. q hides it.
+call with the same name rewrites the file and the pane redraws; diffs, commands and CI runs also refresh by themselves.
 """
 
 import atexit
+import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
 import cockpit_config
 import flow
+import mermaid
+import picture
+import sequence
 import view
 from view import BOLD, CAP_CLOSE, CAP_OPEN, DIM, GREEN, HERDR, LINK, ORANGE, PILL_MAIN, RED, Line, fit, note, width
 
@@ -23,6 +28,10 @@ NAME = sys.argv[1] if len(sys.argv) > 1 else "show"
 DIR = os.path.join(os.path.expanduser("~"), ".cache", "cockpit", "show")
 SPEC = os.path.join(DIR, f"{NAME}.json")
 ALIVE = os.path.join(DIR, f"{NAME}.pid")
+# The answer to a question block, one file per block, picked up by the mod and handed to the session.
+# Not a .json file, so nothing that lists the views mistakes it for one.
+ANSWER = os.path.join(DIR, NAME + ".{}.answer")
+CACHE = os.path.join(os.path.expanduser("~"), ".cache", "cockpit")
 # A repo diff is read again this often, so the pane follows the agent's edits.
 DIFF_EVERY = 3
 # herdr-reviewr, when installed, takes over a repo diff for line comments sent back to the agent.
@@ -37,7 +46,7 @@ SERIES = [ORANGE, GREEN, BLUE, PINK, RED]
 # Text: inline Markdown, wrapped to the pane
 
 
-INLINE = re.compile(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?://[^)\s]+)\)")
+INLINE = re.compile(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(<?(https?://[^)\s>]+)>?\)")
 
 
 def inline(text, style=""):
@@ -78,10 +87,33 @@ def wrap(segments, room):
     return rows
 
 
+def plain(text):
+    """Inline Markdown markers dropped, for places drawn without styles such as table cells."""
+    return re.sub(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)", lambda m: m[1] or m[2] or m[3], text)
+
+
+def pipe_table(rows, cols, line):
+    """A Markdown table, aligned like a table block."""
+    cells = [[plain(c.strip()) for c in r.strip().strip("|").split("|")] for r in rows]
+    cells = [r for r in cells if not set("".join(r)) <= set("-: ")]
+    if cells:
+        wide = max(len(r) for r in cells)
+        body = [r + [""] * (wide - len(r)) for r in cells[1:]]
+        table({"columns": cells[0] + [""] * (wide - len(cells[0])), "rows": body}, cols, line)
+
+
 def markdown(block, cols, line):
     room = max(20, cols - 4)
-    in_code = False
+    in_code, pending = False, []
     for raw in block["text"].splitlines():
+        if not in_code:
+            raw = re.sub(r"\\([\\`*_{}\[\]()#+\-.!~|>])", r"\1", raw)
+        if raw.strip().startswith("|") and not in_code:
+            pending.append(raw)
+            continue
+        if pending:
+            pipe_table(pending, cols, line)
+            pending = []
         if raw.strip().startswith("```"):
             in_code = not in_code
             continue
@@ -90,8 +122,12 @@ def markdown(block, cols, line):
             continue
         heading = re.match(r"^(#{1,3})\s+(.*)", raw)
         bullet = re.match(r"^(\s*)([-*•]|\d+[.)])\s+(.*)", raw)
-        if heading:
-            line().add("  ").add(heading[2], BOLD + (ORANGE if len(heading[1]) == 1 else ""))
+        if re.match(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$", raw):
+            line().add("  " + "─" * min(room, 40), DIM)
+        elif heading:
+            item = line().add("  ")
+            for text, style, action in inline(heading[2], BOLD + (ORANGE if len(heading[1]) == 1 else "")):
+                item.add(text, style, action)
         elif bullet:
             indent = "  " + bullet[1] + ("• " if bullet[2] in "-*•" else bullet[2] + " ")
             for n, row in enumerate(wrap(inline(bullet[3]), room - width(indent) + 2)):
@@ -110,6 +146,8 @@ def markdown(block, cols, line):
                 item = line().add("  ")
                 for text, style, action in row:
                     item.add(text, style, action)
+    if pending:
+        pipe_table(pending, cols, line)
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +172,9 @@ def cell(value):
 
 def table(block, cols, line):
     columns, rows = block["columns"], block["rows"]
+    if not columns:
+        line().add("  no rows", DIM)
+        return
     texts = [[cell(v) for v in row] for row in rows]
     sizes = [max([width(str(c))] + [width(t[i]) for t in texts]) for i, c in enumerate(columns)]
     # Too wide for the pane: the widest columns give way first, down to 6 cells.
@@ -177,9 +218,20 @@ def legend(series, line):
 BITS = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))
 
 
+def axes(block):
+    """The x column and the y columns: as given, else the first column against every other one."""
+    columns = block["columns"]
+    x = block.get("x") if block.get("x") in columns else columns[0]
+    ys = [y for y in block.get("y") or [] if y in columns] or [c for c in columns if c != x]
+    return columns.index(x), [columns.index(y) for y in ys], ys
+
+
 def line_chart(block, cols, line):
     columns, rows = block["columns"], block["rows"]
-    xi, ys = columns.index(block["x"]), [columns.index(y) for y in block["y"]]
+    if not columns or not rows:
+        line().add("  no data yet", DIM)
+        return
+    xi, ys, names = axes(block)
     values = [r[i] for r in rows for i in ys if is_number(r[i])]
     if not values:
         line().add("  no numbers to draw", DIM)
@@ -216,7 +268,7 @@ def line_chart(block, cols, line):
     first, middle, last = (cell(rows[k][xi]) for k in (0, len(rows) // 2, -1))
     gap = max(1, (w - width(first) - width(middle) - width(last)) // 2)
     line().add("  " + " " * (axis + 1) + first + " " * gap + middle + " " * gap + last, DIM)
-    legend(block["y"], line)
+    legend(names, line)
 
 
 EIGHTHS = " ▏▎▍▌▋▊▉█"
@@ -224,7 +276,10 @@ EIGHTHS = " ▏▎▍▌▋▊▉█"
 
 def bar_chart(block, cols, line):
     columns, rows = block["columns"], block["rows"]
-    xi, ys = columns.index(block["x"]), [columns.index(y) for y in block["y"]]
+    if not columns or not rows:
+        line().add("  no data yet", DIM)
+        return
+    xi, ys, names = axes(block)
     values = [r[i] for r in rows for i in ys if is_number(r[i])]
     if not values:
         line().add("  no numbers to draw", DIM)
@@ -240,7 +295,7 @@ def bar_chart(block, cols, line):
             bar = "█" * (eighths // 8) + (EIGHTHS[eighths % 8] if eighths % 8 else "")
             label = fit(cell(r[xi]), label_room) if n == 0 else " " * label_room
             line().add("  " + label + " ", DIM if n else "").add(bar, SERIES[n % len(SERIES)]).add(" " + (compact(value) if value is not None else "—"), DIM)
-    legend(block["y"], line)
+    legend(names, line)
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +307,182 @@ def flow_chart(block, cols, line):
         item = line().add("  ")
         for text, style in row:
             item.add(text, style)
+
+
+def runs(rows, line):
+    for row in rows:
+        item = line().add("  ")
+        for text, style in row:
+            item.add(text, style)
+
+
+def sequence_chart(block, cols, line):
+    runs(sequence.draw(block.get("actors") or [], block["messages"], cols - 4), line)
+
+
+def mermaid_chart(block, cols, line):
+    try:
+        parsed = mermaid.parse(block["text"])
+    except ValueError as err:
+        line().add(f"  {err}", RED)
+        return
+    (flow_chart if parsed["type"] == "flow" else sequence_chart)(parsed, cols, line)
+
+
+# ---------------------------------------------------------------------------
+# Pictures: an image file or URL drawn with half blocks
+
+
+def image(block, cols, line, rows):
+    try:
+        grid = picture.pixels(block.get("path") or block["url"], min(cols - 4, block.get("width") or cols), max(6, rows - 4))
+    except Exception as err:  # a missing file, a dead URL or an unreadable format all say so in the pane
+        line().add(f"  cannot draw the picture: {err}", RED)
+        return
+    runs(picture.rows(grid), line)
+    if block.get("caption"):
+        line().add("  " + block["caption"], DIM)
+
+
+# ---------------------------------------------------------------------------
+# Live blocks: a command run every few seconds, its output as a log or as JSON rows; a CI run from cockpit's cache
+
+
+class Command:
+    """A shell command run in the background every `every` seconds; `result` holds (output, exit code) once it ran."""
+
+    def __init__(self, command, cwd, every):
+        self.command, self.cwd, self.every = command, cwd, every
+        self.result, self.at, self.thread, self.fresh = None, 0, None, False
+
+    def tick(self):
+        """Starts a due run; True when a run finished since the last tick."""
+        if self.thread and not self.thread.is_alive():
+            self.thread, self.fresh = None, True
+        changed, self.fresh = self.fresh, False
+        if not self.thread and time.time() - self.at >= self.every:
+            self.at = time.time()
+            self.thread = threading.Thread(target=self.run, daemon=True)
+            self.thread.start()
+        return changed
+
+    def run(self):
+        try:
+            done = subprocess.run(["sh", "-c", self.command], cwd=self.cwd, capture_output=True, text=True, timeout=120)
+            self.result = (done.stdout + done.stderr, done.returncode)
+        except (OSError, subprocess.SubprocessError) as err:
+            self.result = (str(err), 1)
+
+
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+
+def log(block, cols, line, command):
+    if not command.result:
+        line().add(f"  running {block['command']}…", DIM)
+        return
+    output, code = command.result
+    shown = ANSI.sub("", output).rstrip("\n").splitlines()[-(block.get("lines") or 40):]
+    for text in shown:
+        low = text.lower()
+        style = RED if re.search(r"\b(error|fail(ed|ure)?|exception|fatal)\b", low) else ORANGE if re.search(r"\bwarn(ing)?\b", low) else ""
+        line().add("  " + fit(text.replace("\t", "    "), cols - 4), style)
+    line().add(f"  {'✓' if code == 0 else f'✗ exit {code}'} · every {command.every}s · {datetime.fromtimestamp(command.at).strftime('%H:%M:%S')}",
+               DIM if code == 0 else RED)
+
+
+def rows_of(output):
+    """Columns and rows from a command's JSON: {columns, rows}, a list of objects, or a list of lists under a header."""
+    data = json.loads(output)
+    if isinstance(data, dict) and "columns" in data:
+        return data["columns"], data["rows"]
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        columns = list(data[0])
+        return columns, [[d.get(c) for c in columns] for d in data]
+    if isinstance(data, list) and data and isinstance(data[0], list):
+        return [str(c) for c in data[0]], data[1:]
+    raise ValueError("expected {columns, rows}, a list of objects, or a list of lists")
+
+
+def from_command(block, command):
+    """The block with the command's rows in it, or an error to show."""
+    if not command.result:
+        return None, f"running {block['command']}…"
+    output, code = command.result
+    try:
+        columns, rows = rows_of(output)
+    except (ValueError, KeyError, TypeError) as err:
+        return None, f"{block['command']}: exit {code}, {err}: {output.strip()[:120]}"
+    return {**block, "columns": columns, "rows": rows}, None
+
+
+def ci(block, cols, line):
+    """A branch's CI run and PR from the caches the mod keeps."""
+    runs_ = view.load_json(os.path.join(CACHE, "ci.json"), {}).get("runs", [])
+    run = next((r for r in runs_ if r["repo"] == block["repo"] and r["branch"] == block["branch"]), None)
+    pr = next((p for p in view.load_json(os.path.join(CACHE, "inbox.json"), {}).get("mine", [])
+               if p["repo"] == block["repo"] and p.get("branch") == block["branch"]), None)
+    head = line().add(f"  {block['repo']} · {block['branch']}", BOLD)
+    if pr:
+        head.add(f"   #{pr['number']} {pr['title']}", DIM, lambda: cockpit_config.open_url(pr["url"]))
+    if not run:
+        line().add("  no CircleCI run known for this branch yet", DIM)
+        return
+    total, done = max(1, run.get("total") or 1), run.get("done") or 0
+    bar_room = max(10, min(40, cols - 30))
+    filled = round(done / total * bar_room)
+    status, style = ("running", ORANGE) if run["isRunning"] else ("passed", GREEN) if run.get("outcome") in ("success", "succeeded") else (run.get("outcome") or "?", RED)
+    line().add("  ").add("█" * filled, style).add("░" * (bar_room - filled), DIM).add(f"  {done}/{total} jobs · {status}", style)
+    failed = run.get("failed")
+    if failed:
+        line().add(f"  ✗ {failed['job']}" + (f" · {failed['step']}" if failed.get("step") else ""), RED)
+        for test in failed.get("tests") or []:
+            line().add(f"    {test}", DIM + RED)
+
+
+# ---------------------------------------------------------------------------
+# Questions: pick one option, or confirm; the answer goes to the session as the person's next message
+
+
+def answer(state, n, block, value, label):
+    view.write_json(ANSWER.format(n), {"block": n, "id": block.get("id"), "type": block["type"], "value": value, "label": label, "at": time.time()})
+    state["answered"][n] = label
+    note(state, f"sent to the session: {label}")
+
+
+def choice(block, cols, line, state, n, focus):
+    answered = block.get("answered") or state["answered"].get(n)
+    if block.get("prompt"):
+        line().add("  " + block["prompt"], BOLD)
+    for i, option in enumerate(block["options"]):
+        picked = answered == option["label"]
+        pick = None if answered else (lambda o=option: answer(state, n, block, o.get("value", o["label"]), o["label"]))
+        row = line().add("  " + ("● " if picked else "○ "), GREEN if picked else DIM, pick).add(option["label"], BOLD if picked else "", pick)
+        if pick:
+            row.primary, row.anchor = pick, ("option", n, i)
+    if answered:
+        line().add(f"  ✓ answered: {answered}", GREEN)
+        return
+    shown = next((o for i, o in enumerate(block["options"]) if focus == ("option", n, i)), None)
+    if shown and shown.get("preview"):
+        line()
+        markdown({"text": shown["preview"]}, cols, line)
+    line().add("  j/k move · enter picks", DIM)
+
+
+def confirm(block, cols, line, state, n):
+    answered = block.get("answered") or state["answered"].get(n)
+    markdown({"text": block["summary"]}, cols, line)
+    if block.get("consequence"):
+        line().add("  " + block["consequence"], RED)
+    if answered:
+        line().add(f"  ✓ answered: {answered}", GREEN if answered != "cancelled" else DIM)
+        return
+    label = block.get("confirm_label") or "Confirm"
+    no, yes = (lambda: answer(state, n, block, False, "cancelled")), (lambda: answer(state, n, block, True, label))
+    line().add("  ○ Cancel", "", no).primary = no
+    line().add(f"  ○ {label}", RED + BOLD, yes).primary = yes
+    line().add("  j/k move · enter answers", DIM)
 
 
 # ---------------------------------------------------------------------------
@@ -372,17 +603,32 @@ def build(state, cols):
         lines.append(Line())
         return lines[-1]
 
+    # The option under the cursor, from the previous drawing, for a choice's preview.
+    before, focus = state["lines"], None
+    active = state["selectable"][state["sel"]] if state["has_keyboard"] and state["selectable"] else state["hover"]
+    if 0 <= active < len(before):
+        focus = before[active].anchor
     state["review"] = None
     if not spec:
         line().add(f"  waiting for the view {NAME}…", DIM)
         return lines
     head = line().add("◆  ", ORANGE).add(spec.get("title") or NAME, BOLD + ORANGE)
     head.add(f"   {NAME} · {datetime.fromtimestamp(spec.get('at', 0) / 1000).strftime('%H:%M:%S')}", DIM)
+    rows = view.size().lines
     for n, block in enumerate(spec.get("blocks", [])):
         line()
         if block.get("title"):
-            line().add("  " + block["title"], BOLD)
+            title = line().add("  " + block["title"], BOLD)
+            if block.get("refreshed_at"):
+                title.add(f"   refreshed {datetime.fromtimestamp(block['refreshed_at'] / 1000).strftime('%H:%M')}", DIM)
+        if block.get("error"):
+            line().add(f"  {block['error']}", RED)
         kind = block["type"]
+        if block.get("command") and kind in ("table", "chart"):
+            block, error = from_command(block, state["commands"][n])
+            if error:
+                line().add(f"  {error}", DIM)
+                continue
         if kind == "markdown":
             markdown(block, cols, line)
         elif kind == "table":
@@ -391,12 +637,27 @@ def build(state, cols):
             (bar_chart if block.get("kind") == "bar" else line_chart)(block, cols, line)
         elif kind == "flow":
             flow_chart(block, cols, line)
+        elif kind == "sequence":
+            sequence_chart(block, cols, line)
+        elif kind == "mermaid":
+            mermaid_chart(block, cols, line)
+        elif kind == "image":
+            image(block, cols, line, rows)
+        elif kind == "log":
+            log(block, cols, line, state["commands"][n])
+        elif kind == "ci":
+            ci(block, cols, line)
+        elif kind == "choice":
+            choice(block, cols, line, state, n, focus)
+        elif kind == "confirm":
+            confirm(block, cols, line, state, n)
         elif kind == "diff":
             diff(block, cols, line, state, n)
     line()
-    files = " · j/k files · enter folds" if any(b["type"] == "diff" for b in spec.get("blocks", [])) else ""
-    files += " · r reviewr" if state["review"] else ""
-    line().add(view.noted(state) or f"q hide · space/b page · g/G top/bottom{files}", DIM)
+    keys = " · j/k files · enter folds" if any(b["type"] == "diff" for b in spec.get("blocks", [])) else ""
+    keys += " · r reviewr" if state["review"] else ""
+    keys += " · o browser" if spec.get("url") else ""
+    line().add(view.noted(state) or f"q hide · space/b page · g/G top/bottom{keys}", DIM)
     return lines
 
 
@@ -412,17 +673,32 @@ def read_diffs(state):
     return changed
 
 
+def commands_of(spec):
+    """A Command for each block that runs one, by block index."""
+    cwd = (spec or {}).get("cwd") or os.path.expanduser("~")
+    return {n: Command(b["command"], cwd, max(1, b.get("every") or (5 if b["type"] == "log" else 30)))
+            for n, b in enumerate((spec or {}).get("blocks", [])) if b.get("command")}
+
+
 def poll(state):
     mtime = os.path.getmtime(SPEC) if os.path.exists(SPEC) else 0
     if mtime != state["mtime"]:
         state["mtime"], state["spec"] = mtime, view.load_json(SPEC, None)
         state["reviewr"] = has_reviewr()
-        state["diffs"] = {}
+        state["diffs"], state["answered"] = {}, {}
+        state["commands"] = commands_of(state["spec"])
+        for command in state["commands"].values():
+            command.tick()
         read_diffs(state)
         return True
+    changed = any([c.tick() for c in state["commands"].values()])
+    # The CI caches change once a minute at most; redraw when they do.
+    seen = tuple(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (os.path.join(CACHE, "ci.json"), os.path.join(CACHE, "inbox.json")))
+    if any(b["type"] == "ci" for b in (state["spec"] or {}).get("blocks", [])) and seen != state["caches"]:
+        state["caches"], changed = seen, True
     if time.time() - state["diffs_at"] > DIFF_EVERY:
-        return read_diffs(state)
-    return False
+        changed |= read_diffs(state)
+    return changed
 
 
 def on_key(state, data):
@@ -434,6 +710,10 @@ def on_key(state, data):
         sys.exit(0)
     if data == "r" and state["review"]:
         state["review"]()
+        return True
+    if data == "o" and (state["spec"] or {}).get("url"):
+        cockpit_config.open_url(state["spec"]["url"])
+        note(state, f"opened {state['spec']['url']}")
         return True
     if data not in moves:
         return False
@@ -454,7 +734,8 @@ def main():
     with open(ALIVE, "w", encoding="utf-8") as handle:
         handle.write(str(os.getpid()))
     atexit.register(forget)
-    state = view.new_state(spec=None, mtime=None, diffs={}, diffs_at=0, folded=set(), reviewr=has_reviewr(), review=None)
+    state = view.new_state(spec=None, mtime=None, diffs={}, diffs_at=0, folded=set(), reviewr=has_reviewr(), review=None,
+                           commands={}, answered={}, caches=None)
     view.App(NAME, state, build, {}, poll=poll, on_key=on_key).run()
 
 

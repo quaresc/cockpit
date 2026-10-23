@@ -90,7 +90,17 @@ fi
 for source in linear circleci platform calendar; do
   enabled "$source" || continue
   server=$(jq -r ".$source.server" "$CONFIG")
-  rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g')"
+  rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')"
   jq -e --arg r "$rule" '.permissions.allow // [] | any(. == $r or startswith($r + "__"))' "$HOME/.claude/settings.json" >/dev/null 2>&1 &&
     ok "allow rule for $server" || fail "no allow rule for $server: background refreshes are refused → add \"$rule\" to permissions.allow"
+done
+
+# The read-only tools the footer chips and live show panes call
+allowed() { jq -e --arg r "$1" '.permissions.allow // [] | any(. as $a | $r == $a or ($r | startswith($a + "__")))' "$HOME/.claude/settings.json" >/dev/null 2>&1; }
+for pair in "notion:notion-fetch" "slack:slack_read_thread" "figma:get_screenshot" "datadog:get_datadog_metric" "metabase:query"; do
+  source=${pair%%:*} tool=${pair#*:}
+  server=$(jq -r --arg s "$source" '.[$s].server // empty' "$CONFIG" 2>/dev/null)
+  [ -n "$server" ] || server=$(printf '%s' "$source" | sed 's/notion/claude.ai Notion/;s/slack/claude.ai Slack/;s/figma/claude.ai Figma/;s/datadog/claude.ai Datadog/')
+  rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')__$tool"
+  allowed "$rule" && ok "allow rule for $rule" || warn "no allow rule for $rule: its footer chip or live pane asks or is refused → add it to permissions.allow"
 done

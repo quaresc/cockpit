@@ -20,6 +20,12 @@ export type Config = {
   recap: { enabled: boolean; awayMinutes: number }
   meetingBrief: { enabled: boolean; model: string; skip: string[]; tools: string[] }
   calendar: { enabled: boolean; server: string }
+  // Connectors the footer chips read from and that show panes refresh from.
+  notion: { server: string }
+  slack: { server: string }
+  figma: { server: string }
+  metabase: { server: string }
+  datadog: { server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
   chromeSideWindow: boolean
@@ -36,6 +42,11 @@ const DEFAULTS: Config = {
   recap: { enabled: true, awayMinutes: 10 },
   meetingBrief: { enabled: true, model: 'sonnet', skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },
   calendar: { enabled: false, server: 'claude.ai Google Calendar' },
+  notion: { server: 'claude.ai Notion' },
+  slack: { server: 'claude.ai Slack' },
+  figma: { server: 'claude.ai Figma' },
+  metabase: { server: 'metabase' },
+  datadog: { server: 'claude.ai Datadog' },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
   chromeSideWindow: false,
@@ -69,6 +80,11 @@ export async function loadConfig($: $): Promise<Config> {
     circleci: { ...DEFAULTS.circleci, ...raw.circleci },
     platform: { ...DEFAULTS.platform, ...raw.platform },
     calendar: { ...DEFAULTS.calendar, ...raw.calendar },
+    notion: { ...DEFAULTS.notion, ...raw.notion },
+    slack: { ...DEFAULTS.slack, ...raw.slack },
+    figma: { ...DEFAULTS.figma, ...raw.figma },
+    metabase: { ...DEFAULTS.metabase, ...raw.metabase },
+    datadog: { ...DEFAULTS.datadog, ...raw.datadog },
     brief: { ...DEFAULTS.brief, ...raw.brief },
     deployWatch: { ...DEFAULTS.deployWatch, ...raw.deployWatch },
     recap: { ...DEFAULTS.recap, ...raw.recap },
