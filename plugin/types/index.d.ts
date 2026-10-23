@@ -98,7 +98,24 @@ export type Meeting = {
   briefable?: boolean
 }
 
-export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string }
+// A runbook step the runbook app handed to a Claude session, in ~/.cache/cockpit/handoffs/<id>.json.
+// sent → running → (waiting → running)* → done | failed | blocked, or unreported when the session never says.
+export type Handoff = {
+  id: string
+  slug: string
+  step: string
+  title: string
+  path: string
+  state: 'sent' | 'running' | 'waiting' | 'done' | 'failed' | 'blocked' | 'unreported'
+  sentAt: number
+  session?: string
+  pane?: string
+  message?: string
+  reportedAt?: number
+  isNudged?: boolean
+}
+
+export type MeetingsState ={ at: number; meetings: Meeting[]; notified: string[]; error?: string }
 
 declare module 'claude-code' {
   interface PluginState {
