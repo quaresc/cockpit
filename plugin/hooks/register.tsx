@@ -11,6 +11,7 @@ import { maybeBrief } from './brief'
 import { nextMeeting, readMeetings, refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, reportStep, settleTurn } from './handoffs'
+import { SHOW_SPEC, SHOW_TOOL_FULL, show } from './show'
 
 const PANE = 'inbox'
 const STALE_MS = 5 * 60_000
@@ -661,6 +662,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'inbox', description: 'Toggle the PR review / Linear inbox pane' })
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
     await $.tool.register(REPORT_SPEC).catch(() => undefined)
+    await $.tool.register(SHOW_SPEC).catch(() => undefined)
     $.clock.every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     $.clock.every(60_000, () => void refreshCi($).catch(() => undefined))
     $.clock.every(60_000, () => void refreshMeetings($).then(() => drawMeeting($)).catch(() => undefined))
@@ -731,6 +733,9 @@ export const register: Register = on => {
   on('tool.call', { tool: REPORT_TOOL_FULL }, async ($, e) => reportStep($, e as unknown as Record<string, unknown>))
   // It writes cockpit's own files and one runbook status cell, so it needs no permission prompt.
   on('tool.check', { tool: REPORT_TOOL_FULL }, async () => ({ decision: 'allow' }))
+  on('tool.call', { tool: SHOW_TOOL_FULL }, async ($, e) => show($, e as unknown as Record<string, unknown>, await herdrHere($)))
+  // It writes the view to cockpit's cache and splits a pane beside this session, nothing else.
+  on('tool.check', { tool: SHOW_TOOL_FULL }, async () => ({ decision: 'allow' }))
 
   on('tool.call', async ($, e, next) => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
