@@ -59,11 +59,10 @@ put(17, L, "✻ Worked for 4m 12s", DIMC)
 put(ROWS - 4, L, "─" * (COLS - L), "2C2C30"); put(ROWS - 3, L, "❯ ", DIMC); put(ROWS - 2, L, "─" * (COLS - L), "2C2C30")
 put(ROWS - 1, L, "⏵⏵ auto mode on", ORANGE)
 PILLS = [(" ENG-413", True), (" 1836", False), ("\U000f03d8 figma", False), ("\U000f0b15 notion", False),
-                    ("\U000f0833 quotas", False), (" 09:30 · Team daily", False)]
-c = COLS - sum(len(label) + 4 for label, _ in PILLS) - 6
+                    ("\U000f0833 quotas", False), (" quota-rejections", False)]
+c = COLS - sum(len(label) + 4 for label, _ in PILLS) - 2
 for label, main in PILLS:
     c = pill(ROWS - 1, c, label, main) + 1
-put(ROWS - 1, c, "\U000f09d1 31%", DIMC)
 
 screen = screen_of("".join(ops), COLS, ROWS)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "overview.svg"), "w") as f:

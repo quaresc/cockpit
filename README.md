@@ -10,7 +10,9 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Sidebar.** Each agent shows its context use and the repo and ticket it's on. The line turns red when its PR fails
   CI, or when another agent is on the same branch. The inbox space shows reviews, CI, tickets and plan limits.
 - **Footer.** Links to the ticket, PR, Figma, Notion, Slack thread, Argo and sandbox the conversation is about, plus
-  the next meeting and context use.
+  a chip per view the agent showed: press it to hide or bring back that pane.
+- **Show.** Ask an agent for a chart, a table or a diff and it opens in a pane beside the conversation, like an
+  artifact: query results as line or bar charts, a repo's diff following the working tree.
 - **Inbox.** Review requests, then your tickets by project with their stacked PRs, CI, deploys and sandboxes.
 - **Runbook.** `/runbook` writes down what's left to ship a ticket and keeps it up to date.
 - **To-do and meetings.** A Markdown to-do list (`/todo <text>` from any session) and your calendar.
@@ -22,8 +24,6 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Recap.** Come back to a space after a while and a popup tells you what the agent did.
 - **After a deploy** (optional). Half an hour after a ticket goes live, Claude checks errors and latency and tells you
   if anything moved.
-- **Show.** Ask an agent for a chart, a table or a diff and it opens beside the conversation, in a herdr pane it
-  keeps updating: query results as line or bar charts, a repo's diff following the working tree. `q` closes it.
 - **Chrome per agent** (optional). An agent using Claude in Chrome gets its own window next to the terminal.
 
 Only herdr and GitHub are required. `/cockpit:setup` asks about the rest.
@@ -49,6 +49,18 @@ status; the outcome shows under the step, `session` jumps to it meanwhile, and a
 It refreshes in the background, and by itself when the ticket goes live. Steps that just got done light up:
 
 ![A refresh landing: three steps turn done](docs/runbook-done.svg)
+
+### Show
+
+Ask for a chart, a table or a diff, and the agent draws it in a herdr pane beside the conversation with cockpit's
+`show` tool. Asking again updates the same pane. `q` hides it to a chip in the footer, and the chip brings it back.
+
+![An agent charts a query beside the conversation, then the pane hides to its footer chip and comes back](docs/show.svg)
+
+A repo diff follows the working tree as the agent edits. With [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr)
+installed, its `reviewr` button opens the same changes for line comments that go back to the agent.
+
+![A diff pane with its reviewr button](docs/show-diff.svg)
 
 ### Recap
 
@@ -86,13 +98,14 @@ notification: click it to update.
 - herdr 0.9+, and Claude Code with plugin hooks modules
 - `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
 - A Nerd Font. It's drawn with FiraCode Nerd Font Mono.
-- Optional connectors: Linear, CircleCI, Google Calendar, Backstage, Datadog
+- Optional connectors: Linear, CircleCI, Google Calendar, Backstage, Datadog, and herdr-reviewr for line comments on
+  a diff
 
 ## How it works
 
 ```
 plugin/   Claude Code plugin: the hooks module, and /runbook, /todo, /inbox, /cockpit:setup, /cockpit:doctor
-herdr/    herdr plugin: the space apps, and the scripts herdr runs on events
+herdr/    herdr plugin: the space apps, show.py for the show panes, and the scripts herdr runs on events
 ```
 
 Network calls happen in your Claude sessions, one at a time thanks to a lock, and land in `~/.cache/cockpit`. The
@@ -125,7 +138,8 @@ lists live in `~/.config/cockpit`.
 `prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings.
 
 In the apps: `j`/`k` rows, `h`/`l` or Tab buttons, Enter to press, `R` to refresh, `g` to group tickets by project
-or status.
+or status. In a show pane: `q` hides it, Space and `b` page, `g`/`G` top and bottom, Enter folds a diff's file, `r`
+opens reviewr.
 
 Screenshots show the real apps on made-up data. [`docs/screenshots`](docs/screenshots) regenerates them.
 
