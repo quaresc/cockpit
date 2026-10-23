@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { ViewChip } from '../types'
 
 import { cacheDir, loadConfig } from './config'
+import { fetchSource } from './sources'
 
 type $ = EngineInterface
 
@@ -12,29 +13,35 @@ export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
 
 const PLACEMENTS = ['right', 'down', 'zoomed'] as const
-const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'diff'] as const
+const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
 const NODE_KINDS = ['box', 'round', 'decision'] as const
 const MAX_NODES = 60
 const MAX_ROWS = 5000
 const MAX_PATCH = 500_000
+const MIN_EVERY = 30
 
 export const SHOW_SPEC = {
   name: SHOW_TOOL,
   description:
-    'Shows a chart, a table, a flow chart, a diff or Markdown in a terminal pane beside this session, like an artifact. ' +
-    'Use it to graph query results (Metabase, SQL), to draw a process, flow or architecture, to show a diff of a repo or ' +
-    'a patch, or for a long table. Never draw diagrams in ASCII inside markdown: use a flow block. Blocks: ' +
-    '{type:"chart", kind:"line"|"bar", columns, rows, x:<column>, y:[<columns>]} with rows as arrays of values (a line ' +
-    'chart for values over time, a bar chart for categories); {type:"table", columns, rows}; {type:"flow", nodes:[{id, ' +
-    'label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], direction?:"down"|"right"}, laid out and routed ' +
-    'for you, "round" for start and end, "decision" for a question; {type:"diff", repo:<absolute ' +
-    'path>, base?:<git ref, default HEAD>} which follows the working tree, or {type:"diff", patch:<unified diff>}; ' +
-    '{type:"markdown", text}. Any block takes a title. Call it again with the same pane name to update that pane.',
+    'Shows charts, tables, diagrams, pictures, diffs, logs or a question in a terminal pane beside this session, like an ' +
+    'artifact. Use it to graph query results, draw a process or an exchange, show a screenshot or a Figma frame, a diff, a ' +
+    'live log or CI run, or to ask the person to pick an option. Never draw diagrams in ASCII inside markdown. Blocks: ' +
+    '{type:"chart", kind:"line"|"bar", columns, rows, x?, y?:[columns]} (rows as arrays; line over time, bar for categories); ' +
+    '{type:"table", columns, rows}; a chart or table can instead take source:{metabase:{question:<id>}|{query:<MBQL>}} or ' +
+    'source:{datadog:{queries:[...], from?:"now-1h"}} to refresh itself every `every` seconds, or command:<shell printing JSON> ' +
+    'with every; {type:"flow", nodes:[{id, label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], ' +
+    'direction?:"down"|"right"}; {type:"sequence", actors?:[...], messages:[{from, to, label, reply?} | {note, over}]}; ' +
+    '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"image", path|url, caption?}; {type:"diff", repo:<absolute ' +
+    'path>, base?} following the working tree, or {type:"diff", patch}; {type:"log", command, every?, lines?} tailing a command; ' +
+    '{type:"ci", repo, branch} for a CircleCI run; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
+    '{type:"confirm", summary, consequence?, confirm_label?}, whose answer reaches you as the person\'s next message; ' +
+    '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane.',
   inputSchema: {
     type: 'object',
     properties: {
       pane: { type: 'string', description: 'A short name such as quota-chart; the same name updates the same pane' },
       title: { type: 'string' },
+      url: { type: 'string', description: 'Optional: what `o` in the pane opens in the browser' },
       placement: { type: 'string', enum: PLACEMENTS, description: 'Where a new pane opens: right of this session (default), below it, or zoomed' },
       blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: BLOCKS } }, required: ['type'] } },
     },
@@ -43,11 +50,22 @@ export const SHOW_SPEC = {
   isDeferred: false,
 }
 
-type Block = Record<string, unknown>
+export type Block = Record<string, unknown>
 type Placement = (typeof PLACEMENTS)[number]
-type Spec = { title: string; blocks: Block[]; at: number; session?: string; placement?: Placement }
+export type Spec = {
+  title: string
+  blocks: Block[]
+  at: number
+  session?: string
+  placement?: Placement
+  cwd?: string
+  url?: string
+  // A footer chip's reader (a ticket, a page, a thread): it has its own chip, so it is not listed with the views.
+  isReader?: boolean
+}
 
 const isText = (v: unknown): v is string => typeof v === 'string'
+const isCount = (v: unknown) => v === undefined || (typeof v === 'number' && v >= 1)
 const list = (values: readonly string[]) => values.map(v => JSON.stringify(v)).join(', ')
 
 // The first rule a block breaks, said with its path and what would be accepted; undefined when it is fine.
@@ -55,8 +73,22 @@ function blockError(block: Block, at: string): string | undefined {
   const type = block.type
   if (!BLOCKS.includes(type as (typeof BLOCKS)[number])) return `at ${at}: unknown block type ${JSON.stringify(type)}; allowed: ${list(BLOCKS)}`
   if (block.title !== undefined && !isText(block.title)) return `at ${at}/title: a title is a string`
-  if (type === 'markdown') return isText(block.text) ? undefined : `at ${at}/text: markdown needs its text as a string`
+  if (type === 'markdown' || type === 'mermaid') return isText(block.text) ? undefined : `at ${at}/text: ${type} needs its text as a string`
   if (type === 'flow') return flowError(block, at)
+  if (type === 'sequence') return sequenceError(block, at)
+  if (type === 'choice') return choiceError(block, at)
+  if (type === 'confirm') return isText(block.summary) ? undefined : `at ${at}/summary: what is being confirmed, as Markdown`
+  if (type === 'ci') return isText(block.repo) && isText(block.branch) ? undefined : `at ${at}: a ci block is {repo, branch}`
+  if (type === 'log') {
+    if (!isText(block.command) || block.command === '') return `at ${at}/command: the shell command to tail`
+    return isCount(block.every) && isCount(block.lines) ? undefined : `at ${at}: every and lines are numbers of at least 1`
+  }
+  if (type === 'image') {
+    const hasPath = isText(block.path) && block.path.startsWith('/')
+    const hasUrl = isText(block.url) && /^https?:\/\//.test(block.url)
+    if (hasPath === hasUrl) return `at ${at}: an image takes either path (an absolute path) or url (http or https), not ${hasPath ? 'both' : 'neither'}`
+    return isCount(block.width) ? undefined : `at ${at}/width: a number of columns`
+  }
   if (type === 'diff') {
     const hasPatch = isText(block.patch)
     const hasRepo = isText(block.repo) && block.repo.startsWith('/')
@@ -65,17 +97,28 @@ function blockError(block: Block, at: string): string | undefined {
     if (block.base !== undefined && !(isText(block.base) && /^[\w.~^@{}/][\w./~^@{}-]*$/.test(block.base))) return `at ${at}/base: a git ref such as main or HEAD~3`
     return undefined
   }
+  if (type === 'chart' && block.kind !== 'line' && block.kind !== 'bar') return `at ${at}/kind: a chart is "line" or "bar"`
+  // A table or chart gets its rows from the call, from a command, or from a source the session refreshes.
+  if (block.command !== undefined || block.source !== undefined) {
+    if (block.command !== undefined && block.source !== undefined) return `at ${at}: either command or source, not both`
+    if (block.command !== undefined && (!isText(block.command) || block.command === '')) return `at ${at}/command: a shell command printing JSON`
+    if (block.source !== undefined) {
+      const error = sourceError(block.source as Block, `${at}/source`)
+      if (error) return error
+      if (block.every !== undefined && !(typeof block.every === 'number' && block.every >= MIN_EVERY)) return `at ${at}/every: at least ${MIN_EVERY} seconds`
+    }
+    return isCount(block.every) ? undefined : `at ${at}/every: a number of seconds`
+  }
   const columns = block.columns
   const rows = block.rows
-  if (!Array.isArray(columns) || columns.length === 0 || !columns.every(isText)) return `at ${at}/columns: a non-empty list of column names`
+  if (!Array.isArray(columns) || columns.length === 0 || !columns.every(isText)) return `at ${at}/columns: a non-empty list of column names, or a command or source to get them from`
   if (!Array.isArray(rows)) return `at ${at}/rows: a list of rows, each a list of ${columns.length} values`
   if (rows.length > MAX_ROWS) return `at ${at}/rows: at most ${MAX_ROWS} rows; aggregate in the query first`
   const bad = rows.findIndex(r => !Array.isArray(r) || r.length !== columns.length || r.some(v => v !== null && typeof v === 'object'))
   if (bad >= 0) return `at ${at}/rows/${bad}: each row is a list of ${columns.length} plain values (${list(columns)})`
   if (type === 'table') return undefined
-  if (block.kind !== 'line' && block.kind !== 'bar') return `at ${at}/kind: a chart is "line" or "bar"`
-  if (!isText(block.x) || !columns.includes(block.x)) return `at ${at}/x: one of the columns: ${list(columns)}`
-  const y = block.y
+  if (block.x !== undefined && (!isText(block.x) || !columns.includes(block.x))) return `at ${at}/x: one of the columns: ${list(columns)}`
+  const y = block.y ?? columns.filter(c => c !== (block.x ?? columns[0]))
   if (!Array.isArray(y) || y.length === 0) return `at ${at}/y: a non-empty list of the columns to draw`
   const missing = y.find(c => !isText(c) || !columns.includes(c))
   if (missing !== undefined) return `at ${at}/y: ${JSON.stringify(missing)} is not one of the columns: ${list(columns)}`
@@ -83,6 +126,20 @@ function blockError(block: Block, at: string): string | undefined {
   const textual = yIndexes.find(i => rows.some(r => (r as unknown[])[i] !== null && typeof (r as unknown[])[i] !== 'number'))
   if (textual !== undefined) return `at ${at}/y: column ${JSON.stringify(columns[textual])} holds values that are not numbers; cast them in the query`
   return undefined
+}
+
+function sourceError(source: Block, at: string): string | undefined {
+  const metabase = source?.metabase as Block | undefined
+  const datadog = source?.datadog as Block | undefined
+  if (!metabase === !datadog) return `at ${at}: either {metabase: {question | query}} or {datadog: {queries, from?}}`
+  if (metabase) {
+    const isQuestion = typeof metabase.question === 'number' && metabase.question >= 1
+    const isQuery = typeof metabase.query === 'object' && metabase.query !== null
+    return isQuestion !== isQuery ? undefined : `at ${at}/metabase: either question (a saved question's id) or query (an MBQL query)`
+  }
+  const queries = datadog?.queries
+  if (!Array.isArray(queries) || queries.length === 0 || !queries.every(isText)) return `at ${at}/datadog/queries: a list of metric queries`
+  return datadog?.from === undefined || isText(datadog.from) ? undefined : `at ${at}/datadog/from: a start such as now-1h`
 }
 
 function flowError(block: Block, at: string): string | undefined {
@@ -109,9 +166,33 @@ function flowError(block: Block, at: string): string | undefined {
   return undefined
 }
 
+function sequenceError(block: Block, at: string): string | undefined {
+  const actors = block.actors ?? []
+  if (!Array.isArray(actors) || !actors.every(a => isText(a) || (isText((a as Block)?.id) && ((a as Block).label === undefined || isText((a as Block).label))))) {
+    return `at ${at}/actors: a list of names, or of {id, label}`
+  }
+  const messages = block.messages
+  if (!Array.isArray(messages) || messages.length === 0) return `at ${at}/messages: a non-empty list of {from, to, label} or {note, over}`
+  for (const [n, m] of messages.entries()) {
+    const { from, to, label, note, over } = (m ?? {}) as Block
+    const isNote = isText(note) && isText(over)
+    const isMessage = isText(from) && isText(to) && (label === undefined || isText(label))
+    if (!isNote && !isMessage) return `at ${at}/messages/${n}: a message is {from, to, label, reply?}, a note {note, over}`
+  }
+  return undefined
+}
+
+function choiceError(block: Block, at: string): string | undefined {
+  const options = block.options
+  if (!Array.isArray(options) || options.length < 2) return `at ${at}/options: at least two {label, value?, preview?}`
+  const bad = options.findIndex(o => !isText((o as Block)?.label) || ((o as Block).preview !== undefined && !isText((o as Block).preview)))
+  return bad < 0 ? undefined : `at ${at}/options/${bad}: an option is {label, value?, preview?} with label and preview strings`
+}
+
 export function viewError(input: Record<string, unknown>): string | undefined {
   if (!isText(input.pane) || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(input.pane)) return 'at /pane: a short name of lowercase letters, digits and dashes, such as quota-chart'
   if (!isText(input.title)) return 'at /title: a string'
+  if (input.url !== undefined && !(isText(input.url) && /^https?:\/\//.test(input.url))) return 'at /url: an http or https URL'
   if (input.placement !== undefined && !PLACEMENTS.includes(input.placement as Placement)) return `at /placement: one of ${list(PLACEMENTS)}`
   if (!Array.isArray(input.blocks) || input.blocks.length === 0) return 'at /blocks: a non-empty list of blocks'
   for (const [n, block] of (input.blocks as unknown[]).entries()) {
@@ -122,7 +203,16 @@ export function viewError(input: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+// The shell commands a call would have the pane run on its own, which the person approves like any command.
+export function commandsOf(input: Record<string, unknown>) {
+  return (Array.isArray(input.blocks) ? (input.blocks as Block[]) : []).map(b => b?.command).filter(isText)
+}
+
 const shellQuote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`
+
+async function showDir($: $) {
+  return `${await cacheDir($)}/show`
+}
 
 // Whether the pane showing this view still runs: show.py keeps its pid in <name>.pid while it does.
 async function isOpen($: $, dir: string, name: string) {
@@ -144,18 +234,48 @@ async function openPane($: $, here: { pane: string }, name: string, placement: P
   return undefined
 }
 
-export async function show($: $, input: Record<string, unknown>, here: { pane: string } | undefined): Promise<{ result: string } | { deny: string }> {
+export async function readSpec($: $, name: string) {
+  return JSON.parse(await $.fs.read(`${await showDir($)}/${name}.json`).catch(() => 'null')) as Spec | null
+}
+
+export async function writeSpec($: $, name: string, spec: Spec) {
+  await $.fs.write(`${await showDir($)}/${name}.json`, JSON.stringify(spec))
+}
+
+// Writes a view and makes sure a pane shows it: the open one redraws, else one opens beside the session.
+export async function present($: $, name: string, spec: Spec, here: { pane: string } | undefined) {
+  await writeSpec($, name, spec)
+  if (await isOpen($, await showDir($), name)) return { result: `Updated the ${name} pane.` }
+  if (!here) return { result: `Wrote the view to ${await showDir($)}/${name}.json, but this session is not in herdr, so no pane opened.` }
+  const failure = await openPane($, here, name, spec.placement ?? 'right')
+  return failure ? { deny: failure } : { result: `Opened the ${name} pane beside this session; q hides it, its footer chip brings it back.` }
+}
+
+export async function show($: $, input: Record<string, unknown>, here: { pane: string } | undefined, cwd: string | undefined): Promise<{ result: string } | { deny: string }> {
   const error = viewError(input)
   if (error) return { deny: error }
   const name = input.pane as string
-  const dir = `${await cacheDir($)}/show`
-  const placement = (input.placement as Placement | undefined) ?? 'right'
-  const spec: Spec = { title: input.title as string, blocks: input.blocks as Block[], at: Date.now(), session: await $.session.id(), placement }
-  await $.fs.write(`${dir}/${name}.json`, JSON.stringify(spec))
-  if (await isOpen($, dir, name)) return { result: `Updated the ${name} pane.` }
-  if (!here) return { result: `Wrote the view to ${dir}/${name}.json, but this session is not in herdr, so no pane opened.` }
-  const failure = await openPane($, here, name, placement)
-  return failure ? { deny: failure } : { result: `Opened the ${name} pane beside this session; q hides it, its footer chip brings it back.` }
+  const spec: Spec = {
+    title: input.title as string,
+    blocks: input.blocks as Block[],
+    at: Date.now(),
+    session: await $.session.id(),
+    placement: (input.placement as Placement | undefined) ?? 'right',
+    cwd,
+    url: input.url as string | undefined,
+  }
+  // A block with a source gets its first rows before the pane opens.
+  spec.blocks = await Promise.all(spec.blocks.map(b => (b.source ? refreshed($, b) : b)))
+  return present($, name, spec, here)
+}
+
+async function refreshed($: $, block: Block): Promise<Block> {
+  try {
+    const { columns, rows } = await fetchSource($, block.source as Block)
+    return { ...block, columns, rows, refreshed_at: Date.now(), error: undefined }
+  } catch (err) {
+    return { ...block, columns: block.columns ?? [], rows: block.rows ?? [], refreshed_at: Date.now(), error: (err as Error).message.slice(0, 200) }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,27 +284,88 @@ export async function show($: $, input: Record<string, unknown>, here: { pane: s
 const CHIPS = 3
 const KEEP_MS = 7 * 86_400_000
 
-export async function viewsOf($: $, session: string): Promise<ViewChip[]> {
-  const dir = `${await cacheDir($)}/show`
-  const entries = (await $.fs.list(dir).catch(() => [])).filter(e => e.name.endsWith('.json'))
+async function specsOf($: $, session: string) {
+  const dir = await showDir($)
+  const entries = (await $.fs.list(dir).catch(() => [])).filter(e => /^[a-z0-9][a-z0-9-]*\.json$/.test(e.name))
   const specs = await Promise.all(entries.map(async e => {
     const spec = JSON.parse(await $.fs.read(`${dir}/${e.name}`).catch(() => 'null')) as Spec | null
     return spec && { ...spec, name: e.name.slice(0, -5) }
   }))
   // A week-old view is gone for good, chip and file.
   for (const spec of specs) if (spec && Date.now() - spec.at > KEEP_MS) await $.process.run(['rm', '-f', `${dir}/${spec.name}.json`])
-  const mine = specs.filter((s): s is Spec & { name: string } => s !== null && s.session === session).sort((a, b) => b.at - a.at).slice(0, CHIPS)
+  return specs.filter((s): s is Spec & { name: string } => s !== null && s.session === session)
+}
+
+export async function viewsOf($: $, session: string): Promise<ViewChip[]> {
+  const dir = await showDir($)
+  const mine = (await specsOf($, session)).filter(s => !s.isReader).sort((a, b) => b.at - a.at).slice(0, CHIPS)
   return Promise.all(mine.map(async s => ({ name: s.name, isOpen: await isOpen($, dir, s.name) })))
 }
 
-// A chip's press: an open view's pane closes, a hidden one opens again where it was.
+// A chip's press: an open view's pane closes, a hidden one opens again where it was. Returns whether it opened.
 export async function toggleView($: $, name: string, here: { pane: string } | undefined) {
-  const dir = `${await cacheDir($)}/show`
+  const dir = await showDir($)
   if (await isOpen($, dir, name)) {
     const pid = (await $.fs.read(`${dir}/${name}.pid`)).trim()
     await $.process.run(['kill', pid])
-    return
+    return false
   }
-  const spec = JSON.parse(await $.fs.read(`${dir}/${name}.json`).catch(() => 'null')) as Spec | null
+  const spec = await readSpec($, name)
   if (spec && here) await openPane($, here, name, spec.placement ?? 'right')
+  return true
+}
+
+export async function isViewOpen($: $, name: string) {
+  return isOpen($, await showDir($), name)
+}
+
+// ---------------------------------------------------------------------------
+// Live views: sources refreshed on their own, and answers handed back to the session
+
+// Every view of this session whose pane is open gets its due sources fetched again.
+export async function refreshSources($: $, session: string) {
+  const dir = await showDir($)
+  for (const spec of await specsOf($, session)) {
+    if (!spec.blocks.some(b => b.source) || !(await isOpen($, dir, spec.name))) continue
+    const fresh = new Map<number, Block>()
+    for (const [n, block] of spec.blocks.entries()) {
+      const every = typeof block.every === 'number' ? block.every : (block.source as Block)?.datadog ? 60 : 300
+      if (block.source && Date.now() - ((block.refreshed_at as number | undefined) ?? 0) >= every * 1000) fresh.set(n, await refreshed($, block))
+    }
+    // Only the refreshed blocks' data goes into the file as it is now, so an answer or a newer call written meanwhile stays.
+    const current = await readSpec($, spec.name)
+    if (fresh.size === 0 || !current || current.at !== spec.at) continue
+    const blocks = current.blocks.map((b, n) => {
+      const f = fresh.get(n)
+      return f ? { ...b, columns: f.columns, rows: f.rows, refreshed_at: f.refreshed_at, error: f.error } : b
+    })
+    await writeSpec($, spec.name, { ...current, blocks })
+  }
+}
+
+type Answer = { block: number; type: string; value: unknown; label: string }
+
+// An answer the person gave in a pane becomes their next message to the session, once.
+export async function collectAnswers($: $, session: string) {
+  const dir = await showDir($)
+  const names = new Set((await specsOf($, session)).map(s => s.name))
+  for (const entry of await $.fs.list(dir).catch(() => [])) {
+    const found = entry.name.match(/^([a-z0-9][a-z0-9-]*)\.(\d+)\.answer$/)
+    if (!found || !names.has(found[1]!)) continue
+    const path = `${dir}/${entry.name}`
+    const answer = JSON.parse(await $.fs.read(path).catch(() => 'null')) as Answer | null
+    await $.process.run(['rm', '-f', path])
+    if (!answer) continue
+    const spec = await readSpec($, found[1]!)
+    const block = spec?.blocks[answer.block]
+    if (spec && block) {
+      spec.blocks[answer.block] = { ...block, answered: answer.label }
+      await writeSpec($, found[1]!, spec)
+    }
+    const asked = (block?.prompt ?? block?.summary ?? block?.title ?? '') as string
+    const text = answer.type === 'confirm'
+      ? `In the ${found[1]} pane I ${answer.value ? 'confirmed' : 'declined'}${asked ? `: ${asked.split('\n')[0]}` : ''}.`
+      : `In the ${found[1]} pane I picked "${answer.label}"${asked ? ` for: ${asked.replace(/[.?!:]$/, '')}` : ''}.`
+    void $.prompt.submit({ text })
+  }
 }

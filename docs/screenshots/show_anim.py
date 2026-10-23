@@ -1,5 +1,6 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
-back. Also stills of a flow chart and of a repo diff with its reviewr button, from fictional data, drawn by the real show.py."""
+back. Also stills of a flow chart, a sequence diagram, live blocks and a repo diff, from fictional data, drawn by the real
+show.py (run demo_data.py first, for the CI run)."""
 import json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import run, rows_svg, screen_of, svg, window
@@ -14,11 +15,11 @@ ORANGE, DIMC, INK, QUIET, WHITE, LINE = "FFC799", "707070", "101010", "2C2C30", 
 env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true"}
 
 
-def pane(name, spec, cols, rows, keys=()):
+def pane(name, spec, cols, rows, keys=(), wait=2.0):
     """The show.py screen for this spec, at this size."""
     os.makedirs(os.path.join(HOME, ".cache", "cockpit", "show"), exist_ok=True)
     json.dump({**spec, "at": int(time.time() * 1000)}, open(os.path.join(HOME, ".cache", "cockpit", "show", f"{name}.json"), "w"))
-    return screen_of(run(["python3", "show.py", name], cols, rows, env, keys, wait=2.0, cwd=APPS), cols, rows)
+    return screen_of(run(["python3", "show.py", name], cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
 
 
 # A quarter of fictional weekly signups, by sign-in method.
@@ -119,6 +120,33 @@ signin = {"title": "Calling the API", "blocks": [{"type": "flow", "nodes": [
 chart_flow = pane("flow", signin, 72, 30)
 used = max(y for y in range(30) if "".join(chart_flow.buffer[y][x].data for x in range(72)).strip()) + 1
 open(os.path.join(OUT, "show-flow.svg"), "w").write(svg(chart_flow, "show · flow", crop_rows=used))
+
+def still(name, spec, cols, rows, title):
+    screen = pane(name, spec, cols, rows, wait=3.5)
+    used = max(y for y in range(rows) if "".join(screen.buffer[y][x].data for x in range(cols)).strip()) + 1
+    open(os.path.join(OUT, f"show-{name}.svg"), "w").write(svg(screen, title, crop_rows=used))
+
+
+# A sequence diagram, written in Mermaid by the agent.
+still("sequence", {"title": "Signing in", "blocks": [{"type": "mermaid", "text": """sequenceDiagram
+    participant U as User
+    participant A as App
+    participant S as Auth server
+    U->>A: Log in
+    A->>S: /authorize with a PKCE challenge
+    S-->>A: code
+    A->>S: POST /token with the verifier
+    S-->>A: access and refresh tokens
+    A-->>U: signed in"""}]}, 72, 34, "show · sequence")
+
+# Live blocks: a CI run from cockpit's cache, a command's log, and a question whose answer goes back to the agent.
+logs = "printf 'migrating quotas…\\nbackfilled 41,200 accounts\\nwarning: 12 accounts without a plan\\ndone in 2m 14s\\n'"
+still("live", {"title": "Shipping ENG-413", "blocks": [
+    {"type": "ci", "title": "CI", "repo": "web", "branch": "me/eng-414-quota-copy"},
+    {"type": "log", "title": "Backfill", "command": logs, "every": 30},
+    {"type": "choice", "title": "Next", "prompt": "Turn the quotas flag on now?", "options": [
+        {"label": "Yes, for everyone", "preview": "Every account starts enforcing its daily limit."},
+        {"label": "Only for the beta cohort"}, {"label": "Not yet"}]}]}, 72, 30, "show · live")
 
 # The diff still: a small repo with work in progress, reviewr installed so the header carries its button.
 repo = os.path.join(HOME, "code", "web")

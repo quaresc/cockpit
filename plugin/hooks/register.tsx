@@ -11,7 +11,9 @@ import { maybeBrief } from './brief'
 import { refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, reportStep, settleTurn } from './handoffs'
-import { SHOW_SPEC, SHOW_TOOL_FULL, show, toggleView, viewsOf } from './show'
+import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, refreshSources, show, toggleView, viewsOf } from './show'
+import { openReader } from './readers'
+import type { ReaderKind } from './readers'
 
 const PANE = 'inbox'
 const STALE_MS = 5 * 60_000
@@ -661,6 +663,10 @@ export const register: Register = on => {
     void refreshMeetings($).catch(() => undefined)
     // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
     $.clock.every(3_000, () => void refreshViews($).catch(() => undefined))
+    // An answer given in a pane reaches the session as the person's next message.
+    $.clock.every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
+    // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
+    $.clock.every(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
     $.clock.every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
     const beat = async () => {
       const current = await read($, work)
@@ -728,12 +734,15 @@ export const register: Register = on => {
   // It writes cockpit's own files and one runbook status cell, so it needs no permission prompt.
   on('tool.check', { tool: REPORT_TOOL_FULL }, async () => ({ decision: 'allow' }))
   on('tool.call', { tool: SHOW_TOOL_FULL }, async ($, e) => {
-    const answer = await show($, e as unknown as Record<string, unknown>, await herdrHere($))
+    const answer = await show($, e as unknown as Record<string, unknown>, await herdrHere($), await $.session.cwd())
     await refreshViews($).catch(() => undefined)
     return answer
   })
-  // It writes the view to cockpit's cache and splits a pane beside this session, nothing else.
-  on('tool.check', { tool: SHOW_TOOL_FULL }, async () => ({ decision: 'allow' }))
+  // It writes the view to cockpit's cache and splits a pane beside this session; a view that runs commands asks first.
+  on('tool.check', { tool: SHOW_TOOL_FULL }, async ($, e) => {
+    const commands = commandsOf((e.input ?? {}) as Record<string, unknown>)
+    return commands.length > 0 ? { decision: 'ask', reason: `The pane will run, again and again: ${commands.join(' ; ')}` } : { decision: 'allow' }
+  })
 
   on('tool.call', async ($, e, next) => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
@@ -775,14 +784,17 @@ export const register: Register = on => {
       </Button>
     )
     const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => openUrl($, url), tone)
+    // A ticket, PR, page, thread or design opens in a pane beside the session; `o` there still opens the browser.
+    const reader = (key: string, label: string, kind: ReaderKind, ref: string, url: string, tone: keyof typeof PILL = 'quiet') =>
+      pill(key, label, () => hereSoon($).then(here => openReader($, kind, ref, url, here)).then(() => refreshViews($)), tone)
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
-        {found?.id && chip('lk-linear', `${ICON.linear} ${found.id}`, found.url, 'main')}
-        {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url)}
-        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma)}
-        {found?.notion && chip('lk-notion', `${ICON.notion} notion`, found.notion)}
-        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
+        {found?.id && reader('lk-linear', `${ICON.linear} ${found.id}`, 'linear', found.id, found.url, 'main')}
+        {found?.pr && reader('lk-pr', `${ICON.pr} ${found.pr.number}`, 'pr', found.pr.url, found.pr.url)}
+        {found?.figma && reader('lk-figma', `${ICON.figma} figma`, 'figma', found.figma, found.figma)}
+        {found?.notion && reader('lk-notion', `${ICON.notion} notion`, 'notion', found.notion, found.notion)}
+        {found?.slack && reader('lk-slack', `${ICON.slack} slack`, 'slack', found.slack, found.slack)}
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
         {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}

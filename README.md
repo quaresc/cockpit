@@ -10,7 +10,9 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Sidebar.** Each agent shows its context use and the repo and ticket it's on. The line turns red when its PR fails
   CI, or when another agent is on the same branch. The inbox space shows reviews, CI, tickets and plan limits.
 - **Footer.** Links to the ticket, PR, Figma, Notion, Slack thread, Argo and sandbox the conversation is about, plus
-  a chip per view the agent showed: press it to hide or bring back that pane.
+  a chip per view the agent showed. The ticket, PR, Figma, Notion and Slack chips open their content in a pane beside the
+  conversation (the ticket with its comments, the PR with its checks, review comments and diff, the frame as a picture);
+  `o` there opens the browser. A view's chip hides or brings back its pane.
 - **Show.** Ask an agent for a chart, a table, a flow chart or a diff and it opens in a pane beside the conversation,
   like an artifact: query results as line or bar charts, processes as laid-out flow charts, a repo's diff following the
   working tree.
@@ -53,8 +55,9 @@ It refreshes in the background, and by itself when the ticket goes live. Steps t
 
 ### Show
 
-Ask for a chart, a table, a flow chart or a diff, and the agent draws it in a herdr pane beside the conversation with
-cockpit's `show` tool. Asking again updates the same pane. `q` hides it to a chip in the footer, and the chip brings it back.
+Ask for a chart, a table, a diagram, a picture or a diff, and the agent draws it in a herdr pane beside the conversation
+with cockpit's `show` tool. Asking again updates the same pane. `q` hides it to a chip in the footer, and the chip brings
+it back.
 
 ![An agent charts a query beside the conversation, then the pane hides to its footer chip and comes back](docs/show.svg)
 
@@ -62,6 +65,19 @@ A flow chart is nodes and edges: the pane lays them out top to bottom or left to
 loops around the side.
 
 ![A flow chart with a decision and a loop back](docs/show-flow.svg)
+
+Exchanges between actors are sequence diagrams, written as blocks or as Mermaid, which agents write fluently.
+
+![A sign-in drawn as a sequence diagram](docs/show-sequence.svg)
+
+Some blocks keep themselves current: a chart or table fed by a saved Metabase question, a Metabase query or Datadog
+metrics refreshes while its pane is open, a log tails a command, and a CI block follows the branch's run. A question
+(pick an option, or confirm) sends your answer back to the agent as your next message. A block that runs a command asks
+for your approval first.
+
+![A CI run, a command's log and a question in one pane](docs/show-live.svg)
+
+Pictures (a screenshot, a Figma frame) are drawn with half blocks, two pixels a cell.
 
 A repo diff follows the working tree as the agent edits. With [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr)
 installed, its `reviewr` button opens the same changes for line comments that go back to the agent.
@@ -104,8 +120,8 @@ notification: click it to update.
 - herdr 0.9+, and Claude Code with plugin hooks modules
 - `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
 - A Nerd Font. It's drawn with FiraCode Nerd Font Mono.
-- Optional connectors: Linear, CircleCI, Google Calendar, Backstage, Datadog, and herdr-reviewr for line comments on
-  a diff
+- Optional connectors: Linear, CircleCI, Google Calendar, Backstage, Datadog, Notion, Slack, Figma, Metabase, and
+  herdr-reviewr for line comments on a diff. `/cockpit:doctor` lists the allow rules the footer chips and live panes need.
 
 ## How it works
 
@@ -136,6 +152,7 @@ lists live in `~/.config/cockpit`.
 | `recap` | How long you need to be away before the recap shows. |
 | `meetingBrief` | The model, titles that get no brief, and the read-only tools a brief may use (e.g. Notion). |
 | `chromeSideWindow` | One Chrome window per agent (macOS, iTerm2, Chrome). |
+| `notion`, `slack`, `figma`, `metabase`, `datadog` | `server`: the connector's name in `claude mcp list`, for the footer chips and live panes. |
 | `spaces` | Which pinned spaces exist, in sidebar order. |
 | `runbookTools` | Extra tools the runbook refresh may use. |
 
@@ -144,8 +161,8 @@ lists live in `~/.config/cockpit`.
 `prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings.
 
 In the apps: `j`/`k` rows, `h`/`l` or Tab buttons, Enter to press, `R` to refresh, `g` to group tickets by project
-or status. In a show pane: `q` hides it, Space and `b` page, `g`/`G` top and bottom, Enter folds a diff's file, `r`
-opens reviewr.
+or status. In a show pane: `q` hides it, Space and `b` page, `g`/`G` top and bottom, Enter folds a diff's file or answers a question,
+`r` opens reviewr, `o` opens the browser.
 
 Screenshots show the real apps on made-up data. [`docs/screenshots`](docs/screenshots) regenerates them.
 
