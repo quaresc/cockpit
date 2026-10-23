@@ -22,6 +22,8 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Recap.** Come back to a space after a while and a popup tells you what the agent did.
 - **After a deploy** (optional). Half an hour after a ticket goes live, Claude checks errors and latency and tells you
   if anything moved.
+- **Show.** Ask an agent for a chart, a table or a diff and it opens beside the conversation, in a herdr pane it
+  keeps updating: query results as line or bar charts, a repo's diff following the working tree. `q` closes it.
 - **Chrome per agent** (optional). An agent using Claude in Chrome gets its own window next to the terminal.
 
 Only herdr and GitHub are required. `/cockpit:setup` asks about the rest.
