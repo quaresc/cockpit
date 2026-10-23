@@ -2,7 +2,9 @@ import type { EngineInterface } from 'claude-code'
 
 import type { ViewChip } from '../types'
 
+import { browse } from './browser'
 import { cacheDir, loadConfig } from './config'
+import { PAGE_BLOCKS, pageBlocks, pageHtml } from './page'
 import { fetchSource } from './sources'
 
 type $ = EngineInterface
@@ -12,7 +14,7 @@ type $ = EngineInterface
 export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
 
-const PLACEMENTS = ['right', 'down', 'zoomed'] as const
+const PLACEMENTS = ['right', 'down', 'zoomed', 'browser'] as const
 const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
 const NODE_KINDS = ['box', 'round', 'decision'] as const
 const MAX_NODES = 60
@@ -35,14 +37,17 @@ export const SHOW_SPEC = {
     'path>, base?} following the working tree, or {type:"diff", patch}; {type:"log", command, every?, lines?} tailing a command; ' +
     '{type:"ci", repo, branch} for a CircleCI run; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
     '{type:"confirm", summary, consequence?, confirm_label?}, whose answer reaches you as the person\'s next message; ' +
-    '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane.',
+    '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane. placement:"browser" ' +
+    'draws the view as a web page in the browser beside the session instead, at full resolution: use it for tables too ' +
+    'wide for a pane, big diagrams, pictures and side-by-side diffs; it takes markdown, table, chart, flow, sequence, ' +
+    'mermaid, image and diff blocks, with rows given in the call.',
   inputSchema: {
     type: 'object',
     properties: {
       pane: { type: 'string', description: 'A short name such as quota-chart; the same name updates the same pane' },
       title: { type: 'string' },
       url: { type: 'string', description: 'Optional: what `o` in the pane opens in the browser' },
-      placement: { type: 'string', enum: PLACEMENTS, description: 'Where a new pane opens: right of this session (default), below it, or zoomed' },
+      placement: { type: 'string', enum: PLACEMENTS, description: 'Where a new pane opens: right of this session (default), below it, zoomed, or as a page in the browser beside it' },
       blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: BLOCKS } }, required: ['type'] } },
     },
     required: ['pane', 'title', 'blocks'],
@@ -199,6 +204,10 @@ export function viewError(input: Record<string, unknown>): string | undefined {
     if (typeof block !== 'object' || block === null) return `at /blocks/${n}: a block is an object with a type`
     const error = blockError(block as Block, `/blocks/${n}`)
     if (error) return error
+    const b = block as Block
+    if (input.placement === 'browser' && (!PAGE_BLOCKS.includes(b.type as string) || b.source !== undefined || b.command !== undefined)) {
+      return `at /blocks/${n}: a browser view takes ${list(PAGE_BLOCKS)} blocks with their data in the call; show this one in a pane`
+    }
   }
   return undefined
 }
@@ -242,9 +251,24 @@ export async function writeSpec($: $, name: string, spec: Spec) {
   await $.fs.write(`${await showDir($)}/${name}.json`, JSON.stringify(spec))
 }
 
+// A browser view: its page written beside the spec, then opened beside the session, or reloaded where it is open.
+async function presentPage($: $, name: string, spec: Spec) {
+  const patches = new Map<number, string>()
+  for (const [n, b] of spec.blocks.entries()) {
+    if (b.type !== 'diff' || typeof b.repo !== 'string') continue
+    const done = await $.process.run(['git', '-C', b.repo, 'diff', typeof b.base === 'string' ? b.base : 'HEAD', '--'], { timeoutMs: 15_000 })
+    patches.set(n, done.exitCode === 0 ? done.stdout : '')
+  }
+  const path = `${await showDir($)}/${name}.html`
+  await $.fs.write(path, pageHtml(spec, pageBlocks(spec.blocks, patches)))
+  await browse($, path, { size: 0.6, reload: true })
+  return { result: `Opened the ${name} page in the browser beside this session.` }
+}
+
 // Writes a view and makes sure a pane shows it: the open one redraws, else one opens beside the session.
 export async function present($: $, name: string, spec: Spec, here: { pane: string } | undefined) {
   await writeSpec($, name, spec)
+  if (spec.placement === 'browser') return presentPage($, name, spec)
   if (await isOpen($, await showDir($), name)) return { result: `Updated the ${name} pane.` }
   if (!here) return { result: `Wrote the view to ${await showDir($)}/${name}.json, but this session is not in herdr, so no pane opened.` }
   const failure = await openPane($, here, name, spec.placement ?? 'right')
@@ -311,7 +335,8 @@ export async function toggleView($: $, name: string, here: { pane: string } | un
     return false
   }
   const spec = await readSpec($, name)
-  if (spec && here) await openPane($, here, name, spec.placement ?? 'right')
+  if (spec?.placement === 'browser') await presentPage($, name, spec)
+  else if (spec && here) await openPane($, here, name, spec.placement ?? 'right')
   return true
 }
 

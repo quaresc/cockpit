@@ -86,13 +86,34 @@ if [ "$(jq -r '.notifications // true' "$CONFIG" 2>/dev/null)" = true ]; then
   [ "$delivery" = herdr ] && ok "herdr toasts in-app" || warn "herdr ui.toast.delivery is \"${delivery:-system}\": notifications arrive twice → set it to \"herdr\""
 fi
 
-# terminal-browser for the footer chips and show panes' links
-if [ "$(jq -r '.terminalBrowser // false' "$CONFIG" 2>/dev/null)" = true ]; then
-  command -v terminal-browser >/dev/null && ok "terminal-browser $(terminal-browser --version 2>/dev/null | awk '{print $2}')" ||
-    fail "terminalBrowser is on but terminal-browser is missing: links open in the default browser → brew install --cask terminal-browser"
+# terminal-browser for links beside the agent: optional, links open in the default browser without it
+if [ "$(jq -r '.terminalBrowser // true' "$CONFIG" 2>/dev/null)" = false ]; then
+  ok "terminal-browser off: links open in the default browser"
+elif ! command -v terminal-browser >/dev/null; then
+  ok "terminal-browser not installed: links open in the default browser (brew install --cask terminal-browser opens them beside the agent)"
+else
+  ok "terminal-browser $(terminal-browser --version 2>/dev/null | awk '{print $2}')"
+  installs=$(which -a terminal-browser | while read -r bin; do realpath "$bin" 2>/dev/null; done | sort -u | wc -l | tr -d ' ')
+  [ "$installs" -le 1 ] || warn "$installs terminal-browser installs, each with its own sign-ins → keep the brew one: rm ~/.local/bin/terminal-browser && rm -rf ~/.local/share/terminal-browser"
   grep -Eq '^[[:space:]]*kitty_graphics[[:space:]]*=[[:space:]]*false' "$HOME/.config/herdr/config.toml" 2>/dev/null &&
     fail "herdr kitty_graphics is off: terminal-browser panes stay blank → set it to true under [experimental]" ||
     ok "herdr kitty graphics on"
+  [ "$(terminal-browser config get render.transport 2>/dev/null)" = inline ] && ok "terminal-browser sends frames inline" ||
+    warn "terminal-browser render.transport is not inline: its panes stay blank in herdr → terminal-browser config set render.transport inline"
+  fps=$(terminal-browser config get render.fps 2>/dev/null)
+  case "$fps" in display|uncapped|"") warn "terminal-browser render.fps is ${fps:-display}: herdr queues every frame and the pane lags → terminal-browser config set render.fps 30" ;;
+    *) ok "terminal-browser at $fps frames per second" ;; esac
+  # herdr hands each frame to the terminal as a file in /tmp; Ghostty 1.3.1 and older on macOS read files only from its own TMPDIR.
+  ghostty=$(ps ax -o pid=,comm= | awk '$2 ~ /\/ghostty$/ {print $1; exit}')
+  if [ "$OS" = Darwin ] && [ -n "$ghostty" ]; then
+    tmp=$(ps eww -o command= -p "$ghostty" | tr ' ' '\n' | sed -n 's/^TMPDIR=//p')
+    stuck=$(find "/tmp/herdr-kitty-files-$(id -u)" -name 'tty-graphics-protocol-0' -mmin +1 2>/dev/null | head -1)
+    case "$tmp" in /tmp|/tmp/|/private/tmp|/private/tmp/) ok "Ghostty reads herdr's frame files" ;;
+      *) version=$(/Applications/Ghostty.app/Contents/MacOS/ghostty --version 2>/dev/null | awk 'NR == 1 {print $2}')
+        case "$version" in 1.[0-2].*|1.3.[01]) warn "Ghostty $version ignores herdr's frame files${stuck:+ (seen)}: every frame goes through the terminal, slow and CPU-heavy → set auto-update-channel = tip in Ghostty's config and update it, or start it with open -a Ghostty --env TMPDIR=/tmp" ;;
+          *) ok "Ghostty $version" ;; esac ;;
+    esac
+  fi
 fi
 
 # Permission rules for the background MCP calls

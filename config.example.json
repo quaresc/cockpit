@@ -20,7 +20,7 @@
   "datadog": { "server": "claude.ai Datadog" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
-  "terminalBrowser": false,
+  "terminalBrowser": true,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
   "runbookTools": []

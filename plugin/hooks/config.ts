@@ -26,6 +26,7 @@ export type Config = {
   datadog: { server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
+  // Links open in terminal-browser beside the agent when it is installed; false keeps them in the default browser.
   terminalBrowser: boolean
   herdrPluginRoot: string
 }
@@ -45,7 +46,7 @@ const DEFAULTS: Config = {
   datadog: { server: 'claude.ai Datadog' },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
-  terminalBrowser: false,
+  terminalBrowser: true,
   herdrPluginRoot: '',
 }
 

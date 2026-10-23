@@ -22,7 +22,7 @@ DEFAULTS = {
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
     "notifications": True,
-    "terminalBrowser": False,
+    "terminalBrowser": True,
     "herdrPluginRoot": "",
     "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
     "runbookTools": [],
@@ -42,7 +42,7 @@ def open_url(url):
 
 
 def browse(url, session=None):
-    """Opens a URL in terminal-browser beside a Claude session's pane when the config asks for it, else like open_url."""
+    """Opens a URL in terminal-browser beside a Claude session's pane, else the calling one; without it, like open_url."""
     subprocess.run(["sh", script("browse.sh"), url] + ([session] if session else []), capture_output=True, timeout=20)
 
 

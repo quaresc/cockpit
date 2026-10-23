@@ -10,7 +10,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 
 3. **Connectors.** Run `claude mcp list` and note the exact names of the connected servers for Linear, CircleCI, Google Calendar and Platform, if any.
 
-4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, Linear tickets, CircleCI runs, Google Calendar meetings, Platform deploys and sandboxes, links opened in terminal-browser beside the agent (installs it with `brew install --cask terminal-browser` when missing). Mark the ones whose connector is missing as such in their description.
+4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, Linear tickets, CircleCI runs, Google Calendar meetings, Platform deploys and sandboxes, links opened in terminal-browser beside the agent (installs it with `brew install --cask terminal-browser` when missing, then sets `terminal-browser config set render.transport inline` and `render.fps 30`, which herdr needs to draw it fast). Mark the ones whose connector is missing as such in their description.
 
 5. **Values.** Propose each from what you can detect, and ask only what you cannot settle:
    - `reposDir`: the folder holding the git checkouts; look for one with several `*/.git` among `~/code`, `~/src`, `~/dev`, `~/Work/*`, `~/projects`.
@@ -21,7 +21,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
    - CircleCI only: `imageJob`, the job that pushes the image a sandbox runs, or empty.
    - `deployWatch`: on only when an observability connector (Datadog or similar) is connected; `tools` lists its `mcp__<server>` prefix.
 
-6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` left empty (the mod finds the herdr plugin in herdr's registry, which follows its updates), and `enabled: false` for every feature I did not pick. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. Merge into an existing file instead of replacing it, and show the result.
+6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` left empty (the mod finds the herdr plugin in herdr's registry, which follows its updates), `enabled: false` for every feature I did not pick, and `terminalBrowser: false` when I did not pick terminal-browser. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. Merge into an existing file instead of replacing it, and show the result.
 
 ```json
 {
@@ -43,7 +43,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
-  "terminalBrowser": false,
+  "terminalBrowser": true,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
   "runbookTools": []

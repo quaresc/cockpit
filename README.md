@@ -11,11 +11,11 @@ One agent per space, a few pinned spaces for everything around the code, and the
   CI, or when another agent is on the same branch. The inbox space shows reviews, CI, tickets and plan limits.
 - **Footer.** Links to the ticket, PR, Figma, Notion, Slack thread, Argo and sandbox the conversation is about, plus
   a chip per view the agent showed. The ticket and Notion chips open their text in a pane beside the conversation (the
-  ticket with its links and comments); `o` there opens the page. The others open the page, beside the conversation with
-  terminal-browser on. A view's chip hides or brings back its pane.
+  ticket with its links and comments); `o` there opens the page. The others open the page, beside the conversation when
+  terminal-browser is installed. A view's chip hides or brings back its pane.
 - **Show.** Ask an agent for a chart, a table, a flow chart or a diff and it opens in a pane beside the conversation,
   like an artifact: query results as line or bar charts, processes as laid-out flow charts, a repo's diff following the
-  working tree.
+  working tree. Wide tables, big diagrams, pictures and side-by-side diffs can open as a page in the browser instead.
 - **Inbox.** Review requests, then your tickets by project with their stacked PRs, CI, deploys and sandboxes.
 - **Runbook.** `/runbook` writes down what's left to ship a ticket and keeps it up to date.
 - **To-do and meetings.** A Markdown to-do list (`/todo <text>` from any session) and your calendar.
@@ -27,8 +27,12 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Recap.** Come back to a space after a while and a popup tells you what the agent did.
 - **After a deploy** (optional). Half an hour after a ticket goes live, Claude checks errors and latency and tells you
   if anything moved.
-- **Pages beside the agent** (optional). With [terminal-browser](https://github.com/zenbu-labs/terminal-browser),
-  the footer's links and `o` in a show pane open the page in a pane right of the conversation, as tabs of one browser.
+- **Pages beside the agent** (optional). With [terminal-browser](https://github.com/zenbu-labs/terminal-browser)
+  installed, every link (footer, show panes, inbox, runbook, to-do) opens right of the conversation or the app, as tabs
+  of one browser, and the keyboard stays where it was. A page already open comes to the front instead. The agent knows
+  which page is open there, drives it with the `side-browser` skill to check a front change against the dev server or
+  prepare a review you submit, and follows a sandbox it deploys on ArgoCD. Without terminal-browser, links open in the
+  default browser.
 
 Only herdr and GitHub are required. `/cockpit:setup` asks about the rest.
 
@@ -152,7 +156,7 @@ lists live in `~/.config/cockpit`.
 | `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
 | `recap` | How long you need to be away before the recap shows. |
 | `meetingBrief` | The model, titles that get no brief, and the read-only tools a brief may use (e.g. Notion). |
-| `terminalBrowser` | Open links in terminal-browser beside the agent instead of the default browser. |
+| `terminalBrowser` | `false` keeps links in the default browser even with terminal-browser installed. |
 | `notion`, `metabase`, `datadog` | `server`: the connector's name in `claude mcp list`, for the footer chips and live panes. |
 | `spaces` | Which pinned spaces exist, in sidebar order. |
 | `runbookTools` | Extra tools the runbook refresh may use. |
