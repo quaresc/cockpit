@@ -1,4 +1,4 @@
-"""Opens a page in terminal-browser, split right of a pane, else in the default browser: an agent's front checks and
+"""Opens a page in terminal-browser, split right of a pane, else in the default browser: an agent's E2E tests and
 browser views. Links and footer chips go to the default browser instead.
 
     browse.py [--size <fraction>] [--reload] <url> [<Claude session id>]   beside the session's pane, else the calling one

@@ -1,0 +1,76 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink: #15171c;
+  --muted: #6b7180;
+  --line: #e4e7ec;
+  --brand: #4f46e5;
+  --brand-ink: #ffffff;
+  --danger-bg: #fdecec;
+  --danger-line: #f5c2c2;
+  --danger-ink: #a12020;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.logo i { width: 22px; height: 22px; border-radius: 6px; background: var(--brand); display: inline-block; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; background: #c7d2fe; color: #3730a3; display: grid; place-items: center; font-size: 13px; font-weight: 600; }
+
+main { padding: 20px 18px 40px; max-width: 720px; margin: 0 auto; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.lead { color: var(--muted); margin: 0 0 18px; }
+
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--danger-line);
+  border-radius: 12px;
+  background: var(--danger-bg);
+  color: var(--danger-ink);
+}
+.banner b { display: block; }
+.banner a { color: var(--danger-ink); font-weight: 600; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fbfbfc; }
+.row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.chip { padding: 5px 10px; border-radius: 999px; background: #eef0f4; font-size: 13px; }
+
+button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font: inherit;
+  font-weight: 600;
+}
+button:disabled { background: #e4e7ec; color: #9aa0ad; }
+
+h2 { font-size: 15px; margin: 0 0 10px; }
+.saved { display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--line); }
+.saved:first-of-type { border-top: 0; }
+.saved span { color: var(--muted); font-size: 13px; }

@@ -118,8 +118,8 @@ export type Config = {
   datadog: { server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
-  // Where an agent checks a front change: the terminal-browser pane beside it, or Claude in Chrome.
-  checksBrowser: 'terminal' | 'chrome'
+  // Where an agent runs its E2E tests of a front change: terminal-browser beside it, or Claude in Chrome.
+  e2eBrowser: 'terminal-browser' | 'chrome'
   // A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; 0 keeps it.
   browserIdleMinutes: number
   herdrPluginRoot: string
@@ -206,7 +206,7 @@ const DEFAULTS: Config = {
   datadog: { server: 'claude.ai Datadog' },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
-  checksBrowser: 'terminal',
+  e2eBrowser: 'terminal-browser',
   browserIdleMinutes: 60,
   herdrPluginRoot: '',
 }
@@ -232,6 +232,7 @@ export async function loadConfig($: $): Promise<Config> {
   let raw: Partial<Config> & {
     linear?: { enabled?: boolean; server?: string; teams?: string[] }
     circleci?: { enabled?: boolean; server?: string; imageJob?: string }
+    checksBrowser?: 'terminal' | 'chrome'
   } = {}
   try {
     raw = JSON.parse(await $.fs.read(`${await home($)}/.config/cockpit/config.json`)) as typeof raw
@@ -245,6 +246,8 @@ export async function loadConfig($: $): Promise<Config> {
     const { enabled, server, imageJob = '' } = raw.circleci
     raw.ci = enabled ? { ...CIRCLECI, server: server ?? CIRCLECI.server, imageJob } : { ...DEFAULTS.ci, imageJob }
   }
+  // The E2E browser setting's earlier name.
+  if (!raw.e2eBrowser && raw.checksBrowser) raw.e2eBrowser = raw.checksBrowser === 'chrome' ? 'chrome' : 'terminal-browser'
   // A CircleCI connector named without a mapping gets CircleCI's.
   if (raw.ci?.server && !raw.ci.tools && /circleci/i.test(raw.ci.server)) raw.ci = { ...CIRCLECI, ...raw.ci }
   const config: Config = {
