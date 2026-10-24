@@ -132,7 +132,7 @@ const inboxSpace = async ($: $) => {
   const { exitCode, stdout } = await herdr($, ['workspace', 'list'])
   if (exitCode !== 0) return undefined
   const spaces = JSON.parse(stdout)?.result?.workspaces as { workspace_id: string; label: string }[] | undefined
-  return spaces?.find(w => w.label.includes('inbox'))?.workspace_id
+  return spaces?.find(w => w.label.endsWith('  inbox'))?.workspace_id
 }
 
 // This session's space: its id, its label without the "[N] " prefix, and whether it is the one in view.
@@ -600,17 +600,39 @@ const startSpace = async ($: $, cwd: string, label: string, command: string) => 
 }
 
 // The page terminal-browser shows beside this session, for the model to know what "this page" is; undefined without one.
-const pageBeside = async ($: $) => {
-  if ((await loadConfig($)).terminalBrowser === false) return undefined
-  const here = await hereSoon($)
-  if (!here) return undefined
+type Browser = { tabs?: { url: string; title?: string; active?: boolean }[] }
+
+// The terminal-browser browsers in this session's tab; none without terminal-browser or outside herdr.
+const browsersBeside = async ($: $, here: { pane: string; tab: string }): Promise<Browser[]> => {
+  if ((await loadConfig($)).terminalBrowser === false) return []
   const listed = await $.process.run(['sh', '-c', 'PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH" exec terminal-browser ls --json'], {
     env: { HERDR_PANE_ID: here.pane, HERDR_TAB_ID: here.tab },
     timeoutMs: 2_000,
   }).catch(() => undefined)
-  if (listed?.exitCode !== 0) return undefined
-  const browsers = (JSON.parse(listed.stdout) as { browsers?: { tabs?: { url: string; title?: string; active?: boolean }[] }[] }).browsers ?? []
-  return browsers.flatMap(b => b.tabs ?? []).find(t => t.active)
+  if (listed?.exitCode !== 0) return []
+  return (JSON.parse(listed.stdout) as { browsers?: Browser[] }).browsers ?? []
+}
+
+const pageBeside = async ($: $) => {
+  const here = await hereSoon($)
+  return here ? (await browsersBeside($, here)).flatMap(b => b.tabs ?? []).find(t => t.active) : undefined
+}
+
+let lastSide: string | undefined
+
+// The panes beside this session, on its agent row like tabs in Arc: browser tabs, then views and readers.
+const reportSide = async ($: $) => {
+  const here = await hereSoon($)
+  if (!here) return
+  const browsers = await browsersBeside($, here)
+  const tabs = browsers.reduce((n, b) => n + (b.tabs?.length ?? 0), 0)
+  const listed = await herdr($, ['pane', 'list', '--workspace', here.space])
+  const panes = ((JSON.parse(listed.stdout || '{}')?.result?.panes ?? []) as { tab_id: string }[]).filter(p => p.tab_id === here.tab).length
+  const others = Math.max(0, panes - 1 - browsers.length)
+  const text = [tabs > 0 ? `${ICON.app} ${tabs}` : '', others > 0 ? `${ICON.view} ${others}` : ''].filter(Boolean).join(' ')
+  if (text === lastSide) return
+  const args = ['pane', 'report-metadata', here.pane, '--source', 'cockpit', ...(text ? ['--token', `side=${text}`] : ['--clear-token', 'side'])]
+  if ((await herdr($, args)).exitCode === 0) lastSide = text
 }
 
 let toldPage = ''
@@ -687,6 +709,7 @@ export const register: Register = on => {
     void refreshMeetings($).catch(() => undefined)
     // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
     $.clock.every(3_000, () => void refreshViews($).catch(() => undefined))
+    $.clock.every(10_000, () => void reportSide($).catch(() => undefined))
     // An answer given in a pane reaches the session as the person's next message.
     $.clock.every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
     // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
@@ -760,6 +783,7 @@ export const register: Register = on => {
   on('tool.call', { tool: SHOW_TOOL_FULL }, async ($, e) => {
     const answer = await show($, e as unknown as Record<string, unknown>, await herdrHere($), await $.session.cwd())
     await refreshViews($).catch(() => undefined)
+    void reportSide($).catch(() => undefined)
     return answer
   })
   // It writes the view to cockpit's cache and splits a pane beside this session; a view that runs commands asks first.
@@ -808,10 +832,11 @@ export const register: Register = on => {
         <Text color={PILL[tone].fill}>{'\ue0b4'}</Text>
       </Button>
     )
-    const chip = (key: string, label: string, url: string, size: number, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => browse($, url, { size }), tone)
+    const chip = (key: string, label: string, url: string, size: number, tone: keyof typeof PILL = 'quiet') =>
+      pill(key, label, () => browse($, url, { size }).then(() => reportSide($)), tone)
     // A ticket or a page opens in a pane beside the session, where it reads as text; `o` there still opens the browser.
     const reader = (key: string, label: string, kind: ReaderKind, ref: string, url: string, tone: keyof typeof PILL = 'quiet') =>
-      pill(key, label, () => hereSoon($).then(here => openReader($, kind, ref, url, here)).then(() => refreshViews($)), tone)
+      pill(key, label, () => hereSoon($).then(here => openReader($, kind, ref, url, here)).then(() => refreshViews($)).then(() => reportSide($)), tone)
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
@@ -823,7 +848,7 @@ export const register: Register = on => {
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url, 0.5)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url, 0.5)}
         {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url, 0.6)}
-        {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)), v.isOpen ? 'main' : 'quiet'))}
+        {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)).then(() => reportSide($)), v.isOpen ? 'main' : 'quiet'))}
         {tight.map(l => (
           <Text key={`lim-${l.name}`} color={l.percent >= 80 ? 'error' : 'warning'}>
             {l.name} {Math.round(l.percent)}%
@@ -851,7 +876,7 @@ export const register: Register = on => {
     const here = await herdrHere($).catch(() => undefined)
     if (here) {
       const args = ['pane', 'report-metadata', here.pane, '--source', 'cockpit']
-      for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail', 'clash']) args.push('--clear-token', name)
+      for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail', 'clash', 'side']) args.push('--clear-token', name)
       void herdr($, args)
     }
     return next(e)

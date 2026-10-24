@@ -16,8 +16,8 @@ delivery = "herdr"
 # Spaces: the pinned ones by name, then the counts the cockpit mod reports on the inbox space.
 [ui.sidebar.spaces]
 rows = [
-  # Agent spaces render blank: the agent panel below already lists them.
-  [{ token = "workspace", rules = [{ contains = "inbox" }, { contains = "terminal" }, { contains = "to-do" }, { contains = "runbook" }, { contains = "meetings" }, { contains = "", hide = true }] }],
+  # Only the pinned spaces, labelled "<icon>  <name>"; agent spaces render blank, the agent panel below lists them.
+  [{ token = "workspace", rules = [{ contains = "  inbox" }, { contains = "  terminal" }, { contains = "  to-do" }, { contains = "  runbook" }, { contains = "  meetings" }, { contains = "", hide = true }] }],
   [{ token = "$review", dim = true }],
   [{ token = "$ci_fail", fg = "#FF8080" }, { token = "$ci_ok", dim = true }],
   [{ token = "$tickets", dim = true }],
@@ -27,7 +27,7 @@ rows = [
   [{ token = "$meetings", fg = "#FFC799" }],
 ]
 
-# Agents: state, task and context percentage; under it repo · ticket, red when its PR fails CI.
+# Agents: state, task, the panes beside it (browser tabs, views) and context percentage; under it repo · ticket, red when its PR fails CI.
 [ui.sidebar.agents]
 rows = [["state_icon", "workspace"]]
 
@@ -36,6 +36,7 @@ claude = [
   [
     "state_icon",
     "workspace",
+    { token = "$side", dim = true },
     { token = "$ctx_ok", dim = true },
     { token = "$ctx_warn", fg = "#FFC799" },
     { token = "$ctx_hot", fg = "#FF8080", bold = true },
