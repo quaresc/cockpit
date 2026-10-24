@@ -51,6 +51,13 @@ claude = [
   [{ token = "$clash", fg = "#FF8080", bold = true }],
 ]
 
+# The page of the terminal-browser beside the focused pane, in the default browser.
+[[keys.command]]
+key = "prefix+f"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/browse.sh --external"
+description = "page beside, in the default browser"
+
 # Jump to the pinned spaces.
 [[keys.command]]
 key = "prefix+i"

@@ -2,6 +2,7 @@
 
     browse.py [--size <fraction>] [--reload] <url> [<Claude session id>]   beside the session's pane, else the calling one
     browse.py --beside [<Claude session id>]                               the browser beside it, as JSON ({} when none)
+    browse.py --external [<Claude session id>]                             its page, opened in the default browser
 
 terminal-browser is used when it is installed, the config's terminalBrowser is not false and the pane is in herdr. A page
 already open beside the pane comes to the front instead of opening twice, and the keyboard stays where it was.
@@ -127,6 +128,12 @@ def beside(session):
 def main(args):
     if args[:1] == ["--beside"]:
         print(json.dumps(beside(args[1] if len(args) > 1 else None)))
+        return
+    if args[:1] == ["--external"]:
+        page = beside(args[1] if len(args) > 1 else None)
+        if not page:
+            sys.exit("no terminal-browser beside this pane")
+        cockpit_config.open_url(page["url"])
         return
     size, reload = DEFAULT_SIZE, False
     while args and args[0].startswith("--"):
