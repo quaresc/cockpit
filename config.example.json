@@ -19,7 +19,6 @@
   "datadog": { "server": "claude.ai Datadog" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
-  "terminalBrowser": true,
   "checksBrowser": "terminal",
   "browserIdleMinutes": 60,
   "herdrPluginRoot": "",

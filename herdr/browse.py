@@ -1,11 +1,12 @@
-"""Opens a link in terminal-browser, split right of a pane, else in the default browser.
+"""Opens a page in terminal-browser, split right of a pane, else in the default browser: an agent's front checks and
+browser views. Links and footer chips go to the default browser instead.
 
     browse.py [--size <fraction>] [--reload] <url> [<Claude session id>]   beside the session's pane, else the calling one
     browse.py --beside [<Claude session id>]                               the browser beside it, as JSON ({} when none)
     browse.py --external [<Claude session id>]                             its page, opened in the default browser
 
-terminal-browser is used when it is installed, the config's terminalBrowser is not false and the pane is in herdr. A page
-already open beside the pane comes to the front instead of opening twice, and the keyboard stays where it was.
+terminal-browser is used when it is installed and the pane is in herdr. A page already open beside the pane comes to the
+front instead of opening twice, and the keyboard stays where it was.
 """
 
 import fcntl
@@ -44,9 +45,7 @@ def herdr_json(*args):
 
 
 def terminal_browser():
-    """The terminal-browser command, or None when it is missing or turned off."""
-    if cockpit_config.load().get("terminalBrowser") is False:
-        return None
+    """The terminal-browser command, or None when it is missing."""
     return shutil.which("terminal-browser", path=PATH)
 
 

@@ -9,8 +9,10 @@ python3 demo_data.py home          # a fake HOME with caches, to-dos and runbook
 .venv/bin/python overall.py        # the overview
 .venv/bin/python runbook_anim.py   # a refresh landing in the runbook, animated (run demo_data.py again first)
 .venv/bin/python features.py       # the recap popup, and the inbox with its sandbox and stop buttons
-.venv/bin/python show_anim.py      # the show tool: a chart hiding to its chip, flow, sequence, live blocks, a diff
-python3 notifications.py           # the notifications, animated
+".venv/bin/python show_anim.py      # the show tool: a chart hiding to its chip, flow, sequence, live blocks, a diff
+.venv/bin/python settings.py       # the /cockpit settings pane
+.venv/bin/python compare.py        # a before/after from the front checks
+python3 notifications.py           # the notifications and their buttons, animated
 ```
 
 Needs FiraCode Nerd Font Mono in `~/Library/Fonts`; a subset of it is embedded in each SVG.

@@ -209,7 +209,7 @@ def open_pr(state, repo, number):
     if not url:
         note(state, f"no URL known for {repo}#{number}: set github.org in the cockpit config")
         return
-    cockpit_config.browse(url)
+    cockpit_config.open_url(url)
     note(state, f"opened {url}")
 
 

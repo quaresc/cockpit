@@ -4,7 +4,7 @@ import type { EngineInterface, Register, RenderChildren, SessionMeasureInput } f
 import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../types'
 
 import { activityOf, clashWith, logActivity } from './activity'
-import { browse, openUrl } from './browser'
+import { openUrl } from './browser'
 import { announceSandboxes, deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, startDeployWatch, ticketAction, withLock } from './ci'
 import { cacheDir, fill, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
@@ -584,7 +584,7 @@ const requestRunbookRefresh = async ($: $, id: string, reason: string) => {
 
 const peek = async ($: $, pr: Pr) => {
   const opened = await herdr($, ['plugin', 'pane', 'open', '--plugin', 'cockpit', '--entrypoint', 'peek', '--placement', 'popup', '--env', `PEEK_URL=${pr.url}`])
-  if (opened.exitCode !== 0) await browse($, pr.url, { size: 0.6 })
+  if (opened.exitCode !== 0) await openUrl($, pr.url)
 }
 
 const startSpace = async ($: $, cwd: string, label: string, command: string) => {
@@ -605,9 +605,8 @@ const startSpace = async ($: $, cwd: string, label: string, command: string) => 
 // The page terminal-browser shows beside this session, for the model to know what "this page" is; undefined without one.
 type Browser = { tabs?: { url: string; title?: string; active?: boolean }[] }
 
-// The terminal-browser browsers in this session's tab; none without terminal-browser or outside herdr.
+// The terminal-browser browsers in this session's tab (an agent's checks, browser views); none outside herdr.
 const browsersBeside = async ($: $, here: { pane: string; tab: string }): Promise<Browser[]> => {
-  if ((await loadConfig($)).terminalBrowser === false) return []
   const listed = await $.process.run(['sh', '-c', 'PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH" exec terminal-browser ls --json'], {
     env: { HERDR_PANE_ID: here.pane, HERDR_TAB_ID: here.tab },
     timeoutMs: 2_000,
@@ -703,19 +702,6 @@ const pageContext = async ($: $) => {
   toldPage = page.url
   return [`The browser beside this conversation shows "${page.title || page.url}" at ${page.url}. ` +
     'When the person says "this page" they mean it; read or drive it with `terminal-browser action -- snapshot` (the side-browser skill).']
-}
-
-const toolPrefix = (server: string) => `mcp__${server.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/_$/, '')}`
-
-// After this session creates, redeploys or updates a sandbox, its ArgoCD page opens beside it to follow the rollout.
-const followSandbox = async ($: $, tool: string, args: Record<string, unknown>, text: string) => {
-  const { platform } = await loadConfig($)
-  if (!platform.enabled || !tool.startsWith(`${toolPrefix(platform.server)}__sandboxes_`)) return
-  if (!/_(create|redeploy|update)-sandbox$/.test(tool)) return
-  const prefix = platform.stagePrefix.replace(/[^a-z0-9-]/gi, '')
-  const named = typeof args.stage === 'string' ? args.stage : prefix ? text.match(new RegExp(`\\b${prefix}[a-z0-9-]+`))?.[0] : undefined
-  const url = named ? fill(platform.sandboxArgoUrl, { stage: named }) : undefined
-  if (url) await browse($, url, { size: 0.5 })
 }
 
 const repoDir = async ($: $, pr: Pr) => {
@@ -857,9 +843,7 @@ export const register: Register = on => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
     const done = activityOf(String(e.tool), e as unknown as Record<string, unknown>, (await read($, work))?.dir ?? '')
     if (done && e.agentId === undefined) void hereSoon($).then(here => logActivity($, here?.space, done)).catch(() => undefined)
-    const out = await next(e)
-    if (!out.deny && !out.isError) void followSandbox($, String(e.tool), e as unknown as Record<string, unknown>, out.text ?? '').catch(() => undefined)
-    return out
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -894,19 +878,18 @@ export const register: Register = on => {
         <Text color={PILL[tone].fill}>{'\ue0b4'}</Text>
       </Button>
     )
-    const chip = (key: string, label: string, url: string, size: number, tone: keyof typeof PILL = 'quiet') =>
-      pill(key, label, () => browse($, url, { size }).then(() => reportSide($)), tone)
+    const chip = (key: string, label: string, url: string, tone: keyof typeof PILL = 'quiet') => pill(key, label, () => openUrl($, url), tone)
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
-        {found?.id && found.url && chip('lk-linear', `${ICON.linear} ${found.id}`, found.url, 0.5, 'main')}
-        {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url, 0.6)}
-        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma, 0.6)}
-        {found?.notion && chip('lk-notion', `${ICON.notion} notion`, found.notion, 0.5)}
-        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack, 0.45)}
-        {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url, 0.5)}
-        {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url, 0.5)}
-        {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url, 0.6)}
+        {found?.id && found.url && chip('lk-linear', `${ICON.linear} ${found.id}`, found.url, 'main')}
+        {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url)}
+        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma)}
+        {found?.notion && chip('lk-notion', `${ICON.notion} notion`, found.notion)}
+        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
+        {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
+        {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
+        {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}
         {beside && pill('lk-external', `${ICON.external} browser`, () => openUrl($, beside.url))}
         {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)).then(() => reportSide($)), v.isOpen ? 'main' : 'quiet'))}
         {tight.map(l => (
@@ -995,7 +978,7 @@ export const register: Register = on => {
         {prLabel(pr, pr.isDirect ? '•' : '·', width - 3 - 19 - meta - 23)}
         <Text dimColor> {cut(meta > 6 ? `${pr.author} ${ago(pr.updatedAt)}` : ago(pr.updatedAt), meta - 2)} </Text>
         <Button key={`rv-${pr.url}`} label="rev" onPress={() => reviewPr($, pr)} />
-        <Button key={`op-${pr.url}`} label="web" onPress={() => browse($, pr.url, { size: 0.6 })} />
+        <Button key={`op-${pr.url}`} label="web" onPress={() => openUrl($, pr.url)} />
         {!pr.isDirect && <Button key={`mu-${pr.url}`} label="mute" onPress={() => setMuted($, pr.repo, true)} />}
       </Box>
     )
@@ -1005,7 +988,7 @@ export const register: Register = on => {
         {prLabel(pr, prIcons(pr), width - 5 - 19 - 22)}
         <Text dimColor> {cut(ago(pr.updatedAt), 4)}</Text>
         {isFailing(pr) && <Button key={`ci-${pr.url}`} label="why?" onPress={() => investigateCi($, pr)} />}
-        <Button key={`op-${pr.url}`} label="web" onPress={() => browse($, pr.url, { size: 0.6 })} />
+        <Button key={`op-${pr.url}`} label="web" onPress={() => openUrl($, pr.url)} />
       </Box>
     )
 
@@ -1013,7 +996,7 @@ export const register: Register = on => {
       const pr = prForTicket(data, t)
       return (
         <Box key={`t-${t.id}`} flexDirection="row">
-          <Button key={`tk-${t.id}`} plain onPress={() => browse($, t.url)}>
+          <Button key={`tk-${t.id}`} plain onPress={() => openUrl($, t.url)}>
             <Text color="suggestion">{cut(t.id, 10)} </Text>
             <Text dimColor>{cut(t.status, 16)} </Text>
             <Text>{cut(t.title, width - 11 - 17 - 12 - 11)}</Text>

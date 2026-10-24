@@ -1,15 +1,16 @@
-"""An animated SVG of cockpit's notifications sliding in, each with where its click leads."""
+"""An animated SVG of cockpit's notifications sliding in, each with where its click leads and the buttons it carries."""
 import html, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = [
-    ("🔁 CircleCI", "🟢 CI passed: web me/eng-413-quota-ui", "the PR's checks"),
-    ("✓ quota-banner", "Banner done: tests pass, CI running on web#1836", "back to that agent's space"),
-    ("📋 ENG-410 · Daily quotas", "3 steps done · 3 to do", "the runbook, playing its done steps"),
-    ("📅 Meeting", "Quotas design review in 5 min", "the video call"),
-    ("⏸ invoice-csv", "Claude is waiting for you", "the agent that needs you"),
+    ("📥 Inbox", "👀 Review requested: web#1840 Quota copy", "the PR", ["Review"]),
+    ("🔁 CircleCI", "🔴 CI failed: web me/eng-413-quota-ui", "the PR's checks", ["Why?", "Rerun"]),
+    ("✓ quota-ui", "Checked on phone, tablet and desktop", "back to that agent's space", []),
+    ("📥 Inbox", "🎫 Assigned: ENG-420 Quota emails", "the ticket", ["Plan"]),
+    ("📅 Meeting", "Quotas design review in 5 min", "its brief", ["Join"]),
+    ("⏸ invoice-csv", "Claude is waiting for you", "the agent that needs you", []),
 ]
-W, TOP, STEP, BW, BH, BX = 900, 28, 88, 400, 74, 470
+W, TOP, STEP, BW, BH, BX = 980, 28, 88, 480, 74, 470
 H = TOP * 2 + STEP * len(ITEMS) - (STEP - BH) + 26
 LOOP, SLOT = 9.0, 0.7
 SANS = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Helvetica,Arial,sans-serif"
@@ -28,8 +29,19 @@ def logo(x, y, size):
 </g>'''
 
 
+def buttons_svg(buttons, y):
+    """The notification's buttons, stacked at its right edge as macOS draws them."""
+    out, bw, bh = [], 64, 24
+    top = y + (BH - len(buttons) * bh - (len(buttons) - 1) * 6) / 2
+    for n, label in enumerate(buttons):
+        by = top + n * (bh + 6)
+        out.append(f'<rect x="{BX + BW - 16 - bw}" y="{by}" width="{bw}" height="{bh}" rx="7" fill="#3A3A44" stroke="#4A4A54"/>'
+                   f'<text x="{BX + BW - 16 - bw / 2}" y="{by + 16}" text-anchor="middle" fill="#F2F2F2" font-size="12">{html.escape(label)}</text>')
+    return "".join(out)
+
+
 style, groups = "", []
-for i, (title, body, click) in enumerate(ITEMS):
+for i, (title, body, click, buttons) in enumerate(ITEMS):
     y = TOP + i * STEP
     a, b = 100 * (0.4 + i * SLOT) / LOOP, 100 * (0.4 + i * SLOT + 0.45) / LOOP
     style += (f"@keyframes n{i}{{0%,{a:.1f}%{{transform:translateX(460px);opacity:0}}{b:.1f}%,88%{{transform:translateX(0);opacity:1}}"
@@ -45,13 +57,14 @@ for i, (title, body, click) in enumerate(ITEMS):
   <text x="{BX + BW - 16}" y="{y + 24}" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
   <text x="{BX + 66}" y="{y + 43}" fill="#F2F2F2" font-size="14" font-weight="600">{html.escape(title)}</text>
   <text x="{BX + 66}" y="{y + 61}" fill="#C8C8CE" font-size="13">{html.escape(body)}</text>
+  {buttons_svg(buttons, y)}
 </g>''')
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">
 <defs><linearGradient id="desk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B1B24"/><stop offset="1" stop-color="#0F0F12"/></linearGradient></defs>
 <style>text{{font-family:{SANS}}}{style}@media (prefers-reduced-motion:reduce){{g{{animation:none!important;opacity:1!important}}}}</style>
 <rect width="100%" height="100%" rx="12" fill="url(#desk)" stroke="#2C2C30"/>
-<text x="28" y="{H - 22}" fill="#707070" font-size="12">macOS notifications from cockpit, each click leading somewhere useful</text>
+<text x="28" y="{H - 22}" fill="#707070" font-size="12">macOS notifications from cockpit: a click leads somewhere useful, a button acts</text>
 {"".join(groups)}
 </svg>'''
 open(os.path.join(HERE, "..", "notifications.svg"), "w").write(svg)

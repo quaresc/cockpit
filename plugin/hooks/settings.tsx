@@ -20,7 +20,6 @@ type Setting = {
 }
 
 const SETTINGS: Setting[] = [
-  { key: 'links', path: ['terminalBrowser'], label: 'Links open', values: [true, false], names: { true: 'beside the agent', false: 'in the default browser' } },
   { key: 'checks', path: ['checksBrowser'], label: 'Front checks run in', values: ['terminal', 'chrome'], names: { terminal: 'the pane beside the agent', chrome: 'Chrome' } },
   { key: 'idle', path: ['browserIdleMinutes'], label: 'Close browsers out of view', values: [60, 180, 0], names: { 60: 'after 1 h', 180: 'after 3 h', 0: 'never' } },
   { key: 'notifications', path: ['notifications'], label: 'Notifications', values: [true, false], names: { true: 'on', false: 'off' } },
@@ -31,7 +30,7 @@ const SETTINGS: Setting[] = [
 ]
 
 const ALIASES: Record<string, string | boolean | number> = {
-  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', default: false, beside: true, '1h': 60, '3h': 180, never: 0,
+  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0,
 }
 
 function valueOf(config: Config, setting: Setting) {
@@ -102,7 +101,7 @@ export function registerSettings(on: On) {
         <Text> </Text>
         {SETTINGS.map(s => {
           const value = valueOf(config, s)
-          const greyed = missing && ['links', 'checks', 'idle'].includes(s.key)
+          const greyed = missing && ['checks', 'idle'].includes(s.key)
           return (
             <Box key={s.key} flexDirection="row">
               <Text dimColor={greyed}>{s.label.padEnd(width)}</Text>
@@ -113,7 +112,7 @@ export function registerSettings(on: On) {
         <Text> </Text>
         <Text dimColor>
           {missing
-            ? 'terminal-browser is not installed: links open in the default browser and front checks run in Chrome.'
+            ? 'terminal-browser is not installed: front checks run in Chrome.'
             : `terminal-browser ${version ?? ''} · press a value to change it · /cockpit <setting> <value> from any session`}
         </Text>
       </Box>
