@@ -66,8 +66,6 @@ export type Spec = {
   placement?: Placement
   cwd?: string
   url?: string
-  // A footer chip's reader (a ticket, a page, a thread): it has its own chip, so it is not listed with the views.
-  isReader?: boolean
 }
 
 const isText = (v: unknown): v is string => typeof v === 'string'
@@ -328,7 +326,7 @@ async function specsOf($: $, session: string) {
 
 export async function viewsOf($: $, session: string): Promise<ViewChip[]> {
   const dir = await showDir($)
-  const mine = (await specsOf($, session)).filter(s => !s.isReader).sort((a, b) => b.at - a.at).slice(0, CHIPS)
+  const mine = (await specsOf($, session)).sort((a, b) => b.at - a.at).slice(0, CHIPS)
   return Promise.all(mine.map(async s => ({ name: s.name, isOpen: await isOpen($, dir, s.name) })))
 }
 

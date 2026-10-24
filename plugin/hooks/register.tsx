@@ -13,9 +13,7 @@ import { refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, reportStep, settleTurn } from './handoffs'
 import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, refreshSources, show, toggleView, viewsOf } from './show'
-import { openReader } from './readers'
 import { registerSettings, registerSettingsCommand } from './settings'
-import type { ReaderKind } from './readers'
 
 const PANE = 'inbox'
 const STALE_MS = 5 * 60_000
@@ -894,16 +892,13 @@ export const register: Register = on => {
     )
     const chip = (key: string, label: string, url: string, size: number, tone: keyof typeof PILL = 'quiet') =>
       pill(key, label, () => browse($, url, { size }).then(() => reportSide($)), tone)
-    // A ticket or a page opens in a pane beside the session, where it reads as text; `o` there still opens the browser.
-    const reader = (key: string, label: string, kind: ReaderKind, ref: string, url: string, tone: keyof typeof PILL = 'quiet') =>
-      pill(key, label, () => hereSoon($).then(here => openReader($, kind, ref, url, here)).then(() => refreshViews($)).then(() => reportSide($)), tone)
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
-        {found?.id && reader('lk-linear', `${ICON.linear} ${found.id}`, 'linear', found.id, found.url, 'main')}
+        {found?.id && found.url && chip('lk-linear', `${ICON.linear} ${found.id}`, found.url, 0.5, 'main')}
         {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url, 0.6)}
         {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma, 0.6)}
-        {found?.notion && reader('lk-notion', `${ICON.notion} notion`, 'notion', found.notion, found.notion)}
+        {found?.notion && chip('lk-notion', `${ICON.notion} notion`, found.notion, 0.5)}
         {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack, 0.45)}
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url, 0.5)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url, 0.5)}
