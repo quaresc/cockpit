@@ -5,24 +5,13 @@
 <p align="center"><b>Run several Claude Code agents in <a href="https://herdr.dev">herdr</a> without losing track of them.</b><br>
 One agent per space, pinned spaces for your inbox, to-dos, runbooks and meetings, and the right links in every session.</p>
 
-![herdr with the cockpit sidebar, a Claude session testing its change in terminal-browser, and its footer](docs/overview.svg)
-
-## Install
-
-In a Claude Code session inside herdr:
-
-```
-/plugin install cockpit --marketplace quaresc/cockpit
-/cockpit:setup
-```
-
-Setup installs the herdr half, asks which features you want and writes your config. `/cockpit:doctor` checks
-everything and says how to fix what is off. Updates arrive as a notification.
-
-**Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Python 3, Xcode command line tools and a Nerd
-Font.
-
 ## Features
+
+The whole thing at once: the sidebar, an agent on a ticket, the page it tests beside it, and its footer.
+
+![herdr with the cockpit sidebar, an agent testing its change in terminal-browser beside it, and its footer](docs/overview.svg)
+
+Then each part:
 
 <table>
 <tr><td width="24%"><b>🧭 Sidebar</b></td><td>Counts on the pinned spaces; per agent its task, branch, ticket, CI and the page beside it. Red on failing CI or two agents on one branch.</td></tr>
@@ -79,6 +68,21 @@ writes which tool does what, so it works as far as the connector's tools go.
 | Monitoring | Sentry, Datadog, Grafana, PagerDuty, incident.io |
 | Analytics | Amplitude, Mixpanel, PostHog, Metabase |
 | Deploys | Argo CD, Vercel, Netlify, Render, Railway, Fly.io dashboards, and your preview environments |
+
+## Install
+
+In a Claude Code session inside herdr:
+
+```
+/plugin install cockpit --marketplace quaresc/cockpit
+/cockpit:setup
+```
+
+Setup installs the herdr half, asks which features you want and writes your config. `/cockpit:doctor` checks
+everything and says how to fix what is off. Updates arrive as a notification.
+
+**Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Python 3, Xcode command line tools and a Nerd
+Font.
 
 ## Configuration
 

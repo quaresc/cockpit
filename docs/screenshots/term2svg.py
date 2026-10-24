@@ -194,3 +194,28 @@ def picture(path, width, height):
     buf = io.BytesIO()
     image.resize((size[0] * 2, size[1] * 2), Image.LANCZOS).save(buf, "JPEG", quality=82, optimize=True)
     return base64.b64encode(buf.getvalue()).decode(), size
+
+
+def timed_pictures(frames, pages, box):
+    """Screenshots shown with an animation's frames: `pages` maps a frame index to a picture's path, shown from that frame
+    until the next one replaces it (None hides it). `box` is (x, y, width, height). Returns the CSS and the SVG to add."""
+    loop = sum(d for d, _ in frames)
+    starts = [sum(d for d, _ in frames[:i]) for i in range(len(frames))]
+    x0, y0, w, h = box
+    style, images, order = "", [], sorted(pages)
+    for n, i in enumerate(order):
+        if pages[i] is None:
+            continue
+        data, (iw, ih) = picture(pages[i], w, h)
+        a = 100 * starts[i] / loop
+        b = 100 * (starts[order[n + 1]] if n + 1 < len(order) else loop) / loop
+        style += f"@keyframes p{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,{b:.2f}%{{visibility:visible}}{b:.2f}%,100%{{visibility:hidden}}}}" \
+                 f".p{i}{{visibility:hidden;animation:p{i} {loop:.2f}s step-end infinite}}"
+        images.append(f'<image class="p{i}" href="data:image/jpeg;base64,{data}" x="{x0 + (w - iw) / 2:.1f}" y="{y0:.1f}" '
+                      f'width="{iw}" height="{ih}"/>')
+    return style, "".join(images)
+
+
+def with_pictures(svg_text, style, images):
+    """An SVG with timed_pictures' CSS and pictures added."""
+    return svg_text.replace("</style>", style + "</style>", 1).replace("</svg>", images + "</svg>")
