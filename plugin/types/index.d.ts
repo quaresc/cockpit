@@ -133,6 +133,7 @@ declare module 'claude-code' {
       ticket: string | null
       links: TicketLinks | null
       views: ViewChip[]
+      settings: number | null
     }
   }
 }

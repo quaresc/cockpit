@@ -21,6 +21,7 @@
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
   "terminalBrowser": true,
+  "checksBrowser": "terminal",
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
   "runbookTools": []

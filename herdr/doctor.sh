@@ -90,7 +90,7 @@ fi
 if [ "$(jq -r '.terminalBrowser // true' "$CONFIG" 2>/dev/null)" = false ]; then
   ok "terminal-browser off: links open in the default browser"
 elif ! command -v terminal-browser >/dev/null; then
-  ok "terminal-browser not installed: links open in the default browser (brew install --cask terminal-browser opens them beside the agent)"
+  ok "terminal-browser not installed: links open in the default browser and front checks run in Chrome (brew install --cask terminal-browser puts both beside the agent)"
 else
   ok "terminal-browser $(terminal-browser --version 2>/dev/null | awk '{print $2}')"
   installs=$(which -a terminal-browser | while read -r bin; do realpath "$bin" 2>/dev/null; done | sort -u | wc -l | tr -d ' ')
@@ -98,20 +98,20 @@ else
   grep -Eq '^[[:space:]]*kitty_graphics[[:space:]]*=[[:space:]]*false' "$HOME/.config/herdr/config.toml" 2>/dev/null &&
     fail "herdr kitty_graphics is off: terminal-browser panes stay blank → set it to true under [experimental]" ||
     ok "herdr kitty graphics on"
-  [ "$(terminal-browser config get render.transport 2>/dev/null)" = inline ] && ok "terminal-browser sends frames inline" ||
-    warn "terminal-browser render.transport is not inline: its panes stay blank in herdr → terminal-browser config set render.transport inline"
+  transport=$(terminal-browser config get render.transport 2>/dev/null)
+  [ "$transport" = auto ] && ok "terminal-browser frame transport auto" ||
+    warn "terminal-browser render.transport is ${transport:-unset}: herdr cannot hand its frames to the terminal as files → terminal-browser config set render.transport auto"
   fps=$(terminal-browser config get render.fps 2>/dev/null)
-  case "$fps" in display|uncapped|"") warn "terminal-browser render.fps is ${fps:-display}: herdr queues every frame and the pane lags → terminal-browser config set render.fps 30" ;;
-    *) ok "terminal-browser at $fps frames per second" ;; esac
-  # herdr hands each frame to the terminal as a file in /tmp; Ghostty 1.3.1 and older on macOS read files only from its own TMPDIR.
-  ghostty=$(ps ax -o pid=,comm= | awk '$2 ~ /\/ghostty$/ {print $1; exit}')
-  if [ "$OS" = Darwin ] && [ -n "$ghostty" ]; then
-    tmp=$(ps eww -o command= -p "$ghostty" | tr ' ' '\n' | sed -n 's/^TMPDIR=//p')
-    stuck=$(find "/tmp/herdr-kitty-files-$(id -u)" -name 'tty-graphics-protocol-0' -mmin +1 2>/dev/null | head -1)
-    case "$tmp" in /tmp|/tmp/|/private/tmp|/private/tmp/) ok "Ghostty reads herdr's frame files" ;;
-      *) version=$(/Applications/Ghostty.app/Contents/MacOS/ghostty --version 2>/dev/null | awk 'NR == 1 {print $2}')
-        case "$version" in 1.[0-2].*|1.3.[01]) warn "Ghostty $version ignores herdr's frame files${stuck:+ (seen)}: every frame goes through the terminal, slow and CPU-heavy → set auto-update-channel = tip in Ghostty's config and update it, or start it with open -a Ghostty --env TMPDIR=/tmp" ;;
-          *) ok "Ghostty $version" ;; esac ;;
+  case "$fps" in 60) ok "terminal-browser at 60 frames per second" ;;
+    *) warn "terminal-browser render.fps is ${fps:-display}: 60 scrolls smoothly and leaves herdr room → terminal-browser config set render.fps 60" ;; esac
+  # herdr hands frames to Ghostty as files in /tmp, which Ghostty reads on macOS from its tip builds (stable 1.3.1 and older refuse them).
+  if [ "$OS" = Darwin ] && [ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]; then
+    info=$(/Applications/Ghostty.app/Contents/MacOS/ghostty --version 2>/dev/null)
+    version=$(printf '%s\n' "$info" | sed -n 's/^ *- version: //p')
+    channel=$(printf '%s\n' "$info" | sed -n 's/^ *- channel: //p')
+    case "$channel:$version" in
+      tip:*|*:1.3.[2-9]*|*:1.[4-9].*|*:[2-9].*) ok "Ghostty $version ($channel) reads herdr's frame files" ;;
+      *) warn "Ghostty $version ($channel) refuses herdr's frame files, so terminal-browser panes are slow → add auto-update-channel = tip to Ghostty's config, then Ghostty → Check for Updates…, or download the tip build from ghostty.org/download" ;;
     esac
   fi
 fi

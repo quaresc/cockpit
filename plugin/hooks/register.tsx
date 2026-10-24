@@ -14,6 +14,7 @@ import { checkUpdate, forget, heartbeat } from './upkeep'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, reportStep, settleTurn } from './handoffs'
 import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, refreshSources, show, toggleView, viewsOf } from './show'
 import { openReader } from './readers'
+import { registerSettings, registerSettingsCommand } from './settings'
 import type { ReaderKind } from './readers'
 
 const PANE = 'inbox'
@@ -672,9 +673,12 @@ const openInbox = ($: $) => $.ui.open({ id: PANE, title: 'Inbox' })
 // ---------------------------------------------------------------------------
 
 export const register: Register = on => {
+  registerSettings(on)
+
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'inbox', description: 'Toggle the PR review / Linear inbox pane' })
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
+    await registerSettingsCommand($)
     await $.tool.register(REPORT_SPEC).catch(() => undefined)
     await $.tool.register(SHOW_SPEC).catch(() => undefined)
     $.clock.every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
