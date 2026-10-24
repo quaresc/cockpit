@@ -28,6 +28,8 @@ export type Config = {
   notifications: boolean
   // Links open in terminal-browser beside the agent when it is installed; false keeps them in the default browser.
   terminalBrowser: boolean
+  // Where an agent checks a front change: the terminal-browser pane beside it, or Claude in Chrome.
+  checksBrowser: 'terminal' | 'chrome'
   herdrPluginRoot: string
 }
 
@@ -47,10 +49,16 @@ const DEFAULTS: Config = {
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
   terminalBrowser: true,
+  checksBrowser: 'terminal',
   herdrPluginRoot: '',
 }
 
 let cached: { at: number; config: Config } | undefined
+
+// After a write, the next read takes the file again instead of the 30 s copy.
+export function forgetConfig() {
+  cached = undefined
+}
 
 export async function home($: $) {
   return (await $.env.get('HOME')) ?? ''

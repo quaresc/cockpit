@@ -1,13 +1,15 @@
 ---
 name: side-browser
-description: Use the browser pane beside this conversation (terminal-browser in herdr) to check a front change end to end against the local dev server, reproduce a bug on a page, read the page the person is looking at, or prepare a review on GitHub for the person to submit. Use it whenever a task needs a real browser and this session runs in herdr; it falls back to Claude in Chrome when terminal-browser is missing.
+description: Use the browser pane beside this conversation (terminal-browser in herdr) to check a front change end to end against the local dev server, on mobile, tablet and desktop sizes, reproduce a bug on a page, read the page the person is looking at, or prepare a review on GitHub for the person to submit. Use it whenever a task needs a real browser and this session runs in herdr; it falls back to Claude in Chrome when terminal-browser is missing or the person set front checks to Chrome.
 ---
 
 The person sees this browser beside the conversation and it keeps their sign-ins, so they watch what you do and the pages
 you open are already logged in.
 
-**Is it there?** Run `command -v terminal-browser && echo "$HERDR_PANE_ID"`. With no path or no pane id, use Claude in
-Chrome (the `claude-in-chrome` skill) for the same work instead, and skip the rest of this skill.
+**Which browser?** Run `command -v terminal-browser; echo "$HERDR_PANE_ID"; jq -r '.checksBrowser // "terminal"'
+~/.config/cockpit/config.json`. Use Claude in Chrome (the `claude-in-chrome` skill) instead, and skip the rest of this
+skill, when terminal-browser is missing, there is no pane id, the setting says `chrome`, or the person asks for Chrome.
+The person flips the setting with `/cockpit checks chrome` or `/cockpit checks terminal`.
 
 **Open a page** with `sh ~/.config/cockpit/herdr/browse.sh <url>`, never with `terminal-browser open`. A URL, a
 `localhost:<port>` or an absolute path to an HTML file all work. It opens the page as a tab of the browser already beside
@@ -24,6 +26,12 @@ when it is already open.
 **Checking a front change**: make sure the dev server runs, open its local URL, walk the flow the change touches, take
 a screenshot at each state that matters and compare it with the Figma frame when the ticket has one. Say what you checked
 and what you saw, with the screenshot paths.
+
+**Mobile, tablet and desktop**: emulation sticks to the tab it is set on, so give it a tab of its own:
+`terminal-browser new-tab <url>`, then `terminal-browser action -- set device "iPhone 16"` (also `iPad`, `iPad Pro`,
+`Pixel 9`, `Galaxy S25`) or `set viewport 1440 900` for a desktop width, `reload`, and `screenshot` at each size. Close
+that tab with `terminal-browser action -- tab close` when done, so the
+person's tabs keep their own size.
 
 **Anything that publishes in the person's name stays theirs**: a GitHub review, a comment, a message, a form that
 sends. Fill it in (the review's inline comments, the summary), leave the page on the Submit button and tell the person

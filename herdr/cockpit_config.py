@@ -23,6 +23,7 @@ DEFAULTS = {
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
     "notifications": True,
     "terminalBrowser": True,
+    "checksBrowser": "terminal",
     "herdrPluginRoot": "",
     "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
     "runbookTools": [],
