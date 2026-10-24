@@ -15,7 +15,7 @@ export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
 
 const PLACEMENTS = ['right', 'down', 'zoomed', 'browser'] as const
-const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
+const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'compare', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
 const NODE_KINDS = ['box', 'round', 'decision'] as const
 const MAX_NODES = 60
 const MAX_ROWS = 5000
@@ -40,7 +40,8 @@ export const SHOW_SPEC = {
     '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane. placement:"browser" ' +
     'draws the view as a web page in the browser beside the session instead, at full resolution: use it for tables too ' +
     'wide for a pane, big diagrams, pictures and side-by-side diffs; it takes markdown, table, chart, flow, sequence, ' +
-    'mermaid, image and diff blocks, with rows given in the call.',
+    'mermaid, image and diff blocks, with rows given in the call, and {type:"compare", before, after} for two screenshots ' +
+    'side by side (a before/after of a front change).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -87,6 +88,10 @@ function blockError(block: Block, at: string): string | undefined {
   if (type === 'log') {
     if (!isText(block.command) || block.command === '') return `at ${at}/command: the shell command to tail`
     return isCount(block.every) && isCount(block.lines) ? undefined : `at ${at}: every and lines are numbers of at least 1`
+  }
+  if (type === 'compare') {
+    const isPicture = (v: unknown) => isText(v) && (v.startsWith('/') || /^https?:\/\//.test(v))
+    return isPicture(block.before) && isPicture(block.after) ? undefined : `at ${at}: a compare block is {before, after}, each an absolute path or an http(s) URL`
   }
   if (type === 'image') {
     const hasPath = isText(block.path) && block.path.startsWith('/')
@@ -205,6 +210,7 @@ export function viewError(input: Record<string, unknown>): string | undefined {
     const error = blockError(block as Block, `/blocks/${n}`)
     if (error) return error
     const b = block as Block
+    if (b.type === 'compare' && input.placement !== 'browser') return `at /blocks/${n}: a compare block needs placement "browser"`
     if (input.placement === 'browser' && (!PAGE_BLOCKS.includes(b.type as string) || b.source !== undefined || b.command !== undefined)) {
       return `at /blocks/${n}: a browser view takes ${list(PAGE_BLOCKS)} blocks with their data in the call; show this one in a pane`
     }

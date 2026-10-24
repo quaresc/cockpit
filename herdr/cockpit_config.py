@@ -24,6 +24,7 @@ DEFAULTS = {
     "notifications": True,
     "terminalBrowser": True,
     "checksBrowser": "terminal",
+    "browserIdleMinutes": 60,
     "herdrPluginRoot": "",
     "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
     "runbookTools": [],

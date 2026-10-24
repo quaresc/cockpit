@@ -15,13 +15,14 @@ type Setting = {
   key: string
   path: string[]
   label: string
-  values: readonly (string | boolean)[]
+  values: readonly (string | boolean | number)[]
   names: Record<string, string>
 }
 
 const SETTINGS: Setting[] = [
   { key: 'links', path: ['terminalBrowser'], label: 'Links open', values: [true, false], names: { true: 'beside the agent', false: 'in the default browser' } },
   { key: 'checks', path: ['checksBrowser'], label: 'Front checks run in', values: ['terminal', 'chrome'], names: { terminal: 'the pane beside the agent', chrome: 'Chrome' } },
+  { key: 'idle', path: ['browserIdleMinutes'], label: 'Close browsers out of view', values: [60, 180, 0], names: { 60: 'after 1 h', 180: 'after 3 h', 0: 'never' } },
   { key: 'notifications', path: ['notifications'], label: 'Notifications', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'brief', path: ['brief', 'enabled'], label: 'Morning brief', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'recap', path: ['recap', 'enabled'], label: 'Recap when back in a space', values: [true, false], names: { true: 'on', false: 'off' } },
@@ -29,7 +30,9 @@ const SETTINGS: Setting[] = [
   { key: 'meetings', path: ['meetingBrief', 'enabled'], label: 'Meeting briefs', values: [true, false], names: { true: 'on', false: 'off' } },
 ]
 
-const ALIASES: Record<string, string | boolean> = { on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', default: false, beside: true }
+const ALIASES: Record<string, string | boolean | number> = {
+  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', default: false, beside: true, '1h': 60, '3h': 180, never: 0,
+}
 
 function valueOf(config: Config, setting: Setting) {
   return setting.path.reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], config)
@@ -40,7 +43,7 @@ async function configPath($: $) {
 }
 
 // Writes one value into the file as it is, keeping every other key.
-async function write($: $, setting: Setting, value: string | boolean) {
+async function write($: $, setting: Setting, value: string | boolean | number) {
   const path = await configPath($)
   const raw = JSON.parse(await $.fs.read(path).catch(() => '{}')) as Record<string, unknown>
   let node = raw
@@ -53,7 +56,7 @@ async function write($: $, setting: Setting, value: string | boolean) {
 
 async function toggle($: $, setting: Setting) {
   const current = valueOf(await loadConfig($), setting)
-  const next = setting.values[(setting.values.indexOf(current as string | boolean) + 1) % setting.values.length]!
+  const next = setting.values[(setting.values.indexOf(current as string | boolean | number) + 1) % setting.values.length]!
   await write($, setting, next)
 }
 
@@ -99,7 +102,7 @@ export function registerSettings(on: On) {
         <Text> </Text>
         {SETTINGS.map(s => {
           const value = valueOf(config, s)
-          const greyed = missing && (s.key === 'links' || s.key === 'checks')
+          const greyed = missing && ['links', 'checks', 'idle'].includes(s.key)
           return (
             <Box key={s.key} flexDirection="row">
               <Text dimColor={greyed}>{s.label.padEnd(width)}</Text>

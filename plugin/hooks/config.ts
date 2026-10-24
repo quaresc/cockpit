@@ -30,6 +30,8 @@ export type Config = {
   terminalBrowser: boolean
   // Where an agent checks a front change: the terminal-browser pane beside it, or Claude in Chrome.
   checksBrowser: 'terminal' | 'chrome'
+  // A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; 0 keeps it.
+  browserIdleMinutes: number
   herdrPluginRoot: string
 }
 
@@ -50,6 +52,7 @@ const DEFAULTS: Config = {
   notifications: true,
   terminalBrowser: true,
   checksBrowser: 'terminal',
+  browserIdleMinutes: 60,
   herdrPluginRoot: '',
 }
 

@@ -2,7 +2,7 @@ import type { Block, Spec } from './show'
 
 // A show view as a web page, for terminal-browser beside the session: what a terminal draws poorly (wide tables, big
 // diagrams, pictures, side-by-side diffs) at full resolution. The page renders its blocks itself from the embedded spec.
-export const PAGE_BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'diff']
+export const PAGE_BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'compare', 'diff']
 
 const LIBS = {
   marked: 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js',
@@ -11,6 +11,8 @@ const LIBS = {
   diff: 'https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/js/diff2html-ui.min.js',
   diffCss: 'https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/css/diff2html.min.css',
 }
+
+const picture = (ref: string) => (ref.startsWith('/') ? `file://${ref}` : ref)
 
 const quoted = (text: string) => `"${text.replace(/"/g, '#quot;').replace(/\n/g, ' ')}"`
 
@@ -46,6 +48,7 @@ export function pageBlocks(blocks: Block[], patches: Map<number, string>) {
     if (b.type === 'flow') return { type: 'mermaid', title: b.title, text: flowText(b) }
     if (b.type === 'sequence') return { type: 'mermaid', title: b.title, text: sequenceText(b) }
     if (b.type === 'image' && typeof b.path === 'string') return { ...b, url: `file://${b.path}` }
+    if (b.type === 'compare') return { ...b, before: picture(b.before as string), after: picture(b.after as string) }
     if (b.type === 'diff' && patches.has(n)) return { ...b, patch: patches.get(n) }
     return b
   })
@@ -75,6 +78,9 @@ td.num { text-align: right; }
 figure { margin: 0; } figcaption { color: var(--dim); font-size: 13px; margin-top: 6px; }
 img { max-width: 100%; border-radius: 6px; }
 .chart { position: relative; height: 360px; }
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.compare figcaption { text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+@media (max-width: 420px) { .compare { grid-template-columns: 1fr; } }
 .mermaid { background: var(--panel); border-radius: 8px; padding: 16px; }
 .d2h-wrapper { --d2h-bg-color: var(--bg); }
 .error { color: var(--red); }
@@ -111,6 +117,11 @@ const render = {
     return el('div', { className: 'chart' }, [canvas])
   },
   mermaid: b => el('pre', { className: 'mermaid', textContent: b.text }),
+  // Before and after side by side.
+  compare: b => el('div', { className: 'compare' }, [
+    el('figure', {}, [el('figcaption', { textContent: 'Before' }), el('img', { src: b.before })]),
+    el('figure', {}, [el('figcaption', { textContent: 'After' }), el('img', { src: b.after })]),
+  ]),
   image: b => el('figure', {}, [el('img', { src: b.url }), ...(b.caption ? [el('figcaption', { textContent: b.caption })] : [])]),
   diff: b => {
     const box = el('div')

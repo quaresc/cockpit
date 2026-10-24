@@ -34,8 +34,10 @@ One agent per space, a few pinned spaces for everything around the code, and the
   prepare a review you submit, and follows a sandbox it deploys on ArgoCD. Without terminal-browser, links open in the
   default browser and front checks run in Claude in Chrome. On macOS, panes scroll smoothly with Ghostty's tip builds
   and terminal-browser at `render.transport auto`, `render.fps 60`; `/cockpit:doctor` checks all three.
-- **Settings.** `/cockpit` opens a pane to flip links, front checks (pane or Chrome), notifications, briefs, recap and
-  the after-deploy check; `/cockpit checks chrome` and the like set one from any session.
+- **Settings.** `/cockpit` opens a pane to flip links, front checks (pane or Chrome), idle browsers, notifications,
+  briefs, recap and the after-deploy check; `/cockpit checks chrome` and the like set one from any session.
+- **Before and after.** An agent screenshots a page at phone, tablet and desktop sizes on `main` and on its branch,
+  shows them side by side, and puts them in the PR description for you to save.
 
 Only herdr and GitHub are required. `/cockpit:setup` asks about the rest.
 
@@ -161,6 +163,7 @@ lists live in `~/.config/cockpit`.
 | `meetingBrief` | The model, titles that get no brief, and the read-only tools a brief may use (e.g. Notion). |
 | `terminalBrowser` | `false` keeps links in the default browser even with terminal-browser installed. |
 | `checksBrowser` | Where agents check front changes: `terminal` (the pane beside them) or `chrome` (Claude in Chrome). |
+| `browserIdleMinutes` | Close a browser beside an agent whose space stayed out of view this long (60); `0` keeps it. |
 | `notion`, `metabase`, `datadog` | `server`: the connector's name in `claude mcp list`, for the footer chips and live panes. |
 | `spaces` | Which pinned spaces exist, in sidebar order. |
 | `runbookTools` | Extra tools the runbook refresh may use. |

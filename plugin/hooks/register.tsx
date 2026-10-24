@@ -620,6 +620,35 @@ const pageBeside = async ($: $) => {
 
 let lastRow = ''
 
+let seenAt = Date.now()
+
+// A browser beside this session closes once its space has been out of view for browserIdleMinutes, and no turn runs,
+// so a forgotten page stops drawing; terminal-browser keeps the sign-ins for the next one.
+const closeIdleBrowsers = async ($: $) => {
+  const { browserIdleMinutes } = await loadConfig($)
+  const space = await spaceOf($)
+  const here = await hereSoon($)
+  if (!space || !here) return
+  const self = await herdr($, ['pane', 'get', here.pane])
+  const isWorking = JSON.parse(self.stdout || '{}')?.result?.pane?.agent_status === 'working'
+  if (space.isFocused || isWorking || !browserIdleMinutes) {
+    seenAt = Date.now()
+    return
+  }
+  if (Date.now() - seenAt < browserIdleMinutes * 60_000) return
+  const listed = await herdr($, ['pane', 'list', '--workspace', here.space])
+  const panes = ((JSON.parse(listed.stdout || '{}')?.result?.panes ?? []) as { pane_id: string; tab_id: string }[])
+    .filter(p => p.tab_id === here.tab && p.pane_id !== here.pane)
+  let closed = 0
+  for (const pane of panes) {
+    const info = await herdr($, ['pane', 'process-info', '--pane', pane.pane_id])
+    const running = (JSON.parse(info.stdout || '{}')?.result?.process_info?.foreground_processes ?? []) as { cmdline?: string }[]
+    if (!running.some(p => /terminal-browser/.test(p.cmdline ?? ''))) continue
+    if ((await herdr($, ['pane', 'close', pane.pane_id])).exitCode === 0) closed++
+  }
+  if (closed > 0) await reportSide($)
+}
+
 const clip = (text: string, width: number) => (text.length <= width ? text : `${text.slice(0, width - 1).trimEnd()}…`)
 
 // A page's mark on the agent row, from its site, like a favicon in a browser's tab strip.
@@ -735,6 +764,7 @@ export const register: Register = on => {
     // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
     $.clock.every(3_000, () => void refreshViews($).catch(() => undefined))
     $.clock.every(10_000, () => void reportSide($).catch(() => undefined))
+    $.clock.every(60_000, () => void closeIdleBrowsers($).catch(() => undefined))
     // An answer given in a pane reaches the session as the person's next message.
     $.clock.every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
     // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
