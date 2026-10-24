@@ -50,12 +50,23 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                     categories.insert(UNNotificationCategory(identifier: category, actions: actions, intentIdentifiers: []))
                 }
                 self.center.setNotificationCategories(categories)
-                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                self.center.add(request) { error in
-                    if let error { FileHandle.standardError.write("cockpit-notify: \(error.localizedDescription)\n".data(using: .utf8)!) }
-                    self.quit(after: 0.3)
+                // macOS registers categories asynchronously: a notification posted before its category lands has no buttons.
+                self.whenRegistered(category, tries: buttons.isEmpty ? 0 : 20) {
+                    let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                    self.center.add(request) { error in
+                        if let error { FileHandle.standardError.write("cockpit-notify: \(error.localizedDescription)\n".data(using: .utf8)!) }
+                        self.quit(after: 0.3)
+                    }
                 }
             }
+        }
+    }
+
+    func whenRegistered(_ category: String, tries: Int, then post: @escaping () -> Void) {
+        guard tries > 0 else { return post() }
+        center.getNotificationCategories { known in
+            if known.contains(where: { $0.identifier == category }) { return post() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.whenRegistered(category, tries: tries - 1, then: post) }
         }
     }
 
