@@ -16,11 +16,14 @@ const LOCK_STALE_MS = 2 * 60_000
 // Shared plumbing
 
 // A system notification; a click opens `action`, a URL or a focus.sh target such as space:inbox or runbook:<slug>.
-export async function notify($: $, title: string, body: string, action = '') {
+// A system notification whose click runs `action`; each button, [label, action], runs its own (macOS).
+export async function notify($: $, title: string, body: string, action = '', buttons: [string, string][] = []) {
   if (!(await loadConfig($)).notifications) return
   const script = `${await home($)}/.config/cockpit/herdr/notify.sh`
   const isLinked = await $.fs.stat(script).then(() => true, () => false)
-  const command = isLinked ? ['sh', script, title, body, action] : ['herdr', 'notification', 'show', title, '--body', body, '--sound', 'request']
+  const command = isLinked
+    ? ['sh', script, title, body, action, ...buttons.map(([label, target]) => `${label}=${target}`)]
+    : ['herdr', 'notification', 'show', title, '--body', body, '--sound', 'request']
   await $.process.run(command, { timeoutMs: 30_000 })
 }
 
@@ -132,7 +135,7 @@ async function detailsOf($: $, run: RunNode, base: Omit<CiRun, 'done' | 'total'>
 // A finished run's notification, its click opening the checks of the branch's PR.
 function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
   const before = new Map(prev.runs.map(r => [`${r.repo}/${r.branch}`, r]))
-  const out: { text: string; action: string }[] = []
+  const out: { text: string; action: string; buttons?: [string, string][] }[] = []
   for (const run of next.runs) {
     if (run.isRunning) continue
     const was = before.get(`${run.repo}/${run.branch}`)
@@ -141,7 +144,10 @@ function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
     const pr = inbox?.mine.find(p => p.repo === run.repo && p.branch === run.branch)
     const action = pr ? `${pr.url}/checks` : 'space:inbox'
     if (run.outcome === 'succeeded') out.push({ text: `🟢 CI passed: ${run.repo} ${run.branch}`, action })
-    else if (run.outcome === 'failed') out.push({ text: `🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, action })
+    else if (run.outcome === 'failed') {
+      const buttons: [string, string][] = pr ? [['Why?', `act:ci:${pr.url}`], ['Rerun', `act:rerun:${pr.url}`]] : []
+      out.push({ text: `🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, action, buttons })
+    }
   }
   return out
 }
@@ -198,7 +204,7 @@ export function refreshCi($: $, isForced = false) {
         const state: CiState = { at: Date.now(), runs: next, version: CI_VERSION }
         await $.fs.write(`${await cacheDir($)}/ci.json`, JSON.stringify(state))
         const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
-        if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, '🔁 CircleCI', change.text, change.action)
+        if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, '🔁 CircleCI', change.text, change.action, change.buttons)
       })
     } finally {
       ciInflight = undefined
@@ -365,7 +371,8 @@ export async function announceSandboxes($: $, sandboxes: Sandbox[]) {
     const box = sandboxes.find(s => s.stage === p.stage)
     if (box?.health === 'Healthy') {
       const url = await sandboxUrl($, p.stage, p.product).catch(() => undefined)
-      await notify($, '🧪 Sandbox ready', `${p.product} ${p.branch} on ${p.stage}`, url ?? (await sandboxAction($, p.stage)))
+      const argo = fill((await loadConfig($)).platform.sandboxArgoUrl, { stage: p.stage })
+      await notify($, '🧪 Sandbox ready', `${p.product} ${p.branch} on ${p.stage}`, url ?? (await sandboxAction($, p.stage)), argo ? [['ArgoCD', argo]] : [])
     } else if (Date.now() - p.at < 3 * 3600_000) {
       left.push(p)
     }

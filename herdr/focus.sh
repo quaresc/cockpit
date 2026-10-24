@@ -5,6 +5,7 @@
 #   runbook:<slug>[:<step>,<step>]    the runbook space, that runbook open and its steps played as done
 #   meeting:<event id>                the meetings space, that meeting's brief open
 #   update                            cockpit updated, in the background
+#   act:<review|ci|rerun|plan>:<ref>   a notification button: act.py with that action, then the terminal
 #   http(s)://…                       opened in the browser
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
 . "$(dirname "$0")/lib.sh"
@@ -16,6 +17,10 @@ case "${1:-}" in
     sh "$ROOT/focus-space.sh" meetings
     ;;
   update) nohup sh "$ROOT/update.sh" >"$HOME/.cache/cockpit/update.log" 2>&1 & exit 0 ;;
+  act:*)
+    rest=${1#act:}
+    python3 "$ROOT/act.py" "${rest%%:*}" "${rest#*:}" >"$HOME/.cache/cockpit/act.log" 2>&1
+    ;;
   workspace:*) "$H" workspace focus "${1#workspace:}" >/dev/null 2>&1 ;;
   space:*) sh "$ROOT/focus-space.sh" "${1#space:}" ;;
   runbook:*)

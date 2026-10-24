@@ -1,5 +1,6 @@
-// Cockpit's macOS notifications: the cockpit logo, and a click that opens a URL or runs focus.sh with the action.
-//   cockpit-notify post <title> <body> [action]
+// Cockpit's macOS notifications: the cockpit logo, a click that opens a URL or runs focus.sh with the action, and
+// buttons that do the same with their own action.
+//   cockpit-notify post <title> <body> [action] [<label>=<action> ...]
 //   cockpit-notify status    prints whether macOS lets Cockpit notify
 import Cocoa
 import UserNotifications
@@ -18,32 +19,51 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 self.quit(after: 0)
             }
         } else if let i = args.firstIndex(of: "post"), args.count > i + 2 {
-            post(title: args[i + 1], body: args[i + 2], action: args.count > i + 3 ? args[i + 3] : "")
+            let buttons = args.dropFirst(i + 4).compactMap { pair -> (String, String)? in
+                guard let eq = pair.firstIndex(of: "=") else { return nil }
+                return (String(pair[..<eq]), String(pair[pair.index(after: eq)...]))
+            }
+            post(title: args[i + 1], body: args[i + 2], action: args.count > i + 3 ? args[i + 3] : "", buttons: buttons)
         } else {
             // Launched by a click: the response arrives through the delegate, then the app leaves.
             quit(after: 10)
         }
     }
 
-    func post(title: String, body: String, action: String) {
+    func post(title: String, body: String, action: String, buttons: [(String, String)]) {
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if !granted { FileHandle.standardError.write("cockpit-notify: not allowed (\(error?.localizedDescription ?? "denied in System Settings"))\n".data(using: .utf8)!) }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            content.userInfo = ["action": action]
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            self.center.add(request) { error in
-                if let error { FileHandle.standardError.write("cockpit-notify: \(error.localizedDescription)\n".data(using: .utf8)!) }
-                self.quit(after: 0.3)
+            var info: [String: String] = ["action": action]
+            for (n, button) in buttons.enumerated() { info["button\(n)"] = button.1 }
+            content.userInfo = info
+            // The buttons' labels are a category of their own, registered beside the ones already known.
+            let category = "buttons:" + buttons.map { $0.0 }.joined(separator: "|")
+            if !buttons.isEmpty { content.categoryIdentifier = category }
+            self.center.getNotificationCategories { known in
+                var categories = known.filter { $0.identifier != category }
+                if !buttons.isEmpty {
+                    let actions = buttons.enumerated().map { UNNotificationAction(identifier: "button\($0.offset)", title: $0.element.0, options: [.foreground]) }
+                    categories.insert(UNNotificationCategory(identifier: category, actions: actions, intentIdentifiers: []))
+                }
+                self.center.setNotificationCategories(categories)
+                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                self.center.add(request) { error in
+                    if let error { FileHandle.standardError.write("cockpit-notify: \(error.localizedDescription)\n".data(using: .utf8)!) }
+                    self.quit(after: 0.3)
+                }
             }
         }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
-        let action = response.notification.request.content.userInfo["action"] as? String ?? ""
+        let info = response.notification.request.content.userInfo
+        let pressed = response.actionIdentifier.hasPrefix("button") ? info[response.actionIdentifier] as? String : nil
+        let action = pressed ?? info["action"] as? String ?? ""
         if action.hasPrefix("http://") || action.hasPrefix("https://"), let url = URL(string: action) {
             NSWorkspace.shared.open(url)
         } else {

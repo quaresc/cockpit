@@ -143,7 +143,8 @@ export function refreshMeetings($: $, isForced = false) {
           // With a brief, the notification carries its opening lines and opens it; without, the call itself.
           const brief = await briefLines($, m)
           const prep = brief.length > 0 ? `\n${brief.join('\n')}` : await prepFor($, m).catch(() => '')
-          await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min${prep}`, brief.length > 0 ? `meeting:${m.id}` : (m.join ?? m.url))
+          const join: [string, string][] = brief.length > 0 && m.join ? [['Join', m.join]] : []
+          await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min${prep}`, brief.length > 0 ? `meeting:${m.id}` : (m.join ?? m.url), join)
         }
         const live = new Set(state.meetings.map(m => m.id))
         state.notified = [...state.notified.filter(id => live.has(id)), ...soon.map(m => m.id)]
