@@ -109,14 +109,8 @@ def take_focus(state):
 
 
 def open_url(state, url):
-    cockpit_config.browse(url)
-    note(state, f"opened {url}")
-
-
-def join(state, url):
-    """A call opens in the default browser, which has the camera and the microphone."""
     cockpit_config.open_url(url)
-    note(state, f"joining {url}")
+    note(state, f"opened {url}")
 
 
 def build(state, cols):
@@ -151,8 +145,8 @@ def build(state, cols):
             when = until_text(start, now) if start.date() == now.date() else start.strftime("%A %H:%M")
             banner.add("  next  ", DIM).add(when, BOLD + ORANGE).add("  ").add(first["title"], BOLD)
         if first.get("join"):
-            banner.buttons = [Button("join", lambda m=first: join(state, m["join"]), main=True)]
-            banner.primary = lambda m=first: join(state, m["join"])
+            banner.buttons = [Button("join", lambda m=first: open_url(state, m["join"]), main=True)]
+            banner.primary = lambda m=first: open_url(state, m["join"])
         line()
     elif data:
         line().add("  Nothing left this week.", DIM)
@@ -184,7 +178,7 @@ def build(state, cols):
         row.anchor = m["id"]
         brief = read_brief(m)
         is_preparing = os.path.exists(brief_path(m, ".pending"))
-        row.buttons = ([Button("join", lambda m=m: join(state, m["join"]), main=True)] if m.get("join") else []) + [
+        row.buttons = ([Button("join", lambda m=m: open_url(state, m["join"]), main=True)] if m.get("join") else []) + [
             Button("open", lambda m=m: open_url(state, m["url"]), main=not m.get("join"))]
         if brief is not None:
             row.buttons.insert(0, Button("brief", lambda m=m: toggle_brief(state, m)))

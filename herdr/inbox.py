@@ -121,7 +121,7 @@ def run(argv):
 
 
 def open_url(state, url):
-    cockpit_config.browse(url)
+    cockpit_config.open_url(url)
     note(state, f"opened {url}")
 
 

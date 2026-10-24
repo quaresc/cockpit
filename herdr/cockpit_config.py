@@ -22,7 +22,6 @@ DEFAULTS = {
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
     "notifications": True,
-    "terminalBrowser": True,
     "checksBrowser": "terminal",
     "browserIdleMinutes": 60,
     "herdrPluginRoot": "",
@@ -41,11 +40,6 @@ def script(name):
 def open_url(url):
     """Opens a URL in the default browser, on macOS or Linux."""
     subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", url], capture_output=True)
-
-
-def browse(url, session=None):
-    """Opens a URL in terminal-browser beside a Claude session's pane, else the calling one; without it, like open_url."""
-    subprocess.run(["sh", script("browse.sh"), url] + ([session] if session else []), capture_output=True, timeout=20)
 
 
 def copy(text):

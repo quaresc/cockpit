@@ -25,8 +25,6 @@ export type Config = {
   datadog: { server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
-  // Links open in terminal-browser beside the agent when it is installed; false keeps them in the default browser.
-  terminalBrowser: boolean
   // Where an agent checks a front change: the terminal-browser pane beside it, or Claude in Chrome.
   checksBrowser: 'terminal' | 'chrome'
   // A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; 0 keeps it.
@@ -48,7 +46,6 @@ const DEFAULTS: Config = {
   datadog: { server: 'claude.ai Datadog' },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
-  terminalBrowser: true,
   checksBrowser: 'terminal',
   browserIdleMinutes: 60,
   herdrPluginRoot: '',

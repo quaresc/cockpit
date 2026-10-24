@@ -28,14 +28,18 @@ rows = [("[1]   inbox", None, True), ("    1 you · 2 team", DIMC, False),
 for i, (text, fg, bold) in enumerate(rows):
     put(3 + i, 2, text, fg, bold=bold)
 put(16, 2, "agents", DIMC)
-# Two agents on web's quota-ui branch: both rows carry the same-branch warning.
-agents = [("✓", TEAL, "[6] daily-quotas-api", "◑ 52%", ORANGE, " api · ENG-412", DIMC, ""),
-          ("●", ORANGE, "[7] quota-banner", "◔ 31%", DIMC, " web · ENG-413   5/9", ORANGE, "⚠ same branch as quota-copy"),
-          ("✓", TEAL, "[8] quota-copy", "◔ 18%", DIMC, " web · ENG-413", DIMC, "⚠ same branch as quota-banner"),
-          ("○", DIMC, "[9] invoice-csv", "◕ 74%", RED, " billing · ENG-398", DIMC, "")]
+# Each row: state, the agent's topic, the page beside it (split like a browser's split view) and its context use.
+agents = [("✓", TEAL, "daily-quotas-api", "", "◑ 52%", ORANGE, "\uf418 api · ENG-412", DIMC, ""),
+          ("●", ORANGE, "quota-ui", "\uf0ac Settings", "◔ 31%", DIMC, "\uf418 web · ENG-413   5/9", ORANGE, "⚠ same branch as quota-copy"),
+          ("✓", TEAL, "quota-copy", "", "◔ 18%", DIMC, "\uf418 web · ENG-413", DIMC, "⚠ same branch as quota-ui"),
+          ("○", DIMC, "invoice-csv", "", "◕ 74%", RED, "\uf418 billing · ENG-398", DIMC, "")]
 r = 18
-for i, (state, sc, name, ctx, cc, work, wc, clash) in enumerate(agents):
-    put(r, 2, state, sc); put(r, 4, name, bold=i == 1); put(r, 4 + len(name), "  " + ctx, cc)
+for i, (state, sc, name, side, ctx, cc, work, wc, clash) in enumerate(agents):
+    put(r, 2, state, sc); put(r, 4, name, bold=True)
+    c = 4 + len(name)
+    if side:
+        put(r, c + 1, "│", DIMC); put(r, c + 3, side, ORANGE); c += 3 + len(side)
+    put(r, c + 2, ctx, cc)
     put(r + 1, 4, work, wc)
     if clash:
         put(r + 2, 4, clash, RED, bold=True)
@@ -43,23 +47,46 @@ for i, (state, sc, name, ctx, cc, work, wc, clash) in enumerate(agents):
 for r in range(1, ROWS + 1):
     put(r, SIDE + 1, "│", "2C2C30")
 
-# The Claude session.
-L = SIDE + 4
-put(2, L, "❯ ", DIMC); put(2, L + 2, "Add the quota banner to the settings page, ENG-413 in Linear, design in the Figma link.", WHITE)
-put(4, L, "●", WHITE); put(4, L + 2, "Reading the ticket, its Figma frame and the quota fields the API now returns.")
-put(5, L + 2, "Read 4 files, ran 3 shell commands", DIMC)
-put(7, L, "●", WHITE); put(7, L + 2, "The banner sits above the search form and reads dailyLimit and usedToday from")
-put(8, L + 2, "/v1/account. At the limit it turns red and disables New search, as in the frame.")
-put(10, L + 2, "web/src/settings/QuotaBanner.tsx       new, 58 lines", DIMC)
-put(11, L + 2, "web/src/settings/SearchForm.tsx        +12 −3", DIMC)
-put(12, L + 2, "web/src/settings/QuotaBanner.test.tsx  new, 4 tests", DIMC)
-put(14, L + 2, "Tests pass. I pushed to me/eng-413-quota-ui: CI is running on web#1836 (5/9 jobs)")
-put(15, L + 2, "and the preview sandbox picks it up once the image is built.")
-put(17, L, "✻ Worked for 4m 12s", DIMC)
-put(ROWS - 4, L, "─" * (COLS - L), "2C2C30"); put(ROWS - 3, L, "❯ ", DIMC); put(ROWS - 2, L, "─" * (COLS - L), "2C2C30")
+# The Claude session, checking its change in the browser beside it.
+L, B = SIDE + 4, 104
+put(2, L, "❯ ", DIMC); put(2, L + 2, "Add the quota banner, ENG-413. Check it on", WHITE)
+put(3, L + 2, "phone and desktop before the PR.", WHITE)
+put(5, L, "●", WHITE); put(5, L + 2, "The banner reads dailyLimit and usedToday")
+put(6, L + 2, "from /v1/account; at the limit it turns red")
+put(7, L + 2, "and disables New search, as in the frame.")
+put(9, L + 2, "web/src/settings/QuotaBanner.tsx   new", DIMC)
+put(10, L + 2, "web/src/settings/SearchForm.tsx    +12 −3", DIMC)
+put(12, L, "●", WHITE); put(12, L + 2, "side-browser", ORANGE); put(12, L + 15, "localhost:5173/settings", DIMC)
+put(13, L + 2, "iPhone 16 · iPad · 1440 × 900, before and after", DIMC)
+put(15, L, "●", WHITE); put(15, L + 2, "Checked on all three sizes: the banner wraps")
+put(16, L + 2, "on the phone, the button disables at the limit.")
+put(17, L + 2, "Screenshots are in the PR description, ready")
+put(18, L + 2, "for you to save.")
+put(20, L, "✻ Worked for 6m 40s", DIMC)
+put(ROWS - 4, L, "─" * (B - L - 1), "2C2C30"); put(ROWS - 3, L, "❯ ", DIMC); put(ROWS - 2, L, "─" * (B - L - 1), "2C2C30")
 put(ROWS - 1, L, "⏵⏵ auto mode on", ORANGE)
-PILLS = [(" ENG-413", True), (" 1836", False), ("\U000f03d8 figma", False), ("\U000f0b15 notion", False),
-                    ("\U000f0833 quotas", False), (" quota-rejections", False)]
+
+# terminal-browser beside the agent: the page it is testing, emulated as a phone.
+for r in range(1, ROWS - 1):
+    put(r, B, "│", "2C2C30")
+put(1, B + 2, " ", DIMC); put(1, B + 4, "localhost:5173/settings", WHITE); put(1, COLS - 12, "iPhone 16", DIMC)
+put(2, B + 2, " agent in control ", INK, ORANGE)
+PX, PW = B + 13, 24
+put(4, PX, "╭" + "─" * (PW - 2) + "╮", "505050")
+for r in range(5, 24):
+    put(r, PX, "│" + " " * (PW - 2) + "│", "505050")
+put(24, PX, "╰" + "─" * (PW - 2) + "╯", "505050")
+put(6, PX + 2, "Settings", WHITE, bold=True)
+put(8, PX + 2, " " * (PW - 4), None, "3A1C1C"); put(8, PX + 3, "⚠ Limit reached", RED, "3A1C1C")
+put(9, PX + 2, " " * (PW - 4), None, "3A1C1C"); put(9, PX + 3, "20 / 20 searches", "C8A0A0", "3A1C1C")
+put(11, PX + 2, "Search", DIMC)
+put(12, PX + 2, " " * (PW - 4), None, "202024"); put(12, PX + 3, "Role, skill…", "606060", "202024")
+put(14, PX + 2, " New search ", "707070", "2C2C30")
+put(17, PX + 2, "Saved searches", DIMC)
+put(18, PX + 2, "Frontend · Paris", WHITE); put(19, PX + 2, "Data · Remote", WHITE)
+
+PILLS = [("\uf41b ENG-413", True), ("\uf407 1836", False), ("\U000f03d8 figma", False), ("\U000f0b15 notion", False),
+         ("\U000f0833 quotas", False), ("\uf08e browser", False)]
 c = COLS - sum(len(label) + 4 for label, _ in PILLS) - 2
 for label, main in PILLS:
     c = pill(ROWS - 1, c, label, main) + 1

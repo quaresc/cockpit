@@ -11,8 +11,8 @@ export async function openUrl($: $, url: string) {
   return $.process.run([platform === 'Darwin' ? 'open' : 'xdg-open', url])
 }
 
-// A link beside the conversation, in terminal-browser right of this session's pane; browse.sh falls back to the
-// default browser when terminal-browser is missing or turned off. `size` is the share of the pane a new split takes.
+// A page beside the conversation, in terminal-browser right of this session's pane: an agent's browser views. browse.sh
+// falls back to the default browser without terminal-browser. `size` is the share of the pane a new split takes.
 export async function browse($: $, url: string, options: { size?: number; reload?: boolean } = {}) {
   const { herdrPluginRoot } = await loadConfig($)
   if (!herdrPluginRoot) return openUrl($, url)

@@ -1,8 +1,8 @@
 id = "cockpit"
 name = "Cockpit"
-version = "0.7.8"
+version = "0.8.0"
 min_herdr_version = "0.7.5"
-description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, links opened in terminal-browser beside the agent when it is installed"
+description = "One agent per space, pinned inbox, terminal, to-do, runbook and meetings spaces with their apps, PR peek popups, front checks in terminal-browser beside the agent"
 platforms = ["macos", "linux"]
 
 [[startup]]
