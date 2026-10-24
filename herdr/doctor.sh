@@ -125,12 +125,12 @@ for source in linear circleci backstage calendar; do
     ok "allow rule for $server" || fail "no allow rule for $server: background refreshes are refused → add \"$rule\" to permissions.allow"
 done
 
-# The read-only tools the footer chips and live show panes call
+# The read-only tools live show panes call
 allowed() { jq -e --arg r "$1" '.permissions.allow // [] | any(. as $a | $r == $a or ($r | startswith($a + "__")))' "$HOME/.claude/settings.json" >/dev/null 2>&1; }
-for pair in "notion:notion-fetch" "datadog:get_datadog_metric" "metabase:query"; do
+for pair in "datadog:get_datadog_metric" "metabase:query"; do
   source=${pair%%:*} tool=${pair#*:}
   server=$(jq -r --arg s "$source" '.[$s].server // empty' "$CONFIG" 2>/dev/null)
-  [ -n "$server" ] || server=$(printf '%s' "$source" | sed 's/notion/claude.ai Notion/;s/datadog/claude.ai Datadog/')
+  [ -n "$server" ] || server=$(printf '%s' "$source" | sed 's/datadog/claude.ai Datadog/')
   rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')__$tool"
-  allowed "$rule" && ok "allow rule for $rule" || warn "no allow rule for $rule: its footer chip or live pane asks or is refused → add it to permissions.allow"
+  allowed "$rule" && ok "allow rule for $rule" || warn "no allow rule for $rule: its live pane asks or is refused → add it to permissions.allow"
 done

@@ -20,8 +20,7 @@ export type Config = {
   recap: { enabled: boolean; awayMinutes: number }
   meetingBrief: { enabled: boolean; model: string; skip: string[]; tools: string[] }
   calendar: { enabled: boolean; server: string }
-  // Connectors the footer chips read from and that show panes refresh from.
-  notion: { server: string }
+  // Connectors that show panes refresh from.
   metabase: { server: string }
   datadog: { server: string }
   brief: { enabled: boolean; at: string; weekends: boolean }
@@ -45,7 +44,6 @@ const DEFAULTS: Config = {
   recap: { enabled: true, awayMinutes: 10 },
   meetingBrief: { enabled: true, model: 'sonnet', skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },
   calendar: { enabled: false, server: 'claude.ai Google Calendar' },
-  notion: { server: 'claude.ai Notion' },
   metabase: { server: 'metabase' },
   datadog: { server: 'claude.ai Datadog' },
   brief: { enabled: true, at: '08:30', weekends: false },
@@ -88,7 +86,6 @@ export async function loadConfig($: $): Promise<Config> {
     circleci: { ...DEFAULTS.circleci, ...raw.circleci },
     backstage: { ...DEFAULTS.backstage, ...raw.backstage },
     calendar: { ...DEFAULTS.calendar, ...raw.calendar },
-    notion: { ...DEFAULTS.notion, ...raw.notion },
     metabase: { ...DEFAULTS.metabase, ...raw.metabase },
     datadog: { ...DEFAULTS.datadog, ...raw.datadog },
     brief: { ...DEFAULTS.brief, ...raw.brief },

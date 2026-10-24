@@ -10,9 +10,8 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Sidebar.** Each agent shows its context use and the repo and ticket it's on. The line turns red when its PR fails
   CI, or when another agent is on the same branch. The inbox space shows reviews, CI, tickets and plan limits.
 - **Footer.** Links to the ticket, PR, Figma, Notion, Slack thread, Argo and sandbox the conversation is about, plus
-  a chip per view the agent showed. The ticket and Notion chips open their text in a pane beside the conversation (the
-  ticket with its links and comments); `o` there opens the page. The others open the page, beside the conversation when
-  terminal-browser is installed. A view's chip hides or brings back its pane.
+  a chip per view the agent showed. Each link opens its page beside the conversation when terminal-browser is
+  installed. A view's chip hides or brings back its pane.
 - **Show.** Ask an agent for a chart, a table, a flow chart or a diff and it opens in a pane beside the conversation,
   like an artifact: query results as line or bar charts, processes as laid-out flow charts, a repo's diff following the
   working tree. Wide tables, big diagrams, pictures and side-by-side diffs can open as a page in the browser instead.
@@ -165,7 +164,7 @@ lists live in `~/.config/cockpit`.
 | `terminalBrowser` | `false` keeps links in the default browser even with terminal-browser installed. |
 | `checksBrowser` | Where agents check front changes: `terminal` (the pane beside them) or `chrome` (Claude in Chrome). |
 | `browserIdleMinutes` | Close a browser beside an agent whose space stayed out of view this long (60); `0` keeps it. |
-| `notion`, `metabase`, `datadog` | `server`: the connector's name in `claude mcp list`, for the footer chips and live panes. |
+| `metabase`, `datadog` | `server`: the connector's name in `claude mcp list`, for live panes. |
 | `spaces` | Which pinned spaces exist, in sidebar order. |
 | `runbookTools` | Extra tools the runbook refresh may use. |
 
