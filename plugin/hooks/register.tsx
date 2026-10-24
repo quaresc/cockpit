@@ -618,21 +618,46 @@ const pageBeside = async ($: $) => {
   return here ? (await browsersBeside($, here)).flatMap(b => b.tabs ?? []).find(t => t.active) : undefined
 }
 
-let lastSide: string | undefined
+let lastRow = ''
 
-// The panes beside this session, on its agent row like tabs in Arc: browser tabs, then views and readers.
+const clip = (text: string, width: number) => (text.length <= width ? text : `${text.slice(0, width - 1).trimEnd()}…`)
+
+// A page's mark on the agent row, from its site, like a favicon in a browser's tab strip.
+const siteIcon = (url: string) => {
+  const host = url.match(/^https?:\/\/([^/]+)/)?.[1] ?? ''
+  if (host.endsWith('github.com')) return '\uf09b'
+  if (host.endsWith('figma.com')) return ICON.figma
+  if (host.endsWith('linear.app')) return ICON.linear
+  if (/notion\.(so|site|com)$/.test(host)) return ICON.notion
+  if (host.endsWith('slack.com')) return ICON.slack
+  if (host.startsWith('argocd.')) return ICON.argo
+  return ICON.app
+}
+
+// The agent row, split like Zen's split view when panes sit beside the session: the agent's topic on the left, the
+// page beside it on the right, "+N" for the other tabs and panes. herdr draws $agent, $side_sep and $side.
 const reportSide = async ($: $) => {
   const here = await hereSoon($)
   if (!here) return
-  const browsers = await browsersBeside($, here)
-  const tabs = browsers.reduce((n, b) => n + (b.tabs?.length ?? 0), 0)
   const listed = await herdr($, ['pane', 'list', '--workspace', here.space])
-  const panes = ((JSON.parse(listed.stdout || '{}')?.result?.panes ?? []) as { tab_id: string }[]).filter(p => p.tab_id === here.tab).length
-  const others = Math.max(0, panes - 1 - browsers.length)
-  const text = [tabs > 0 ? `${ICON.app} ${tabs}` : '', others > 0 ? `${ICON.view} ${others}` : ''].filter(Boolean).join(' ')
-  if (text === lastSide) return
-  const args = ['pane', 'report-metadata', here.pane, '--source', 'cockpit', ...(text ? ['--token', `side=${text}`] : ['--clear-token', 'side'])]
-  if ((await herdr($, args)).exitCode === 0) lastSide = text
+  const panes = ((JSON.parse(listed.stdout || '{}')?.result?.panes ?? []) as { pane_id: string; tab_id: string; tokens?: Record<string, string> }[])
+    .filter(p => p.tab_id === here.tab)
+  const topic = panes.find(p => p.pane_id === here.pane)?.tokens?.topic || ((await spaceLabel($, here.space)) ?? '')
+  const browsers = await browsersBeside($, here)
+  const tabs = browsers.flatMap(b => b.tabs ?? [])
+  const page = tabs.find(t => t.active) ?? tabs[0]
+  const view = (await read($, views)).find(v => v.isOpen)
+  const others = Math.max(0, panes.length - 1 - browsers.length)
+  const extra = tabs.length + others - 1
+  const right = page ? `${siteIcon(page.url)} ${clip(page.title || page.url.replace(/^https?:\/\//, ''), 10)}` : view ? `${ICON.view} ${clip(view.name, 10)}` : others > 0 ? `${ICON.view} pane` : ''
+  const tokens: [string, string | undefined][] = right
+    ? [['agent', clip(topic, 12)], ['side_sep', '│'], ['side', extra > 0 ? `${right} +${extra}` : right]]
+    : [['agent', topic], ['side_sep', undefined], ['side', undefined]]
+  const key = JSON.stringify(tokens)
+  if (key === lastRow) return
+  const args = ['pane', 'report-metadata', here.pane, '--source', 'cockpit']
+  for (const [name, value] of tokens) args.push(...(value === undefined ? ['--clear-token', name] : ['--token', `${name}=${value}`]))
+  if ((await herdr($, args)).exitCode === 0) lastRow = key
 }
 
 let toldPage = ''
@@ -727,6 +752,7 @@ export const register: Register = on => {
     void refresh($, false)
     $.ui.status(undefined)
     void refreshLinks($).catch(() => undefined)
+    void reportSide($).catch(() => undefined)
     // Draw the agent row now, not after the next turn. A resumed session has no
     // figure until its first response, so the window is estimated locally until then.
     void (async () => {
@@ -876,7 +902,7 @@ export const register: Register = on => {
     const here = await herdrHere($).catch(() => undefined)
     if (here) {
       const args = ['pane', 'report-metadata', here.pane, '--source', 'cockpit']
-      for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail', 'clash', 'side']) args.push('--clear-token', name)
+      for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail', 'clash', 'agent', 'side_sep', 'side']) args.push('--clear-token', name)
       void herdr($, args)
     }
     return next(e)
