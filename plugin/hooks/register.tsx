@@ -460,24 +460,28 @@ const fetchLinear = async ($: $): Promise<Ticket[] | null> => {
   return issues.filter(t => rank(t) >= 0).sort((a, b) => rank(a) - rank(b))
 }
 
-type News = { text: string; action: string }
+type News = { text: string; action: string; buttons?: [string, string][] }
 
 // What changed since the previous fetch, worth a notification, each with where its click leads.
 const changes = (prev: Inbox, next: Inbox) => {
   const out: News[] = []
   const before = new Map(prev.mine.map(pr => [pr.url, pr]))
   const known = new Set(prev.direct.map(pr => pr.url))
-  for (const pr of next.direct) if (!known.has(pr.url)) out.push({ text: `👀 Review requested: ${pr.repo}#${pr.number} ${pr.title}`, action: pr.url })
+  for (const pr of next.direct) {
+    if (!known.has(pr.url)) out.push({ text: `👀 Review requested: ${pr.repo}#${pr.number} ${pr.title}`, action: pr.url, buttons: [['Review', `act:review:${pr.url}`]] })
+  }
   for (const pr of next.mine) {
     const was = before.get(pr.url)
     if (!was) continue
-    if (isFailing(pr) && !isFailing(was)) out.push({ text: `🔴 CI failing: ${pr.repo}#${pr.number}`, action: `${pr.url}/checks` })
+    if (isFailing(pr) && !isFailing(was)) {
+      out.push({ text: `🔴 CI failing: ${pr.repo}#${pr.number}`, action: `${pr.url}/checks`, buttons: [['Why?', `act:ci:${pr.url}`], ['Rerun', `act:rerun:${pr.url}`]] })
+    }
     if (pr.review !== was.review && pr.review === 'APPROVED') out.push({ text: `✅ Approved: ${pr.repo}#${pr.number}`, action: pr.url })
     if (pr.review !== was.review && pr.review === 'CHANGES_REQUESTED') out.push({ text: `❌ Changes requested: ${pr.repo}#${pr.number}`, action: `${pr.url}/files` })
   }
   if (prev.tickets.length > 0) {
     const ids = new Set(prev.tickets.map(t => t.id))
-    for (const t of next.tickets) if (!ids.has(t.id)) out.push({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url })
+    for (const t of next.tickets) if (!ids.has(t.id)) out.push({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url, buttons: [['Plan', `act:plan:${t.id}`]] })
   }
   return out
 }
@@ -560,7 +564,7 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
   }
   const news = cached && gh ? [...changes({ ...cached, tickets: tickets ? cached.tickets : [] }, next), ...live] : []
   if (news.length > 3) await notify($, `📥 ${news.length} updates`, news.slice(0, 3).map(n => n.text).join('\n') + '\n…', 'space:inbox')
-  else for (const n of news) await notify($, '📥 Inbox', n.text, n.action)
+  else for (const n of news) await notify($, '📥 Inbox', n.text, n.action, n.buttons)
 }
 
 // Asks the runbook app for a background refresh of the ticket's runbook; false when there is no runbook or no app running.

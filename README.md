@@ -19,6 +19,8 @@ One agent per space, a few pinned spaces for everything around the code, and the
 - **Runbook.** `/runbook` writes down what's left to ship a ticket and keeps it up to date.
 - **To-do and meetings.** A Markdown to-do list (`/todo <text>` from any session) and your calendar.
 - **Notifications** (macOS) that open the right thing: the PR's checks, the agent's space, the meeting, the runbook.
+  Their buttons act: Review on a review request, Why? and Rerun on failed CI, Plan on a new ticket, Join on a meeting,
+  ArgoCD on a ready sandbox.
 - **Meeting briefs.** Press `prepare` on a meeting and Claude reads the invite, its linked docs and tickets, and writes
   why it exists, where things stand and what to bring. Dailies don't get one.
 - **Morning brief.** At 8:30 on weekdays: meetings, reviews waiting, PRs failing or ready, overnight CI failures,
