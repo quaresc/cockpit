@@ -47,9 +47,9 @@ inbox = {
                   {"id": "pv-billing", "app": "billing", "branch": "me/eng-398-invoice-csv", "health": "Healthy", "expiresAt": fut(hours=2), "activated": True}],
     "deployLinks": {"api": {"dashboard": "https://argocd.example.com/applications/api", "workflow": {"url": "https://argo.example.com/w/1", "label": "v2026.10.22"}}},
 }
-ci = {"at": int(now.timestamp() * 1000), "version": 2, "runs": [
+ci = {"at": int(now.timestamp() * 1000), "version": 3, "runs": [
     {"repo": "web", "branch": "me/eng-414-quota-copy", "runId": "r1", "createdAt": iso(minutes=14), "isRunning": False, "outcome": "failed",
-     "workflowId": "w1", "done": 9, "total": 9, "failed": {"job": "lint", "jobId": "j1", "step": "eslint", "tests": []}, "dockerTag": "skipped"},
+     "workflowId": "w1", "done": 9, "total": 9, "failed": {"job": "lint", "jobId": "j1", "step": "eslint", "tests": [], "logs": "gh run view --job 1 --log-failed -R acme/web"}, "dockerTag": "skipped"},
     {"repo": "web", "branch": "me/eng-413-quota-ui", "runId": "r2", "createdAt": iso(minutes=4), "isRunning": False, "outcome": "succeeded",
      "workflowId": "w2", "done": 9, "total": 9, "dockerTag": "succeeded"},
     {"repo": "api", "branch": "me/eng-412-daily-quotas", "runId": "r3", "createdAt": iso(hours=1), "isRunning": False, "outcome": "succeeded",
@@ -80,7 +80,7 @@ with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
-    json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "keys": ["ENG"]},
+    json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "name": "Linear", "keys": ["ENG"]}, "ci": {"name": "GitHub", "imageJob": "docker"},
                "platform": {"enabled": True, "previewPrefix": "pv-", "previewDashboardUrl": "https://argocd.example.com/applications/{preview}", "tools": {"createPreview": {"tool": "previews_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"

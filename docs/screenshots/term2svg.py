@@ -69,7 +69,8 @@ def rows_svg(screen, ys, chars, cover=False, at=None):
     for n, y in enumerate(ys):
         line = screen.buffer[y]; x = 0; base = BAR + PAD + ((at + n) if at is not None else y) * LH
         if cover:
-            out.append(f'<rect x="{PAD - 2}" y="{base:.1f}" width="{screen.columns * CW + 4:.1f}" height="{LH + 0.6:.1f}" fill="{BG}"/>')
+            # A little taller than the row, so no anti-aliased edge of the frame below shows through.
+            out.append(f'<rect x="{PAD - 2}" y="{base - 0.6:.1f}" width="{screen.columns * CW + 4:.1f}" height="{LH + 1.8:.1f}" fill="{BG}"/>')
         texts, run, fills = [], None, []
         def flush():
             if run:
@@ -150,3 +151,46 @@ def run_steps(argv, cols, rows, env, keys, cwd=None, settle=1.5, gap=0.5):
             sent += 1
     os.kill(pid, signal.SIGKILL)
     return shots
+
+
+def animate(frames, title, extra=None):
+    """An animated SVG window from [(seconds, screen), ...], looping: the first screen is the base, each later one a layer
+    of the rows that changed, shown from its start to the loop's end. `extra(i)` may add SVG drawn with frame i's layer."""
+    cols, rows = frames[0][1].columns, frames[0][1].lines
+    loop = sum(d for d, _ in frames)
+    keys = [["".join(s.buffer[y][x].data + str(s.buffer[y][x].fg) + str(s.buffer[y][x].bg) for x in range(cols)) for y in range(rows)]
+            for _, s in frames]
+    chars, layers, style, begin = set(), [], "", 0
+    for i, (duration, screen) in enumerate(frames):
+        if i:
+            differ = [y for y in range(rows) if keys[i - 1][y] != keys[i][y]]
+            a = 100 * begin / loop
+            style += f"@keyframes s{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,100%{{visibility:visible}}}}" \
+                     f".s{i}{{visibility:hidden;animation:s{i} {loop:.2f}s step-end infinite}}"
+            layers.append(f'<g class="s{i}">{rows_svg(screen, differ, chars, cover=True)}{extra(i) if extra else ""}</g>')
+        begin += duration
+    body = rows_svg(frames[0][1], range(rows), chars) + (extra(0) if extra else "") + "".join(layers)
+    return window(cols, rows, title, chars, body, style)
+
+
+def put_ops():
+    """A cursor-addressed drawing list and its put(row, col, text, fg, bg, bold) for composed screens."""
+    ops = []
+
+    def put(r, c, text, fg=None, bg=None, bold=False):
+        sgr = ["0"] + (["1"] if bold else [])
+        if fg: sgr.append("38;2;%d;%d;%d" % tuple(int(fg[i:i + 2], 16) for i in (0, 2, 4)))
+        if bg: sgr.append("48;2;%d;%d;%d" % tuple(int(bg[i:i + 2], 16) for i in (0, 2, 4)))
+        ops.append(f"\033[{r};{c}H\033[{';'.join(sgr)}m{text}\033[0m")
+    return ops, put
+
+
+def picture(path, width, height):
+    """A screenshot as an embedded JPEG fitting width × height pixels, and its size once fitted."""
+    from PIL import Image  # only the pictures of real pages need it
+    image = Image.open(path).convert("RGB")
+    scale = min(width / image.width, height / image.height)
+    size = (round(image.width * scale), round(image.height * scale))
+    buf = io.BytesIO()
+    image.resize((size[0] * 2, size[1] * 2), Image.LANCZOS).save(buf, "JPEG", quality=82, optimize=True)
+    return base64.b64encode(buf.getvalue()).decode(), size
