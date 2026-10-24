@@ -1,4 +1,4 @@
-"""Shots of single features: the recap popup, and the inbox's sandbox and stop buttons."""
+"""Shots of single features: the recap popup, and the inbox's preview and stop buttons."""
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import run, run_steps, screen_of, rows_svg, window, svg
@@ -30,17 +30,17 @@ chars = set()
 body = rows_svg(screen, range(used[0], used[-1] + 1), chars, at=0)
 open(os.path.join(OUT, "recap.svg"), "w").write(window(84, used[-1] - used[0] + 1, "recap · quota-banner", chars, body))
 
-# Inbox: step through the rows; keep the screens where the stop and the sandbox buttons show.
+# Inbox: step through the rows; keep the screens where the stop and the preview buttons show.
 cols, rows = 120, 44
 shots = [screen_of(t, cols, rows) for t in run_steps(["python3", "inbox.py"], cols, rows, env, ["j"] * 24, cwd=APPS)]
 stop = next(s for s in shots if row_with(s, "stop") is not None)
-box = next(s for s in shots if row_with(s, "sandbox") is not None)
+box = next(s for s in shots if row_with(s, "preview") is not None)
 last = max(y for y in range(rows) if text_of(box, y).strip())
 open(os.path.join(OUT, "inbox.svg"), "w").write(svg(box, "inbox", crop_rows=min(rows, last + 2)))
 
-# Both buttons in one small picture: the merged sandbox with stop, the built branch with sandbox.
-y_stop, y_box = row_with(stop, "stop"), row_with(box, "sandbox")
+# Both buttons in one small picture: the merged preview with stop, the built branch with preview.
+y_stop, y_box = row_with(stop, "stop"), row_with(box, "preview")
 chars = set()
 body = rows_svg(stop, [y_stop], chars, at=0) + rows_svg(box, [y_box], chars, at=2)
-open(os.path.join(OUT, "sandboxes.svg"), "w").write(window(cols, 3, "inbox · sandboxes", chars, body))
+open(os.path.join(OUT, "previews.svg"), "w").write(window(cols, 3, "inbox · previews", chars, body))
 print("ok")

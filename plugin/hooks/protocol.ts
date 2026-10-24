@@ -3,11 +3,11 @@
 
 const REQUEST_FIELDS = {
   rerun: { workflowId: 'string' },
-  redeploy: { stage: 'string', product: 'string' },
+  redeploy: { preview: 'string', app: 'string' },
   release: { ticket: 'string' },
-  extend: { stage: 'string', days: 'number' },
-  'create-sandbox': { product: 'string', branch: 'string' },
-  'stop-sandbox': { stage: 'string' },
+  extend: { preview: 'string', days: 'number' },
+  'create-preview': { app: 'string', branch: 'string' },
+  'stop-preview': { preview: 'string' },
 } as const
 
 type Fields = typeof REQUEST_FIELDS

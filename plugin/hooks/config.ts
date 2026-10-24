@@ -13,18 +13,20 @@ export type Recipe = { tool: string; args?: Record<string, unknown>; keep?: stri
 export type PlatformFields = Partial<Record<
   | 'apps' | 'appId' | 'appRepo' | 'appLink' | 'appTag' | 'appSha' | 'appKind'
   | 'deployments' | 'deployWorkflow' | 'deployNamespace' | 'deployTag' | 'deployBranch'
-  | 'sandboxes' | 'sandboxId' | 'sandboxExpires' | 'sandboxActive' | 'sandboxHealth' | 'sandboxProducts'
-  | 'productName' | 'productEnabled' | 'productBranch' | 'statusProducts' | 'statusUrl' | 'createdId' | 'healthy',
+  | 'previews' | 'previewId' | 'previewExpires' | 'previewActive' | 'previewHealth' | 'previewApps'
+  | 'appName' | 'appEnabled' | 'appBranch' | 'statusApps' | 'statusUrl' | 'createdId' | 'healthy',
   string
 >> & { skipKinds?: string[] }
 
 export type Platform = {
   enabled: boolean
   server: string
-  stagePrefix: string
-  sandboxArgoUrl: string
+  // How a preview's id starts, to spot one named in a conversation.
+  previewPrefix: string
+  // The page following a preview's rollout ({preview}), and a deploy run's ({namespace}, {name}).
+  previewDashboardUrl: string
   workflowUrl: string
-  sandboxDefaults: Record<string, unknown>
+  previewDefaults: Record<string, unknown>
   tools: Partial<Record<Capability, Recipe>>
   fields: PlatformFields
 }
@@ -35,7 +37,7 @@ export type Config = {
   github: { enabled: boolean; org: string }
   linear: { enabled: boolean; server: string; teams: string[] }
   circleci: { enabled: boolean; server: string; imageJob: string }
-  // The connector whose tools deploy apps and run sandboxes, mapped by /cockpit:setup.
+  // The connector whose tools deploy apps and run preview environments, mapped by /cockpit:setup.
   platform: Platform
   deployWatch: { enabled: boolean; afterMinutes: number; tools: string[] }
   recap: { enabled: boolean; awayMinutes: number }
@@ -58,7 +60,7 @@ const DEFAULTS: Config = {
   github: { enabled: true, org: '' },
   linear: { enabled: false, server: 'claude.ai Linear', teams: [] },
   circleci: { enabled: false, server: 'circleci', imageJob: '' },
-  platform: { enabled: false, server: '', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '', sandboxDefaults: {}, tools: {}, fields: {} },
+  platform: { enabled: false, server: '', previewPrefix: '', previewDashboardUrl: '', workflowUrl: '', previewDefaults: {}, tools: {}, fields: {} },
   deployWatch: { enabled: false, afterMinutes: 30, tools: [] },
   recap: { enabled: true, awayMinutes: 10 },
   meetingBrief: { enabled: true, model: 'sonnet', skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },

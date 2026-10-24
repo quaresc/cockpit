@@ -30,21 +30,21 @@ REQUESTS = os.path.join(CACHE, "requests")
 MUTED = os.path.join(HOME, ".config", "cockpit", "muted.json")
 
 
-def sandbox_url(stage):
-    return cockpit_config.fill(CONFIG["platform"]["sandboxArgoUrl"], stage=stage)
+def dashboard_url(preview):
+    return cockpit_config.fill(CONFIG["platform"]["previewDashboardUrl"], preview=preview)
 
 
 OLD_REVIEW_DAYS = 60
 STALE_PR_DAYS = 30
-SANDBOX_WARN_HOURS = 3
+PREVIEW_WARN_HOURS = 3
 RED_ALERT_HOURS = 2
 
 # Nerd Font glyphs present in FiraCode Nerd Font 3.0.
 ICON = {
     "inbox": "", "review": "", "pr": "", "linear": "", "github": "",
-    "circleci": "", "docker": "", "sandbox": "", "rocket": "", "fix": "",
+    "circleci": "", "docker": "", "preview": "", "rocket": "", "fix": "",
     "rerun": "", "redeploy": "", "open": "", "mute": "", "plan": "",
-    "continue": "", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "argo": "󰠳", "deploy": "",
+    "continue": "", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "ArgoCD": "󰠳", "Dashboard": "\uf0e4", "deploy": "",
     "stop": "", "today": "", "calendar": "", "dismiss": "",
     "ok": "", "fail": "", "running": "", "approved": "", "changes": "",
     "waiting": "", "fold": "", "unfold": "", "user": "", "team": "",
@@ -235,26 +235,26 @@ def rerun(state, pr, ci_run):
 
 
 def redeploy(state, box, row):
-    if confirmed(state, f"redeploy-{box['stage']}-{box['product']}"):
-        request(state, {"type": "redeploy", "stage": box["stage"], "product": box["product"],
-                        "label": f"redeploy {box['product']} on {box['stage']}"}, row, "redeploying…")
+    if confirmed(state, f"redeploy-{box['id']}-{box['app']}"):
+        request(state, {"type": "redeploy", "preview": box["id"], "app": box["app"],
+                        "label": f"redeploy {box['app']} on {box['id']}"}, row, "redeploying…")
 
 
-def create_sandbox(state, pr):
-    key = f"sandbox-{pr['repo']}-{pr.get('branch')}"
+def create_preview(state, pr):
+    key = f"preview-{pr['repo']}-{pr.get('branch')}"
     if confirmed(state, key):
-        request(state, {"type": "create-sandbox", "product": pr["repo"], "branch": pr.get("branch"),
-                        "label": f"sandbox for {pr['repo']} {pr.get('branch')}"}, pr["url"], "creating…")
+        request(state, {"type": "create-preview", "app": pr["repo"], "branch": pr.get("branch"),
+                        "label": f"preview for {pr['repo']} {pr.get('branch')}"}, pr["url"], "creating…")
 
 
-def stop_sandbox(state, stage):
-    if confirmed(state, f"stop-{stage}"):
-        request(state, {"type": "stop-sandbox", "stage": stage, "label": f"stop {stage}"}, f"sandbox-{stage}", "stopping…")
+def stop_preview(state, preview):
+    if confirmed(state, f"stop-{preview}"):
+        request(state, {"type": "stop-preview", "preview": preview, "label": f"stop {preview}"}, f"preview-{preview}", "stopping…")
 
 
-def extend(state, stage, days=2):
-    if confirmed(state, f"extend-{stage}"):
-        request(state, {"type": "extend", "stage": stage, "days": days, "label": f"extend {stage}"}, f"sandbox-{stage}", "extending…")
+def extend(state, preview, days=2):
+    if confirmed(state, f"extend-{preview}"):
+        request(state, {"type": "extend", "preview": preview, "days": days, "label": f"extend {preview}"}, f"preview-{preview}", "extending…")
 
 
 def mark_done(state, ticket):
@@ -361,37 +361,37 @@ def build(state, cols):
                 item.buttons = [Button("open", lambda u=entry["url"]: open_url(state, u), "o", True)]
                 item.primary = lambda u=entry["url"]: open_url(state, u)
 
-    alerts = []  # (text, style, url, stage to extend)
-    for stage in sorted({b["stage"] for b in data.get("sandboxes") or []}):
-        box = next(b for b in data["sandboxes"] if b["stage"] == stage)
+    alerts = []  # (text, style, url, preview to extend)
+    for preview in sorted({b["id"] for b in data.get("previews") or []}):
+        box = next(b for b in data["previews"] if b["id"] == preview)
         hours = -age_days(box["expiresAt"]) * 24
-        url = sandbox_url(stage)
+        url = dashboard_url(preview)
         if hours <= 0:
-            alerts.append((f"sandbox {stage} has expired", RED, url, stage))
-        elif hours <= SANDBOX_WARN_HOURS:
+            alerts.append((f"preview {preview} has expired", RED, url, preview))
+        elif hours <= PREVIEW_WARN_HOURS:
             left = f"{int(hours * 60)} min" if hours < 1 else f"{hours:.1f} h"
-            alerts.append((f"sandbox {stage} expires in {left}", ORANGE, url, stage))
+            alerts.append((f"preview {preview} expires in {left}", ORANGE, url, preview))
         if box["health"] not in ("Healthy", "Progressing") and hours > 0:
-            alerts.append((f"sandbox {stage} is {box['health'].lower()}", ORANGE, url, None))
+            alerts.append((f"preview {preview} is {box['health'].lower()}", ORANGE, url, None))
     for ci_run in ci.get("runs", []):
         if not ci_run["isRunning"] and ci_run["outcome"] == "failed" and age_days(ci_run["createdAt"]) * 24 <= RED_ALERT_HOURS:
             job = f" · {ci_run['failed']['job']}" if ci_run.get("failed") else ""
             alerts.append((f"ci failed on {ci_run['repo']} {ci_run['branch']}{job}", RED, None, None))
-    # A running sandbox whose branch has merged: it can stop, keeping its setup.
+    # A running preview whose branch has merged: it can stop, keeping its setup.
     merged = {(m["repo"], m["branch"]) for m in data.get("merged") or []}
-    for box in data.get("sandboxes") or []:
-        if box.get("activated") and (box["product"], box["branch"]) in merged:
-            alerts.append((f"sandbox {box['stage']} runs merged {box['product']} {box['branch']}", ORANGE, sandbox_url(box["stage"]), ("stop", box["stage"])))
+    for box in data.get("previews") or []:
+        if box.get("activated") and (box["app"], box["branch"]) in merged:
+            alerts.append((f"preview {box['id']} runs merged {box['app']} {box['branch']}", ORANGE, dashboard_url(box["id"]), ("stop", box["id"])))
     if alerts:
         line()
-        for text, style, url, stage in alerts:
+        for text, style, url, target in alerts:
             item = line().add(f" {ICON['alert']}  ", style).add(text, style)
-            if isinstance(stage, tuple):
-                item.buttons.append(Button(asking(state, f"stop-{stage[1]}", "stop"), lambda s=stage[1]: stop_sandbox(state, s), "a", True))
-                row_status(item, f"sandbox-{stage[1]}")
-            elif stage:
-                item.buttons.append(Button(asking(state, f"extend-{stage}", "extend 2 days"), lambda stage=stage: extend(state, stage), "a", True))
-                row_status(item, f"sandbox-{stage}")
+            if isinstance(target, tuple):
+                item.buttons.append(Button(asking(state, f"stop-{target[1]}", "stop"), lambda p=target[1]: stop_preview(state, p), "a", True))
+                row_status(item, f"preview-{target[1]}")
+            elif target:
+                item.buttons.append(Button(asking(state, f"extend-{target}", "extend 2 days"), lambda p=target: extend(state, p), "a", True))
+                row_status(item, f"preview-{target}")
             if url:
                 item.buttons.append(Button("open", lambda url=url: open_url(state, url), "o", False))
                 item.primary = lambda url=url: open_url(state, url)
@@ -450,7 +450,7 @@ def build(state, cols):
 
     def pr_row(pr, prefix, cont):
         ci_run = runs.get((pr["repo"], pr.get("branch")))
-        box = next((b for b in data.get("sandboxes") or [] if b["product"] == pr["repo"] and b["branch"] == pr.get("branch")), None)
+        box = next((b for b in data.get("previews") or [] if b["app"] == pr["repo"] and b["branch"] == pr.get("branch")), None)
         image_ready = bool(ci_run and ci_run.get("dockerTag") == "succeeded")
         notes = []
         if ci_run and ci_run["isRunning"]:
@@ -458,7 +458,7 @@ def build(state, cols):
         if image_ready:
             notes.append(f"{ICON['docker']} image")
         if box:
-            notes.append(f"{ICON['sandbox']} sbx")
+            notes.append(f"{ICON['preview']} preview")
         ci_g, ci_s = ci_glyph(pr)
         rv_g, rv_s = review_glyph(pr)
         item = line()
@@ -479,17 +479,17 @@ def build(state, cols):
             if ci_run and ci_run.get("outcome") == "failed" and ci_run.get("workflowId") and not ci_run["isRunning"]:
                 item.buttons.append(Button(asking(state, f"rerun-{ci_run['workflowId']}", "rerun"), lambda: rerun(state, pr, ci_run), "u", False))
             if box and image_ready:
-                item.buttons.append(Button(asking(state, f"redeploy-{box['stage']}-{box['product']}", "redeploy"), lambda: redeploy(state, box, pr["url"]),
+                item.buttons.append(Button(asking(state, f"redeploy-{box['id']}-{box['app']}", "redeploy"), lambda: redeploy(state, box, pr["url"]),
                                      "d", not item.buttons))
-            # A green image with no sandbox running it yet: one click creates one with the configured defaults.
-            if not box and image_ready and CONFIG["platform"]["enabled"] and "createSandbox" in CONFIG["platform"]["tools"]:
-                item.buttons.append(Button(asking(state, f"sandbox-{pr['repo']}-{pr.get('branch')}", "sandbox"), lambda: create_sandbox(state, pr),
+            # A green image with no preview running it yet: one click creates one with the configured defaults.
+            if not box and image_ready and CONFIG["platform"]["enabled"] and "createPreview" in CONFIG["platform"]["tools"]:
+                item.buttons.append(Button(asking(state, f"preview-{pr['repo']}-{pr.get('branch')}", "preview"), lambda: create_preview(state, pr),
                                      "s", not item.buttons))
-            # ArgoCD: the sandbox running this branch, else the production app; then its latest prod deploy.
+            # The dashboard of the preview running this branch, else of the production app; then its latest prod deploy.
             links = (data.get("deployLinks") or {}).get(pr["repo"]) or {}
-            argo = (sandbox_url(box["stage"]) if box else None) or links.get("argo")
-            if argo:
-                item.buttons.append(Button("argo", lambda: open_url(state, argo), "A", False))
+            dashboard = (dashboard_url(box["id"]) if box else None) or links.get("dashboard")
+            if dashboard:
+                item.buttons.append(Button(cockpit_config.dashboard_name(dashboard), lambda: open_url(state, dashboard), "A", False))
             if links.get("workflow"):
                 item.buttons.append(Button("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
             item.buttons.append(Button("open", lambda: open_url(state, pr["url"]), "o", False))
@@ -559,8 +559,8 @@ def build(state, cols):
             item.buttons.append(Button("plan", lambda: plan(state, ticket), "a", True))
         if deploying and deployed:
             links = (data.get("deployLinks") or {}).get(deployed[0]["repo"]) or {}
-            if links.get("argo"):
-                item.buttons.append(Button("argo", lambda: open_url(state, links["argo"]), "A", False))
+            if links.get("dashboard"):
+                item.buttons.append(Button(cockpit_config.dashboard_name(links["dashboard"]), lambda: open_url(state, links["dashboard"]), "A", False))
             if links.get("workflow"):
                 item.buttons.append(Button("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
         item.buttons.append(Button("open", lambda: open_url(state, ticket["url"]), "o", False))

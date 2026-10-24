@@ -23,10 +23,10 @@ One agent per space, a few pinned spaces for everything around the code, and the
 | | |
 | --- | --- |
 | 🧭 **Sidebar** | Every agent on one line: its task, the page beside it, its context use; under it the repo, ticket and CI. |
-| 🔗 **Footer** | The ticket, PR, Figma, Notion, Slack, Argo and sandbox the conversation is about, one click each. |
+| 🔗 **Footer** | The ticket, PR, Figma, Notion, Slack thread, deploy dashboard and preview the conversation is about, one click each. |
 | 📊 **Show** | Charts, tables, flow charts, sequence diagrams and diffs in a pane beside the agent, like an artifact. |
 | 🧪 **Front checks** | The agent tests its change in a browser beside it, on phone, tablet and desktop, and keeps before/after screenshots for the PR. |
-| 📥 **Inbox** | Review requests, then your tickets by project with their stacked PRs, CI, deploys and sandboxes. |
+| 📥 **Inbox** | Review requests, then your tickets by project with their stacked PRs, CI, deploys and previews. |
 | 📋 **Runbook** | `/runbook` writes down what's left to ship a ticket, in order, and keeps it current. |
 | 🔔 **Notifications** | macOS notifications that lead somewhere useful, with buttons that act: Review, Why?, Rerun, Plan, Join. |
 | ☀️ **Briefs** | A morning brief, meeting briefs, a recap when you come back to a space, a check after each deploy. |
@@ -42,7 +42,7 @@ on the same branch.
 ### 🔗 Footer
 
 Each conversation's footer links what it works on: the ticket it names (else its branch's), the PR, the Figma frame,
-the Notion page, the Slack thread, the Argo app and the sandbox. Links open in your default browser. A chip per view the
+the Notion page, the Slack thread, the deploy dashboard (ArgoCD, Vercel…) and the preview. Links open in your default browser. A chip per view the
 agent showed hides or brings back its pane, and the **browser** chip sends the page beside the agent to your default
 browser.
 
@@ -105,9 +105,9 @@ Hover a row (or use `j`/`k`) for its buttons: review, fix CI, rerun, continue, d
 
 ![Inbox space](docs/inbox.svg)
 
-A branch with a built image gets a `sandbox` button; a sandbox still running a merged branch gets `stop`.
+A branch with a built image gets a `preview` button; a preview still running a merged branch gets `stop`.
 
-![Sandbox and stop buttons](docs/sandboxes.svg)
+![Preview and stop buttons](docs/previews.svg)
 
 ### 📋 Runbook
 
@@ -125,7 +125,7 @@ It refreshes in the background, and by itself when the ticket goes live. Steps t
 
 Each one leads somewhere useful when clicked, and its buttons act without opening anything: **Review** starts a
 `/code-review` in a new space, **Why?** investigates failing CI, **Rerun** reruns its failed jobs, **Plan** picks up a
-new ticket, **Join** opens the call, **ArgoCD** follows a fresh sandbox. herdr's own popups stay in-app, so nothing
+new ticket, **Join** opens the call, and a fresh preview's button opens its dashboard (named after it: ArgoCD, Vercel…). herdr's own popups stay in-app, so nothing
 arrives twice.
 
 ![Notifications sliding in, with where a click leads and their buttons](docs/notifications.svg)
@@ -177,7 +177,7 @@ arrive as a notification: click it to update.
 - `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
 - A Nerd Font: it's drawn with FiraCode Nerd Font Mono.
 - Optional: Linear, CircleCI, Google Calendar, Datadog and Metabase connectors, a platform connector for deploys and
-  sandboxes,
+  preview environments,
   [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr) for line comments on a diff, and
   [terminal-browser](https://github.com/zenbu-labs/terminal-browser) for front checks beside the agent.
 
@@ -194,8 +194,8 @@ arrive as a notification: click it to update.
 | `github.org` | Only list your PRs from this org. Empty for all. |
 | `linear.teams` | Team keys to recognise in ticket mentions, on top of your tickets' own. |
 | `<connector>.server` | The connector's name in `claude mcp list`. |
-| `circleci.imageJob` | The job that builds the image a sandbox runs. Enables `sandbox` and `redeploy`. |
-| `platform.*` | Deploys and sandboxes through your platform connector's tools: `tools` maps each capability to a tool and its arguments, `fields` maps what cockpit reads in their answers. `/cockpit:setup` writes both. Argo links come from the URL templates. |
+| `circleci.imageJob` | The job that builds the image a preview runs. Enables `preview` and `redeploy`. |
+| `platform.*` | Deploys and preview environments through your platform connector's tools: `tools` maps each capability to a tool and its arguments, `fields` maps what cockpit reads in their answers. `/cockpit:setup` writes both. Dashboard links come from the URL templates and are named after their site. |
 | `brief` | When the morning brief comes, and whether on weekends. |
 | `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
 | `recap` | How long you need to be away before the recap shows. |

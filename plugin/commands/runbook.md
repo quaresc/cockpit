@@ -12,7 +12,7 @@ Gather the facts before writing, never from memory alone: every PR across repos 
 Format:
 - first line `# <TICKET> · <feature>`, second line `updated: <YYYY-MM-DD HH:MM>`, the local time from `date`, never a guess
 - then one table `| # | Step | Where | Status | Command |`, one row per step: merges, deploys, migrations, prod commands, checks
-- Where: `repo#123` for a PR, else the environment (prod, preprod, sandbox name) or the repo
+- Where: `repo#123` for a PR, else the environment (prod, staging, a preview's name) or the repo
 - Status: exactly one of ✅ done, 🚀 live, 🟡 in progress, ⏳ waiting, ⬜ to do, ❌ blocked, followed by two or three words
 - Command: the exact command in backticks when the step has one, else empty
 - optionally `## Notes` with at most three one-line bullets for traps (deploy order, flags, data checks)

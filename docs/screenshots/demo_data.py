@@ -43,9 +43,9 @@ inbox = {
     "merged": [{"repo": "api", "slug": "acme/api", "url": "https://github.com/acme/api/pull/2190", "number": 2190,
                 "branch": "me/eng-412-quota-model", "mergeSha": "abc123", "mergedAt": iso(hours=20)}],
     "deploys": {"ENG-412": [{"repo": "api", "number": 2190, "tag": "v2026.10.22", "isLive": True}]},
-    "sandboxes": [{"stage": "preview-quotas", "product": "api", "branch": "me/eng-412-quota-model", "health": "Healthy", "expiresAt": fut(hours=30), "activated": True},
-                  {"stage": "preview-billing", "product": "billing", "branch": "me/eng-398-invoice-csv", "health": "Healthy", "expiresAt": fut(hours=2), "activated": True}],
-    "deployLinks": {"api": {"argo": "https://argocd.example.com/applications/api", "workflow": {"url": "https://argo.example.com/w/1", "label": "v2026.10.22"}}},
+    "previews": [{"id": "pv-quotas", "app": "api", "branch": "me/eng-412-quota-model", "health": "Healthy", "expiresAt": fut(hours=30), "activated": True},
+                  {"id": "pv-billing", "app": "billing", "branch": "me/eng-398-invoice-csv", "health": "Healthy", "expiresAt": fut(hours=2), "activated": True}],
+    "deployLinks": {"api": {"dashboard": "https://argocd.example.com/applications/api", "workflow": {"url": "https://argo.example.com/w/1", "label": "v2026.10.22"}}},
 }
 ci = {"at": int(now.timestamp() * 1000), "version": 2, "runs": [
     {"repo": "web", "branch": "me/eng-414-quota-copy", "runId": "r1", "createdAt": iso(minutes=14), "isRunning": False, "outcome": "failed",
@@ -81,7 +81,7 @@ with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
     json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "linear": {"enabled": True, "teams": ["ENG"]},
-               "platform": {"enabled": True, "stagePrefix": "preview-", "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}", "tools": {"createSandbox": {"tool": "sandboxes_create"}}}}, f)
+               "platform": {"enabled": True, "previewPrefix": "pv-", "previewDashboardUrl": "https://argocd.example.com/applications/{preview}", "tools": {"createPreview": {"tool": "previews_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"
             "- [ ] Write the quotas announcement https://notion.so/acme/quotas\n- [x] Review the billing proration PR (done 2026-10-22)\n")

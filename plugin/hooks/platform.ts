@@ -5,28 +5,28 @@ import type { Platform } from './config'
 
 type $ = EngineInterface
 
-// Deploys and sandboxes through whatever MCP tools the platform connector offers. The config maps each capability to a
+// Deploys and preview environments through whatever MCP tools the platform connector offers. The config maps each capability to a
 // tool and its arguments, and each value cockpit reads to a path in the tool's answer; /cockpit:setup writes both.
 
 export type Capability =
   | 'deployStatus'
   | 'deployHistory'
-  | 'listSandboxes'
-  | 'sandboxStatus'
-  | 'createSandbox'
-  | 'redeploySandbox'
-  | 'stopSandbox'
-  | 'startSandbox'
-  | 'extendSandbox'
+  | 'listPreviews'
+  | 'previewStatus'
+  | 'createPreview'
+  | 'redeployPreview'
+  | 'stopPreview'
+  | 'startPreview'
+  | 'extendPreview'
 
 export type App = { id: string; repo: string; link?: string; tag?: string; sha?: string }
 export type Deployment = { workflow: string; namespace: string; tag?: string; branch?: string }
-export type Box = {
-  stage: string
+export type PreviewEnv = {
+  id: string
   expiresAt: string
   activated?: boolean
   health: string
-  products: { name: string; enabled: boolean; branch?: string }[]
+  apps: { name: string; enabled: boolean; branch?: string }[]
   raw: Record<string, unknown>
 }
 
@@ -112,65 +112,77 @@ export const appFor = (apps: App[], repo: string) => apps.find(a => a.repo.toLow
 
 const deploys = new Map<string, { at: number; latest: Deployment | null }>()
 
-export async function latestDeploy($: $, app: string): Promise<Deployment | null> {
-  const hit = deploys.get(app)
+export async function latestDeploy($: $, appId: string): Promise<Deployment | null> {
+  const hit = deploys.get(appId)
   if (hit && Date.now() - hit.at < DEPLOYS_TTL_MS) return hit.latest
   const config = await platform($)
   if (!config || !(await can($, 'deployHistory'))) return null
   const f = config.fields
-  const first = list(pick(await call($, 'deployHistory', { app }), f.deployments))[0]
+  const first = list(pick(await call($, 'deployHistory', { appId }), f.deployments))[0]
   const latest = first
     ? { workflow: text(pick(first, f.deployWorkflow)) ?? '', namespace: text(pick(first, f.deployNamespace)) ?? '', tag: text(pick(first, f.deployTag)), branch: text(pick(first, f.deployBranch)) }
     : null
-  deploys.set(app, { at: Date.now(), latest })
+  deploys.set(appId, { at: Date.now(), latest })
   return latest
 }
 
-export async function listSandboxes($: $, values: Record<string, unknown> = {}): Promise<Box[]> {
+export async function listPreviews($: $, values: Record<string, unknown> = {}): Promise<PreviewEnv[]> {
   const config = await platform($)
-  if (!config || !(await can($, 'listSandboxes'))) return []
+  if (!config || !(await can($, 'listPreviews'))) return []
   const f = config.fields
-  return list(pick(await call($, 'listSandboxes', values), f.sandboxes)).map(raw => ({
-    stage: text(pick(raw, f.sandboxId)) ?? '',
-    expiresAt: text(pick(raw, f.sandboxExpires)) ?? '',
-    activated: pick(raw, f.sandboxActive) as boolean | undefined,
-    health: text(pick(raw, f.sandboxHealth)) ?? '',
-    products: list(pick(raw, f.sandboxProducts)).map(p => ({
-      name: text(pick(p, f.productName)) ?? '',
-      enabled: pick(p, f.productEnabled) !== false,
-      branch: text(pick(p, f.productBranch)),
+  return list(pick(await call($, 'listPreviews', values), f.previews)).map(raw => ({
+    id: text(pick(raw, f.previewId)) ?? '',
+    expiresAt: text(pick(raw, f.previewExpires)) ?? '',
+    activated: pick(raw, f.previewActive) as boolean | undefined,
+    health: text(pick(raw, f.previewHealth)) ?? '',
+    apps: list(pick(raw, f.previewApps)).map(a => ({
+      name: text(pick(a, f.appName)) ?? '',
+      enabled: pick(a, f.appEnabled) !== false,
+      branch: text(pick(a, f.appBranch)),
     })),
     raw: raw as Record<string, unknown>,
   }))
 }
 
-// A product's first URL on a sandbox, cached ten minutes per sandbox.
+// An app's first URL on a preview, cached ten minutes per preview.
 const statusCache = new Map<string, { at: number; status: unknown }>()
-export async function sandboxUrl($: $, stage: string, product: string) {
+export async function previewUrl($: $, preview: string, app: string) {
   const config = await platform($)
-  if (!config || !(await can($, 'sandboxStatus'))) return undefined
-  const hit = statusCache.get(stage)
-  const status = hit && Date.now() - hit.at < 10 * 60_000 ? hit.status : await call($, 'sandboxStatus', { stage })
-  statusCache.set(stage, { at: Date.now(), status })
+  if (!config || !(await can($, 'previewStatus'))) return undefined
+  const hit = statusCache.get(preview)
+  const status = hit && Date.now() - hit.at < 10 * 60_000 ? hit.status : await call($, 'previewStatus', { preview })
+  statusCache.set(preview, { at: Date.now(), status })
   const f = config.fields
-  const item = list(pick(status, f.statusProducts)).find(p => text(pick(p, f.productName)) === product)
+  const item = list(pick(status, f.statusApps)).find(a => text(pick(a, f.appName)) === app)
   return text(pick(item, f.statusUrl))
 }
 
-export async function createSandbox($: $, product: string, branch: string) {
+export async function createPreview($: $, app: string, branch: string) {
   const config = await platform($)
-  const created = await call($, 'createSandbox', { product, branch }, config?.sandboxDefaults ?? {})
+  const created = await call($, 'createPreview', { app, branch }, config?.previewDefaults ?? {})
   return text(pick(created, config?.fields.createdId)) ?? ''
 }
 
-// Adds days to a sandbox (expired or not) and switches it back on. The fields `keep` names are sent back as they are,
+// Adds days to a preview (expired or not) and switches it back on. The fields `keep` names are sent back as they are,
 // so a tool that replaces the whole setup does not reset them to its defaults.
-export async function extendSandbox($: $, stage: string, days: number) {
+export async function extendPreview($: $, preview: string, days: number) {
   const config = await platform($)
-  const box = (await listSandboxes($)).find(b => b.stage === stage)
-  if (!box) throw new Error(`sandbox ${stage} not found`)
-  const keep = config?.tools.extendSandbox?.keep ?? []
-  const kept = Object.fromEntries(keep.filter(key => box.raw[key] !== undefined).map(key => [key, box.raw[key]]))
-  await call($, 'extendSandbox', { stage, days }, kept)
-  if (!box.activated && (await can($, 'startSandbox'))) await call($, 'startSandbox', { stage })
+  const env = (await listPreviews($)).find(p => p.id === preview)
+  if (!env) throw new Error(`preview ${preview} not found`)
+  const keep = config?.tools.extendPreview?.keep ?? []
+  const kept = Object.fromEntries(keep.filter(key => env.raw[key] !== undefined).map(key => [key, env.raw[key]]))
+  await call($, 'extendPreview', { preview, days }, kept)
+  if (!env.activated && (await can($, 'startPreview'))) await call($, 'startPreview', { preview })
+}
+
+// What a dashboard link is, from its host, for the buttons and chips that open it.
+export function dashboardName(url: string) {
+  const host = url.match(/^https?:\/\/([^/]+)/)?.[1] ?? ''
+  if (/(^|\.)argo(cd)?[.-]/.test(host)) return 'ArgoCD'
+  if (host.endsWith('vercel.com')) return 'Vercel'
+  if (host.endsWith('netlify.app') || host.endsWith('netlify.com')) return 'Netlify'
+  if (host.endsWith('render.com')) return 'Render'
+  if (host.endsWith('railway.app')) return 'Railway'
+  if (host.endsWith('fly.io')) return 'Fly'
+  return 'Dashboard'
 }

@@ -5,9 +5,10 @@ import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../t
 
 import { activityOf, clashWith, logActivity } from './activity'
 import { openUrl } from './browser'
-import { announceSandboxes, deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, startDeployWatch, ticketAction, withLock } from './ci'
+import { dashboardName } from './platform'
+import { announcePreviews, deployChanges, deploysFor, mcp, notify, previewsFor, processRequests, readCi, refreshCi, shortError, startDeployWatch, ticketAction, withLock } from './ci'
 import { cacheDir, fill, home, loadConfig } from './config'
-import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
+import { dashboardFor, deployLinksFor, linksFor, ticketsIn } from './links'
 import { maybeBrief } from './brief'
 import { refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
@@ -352,8 +353,8 @@ const refreshLinks = async ($: $, prompt = '') => {
   }
   const repo = current?.repo ?? found.pr?.url.match(/github\.com\/[^/]+\/([^/]+)\/pull/)?.[1]
   const prBranch = data?.mine.find(p => p.url === found.pr?.url)?.branch
-  Object.assign(found, await argoFor($, repo, branch ?? prBranch, text, data).catch(() => ({})))
-  const isEmpty = !found.id && !found.figma && !found.notion && !found.slack && !found.pr && !found.argo && !found.app
+  Object.assign(found, await dashboardFor($, repo, branch ?? prBranch, text, data).catch(() => ({})))
+  const isEmpty = !found.id && !found.figma && !found.notion && !found.slack && !found.pr && !found.dashboard && !found.preview
   await update($, ticket, () => id ?? null)
   await update($, links, () => (isEmpty ? null : found))
 }
@@ -362,7 +363,7 @@ const refreshLinks = async ($: $, prompt = '') => {
 const ICON = {
   review: '\uf441', ok: '\uf49e', fail: '\uf52f', linear: '\uf41b', gauge: '\u{f029a}', branch: '\uf418',
   circleci: '\ue78c', pr: '\uf407', figma: '\u{f03d8}', notion: '\u{f0b15}', slack: '\uf198', view: '\uf080',
-  argo: '\u{f0833}', workflow: '\uf52e', app: '\uf0ac', external: '\uf08e',
+  argo: '\u{f0833}', dashboard: '\uf0e4', workflow: '\uf52e', app: '\uf0ac', external: '\uf08e',
 }
 
 // A rounded pill: the caps take the fill colour as their foreground.
@@ -504,7 +505,7 @@ const refresh = ($: $, isForced: boolean) => {
     try {
       await loadMuted($)
       const cached = await loadCached($)
-      const isCurrentShape = (cached?.merged !== undefined && cached.tickets.every(t => t.project !== undefined)) ?? false
+      const isCurrentShape = (cached?.merged !== undefined && cached.previews !== undefined && cached.tickets.every(t => t.project !== undefined)) ?? false
       // The herdr inbox app asks for a refresh by touching this file.
       const asked = await $.fs.stat(`${await cacheDir($)}/refresh-request`).then(s => s.mtimeMs, () => 0)
       const isAsked = cached !== null && asked > cached.at
@@ -547,13 +548,13 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
   })
   const deployRepos = [...next.mine.map(pr => pr.repo), ...Object.values(next.deploys ?? {}).flat().map(d => d.repo)]
   next.deployLinks = await deployLinksFor($, deployRepos).catch(() => cached?.deployLinks ?? {})
-  next.sandboxes = await sandboxesFor($).catch((err: Error) => {
-    errors.push(`Sandboxes ${shortError(err)}`)
-    return cached?.sandboxes ?? []
+  next.previews = await previewsFor($).catch((err: Error) => {
+    errors.push(`Previews ${shortError(err)}`)
+    return cached?.previews ?? []
   })
   await $.fs.write(`${await cacheDir($)}/inbox.json`, JSON.stringify(next))
   await update($, inbox, () => next)
-  await announceSandboxes($, next.sandboxes ?? []).catch(() => undefined)
+  await announcePreviews($, next.previews ?? []).catch(() => undefined)
 
   const live: News[] = []
   for (const { text, ticket: id } of cached ? deployChanges(cached, next) : []) {
@@ -652,6 +653,9 @@ const closeIdleBrowsers = async ($: $) => {
 }
 
 const clip = (text: string, width: number) => (text.length <= width ? text : `${text.slice(0, width - 1).trimEnd()}…`)
+
+// A dashboard link's mark: Argo's for an ArgoCD page, a gauge for any other.
+const dashboardIcon = (url: string) => (dashboardName(url) === 'ArgoCD' ? ICON.argo : ICON.dashboard)
 
 // A page's mark on the agent row, from its site, like a favicon in a browser's tab strip.
 const siteIcon = (url: string) => {
@@ -887,9 +891,9 @@ export const register: Register = on => {
         {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma)}
         {found?.notion && chip('lk-notion', `${ICON.notion} notion`, found.notion)}
         {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
-        {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url)}
+        {found?.dashboard && chip('lk-dashboard', `${dashboardIcon(found.dashboard.url)} ${found.dashboard.label}`, found.dashboard.url)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
-        {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url)}
+        {found?.preview && chip('lk-preview', `${ICON.app} ${found.preview.label}`, found.preview.url)}
         {beside && pill('lk-external', `${ICON.external} browser`, () => openUrl($, beside.url))}
         {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)).then(() => reportSide($)), v.isOpen ? 'main' : 'quiet'))}
         {tight.map(l => (

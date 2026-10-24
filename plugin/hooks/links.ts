@@ -4,7 +4,7 @@ import type { Inbox, TicketLinks } from '../types'
 
 import { mcp } from './ci'
 import { cacheDir, fill, loadConfig } from './config'
-import { appFor, deployedApps, latestDeploy, sandboxUrl } from './platform'
+import { appFor, deployedApps, latestDeploy, previewUrl } from './platform'
 import type { Deployment } from './platform'
 
 type $ = EngineInterface
@@ -77,47 +77,47 @@ export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<T
 }
 
 // ---------------------------------------------------------------------------
-// ArgoCD and Argo Workflows for the repo a session works on: its sandbox when it runs on one,
-// else the production app and that app's latest deploy workflow.
+// Deploy dashboards: a repo's preview or production app, and its latest deploy run.
 
 async function workflowLink($: $, latest: Deployment) {
   const url = fill((await loadConfig($)).platform.workflowUrl, { namespace: latest.namespace, name: latest.workflow })
   return url ? { url, label: latest.tag ?? latest.branch ?? 'deploy' } : undefined
 }
 
-// Each repo's deployed app link (its ArgoCD page) and latest deploy workflow, for the inbox app to link.
+// Each repo's production dashboard and latest deploy run, for the inbox app to link.
 export async function deployLinksFor($: $, repos: string[]) {
   const apps = await deployedApps($)
-  const out: Record<string, { argo?: string; workflow?: { url: string; label: string } }> = {}
+  const out: Record<string, { dashboard?: string; workflow?: { url: string; label: string } }> = {}
   for (const repo of [...new Set(repos)]) {
     const app = appFor(apps, repo)
     if (!app) continue
     const latest = await latestDeploy($, app.id).catch(() => null)
     out[repo] = {
-      argo: app.link,
+      dashboard: app.link,
       workflow: latest ? await workflowLink($, latest) : undefined,
     }
   }
   return out
 }
 
-export async function argoFor($: $, repo: string | undefined, branch: string | undefined, text: string, inbox: Inbox | null) {
-  const { stagePrefix, sandboxArgoUrl } = (await loadConfig($)).platform
-  const prefix = stagePrefix.replace(/[^a-z0-9-]/gi, '')
+// The dashboards of the repo a session works on: its preview's when one runs it (and the app there), else production's
+// with its latest deploy run.
+export async function dashboardFor($: $, repo: string | undefined, branch: string | undefined, text: string, inbox: Inbox | null) {
+  const { previewPrefix, previewDashboardUrl } = (await loadConfig($)).platform
+  const prefix = previewPrefix.replace(/[^a-z0-9-]/gi, '')
   const mentioned = prefix ? [...text.matchAll(new RegExp(`\\b${prefix}[a-z0-9]+(?:-[a-z0-9]+)*\\b`, 'g'))].map(m => m[0]).at(-1) : undefined
-  const boxes = inbox?.sandboxes ?? []
-  const box = boxes.find(b => b.product === repo && b.branch === branch) ?? boxes.find(b => b.product === repo)
-  const stage = mentioned ?? box?.stage
-  const out: { argo?: { url: string; label: string }; workflow?: { url: string; label: string }; app?: { url: string; label: string } } = {}
-  const argoUrl = stage ? fill(sandboxArgoUrl, { stage }) : undefined
-  if (stage && argoUrl) out.argo = { url: argoUrl, label: prefix ? stage.replace(prefix, '') : stage }
-  // The app itself on the sandbox running this repo, beside its ArgoCD page.
-  const appUrl = box && repo ? await sandboxUrl($, box.stage, repo).catch(() => undefined) : undefined
-  if (appUrl) out.app = { url: appUrl, label: 'app' }
+  const envs = inbox?.previews ?? []
+  const env = envs.find(e => e.app === repo && e.branch === branch) ?? envs.find(e => e.app === repo)
+  const preview = mentioned ?? env?.id
+  const out: { dashboard?: { url: string; label: string }; workflow?: { url: string; label: string }; preview?: { url: string; label: string } } = {}
+  const dashboardUrl = preview ? fill(previewDashboardUrl, { preview }) : undefined
+  if (preview && dashboardUrl) out.dashboard = { url: dashboardUrl, label: prefix ? preview.replace(prefix, '') : preview }
+  const appUrl = env && repo ? await previewUrl($, env.id, repo).catch(() => undefined) : undefined
+  if (appUrl) out.preview = { url: appUrl, label: 'preview' }
   if (!repo) return out
   const app = appFor(await deployedApps($), repo)
   if (!app) return out
-  if (!out.argo && app.link) out.argo = { url: app.link, label: 'prod' }
+  if (!out.dashboard && app.link) out.dashboard = { url: app.link, label: 'prod' }
   const latest = await latestDeploy($, app.id).catch(() => null)
   if (latest) out.workflow = await workflowLink($, latest)
   return out

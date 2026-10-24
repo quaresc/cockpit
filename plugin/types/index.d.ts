@@ -19,7 +19,8 @@ export type MergedPr = { repo: string; slug: string; url: string; number: number
 
 export type DeployedPr = { repo: string; number: number; isLive: boolean; tag: string | null }
 
-export type Sandbox = { stage: string; product: string; branch: string; health: string; expiresAt: string; activated?: boolean }
+// A preview environment of mine and the branch one of its apps runs.
+export type Preview = { id: string; app: string; branch: string; health: string; expiresAt: string; activated?: boolean }
 
 export type Ticket = {
   id: string
@@ -39,9 +40,9 @@ export type TicketLinks = {
   pr?: { url: string; number: number }
   notion?: string
   slack?: string
-  argo?: { url: string; label: string }
+  dashboard?: { url: string; label: string }
   workflow?: { url: string; label: string }
-  app?: { url: string; label: string }
+  preview?: { url: string; label: string }
   at: number
 }
 
@@ -60,8 +61,8 @@ export type Inbox = {
   errors: string[]
   merged?: MergedPr[]
   deploys?: Record<string, DeployedPr[]>
-  sandboxes?: Sandbox[]
-  deployLinks?: Record<string, { argo?: string; workflow?: { url: string; label: string } }>
+  previews?: Preview[]
+  deployLinks?: Record<string, { dashboard?: string; workflow?: { url: string; label: string } }>
 }
 
 export type CiFailure = { job: string; jobId: string; step?: string; tests: string[] }

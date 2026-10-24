@@ -6,27 +6,27 @@
   "platform": {
     "enabled": false,
     "server": "platform",
-    "stagePrefix": "preview-",
-    "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}",
-    "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}",
-    "sandboxDefaults": {},
+    "previewPrefix": "preview-",
+    "previewDashboardUrl": "https://dashboard.example.com/previews/{preview}",
+    "workflowUrl": "https://dashboard.example.com/runs/{namespace}/{name}",
+    "previewDefaults": {},
     "tools": {
       "deployStatus": { "tool": "deploys_status", "args": { "env": "production" } },
-      "deployHistory": { "tool": "deploys_history", "args": { "env": "production", "app": "{app}" } },
-      "listSandboxes": { "tool": "sandboxes_list", "args": { "owner": "{login}" } },
-      "sandboxStatus": { "tool": "sandboxes_get", "args": { "id": "{stage}" } },
-      "createSandbox": { "tool": "sandboxes_create", "args": { "app": "{product}", "branch": "{branch}" } },
-      "redeploySandbox": { "tool": "sandboxes_redeploy", "args": { "id": "{stage}", "app": "{product}" } },
-      "stopSandbox": { "tool": "sandboxes_stop", "args": { "id": "{stage}" } },
-      "startSandbox": { "tool": "sandboxes_start", "args": { "id": "{stage}" } },
-      "extendSandbox": { "tool": "sandboxes_extend", "args": { "id": "{stage}", "days": "{days}" } }
+      "deployHistory": { "tool": "deploys_history", "args": { "env": "production", "app": "{appId}" } },
+      "listPreviews": { "tool": "previews_list", "args": { "owner": "{login}" } },
+      "previewStatus": { "tool": "previews_get", "args": { "id": "{preview}" } },
+      "createPreview": { "tool": "previews_create", "args": { "app": "{app}", "branch": "{branch}" } },
+      "redeployPreview": { "tool": "previews_redeploy", "args": { "id": "{preview}", "app": "{app}" } },
+      "stopPreview": { "tool": "previews_stop", "args": { "id": "{preview}" } },
+      "startPreview": { "tool": "previews_start", "args": { "id": "{preview}" } },
+      "extendPreview": { "tool": "previews_extend", "args": { "id": "{preview}", "days": "{days}" } }
     },
     "fields": {
       "apps": "apps", "appId": "id", "appRepo": "repository", "appLink": "dashboardUrl", "appTag": "version", "appSha": "commit",
       "deployments": "deployments", "deployWorkflow": "workflow", "deployNamespace": "namespace", "deployTag": "version", "deployBranch": "branch",
-      "sandboxes": "sandboxes", "sandboxId": "id", "sandboxExpires": "expiresAt", "sandboxActive": "running", "sandboxHealth": "health",
-      "sandboxProducts": "apps", "productName": "name", "productBranch": "branch",
-      "statusProducts": "apps", "statusUrl": "url", "createdId": "id", "healthy": "Healthy"
+      "previews": "previews", "previewId": "id", "previewExpires": "expiresAt", "previewActive": "running", "previewHealth": "health",
+      "previewApps": "apps", "appName": "name", "appBranch": "branch",
+      "statusApps": "apps", "statusUrl": "url", "createdId": "id", "healthy": "Healthy"
     }
   },
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },

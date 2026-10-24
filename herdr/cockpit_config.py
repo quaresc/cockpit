@@ -17,7 +17,7 @@ DEFAULTS = {
     "github": {"enabled": True, "org": ""},
     "linear": {"enabled": False, "server": "claude.ai Linear", "teams": []},
     "circleci": {"enabled": False, "server": "circleci", "imageJob": ""},
-    "platform": {"enabled": False, "server": "", "stagePrefix": "", "sandboxArgoUrl": "", "workflowUrl": "", "tools": {}, "fields": {}},
+    "platform": {"enabled": False, "server": "", "previewPrefix": "", "previewDashboardUrl": "", "workflowUrl": "", "tools": {}, "fields": {}},
     "calendar": {"enabled": False, "server": "claude.ai Google Calendar"},
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
@@ -40,6 +40,19 @@ def script(name):
 def open_url(url):
     """Opens a URL in the default browser, on macOS or Linux."""
     subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", url], capture_output=True)
+
+
+def dashboard_name(url):
+    """What a dashboard link is, from its host: ArgoCD, Vercel, Netlify, Render, Railway, Fly, else Dashboard."""
+    host = re.match(r"^https?://([^/]+)", url or "")
+    host = host.group(1) if host else ""
+    if re.search(r"(^|\.)argo(cd)?[.-]", host):
+        return "ArgoCD"
+    for suffix, name in (("vercel.com", "Vercel"), ("netlify.app", "Netlify"), ("netlify.com", "Netlify"), ("render.com", "Render"),
+                         ("railway.app", "Railway"), ("fly.io", "Fly")):
+        if host.endswith(suffix):
+            return name
+    return "Dashboard"
 
 
 def copy(text):

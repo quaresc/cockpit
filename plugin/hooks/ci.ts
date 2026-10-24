@@ -1,9 +1,9 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Sandbox } from '../types'
+import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Preview } from '../types'
 
 import { cacheDir, fill, home, loadConfig } from './config'
-import { appFor, call, can, createSandbox, deployedApps, extendSandbox, listSandboxes, sandboxUrl } from './platform'
+import { appFor, call, can, createPreview, dashboardName, deployedApps, extendPreview, listPreviews, previewUrl } from './platform'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
 
@@ -271,26 +271,26 @@ export function deployChanges(prev: Inbox, next: Inbox) {
 }
 
 // ---------------------------------------------------------------------------
-// Sandboxes I own, and which branch each product runs there
+// Previews I own, and which branch each of their apps runs
 
 let login: string | undefined
 
-export async function sandboxesFor($: $): Promise<Sandbox[]> {
-  if (!(await can($, 'listSandboxes'))) return []
+export async function previewsFor($: $): Promise<Preview[]> {
+  if (!(await can($, 'listPreviews'))) return []
   if (!login) {
     const { exitCode, stdout } = await $.process.run(['gh', 'api', 'user', '--jq', '.login'])
     if (exitCode !== 0) return []
     login = stdout.trim()
   }
-  return (await listSandboxes($, { login })).flatMap(box =>
-    box.products
+  return (await listPreviews($, { login })).flatMap(env =>
+    env.apps
       .filter(p => p.enabled && p.branch && !['main', 'master'].includes(p.branch))
-      .map(p => ({ stage: box.stage, product: p.name, branch: p.branch ?? '', health: box.health, expiresAt: box.expiresAt, activated: box.activated })),
+      .map(a => ({ id: env.id, app: a.name, branch: a.branch ?? '', health: env.health, expiresAt: env.expiresAt, activated: env.activated })),
   )
 }
 
 // ---------------------------------------------------------------------------
-// Requests the herdr inbox app drops in ~/.cache/cockpit/requests: CircleCI reruns, sandbox redeploys
+// Requests the herdr inbox app drops in ~/.cache/cockpit/requests: CircleCI reruns, preview redeploys
 
 type Status = { id: string; type: string; name: string }
 
@@ -312,20 +312,20 @@ async function dropTicket($: $, id: string) {
   await $.fs.write(path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
 }
 
-// Sandboxes created from the inbox, announced once ArgoCD reports them healthy.
-type Pending = { stage: string; product: string; branch: string; at: number }
+// Previews created from the inbox, announced once the platform reports them healthy.
+type Pending = { preview: string; app: string; branch: string; at: number }
 
-export async function announceSandboxes($: $, sandboxes: Sandbox[]) {
-  const path = `${await cacheDir($)}/pending-sandboxes.json`
+export async function announcePreviews($: $, previews: Preview[]) {
+  const path = `${await cacheDir($)}/pending-previews.json`
   const pending = await readJson<Pending[]>($, path)
   if (!pending?.length) return
   const left: Pending[] = []
   for (const p of pending) {
-    const box = sandboxes.find(s => s.stage === p.stage)
+    const box = previews.find(e => e.id === p.preview)
     if (box && box.health === ((await loadConfig($)).platform.fields.healthy ?? 'Healthy')) {
-      const url = await sandboxUrl($, p.stage, p.product).catch(() => undefined)
-      const argo = fill((await loadConfig($)).platform.sandboxArgoUrl, { stage: p.stage })
-      await notify($, '🧪 Sandbox ready', `${p.product} ${p.branch} on ${p.stage}`, url ?? (await sandboxAction($, p.stage)), argo ? [['ArgoCD', argo]] : [])
+      const url = await previewUrl($, p.preview, p.app).catch(() => undefined)
+      const dashboard = fill((await loadConfig($)).platform.previewDashboardUrl, { preview: p.preview })
+      await notify($, '🧪 Preview ready', `${p.app} ${p.branch} on ${p.preview}`, url ?? (await previewAction($, p.preview)), dashboard ? [[dashboardName(dashboard), dashboard]] : [])
     } else if (Date.now() - p.at < 3 * 3600_000) {
       left.push(p)
     }
@@ -333,18 +333,18 @@ export async function announceSandboxes($: $, sandboxes: Sandbox[]) {
   await $.fs.write(path, JSON.stringify(left))
 }
 
-async function startSandboxFor($: $, product: string, branch: string) {
-  const stage = await createSandbox($, product, branch)
-  if (stage) {
-    const path = `${await cacheDir($)}/pending-sandboxes.json`
+async function startPreviewFor($: $, app: string, branch: string) {
+  const preview = await createPreview($, app, branch)
+  if (preview) {
+    const path = `${await cacheDir($)}/pending-previews.json`
     const pending = (await readJson<Pending[]>($, path)) ?? []
-    await $.fs.write(path, JSON.stringify([...pending, { stage, product, branch, at: Date.now() }]))
+    await $.fs.write(path, JSON.stringify([...pending, { preview, app, branch, at: Date.now() }]))
   }
-  return stage
+  return preview
 }
 
-async function sandboxAction($: $, stage: string) {
-  return fill((await loadConfig($)).platform.sandboxArgoUrl, { stage }) ?? 'space:inbox'
+async function previewAction($: $, preview: string) {
+  return fill((await loadConfig($)).platform.previewDashboardUrl, { preview }) ?? 'space:inbox'
 }
 
 export async function processRequests($: $, onDone: () => void) {
@@ -378,21 +378,21 @@ export async function processRequests($: $, onDone: () => void) {
         await result('done', 'rerun started')
         await notify($, '🔁 CircleCI', `Rerunning failed jobs: ${request.label}`, 'space:inbox')
       } else if (request.type === 'redeploy') {
-        await call($, 'redeploySandbox', { stage: request.stage, product: request.product })
+        await call($, 'redeployPreview', { preview: request.preview, app: request.app })
         await result('done', 'redeploying')
-        await notify($, '🧪 Sandbox', `Redeploying ${request.product} on ${request.stage}`, await sandboxAction($, request.stage))
-      } else if (request.type === 'create-sandbox') {
-        const stage = await startSandboxFor($, request.product, request.branch)
-        await result('done', stage ? `creating ${stage}` : 'creating')
-        await notify($, '🧪 Sandbox', `Creating ${stage || 'a sandbox'} for ${request.product} ${request.branch}; a notification follows when it is up`, stage ? await sandboxAction($, stage) : 'space:inbox')
-      } else if (request.type === 'stop-sandbox') {
-        await call($, 'stopSandbox', { stage: request.stage })
+        await notify($, '🧪 Preview', `Redeploying ${request.app} on ${request.preview}`, await previewAction($, request.preview))
+      } else if (request.type === 'create-preview') {
+        const preview = await startPreviewFor($, request.app, request.branch)
+        await result('done', preview ? `creating ${preview}` : 'creating')
+        await notify($, '🧪 Preview', `Creating ${preview || 'a preview'} for ${request.app} ${request.branch}; a notification follows when it is up`, preview ? await previewAction($, preview) : 'space:inbox')
+      } else if (request.type === 'stop-preview') {
+        await call($, 'stopPreview', { preview: request.preview })
         await result('done', 'stopped')
-        await notify($, '🧪 Sandbox', `${request.stage} stopped; it keeps its setup and extend switches it back on`, 'space:inbox')
+        await notify($, '🧪 Preview', `${request.preview} stopped; it keeps its setup and extend switches it back on`, 'space:inbox')
       } else if (request.type === 'extend') {
-        await extendSandbox($, request.stage, request.days)
+        await extendPreview($, request.preview, request.days)
         await result('done', `extended by ${request.days} days`)
-        await notify($, '🧪 Sandbox', `${request.stage} extended by ${request.days} days and redeploying`, await sandboxAction($, request.stage))
+        await notify($, '🧪 Preview', `${request.preview} extended by ${request.days} days and redeploying`, await previewAction($, request.preview))
       } else {
         const state = await release($, request.ticket)
         const url = (await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`))?.tickets.find(t => t.id === request.ticket)?.url
