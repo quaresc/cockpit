@@ -1,9 +1,8 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
-back. Also stills of a flow chart, a sequence diagram, live blocks and a repo diff, from fictional data, drawn by the real
-show.py (run demo_data.py first, for the CI run)."""
+back, drawn by the real show.py from fictional data."""
 import json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from term2svg import run, rows_svg, screen_of, svg, window
+from term2svg import animate, run, screen_of
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.join(HERE, "home")
@@ -91,79 +90,5 @@ frames = [  # (seconds on screen, screen)
     (3.4, beside(session(LEFT, 4, "open"), chart_pane)),
 ]
 
-# One loop: the first frame is the base, each later one a layer shown from its start to the loop's end.
-anim = sum(d for d, _ in frames)
-keys = ["\n".join("".join(s.buffer[y][x].data + str(s.buffer[y][x].fg) + str(s.buffer[y][x].bg) for x in range(COLS)) for y in range(ROWS))
-        for _, s in frames]
-chars, layers, style, begin = set(), [], "", 0
-for i, (duration, screen) in enumerate(frames):
-    if i:
-        before, now = keys[i - 1].split("\n"), keys[i].split("\n")
-        differ = [y for y in range(ROWS) if before[y] != now[y]]
-        a = 100 * begin / anim
-        style += f"@keyframes s{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,100%{{visibility:visible}}}}" \
-                 f".s{i}{{visibility:hidden;animation:s{i} {anim:.2f}s step-end infinite}}"
-        layers.append(f'<g class="s{i}">{rows_svg(screen, differ, chars, cover=True)}</g>')
-    begin += duration
-body = rows_svg(frames[0][1], range(ROWS), chars) + "".join(layers)
-open(os.path.join(OUT, "show.svg"), "w").write(window(COLS, ROWS, "herdr · show", chars, body, style))
-print(len(frames), "frames,", f"{anim:.1f}s loop")
-
-# The flow chart still: a sign-in that refreshes an expired token, with a loop back.
-N = lambda i, label, kind="box": {"id": i, "label": label, "kind": kind}
-E = lambda a, b, label=None: {"from": a, "to": b, **({"label": label} if label else {})}
-signin = {"title": "Calling the API", "blocks": [{"type": "flow", "nodes": [
-    N("req", "Request from the app", "round"), N("valid", "Access token valid?", "decision"), N("api", "Call the API"),
-    N("refresh", "Refresh the token"), N("login", "Send to sign-in", "round"), N("done", "Show the data", "round")],
-    "edges": [E("req", "valid"), E("valid", "api", "yes"), E("valid", "refresh", "no"), E("refresh", "valid", "new token"),
-              E("refresh", "login", "refused"), E("api", "done")]}]}
-chart_flow = pane("flow", signin, 72, 30)
-used = max(y for y in range(30) if "".join(chart_flow.buffer[y][x].data for x in range(72)).strip()) + 1
-open(os.path.join(OUT, "show-flow.svg"), "w").write(svg(chart_flow, "show · flow", crop_rows=used))
-
-def still(name, spec, cols, rows, title):
-    screen = pane(name, spec, cols, rows, wait=3.5)
-    used = max(y for y in range(rows) if "".join(screen.buffer[y][x].data for x in range(cols)).strip()) + 1
-    open(os.path.join(OUT, f"show-{name}.svg"), "w").write(svg(screen, title, crop_rows=used))
-
-
-# A sequence diagram, written in Mermaid by the agent.
-still("sequence", {"title": "Signing in", "blocks": [{"type": "mermaid", "text": """sequenceDiagram
-    participant U as User
-    participant A as App
-    participant S as Auth server
-    U->>A: Log in
-    A->>S: /authorize with a PKCE challenge
-    S-->>A: code
-    A->>S: POST /token with the verifier
-    S-->>A: access and refresh tokens
-    A-->>U: signed in"""}]}, 72, 34, "show · sequence")
-
-# Live blocks: a CI run from cockpit's cache, a command's log, and a question whose answer goes back to the agent.
-logs = "printf 'migrating quotas…\\nbackfilled 41,200 accounts\\nwarning: 12 accounts without a plan\\ndone in 2m 14s\\n'"
-still("live", {"title": "Shipping ENG-413", "blocks": [
-    {"type": "ci", "title": "CI", "repo": "web", "branch": "me/eng-414-quota-copy"},
-    {"type": "log", "title": "Backfill", "command": logs, "every": 30},
-    {"type": "choice", "title": "Next", "prompt": "Turn the quotas flag on now?", "options": [
-        {"label": "Yes, for everyone", "preview": "Every account starts enforcing its daily limit."},
-        {"label": "Only for the beta cohort"}, {"label": "Not yet"}]}]}, 72, 30, "show · live")
-
-# The diff still: a small repo with work in progress, reviewr installed so the header carries its button.
-repo = os.path.join(HOME, "code", "web")
-shutil.rmtree(repo, ignore_errors=True); os.makedirs(os.path.join(repo, "src"))
-git = lambda *a: subprocess.run(["git", "-C", repo, *a], capture_output=True, check=True)
-git("init", "-q"); git("config", "user.email", "me@example.com"); git("config", "user.name", "me")
-banner = os.path.join(repo, "src", "QuotaBanner.tsx")
-open(banner, "w").write("export function QuotaBanner({ used, limit }: Props) {\n  return (\n    <Banner tone=\"info\">\n"
-                        "      {used} of {limit} searches today\n    </Banner>\n  )\n}\n")
-git("add", "-A"); git("commit", "-qm", "Quota banner")
-open(banner, "w").write("export function QuotaBanner({ used, limit }: Props) {\n  const isFull = used >= limit\n  return (\n"
-                        "    <Banner tone={isFull ? \"danger\" : \"info\"}>\n      {used} of {limit} searches today\n"
-                        "      {isFull && <Link href=\"/plans\">Raise your limit</Link>}\n    </Banner>\n  )\n}\n")
-open(os.path.join(repo, "src", "QuotaBanner.test.tsx"), "w").write("it('turns red at the limit', () => {\n"
-                                                                   "  render(<QuotaBanner used={20} limit={20} />)\n})\n")
-os.makedirs(os.path.join(HOME, ".config", "herdr"), exist_ok=True)
-json.dump([{"plugin_id": "persiyanov.reviewr", "plugin_root": "/dev/null"}], open(os.path.join(HOME, ".config", "herdr", "plugins.json"), "w"))
-diff = pane("changes", {"title": "Quota banner, work in progress", "blocks": [{"type": "diff", "repo": repo}]}, 96, 26)
-used = max(y for y in range(26) if "".join(diff.buffer[y][x].data for x in range(96)).strip()) + 1
-open(os.path.join(OUT, "show-diff.svg"), "w").write(svg(diff, "show · changes", crop_rows=used))
+open(os.path.join(OUT, "show.svg"), "w").write(animate(frames, "herdr · show"))
+print(len(frames), "frames")

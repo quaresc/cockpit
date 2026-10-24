@@ -1,7 +1,7 @@
 """The whole cockpit in one picture: herdr's sidebar, a Claude session and its footer, from fictional data."""
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
-from term2svg import screen_of, svg
+from term2svg import BAR, CW, LH, PAD, picture, screen_of, svg
 
 COLS, ROWS, SIDE = 150, 30, 34
 ORANGE, TEAL, RED, DIMC, INK, QUIET, WHITE = "FFC799", "99FFE4", "FF8080", "707070", "101010", "2C2C30", "D2D2D2"
@@ -30,7 +30,7 @@ for i, (text, fg, bold) in enumerate(rows):
 put(16, 2, "agents", DIMC)
 # Each row: state, the agent's topic, the page beside it (split like a browser's split view) and its context use.
 agents = [("✓", TEAL, "daily-quotas-api", "", "◑ 52%", ORANGE, "\uf418 api · ENG-412", DIMC, ""),
-          ("●", ORANGE, "quota-ui", "\uf0ac Settings", "◔ 31%", DIMC, "\uf418 web · ENG-413   5/9", ORANGE, "⚠ same branch as quota-copy"),
+          ("●", ORANGE, "quota-ui", "\uf0ac Talent search", "◔ 31%", DIMC, "\uf418 web · ENG-413   5/9", ORANGE, "⚠ same branch as quota-copy"),
           ("✓", TEAL, "quota-copy", "", "◔ 18%", DIMC, "\uf418 web · ENG-413", DIMC, "⚠ same branch as quota-ui"),
           ("○", DIMC, "invoice-csv", "", "◕ 74%", RED, "\uf418 billing · ENG-398", DIMC, "")]
 r = 18
@@ -56,7 +56,7 @@ put(6, L + 2, "from /v1/account; at the limit it turns red")
 put(7, L + 2, "and disables New search, as in the frame.")
 put(9, L + 2, "web/src/settings/QuotaBanner.tsx   new", DIMC)
 put(10, L + 2, "web/src/settings/SearchForm.tsx    +12 −3", DIMC)
-put(12, L, "●", WHITE); put(12, L + 2, "side-browser", ORANGE); put(12, L + 15, "localhost:5173/settings", DIMC)
+put(12, L, "●", WHITE); put(12, L + 2, "side-browser", ORANGE); put(12, L + 15, "localhost:5173/branch/", DIMC)
 put(13, L + 2, "iPhone 16 · iPad · 1440 × 900, before and after", DIMC)
 put(15, L, "●", WHITE); put(15, L + 2, "Checked on all three sizes: the banner wraps")
 put(16, L + 2, "on the phone, the button disables at the limit.")
@@ -69,22 +69,8 @@ put(ROWS - 1, L, "⏵⏵ auto mode on", ORANGE)
 # terminal-browser beside the agent: the page it is testing, emulated as a phone.
 for r in range(1, ROWS - 1):
     put(r, B, "│", "2C2C30")
-put(1, B + 2, " ", DIMC); put(1, B + 4, "localhost:5173/settings", WHITE); put(1, COLS - 12, "iPhone 16", DIMC)
+put(1, B + 2, " ", DIMC); put(1, B + 4, "localhost:5173/branch/", WHITE); put(1, COLS - 12, "iPhone 16", DIMC)
 put(2, B + 2, " agent in control ", INK, ORANGE)
-PX, PW = B + 13, 24
-put(4, PX, "╭" + "─" * (PW - 2) + "╮", "505050")
-for r in range(5, 24):
-    put(r, PX, "│" + " " * (PW - 2) + "│", "505050")
-put(24, PX, "╰" + "─" * (PW - 2) + "╯", "505050")
-put(6, PX + 2, "Settings", WHITE, bold=True)
-put(8, PX + 2, " " * (PW - 4), None, "3A1C1C"); put(8, PX + 3, "⚠ Limit reached", RED, "3A1C1C")
-put(9, PX + 2, " " * (PW - 4), None, "3A1C1C"); put(9, PX + 3, "20 / 20 searches", "C8A0A0", "3A1C1C")
-put(11, PX + 2, "Search", DIMC)
-put(12, PX + 2, " " * (PW - 4), None, "202024"); put(12, PX + 3, "Role, skill…", "606060", "202024")
-put(14, PX + 2, " New search ", "707070", "2C2C30")
-put(17, PX + 2, "Saved searches", DIMC)
-put(18, PX + 2, "Frontend · Paris", WHITE); put(19, PX + 2, "Data · Remote", WHITE)
-
 PILLS = [("\uf41b ENG-413", True), ("\uf407 1836", False), ("\U000f03d8 figma", False), ("\U000f0b15 notion", False),
          ("\U000f0833 quotas", False), ("\uf08e browser", False)]
 c = COLS - sum(len(label) + 4 for label, _ in PILLS) - 2
@@ -92,5 +78,10 @@ for label, main in PILLS:
     c = pill(ROWS - 1, c, label, main) + 1
 
 screen = screen_of("".join(ops), COLS, ROWS)
+# The page beside the agent: a real screenshot of the fake app in webapp/, as shots.sh took it (see README.md).
+shots = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.cache/cockpit/shots/acme-web-quota")
+x0, y0, w, h = PAD + B * CW + 6, BAR + PAD + 3 * LH, (COLS - B - 1) * CW - 12, (ROWS - 5) * LH
+data, (iw, ih) = picture(os.path.join(shots, "after", "mobile.png"), w, h)
+page = f'<image href="data:image/jpeg;base64,{data}" x="{x0 + (w - iw) / 2:.1f}" y="{y0:.1f}" width="{iw}" height="{ih}"/>'
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "overview.svg"), "w") as f:
-    f.write(svg(screen, "herdr · cockpit"))
+    f.write(svg(screen, "herdr · cockpit").replace("</svg>", page + "</svg>"))
