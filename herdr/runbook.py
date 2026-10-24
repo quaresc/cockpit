@@ -155,7 +155,7 @@ def is_in_view():
     """Whether the runbook space is the one herdr shows now."""
     try:
         spaces = json.loads(subprocess.run([HERDR, "workspace", "list"], capture_output=True, text=True, timeout=5).stdout)
-        return any(w["focused"] and "runbook" in w["label"] for w in spaces["result"]["workspaces"])
+        return any(w["focused"] and w["label"].endswith("  runbook") for w in spaces["result"]["workspaces"])
     except (ValueError, KeyError, OSError, subprocess.SubprocessError):
         return False
 

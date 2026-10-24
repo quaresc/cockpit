@@ -9,7 +9,7 @@ tabs=$("$H" tab list) || exit 0
   | select(.tab_count == 1)
   | . as $w
   | ($tabs.result.tabs[] | select(.workspace_id == $w.workspace_id) | .label | strip) as $want
-  | select(($w.label | test("inbox|terminal|to-do|runbook|meetings")) | not)
+  | select(($w.label | test("  (inbox|terminal|to-do|runbook|meetings)$")) | not)
   | select($want != "" and ($want | test("^(zsh|bash|sh|fish)$") | not))
   | select(($w.label | strip) != $want)
   | [$w.workspace_id, (($w.label | capture("^(?<p>\\[[0-9]+\\] )?").p // "") + $want)] | @tsv' |

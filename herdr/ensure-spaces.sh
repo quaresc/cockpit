@@ -5,7 +5,7 @@ prune_installs
 
 ensure() {
   name=$1 label=$2 app=$3
-  ws=$("$H" workspace list | jq -r --arg n "$name" '[.result.workspaces[] | select(.label | contains($n))][0].workspace_id // empty')
+  ws=$("$H" workspace list | jq -r --arg n "$name" '[.result.workspaces[] | select(.label | endswith("  " + $n))][0].workspace_id // empty')
   if [ -z "$ws" ]; then
     ws=$("$H" workspace create --cwd "$REPOS" --label "$label" --no-focus | jq -r '.result.workspace.workspace_id')
   fi

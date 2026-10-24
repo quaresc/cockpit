@@ -4,7 +4,7 @@
 pin() {
   "$H" workspace list | jq -r --arg m "$1" --argjson i "$2" '
     .result.workspaces | to_entries
-    | map(select(.value.label | contains($m))) | .[0] // empty
+    | map(select(.value.label | endswith("  " + $m))) | .[0] // empty
     | select(.key != $i) | .value.workspace_id' |
   while read -r id; do
     printf '{"id":"cockpit:pin","method":"workspace.move","params":{"workspace_id":"%s","insert_index":%s}}\n' "$id" "$2" |

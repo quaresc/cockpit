@@ -65,7 +65,7 @@ enabled calendar && check_cache "$CACHE/meetings.json" meetings 900
 # Pinned spaces and their apps
 spaces=$("$H" workspace list 2>/dev/null | jq -r '.result.workspaces[].label')
 for space in $SPACES; do
-  printf '%s\n' "$spaces" | grep -q "$space" || { fail "space $space missing → sh $LINK/ensure-spaces.sh"; continue; }
+  printf '%s\n' "$spaces" | grep -q "  $space\$" || { fail "space $space missing → sh $LINK/ensure-spaces.sh"; continue; }
   app=$(echo "$space" | sed 's/to-do/todo/')
   [ "$space" = terminal ] && { ok "space terminal"; continue; }
   pgrep -f "herdr/$app-loop\.sh" >/dev/null && ok "space $space, app running" || fail "space $space has no app running → sh $LINK/ensure-spaces.sh"
