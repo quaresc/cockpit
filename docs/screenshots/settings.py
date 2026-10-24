@@ -17,7 +17,7 @@ def pill(r, c, label):
     put(r, c, "", QUIET); put(r, c + 1, label, WHITE, QUIET); put(r, c + 1 + len(label), "", QUIET)
 
 put(2, 3, "Cockpit settings", WHITE, bold=True)
-SETTINGS = [("Front checks run in", "the pane beside the agent"), ("Close browsers out of view", "after 1 h"),
+SETTINGS = [("E2E tests run in", "terminal-browser beside the agent"), ("Close browsers out of view", "after 1 h"),
             ("Notifications", "on"), ("Morning brief", "on"), ("Recap when back in a space", "on"),
             ("Check errors after a deploy", "off"), ("Meeting briefs", "on")]
 for i, (label, value) in enumerate(SETTINGS):

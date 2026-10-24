@@ -2,172 +2,10 @@
 
 <h1 align="center">cockpit</h1>
 
-<p align="center"><b>Run a handful of Claude Code agents in <a href="https://herdr.dev">herdr</a> without losing track of them.</b><br>
-One agent per space, a few pinned spaces for everything around the code, and the right links in every session.</p>
-
-<p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#configuration">Configuration</a> ·
-  <a href="#how-it-works">How it works</a>
-</p>
+<p align="center"><b>Run several Claude Code agents in <a href="https://herdr.dev">herdr</a> without losing track of them.</b><br>
+One agent per space, pinned spaces for your inbox, to-dos, runbooks and meetings, and the right links in every session.</p>
 
 ![herdr with the cockpit sidebar, a Claude session checking its change in terminal-browser, and its footer](docs/overview.svg)
-
-> [!TIP]
-> Only herdr and GitHub are required. `/cockpit:setup` asks about the rest, and `/cockpit:doctor` says how to fix
-> whatever is off.
-
-## Features
-
-| | |
-| --- | --- |
-| 🧭 **Sidebar** | Every agent on one line: its task, the page beside it, its context use; under it the repo, ticket and CI. |
-| 🔗 **Footer** | The ticket, PR, designs, docs, threads, dashboards and preview the conversation is about, one click each. |
-| 📊 **Show** | Charts, tables, flow charts, sequence diagrams and diffs in a pane beside the agent, like an artifact. |
-| 🧪 **Front checks** | The agent tests its change in a browser beside it, on phone, tablet and desktop, and keeps before/after screenshots for the PR. |
-| 📥 **Inbox** | Review requests, then your tickets by project with their stacked PRs, CI, deploys and previews. |
-| 📋 **Runbook** | `/runbook` writes down what's left to ship a ticket, in order, and keeps it current. |
-| 🔔 **Notifications** | macOS notifications that lead somewhere useful, with buttons that act: Review, Why?, Rerun, Plan, Join. |
-| ☀️ **Briefs** | A morning brief, meeting briefs, a recap when you come back to a space, a check after each deploy. |
-| ⚙️ **Settings** | `/cockpit` flips what you change day to day. |
-
-### 🧭 Sidebar
-
-Pinned spaces on top with their counts (reviews, CI, tickets, plan limits, to-dos, runbooks, the next meeting), then
-one row per agent. When a page or a view sits beside an agent, its row splits like a browser's split view:
-`quota-ui │ 🌐 Settings`, with `+N` for the other tabs. A row turns red when its PR fails CI, or when another agent is
-on the same branch.
-
-### 🔗 Footer
-
-Each conversation's footer links what it works on: the ticket it names (else its branch's), the PR, the deploy dashboard
-(ArgoCD, Vercel…), the preview, and the latest page it cites on each of these sites:
-
-| | |
-| --- | --- |
-| Code review | GitLab merge requests, Bitbucket and Azure DevOps pull requests |
-| Tickets | Jira, GitHub and GitLab issues, Azure DevOps work items, Trello, Asana, ClickUp, Shortcut |
-| Design | Figma (FigJam, Slides, Make too), Miro, Excalidraw |
-| Docs | Notion, Confluence, Google Docs, Sheets, Slides and Forms, Coda, Loom |
-| Chat | Slack, Microsoft Teams, Discord |
-| Monitoring | Sentry, Datadog, Grafana, PagerDuty, incident.io |
-| Analytics | Amplitude, Mixpanel, PostHog, Metabase |
-
-Links open in your default browser. A chip per view the agent showed hides or brings back its pane, and the **browser**
-chip sends the page beside the agent to your default browser. Adding a site is one row in `plugin/hooks/sites.ts`.
-
-### 📊 Show
-
-Ask for a chart, a table, a diagram, a picture or a diff, and the agent draws it in a herdr pane beside the conversation
-with cockpit's `show` tool. Asking again updates the same pane; `q` hides it to a footer chip that brings it back.
-
-![An agent charts a query beside the conversation, then the pane hides to its footer chip and comes back](docs/show.svg)
-
-<details>
-<summary><b>Flow charts, sequence diagrams, live blocks and diffs</b></summary>
-
-A flow chart is nodes and edges: the pane lays them out, routes the arrows and runs loops around the side.
-
-![A flow chart with a decision and a loop back](docs/show-flow.svg)
-
-Exchanges between actors are sequence diagrams, as blocks or as Mermaid.
-
-![A sign-in drawn as a sequence diagram](docs/show-sequence.svg)
-
-Some blocks keep themselves current: a chart or table fed by Metabase or Datadog refreshes while its pane is open, a
-log tails a command, a CI block follows the branch's run. A question sends your answer back to the agent as your next
-message. A block that runs a command asks for your approval first.
-
-![A CI run, a command's log and a question in one pane](docs/show-live.svg)
-
-A repo diff follows the working tree as the agent edits. With [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr),
-its `reviewr` button opens the same changes for line comments that go back to the agent.
-
-![A diff pane with its reviewr button](docs/show-diff.svg)
-
-Wide tables, big diagrams, pictures and side-by-side diffs can open as a full-resolution page in the browser beside the
-agent instead (`placement: "browser"`).
-
-</details>
-
-### 🧪 Front checks
-
-With [terminal-browser](https://github.com/zenbu-labs/terminal-browser), the agent opens its dev server in a browser
-pane beside the conversation and drives it while you watch: clicks, forms, screenshots, at iPhone, iPad and 1440 px
-desktop sizes. The `side-browser` skill tells agents how, and when you say "this page", the agent knows which one you
-mean. For a PR it takes the same screens on `main` and on its branch and shows them side by side:
-
-![The same phone page before and after the change](docs/compare.svg)
-
-The screenshots go into the PR description through GitHub's own editor, and you press Save.
-
-> [!NOTE]
-> Without terminal-browser, or with `/cockpit checks chrome`, front checks run in Claude in Chrome. A browser left
-> beside an agent whose space stays out of view for an hour closes by itself.
-
-> [!IMPORTANT]
-> On macOS, browser panes scroll smoothly only with Ghostty's tip builds and terminal-browser at
-> `render.transport auto` and `render.fps 60`. `/cockpit:setup` sets them and `/cockpit:doctor` checks them.
-
-### 📥 Inbox
-
-Hover a row (or use `j`/`k`) for its buttons: review, fix CI, rerun, continue, done.
-
-![Inbox space](docs/inbox.svg)
-
-A branch with a built image gets a `preview` button; a preview still running a merged branch gets `stop`.
-
-![Preview and stop buttons](docs/previews.svg)
-
-### 📋 Runbook
-
-Merges, deploys, migrations and prod commands, in order. `run` hands a step back to the session that wrote it, `done`
-checks it off yourself. The session reports how the step went with cockpit's `report_step` tool; the outcome shows
-under the step.
-
-![Runbook space](docs/runbook.svg)
-
-It refreshes in the background, and by itself when the ticket goes live. Steps that just got done light up:
-
-![A refresh landing: three steps turn done](docs/runbook-done.svg)
-
-### 🔔 Notifications
-
-Each one leads somewhere useful when clicked, and its buttons act without opening anything: **Review** starts a
-`/code-review` in a new space, **Why?** investigates failing CI, **Rerun** reruns its failed jobs, **Plan** picks up a
-new ticket, **Join** opens the call, and a fresh preview's button opens its dashboard (named after it: ArgoCD, Vercel…). herdr's own popups stay in-app, so nothing
-arrives twice.
-
-![Notifications sliding in, with where a click leads and their buttons](docs/notifications.svg)
-
-> [!TIP]
-> Set Cockpit to **Alerts** in System Settings › Notifications to keep the buttons on screen; banners show them on hover.
-
-### ☀️ Briefs and recap
-
-- **Morning brief** at 8:30 on weekdays: meetings, reviews waiting, PRs failing or ready, overnight CI failures,
-  tickets that moved.
-- **Meeting briefs**: press `prepare` on a meeting and Claude reads the invite, its linked docs and tickets, and writes
-  why it exists, where things stand and what to bring.
-- **Recap**: come back to a space after a while and a popup tells you what the agent did.
-- **After a deploy** (optional): half an hour after a ticket goes live, Claude checks errors and latency.
-
-![Recap popup](docs/recap.svg)
-
-### 📝 To-do and meetings
-
-A Markdown to-do list (`/todo <text>` from any session) and your calendar.
-
-![To-do space](docs/todo.svg)
-
-![Meetings space](docs/meetings.svg)
-
-### ⚙️ Settings
-
-`/cockpit` opens a pane where each value is a button; `/cockpit checks chrome` and the like set one from any session.
-
-![The /cockpit settings pane](docs/settings.svg)
 
 ## Install
 
@@ -175,79 +13,116 @@ In a Claude Code session inside herdr:
 
 ```
 /plugin install cockpit --marketplace quaresc/cockpit
+/cockpit:setup
 ```
 
-Answer `y`, pick a scope, then run `/cockpit:setup`. It installs the herdr half, asks which features you want, writes
-your config, merges its settings into herdr's config (diff first), and lists the permission rules to add. New versions
-arrive as a notification: click it to update.
+Setup installs the herdr half, asks which features you want and writes your config. `/cockpit:doctor` checks
+everything and says how to fix what is off. Updates arrive as a notification.
 
-### Requirements
+**Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Python 3, Xcode command line tools and a Nerd
+Font.
 
-- macOS. Linux should work (`xdg-open`, `wl-copy` or `xclip`, `notify-send`) but is untested.
-- herdr 0.9+, and Claude Code with plugin hooks modules
-- `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
-- A Nerd Font: it's drawn with FiraCode Nerd Font Mono.
-- Optional: a ticket connector (Linear out of the box; Jira, Trello or any other through `/cockpit:setup`), a CI
-  connector (CI comes from GitHub checks without one; CircleCI, GitLab or any other through `/cockpit:setup`),
-  a calendar connector (Google Calendar out of the box; Outlook or any other through `/cockpit:setup`), Datadog and
-  Metabase connectors, a platform connector for deploys and
-  preview environments,
-  [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr) for line comments on a diff, and
-  [terminal-browser](https://github.com/zenbu-labs/terminal-browser) for front checks beside the agent.
+## Works with
+
+| | Built in | Through `/cockpit:setup` |
+| --- | --- | --- |
+| Code | GitHub | |
+| Tickets | Linear | Jira, Trello, Asana… any ticket connector |
+| CI | GitHub checks | CircleCI, GitLab CI… any CI connector |
+| Calendar | Google Calendar | Outlook… any calendar connector |
+| Deploys and previews | | Argo, Vercel or your in-house connector |
+
+Setup reads the connector's tools and maps them; nothing is hardcoded to one vendor beyond the built-in defaults.
+
+## Features
+
+### 🧭 Sidebar
+
+Your pinned spaces with their counts, then one row per agent: its task, repo, ticket, CI and the page beside it. A row
+turns red when its PR fails CI or another agent is on the same branch.
+
+### 🔗 Footer
+
+Each conversation links what it works on, one click each: the ticket, the PR, the deploy dashboard, the preview, and
+the last page it cites on Figma, Notion, Slack, Teams, Jira, GitLab, Sentry, Datadog and
+[about twenty more sites](plugin/hooks/sites.ts).
+
+### 📥 Inbox
+
+Review requests, then your tickets by project with their PRs, CI, deploys and previews. Each row has its actions:
+review, fix CI, rerun, preview, continue, done.
+
+![Inbox space](docs/inbox.svg)
+
+### 📋 Runbook
+
+`/runbook` writes the steps left to ship a ticket (merges, deploys, migrations, prod commands) and keeps them current.
+`run` hands a step back to its session.
+
+![Runbook space](docs/runbook.svg)
+
+### 📊 Show
+
+The agent draws charts, tables, flow charts, sequence diagrams, diffs, live Metabase or Datadog data and questions in a
+pane beside the conversation.
+
+![An agent charts a query beside the conversation](docs/show.svg)
+
+### 🧪 E2E tests
+
+With [terminal-browser](https://github.com/zenbu-labs/terminal-browser), the agent tests its change end to end in a
+browser beside it at phone, tablet and desktop sizes, and puts before/after screenshots in the PR. Without it, the tests
+run in Claude in Chrome (`e2eBrowser` in the config).
+
+![The same phone page on main and on the branch, side by side](docs/compare.png)
+
+### 🔔 Notifications and briefs
+
+Notifications with buttons that act: **Review**, **Why?** (failing CI), **Rerun**, **Plan**, **Join**. A morning brief,
+meeting briefs, a recap when you come back to a space, and an optional check after each deploy.
+
+![Notifications with their buttons](docs/notifications.svg)
+
+### 📝 To-do, meetings, settings
+
+A Markdown to-do list (`/todo <text>` from any session), your week's meetings, and `/cockpit` for the settings you
+change day to day.
 
 ## Configuration
 
-`~/.config/cockpit/config.json`, re-read every 30 seconds. See [`config.example.json`](config.example.json).
-
-<details>
-<summary><b>All keys</b></summary>
-
-| Key | |
-| --- | --- |
-| `reposDir` | Where your checkouts live. New agent spaces start there. |
-| `github.org` | Only list your PRs from this org. Empty for all. |
-| `tickets.*` | Your ticket connector: `name`, `keys` (key prefixes to recognise in mentions, on top of your tickets' own), `urlTemplate` (a ticket's page, `{id}`), and for anything but Linear the `tools`, `fields` and `statusTypes` mapping `/cockpit:setup` writes. |
-| `<connector>.server` | The connector's name in `claude mcp list`. |
-| `calendar.*` | Your calendar connector: Google Calendar's mapping unless `/cockpit:setup` wrote `tools`, `fields`, `skip` and `only` (which events count as meetings) and `responses` for another. |
-| `ci.*` | Your CI: GitHub checks when `server` is empty, else a CI connector with its `tools`, `fields`, `outcomes` and `endedPhases` mapping (`/cockpit:setup` writes it; CircleCI maps by itself). `imageJob`: the job or check that builds the image a preview runs; enables `preview` and `redeploy`. |
-| `platform.*` | Deploys and preview environments through your platform connector's tools: `tools` maps each capability to a tool and its arguments, `fields` maps what cockpit reads in their answers. `/cockpit:setup` writes both. Dashboard links come from the URL templates and are named after their site. |
-| `brief` | When the morning brief comes, and whether on weekends. |
-| `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
-| `recap` | How long you need to be away before the recap shows. |
-| `meetingBrief` | The model, titles that get no brief, and the read-only tools a brief may use. |
-| `checksBrowser` | Where agents check front changes: `terminal` (the pane beside them) or `chrome` (Claude in Chrome). |
-| `browserIdleMinutes` | Close a browser beside an agent whose space stayed out of view this long (60); `0` keeps it. |
-| `metabase`, `datadog` | `server`: the connector's name in `claude mcp list`, for live panes. |
-| `spaces` | Which pinned spaces exist, in sidebar order. |
-| `runbookTools` | Extra tools the runbook refresh may use. |
-
-</details>
+`~/.config/cockpit/config.json`, written by `/cockpit:setup` and re-read every 30 seconds. See
+[`config.example.json`](config.example.json).
 
 <details>
 <summary><b>Keys</b></summary>
 
-`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, `prefix+f` the page
-beside the focused agent in your default browser.
+| Key | |
+| --- | --- |
+| `reposDir` | Where your checkouts live; new agent spaces start there. |
+| `github.org` | Only list your PRs from this org. |
+| `tickets` | Ticket connector: `server`, `keys` (ticket key prefixes such as `ENG`), `urlTemplate`, and for anything but Linear the mapping setup writes. |
+| `ci` | CI: GitHub checks when `server` is empty, else a CI connector and its mapping. `imageJob`: the job that builds a preview's image. |
+| `calendar` | Calendar connector: Google Calendar, or another and its mapping. |
+| `platform` | Deploy and preview connector, and its mapping. |
+| `metabase`, `datadog` | Connectors for live panes. |
+| `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
+| `e2eBrowser` | Where agents run E2E tests of front changes: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
+| `spaces` | Pinned spaces, in sidebar order. |
 
-In the apps: `j`/`k` rows, `h`/`l` or Tab buttons, Enter to press, `R` to refresh, `g` to group tickets by project or
-status. In a show pane: `q` hides it, Space and `b` page, `g`/`G` top and bottom, Enter folds a diff's file or answers a
-question, `r` opens reviewr, `o` opens the page.
+</details>
+
+<details>
+<summary><b>Shortcuts</b></summary>
+
+`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, `prefix+f` the page
+beside the agent in your browser. In the apps: `j`/`k` rows, `h`/`l` buttons, Enter, `R` refresh.
 
 </details>
 
 ## How it works
 
-```
-plugin/   Claude Code plugin: the hooks module, the side-browser skill, /cockpit, /runbook, /todo, /inbox, setup, doctor
-herdr/    herdr plugin: the space apps, show.py for the show panes, and the scripts herdr runs on events
-```
-
-Network calls happen in your Claude sessions, one at a time thanks to a lock, and land in `~/.cache/cockpit`. The herdr
-apps only read those files. Their buttons leave requests that the next session checks against
-`plugin/hooks/protocol.ts`, carries out and answers. The apps share one terminal layer, `herdr/view.py`. Your own lists
-live in `~/.config/cockpit`.
-
-Screenshots show the real apps on made-up data; [`docs/screenshots`](docs/screenshots) regenerates them.
+`plugin/` is the Claude Code half: it fetches in your sessions, one at a time, into `~/.cache/cockpit`. `herdr/` is the
+herdr half: the space apps read that cache, and their buttons leave requests the next session carries out.
 
 ## License
 

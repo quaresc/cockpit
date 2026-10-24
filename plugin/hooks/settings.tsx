@@ -7,7 +7,7 @@ import type { Config } from './config'
 type $ = EngineInterface
 
 // /cockpit: a pane of the settings worth flipping day to day, written to ~/.config/cockpit/config.json.
-// `/cockpit checks chrome` and the like set one without opening it.
+// `/cockpit e2e chrome` and the like set one without opening it.
 const PANE = 'cockpit-settings'
 const shown = atom({ plugin: 'cockpit', key: 'settings' } as const, null)
 
@@ -20,7 +20,7 @@ type Setting = {
 }
 
 const SETTINGS: Setting[] = [
-  { key: 'checks', path: ['checksBrowser'], label: 'Front checks run in', values: ['terminal', 'chrome'], names: { terminal: 'the pane beside the agent', chrome: 'Chrome' } },
+  { key: 'e2e', path: ['e2eBrowser'], label: 'E2E tests run in', values: ['terminal-browser', 'chrome'], names: { 'terminal-browser': 'terminal-browser beside the agent', chrome: 'Claude in Chrome' } },
   { key: 'idle', path: ['browserIdleMinutes'], label: 'Close browsers out of view', values: [60, 180, 0], names: { 60: 'after 1 h', 180: 'after 3 h', 0: 'never' } },
   { key: 'notifications', path: ['notifications'], label: 'Notifications', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'brief', path: ['brief', 'enabled'], label: 'Morning brief', values: [true, false], names: { true: 'on', false: 'off' } },
@@ -68,7 +68,7 @@ let version: string | null | undefined
 
 // Called from the mod's session.start: one hook per event and matcher.
 export async function registerSettingsCommand($: $) {
-  await $.command.register({ name: 'cockpit', description: 'Cockpit settings; `/cockpit checks chrome` and the like set one directly', argumentHint: '[setting value]' })
+  await $.command.register({ name: 'cockpit', description: 'Cockpit settings; `/cockpit e2e chrome` and the like set one directly', argumentHint: '[setting value]' })
 }
 
 export function registerSettings(on: On) {
@@ -101,7 +101,7 @@ export function registerSettings(on: On) {
         <Text> </Text>
         {SETTINGS.map(s => {
           const value = valueOf(config, s)
-          const greyed = missing && ['checks', 'idle'].includes(s.key)
+          const greyed = missing && ['e2e', 'idle'].includes(s.key)
           return (
             <Box key={s.key} flexDirection="row">
               <Text dimColor={greyed}>{s.label.padEnd(width)}</Text>
@@ -112,7 +112,7 @@ export function registerSettings(on: On) {
         <Text> </Text>
         <Text dimColor>
           {missing
-            ? 'terminal-browser is not installed: front checks run in Chrome.'
+            ? 'terminal-browser is not installed: E2E tests run in Claude in Chrome.'
             : `terminal-browser ${version ?? ''} · press a value to change it · /cockpit <setting> <value> from any session`}
         </Text>
       </Box>

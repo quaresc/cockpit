@@ -22,7 +22,7 @@ DEFAULTS = {
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
     "notifications": True,
-    "checksBrowser": "terminal",
+    "e2eBrowser": "terminal-browser",
     "browserIdleMinutes": 60,
     "herdrPluginRoot": "",
     "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],

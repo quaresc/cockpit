@@ -86,9 +86,9 @@ if [ "$(jq -r '.notifications // true' "$CONFIG" 2>/dev/null)" = true ]; then
   [ "$delivery" = herdr ] && ok "herdr toasts in-app" || warn "herdr ui.toast.delivery is \"${delivery:-system}\": notifications arrive twice → set it to \"herdr\""
 fi
 
-# terminal-browser for an agent's front checks beside it: optional, they run in Chrome without it
+# terminal-browser for an agent's E2E tests beside it: optional, they run in Claude in Chrome without it
 if ! command -v terminal-browser >/dev/null; then
-  ok "terminal-browser not installed: front checks run in Chrome (brew install --cask terminal-browser runs them beside the agent)"
+  ok "terminal-browser not installed: E2E tests run in Claude in Chrome (brew install --cask terminal-browser runs them beside the agent)"
 else
   ok "terminal-browser $(terminal-browser --version 2>/dev/null | awk '{print $2}')"
   installs=$(which -a terminal-browser | while read -r bin; do realpath "$bin" 2>/dev/null; done | sort -u | wc -l | tr -d ' ')
