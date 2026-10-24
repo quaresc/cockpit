@@ -16,7 +16,8 @@ from view import BOLD, DIM, GREEN, LINK, ORANGE, STRIKE, Button, Line, note
 
 HOME = os.path.expanduser("~")
 TODO = os.path.join(HOME, ".config", "cockpit", "todo.md")
-TEAMS = cockpit_config.team_keys(cockpit_config.load())
+CONFIG = cockpit_config.load()
+TEAMS = cockpit_config.team_keys(CONFIG)
 
 ICON = {
     "todo": "", "open": "", "done": "", "add": "", "edit": "",
@@ -65,9 +66,9 @@ def report(items):
 
 
 def open_link(state, token):
-    url = token if token.lower().startswith("http") else cockpit_config.ticket_url(token)
+    url = token if token.lower().startswith("http") else cockpit_config.ticket_url(token, CONFIG)
     if not url:
-        note(state, f"no Linear workspace known for {token.upper()}")
+        note(state, f"no URL known for {token.upper()}: set tickets.urlTemplate in the cockpit config")
         return
     cockpit_config.open_url(url)
     note(state, f"opened {url}")

@@ -41,8 +41,8 @@ RED_ALERT_HOURS = 2
 
 # Nerd Font glyphs present in FiraCode Nerd Font 3.0.
 ICON = {
-    "inbox": "", "review": "", "pr": "", "linear": "", "github": "",
-    "circleci": "", "docker": "", "preview": "", "rocket": "", "fix": "",
+    "inbox": "", "review": "", "pr": "", "ticket": "", "github": "",
+    "docker": "", "preview": "", "rocket": "", "fix": "",
     "rerun": "", "redeploy": "", "open": "", "mute": "", "plan": "",
     "continue": "", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "ArgoCD": "󰠳", "Dashboard": "\uf0e4", "deploy": "",
     "stop": "", "today": "", "calendar": "", "dismiss": "",
@@ -50,6 +50,7 @@ ICON = {
     "waiting": "", "fold": "", "unfold": "", "user": "", "team": "",
     "work": "", "backlog": "", "progress": "",
 }
+ICON["ci"] = cockpit_config.ci_mark(CONFIG)
 
 # Column widths, shared by every row so the table lines up: glyphs, reference, title (flex),
 # notes, age, then the buttons a hovered row shows.
@@ -154,20 +155,19 @@ def review(state, pr):
 
 
 def fix_ci(state, pr, ci_run, where):
-    circle = ""
-    if ci_run and ci_run.get("failed"):
-        failed = ci_run["failed"]
+    job = ""
+    failed = (ci_run or {}).get("failed")
+    if failed:
         step = f', step "{failed["step"]}"' if failed.get("step") else ""
-        circle = (f" The failing CircleCI job is {failed['job']} (job id {failed['jobId']}{step}): use the CircleCI MCP "
-                  "(get_job, list_job_tests, then get_job_logs with a small tail).")
-    checks = pr.get("failedChecks") or []
+        job = f" The failing job is {failed['job']}{step}: read its logs with {failed.get('logs') or 'the CI connector'}."
+    checks = [c for c in pr.get("failedChecks") or [] if not failed or c != failed["job"]]
     github = f" Failing GitHub checks: {', '.join(checks)} (gh pr checks, gh run view --log-failed)." if checks else ""
     if where == "here":
         plan = f" The fix goes on this PR's branch, {pr.get('branch')}."
     else:
         plan = (f" Treat it as unrelated to this PR (flaky test or broken main): fix it on a new branch off an updated "
                 f"local main and prepare a separate PR, leaving {pr.get('branch')} untouched.")
-    prompt = f"CI is failing on {pr['url']}.{circle}{github}{plan} Explain the cause and propose a fix. Do not push."
+    prompt = f"CI is failing on {pr['url']}.{job}{github}{plan} Explain the cause and propose a fix. Do not push."
     start_space(state, repo_dir(pr["repo"]), f"ci {pr['repo']}#{pr['number']}", prompt)
     state["choice"] = None
 
@@ -454,7 +454,7 @@ def build(state, cols):
         image_ready = bool(ci_run and ci_run.get("dockerTag") == "succeeded")
         notes = []
         if ci_run and ci_run["isRunning"]:
-            notes.append(f"{ICON['circleci']} {ci_run['done']}/{ci_run['total']}")
+            notes.append(f"{ICON['ci']} {ci_run['done']}/{ci_run['total']}")
         if image_ready:
             notes.append(f"{ICON['docker']} image")
         if box:
@@ -498,8 +498,11 @@ def build(state, cols):
         if ci_run and ci_run.get("failed") and not ci_run["isRunning"]:
             failed = ci_run["failed"]
             why = f"{len(failed['tests'])} failing: {', '.join(failed['tests'])}" if failed.get("tests") else failed.get("step", "")
-            detail(cont, fit(f"{ICON['circleci']} {failed['job']} · {why}", title_room(LEAD + REF + width(cont))), DIM + RED)
-        checks = [c for c in pr.get("failedChecks") or [] if not c.lower().startswith(("ci/circleci", "circleci"))]
+            detail(cont, fit(f"{ICON['ci']} {failed['job']} · {why}", title_room(LEAD + REF + width(cont))), DIM + RED)
+        # Checks the CI line already names, or that only mirror the CI connector's jobs, are left out.
+        shown = (ci_run.get("failed") or {}).get("job") if ci_run else None
+        mirror = CONFIG["ci"]["name"].lower() if CONFIG["ci"]["server"] else None
+        checks = [c for c in pr.get("failedChecks") or [] if c != shown and not (mirror and c.lower().startswith((f"ci/{mirror}", mirror)))]
         if checks:
             detail(cont, fit(f"{ICON['github']} {', '.join(checks)}", title_room(LEAD + REF + width(cont))), DIM + RED)
 

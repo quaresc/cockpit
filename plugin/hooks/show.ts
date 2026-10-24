@@ -35,7 +35,7 @@ export const SHOW_SPEC = {
     'direction?:"down"|"right"}; {type:"sequence", actors?:[...], messages:[{from, to, label, reply?} | {note, over}]}; ' +
     '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"image", path|url, caption?}; {type:"diff", repo:<absolute ' +
     'path>, base?} following the working tree, or {type:"diff", patch}; {type:"log", command, every?, lines?} tailing a command; ' +
-    '{type:"ci", repo, branch} for a CircleCI run; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
+    '{type:"ci", repo, branch} for the CI run of a branch; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
     '{type:"confirm", summary, consequence?, confirm_label?}, whose answer reaches you as the person\'s next message; ' +
     '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane. placement:"browser" ' +
     'draws the view as a web page in the browser beside the session instead, at full resolution: use it for tables too ' +

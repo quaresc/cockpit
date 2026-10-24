@@ -80,7 +80,7 @@ with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
-    json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "linear": {"enabled": True, "teams": ["ENG"]},
+    json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "keys": ["ENG"]},
                "platform": {"enabled": True, "previewPrefix": "pv-", "previewDashboardUrl": "https://argocd.example.com/applications/{preview}", "tools": {"createPreview": {"tool": "previews_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"

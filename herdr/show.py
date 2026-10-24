@@ -426,7 +426,7 @@ def ci(block, cols, line):
     if pr:
         head.add(f"   #{pr['number']} {pr['title']}", DIM, lambda: cockpit_config.open_url(pr["url"]))
     if not run:
-        line().add("  no CircleCI run known for this branch yet", DIM)
+        line().add("  no CI run known for this branch yet", DIM)
         return
     total, done = max(1, run.get("total") or 1), run.get("done") or 0
     bar_room = max(10, min(40, cols - 30))

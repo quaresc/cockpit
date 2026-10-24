@@ -4,29 +4,12 @@ import type { Inbox, Meeting, MeetingsState } from '../types'
 
 import { notify, withLock } from './ci'
 import { cacheDir, home, loadConfig } from './config'
+import { callMapped, listAt, pick, text } from './platform'
 
 type $ = EngineInterface
 
 const STALE_MS = 5 * 60_000
 const NOTIFY_BEFORE_MS = 5 * 60_000
-
-type GEvent = {
-  id: string
-  summary?: string
-  status?: string
-  eventType?: string
-  transparency?: string
-  htmlLink?: string
-  conferenceUrl?: string
-  hangoutLink?: string
-  location?: string
-  start?: { dateTime?: string; date?: string }
-  end?: { dateTime?: string; date?: string }
-  attendees?: { self?: boolean; responseStatus?: string; resource?: boolean; email?: string; displayName?: string }[]
-  description?: string
-  recurringEventId?: string
-  attachments?: { title?: string; fileUrl?: string }[]
-}
 
 export async function readMeetings($: $): Promise<MeetingsState | null> {
   try {
@@ -36,40 +19,54 @@ export async function readMeetings($: $): Promise<MeetingsState | null> {
   }
 }
 
-// The next 7 days of timed events from Google Calendar, without the declined ones and the
-// all-day or "free" markers (working days, office days).
+export type CalendarCapability = 'listEvents' | 'getEvent'
+
+// The coming timed events of my calendar, without the declined ones and those the mapping leaves out (cancelled, free,
+// out of office); an all-day marker has no start time and drops out too.
 async function fetchMeetings($: $): Promise<Meeting[]> {
+  const calendar = (await loadConfig($)).calendar
+  const f = calendar.fields
   // Small pages: one large answer is cut by the engine's size limit before it reaches the mod.
-  const events: GEvent[] = []
+  const events: unknown[] = []
   let pageToken: string | undefined
   for (let page = 0; page < 8; page++) {
-    const result = await $.mcp.call((await loadConfig($)).calendar.server, 'list_events', { orderBy: 'startTime', pageSize: 12, ...(pageToken ? { pageToken } : {}) })
-    const block = result.content.find(c => c.type === 'text')
-    const text = block && 'text' in block ? String(block.text) : ''
-    if (result.isError || !text.startsWith('{')) throw new Error(text.slice(0, 160))
-    const body = JSON.parse(text) as { events?: GEvent[]; nextPageToken?: string }
-    events.push(...(body.events ?? []))
-    pageToken = body.nextPageToken
+    const body = await callMapped($, calendar, 'listEvents', { pageToken })
+    events.push(...listAt(body, f.events))
+    pageToken = text(pick(body, f.nextPage))
     if (!pageToken) break
   }
+  const isSkipped = (e: unknown) =>
+    Object.entries(calendar.skip).some(([path, values]) => values.includes(text(pick(e, path)) ?? '')) ||
+    Object.entries(calendar.only).some(([path, values]) => !values.includes(text(pick(e, path)) ?? ''))
+  const response = (value: unknown) => {
+    const raw = text(value) ?? 'accepted'
+    return calendar.responses[raw] ?? raw
+  }
   return events
-    .filter(e => e.status !== 'cancelled' && e.start?.dateTime && e.end?.dateTime && e.transparency !== 'transparent')
-    .filter(e => e.eventType === undefined || e.eventType === 'DEFAULT')
-    .map(e => {
-      const me = e.attendees?.find(a => a.self)
+    .filter(e => text(pick(e, f.start)) && text(pick(e, f.end)) && !isSkipped(e))
+    .map((e): Meeting => {
+      const attendees = listAt(e, f.attendees)
+      const me = attendees.find(a => pick(a, f.attendeeSelf) === true)
+      const others = attendees.filter(a => pick(a, f.attendeeResource) !== true)
+      const location = text(pick(e, f.location))
       return {
-        id: e.id,
-        title: (e.summary ?? '(no title)').trim(),
-        start: e.start?.dateTime ?? '',
-        end: e.end?.dateTime ?? '',
-        url: e.htmlLink ?? '',
-        join: e.conferenceUrl ?? e.hangoutLink ?? (e.location?.startsWith('http') ? e.location : undefined),
-        response: me?.responseStatus ?? 'accepted',
-        attendees: (e.attendees ?? []).filter(a => !a.resource).length,
-        description: e.description?.slice(0, 2000),
-        series: e.recurringEventId,
-        people: (e.attendees ?? []).filter(a => !a.self && !a.resource && a.responseStatus !== 'declined').map(a => a.displayName ?? a.email ?? '?').slice(0, 15),
-        attachments: (e.attachments ?? []).filter(a => a.fileUrl).map(a => ({ title: a.title ?? 'file', url: a.fileUrl ?? '' })),
+        id: text(pick(e, f.id)) ?? '',
+        title: (text(pick(e, f.title)) ?? '(no title)').trim(),
+        start: text(pick(e, f.start)) ?? '',
+        end: text(pick(e, f.end)) ?? '',
+        url: text(pick(e, f.url)) ?? '',
+        join: text(pick(e, f.join)) ?? (location?.startsWith('http') ? location : undefined),
+        response: response(pick(e, f.myResponse) ?? pick(me, f.attendeeResponse)),
+        attendees: others.length,
+        description: text(pick(e, f.description))?.slice(0, 2000),
+        series: text(pick(e, f.series)),
+        people: others
+          .filter(a => a !== me && response(pick(a, f.attendeeResponse)) !== 'declined')
+          .map(a => text(pick(a, f.attendeeName)) ?? '?')
+          .slice(0, 15),
+        attachments: listAt(e, f.attachments)
+          .map(a => ({ title: text(pick(a, f.attachmentTitle)) ?? 'file', url: text(pick(a, f.attachmentUrl)) ?? '' }))
+          .filter(a => a.url),
       }
     })
     .filter(m => m.response !== 'declined')
@@ -128,7 +125,7 @@ export function refreshMeetings($: $, isForced = false) {
         if (isForced || Date.now() - state.at > STALE_MS) {
           const isOff = isCalendarMissing || !(await loadConfig($)).calendar.enabled
           const meetings = isOff ? null : await fetchMeetings($).catch((err: Error) => {
-            // A session started before the Google Calendar connector was added has no such server: leave it to the others.
+            // A session started before the calendar connector was added has no such server: leave it to the others.
             if (err.message.includes('no connected MCP tool')) isCalendarMissing = true
             else state = { ...state, error: `Calendar: ${err.message.replace(/^cockpit: /, '')}` }
             return null

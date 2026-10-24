@@ -1,7 +1,7 @@
 {
   "name": "cockpit",
-  "version": "0.9.0",
-  "description": "Context and plan limits, ticket, PR, design and deploy links in the footer, herdr sidebar counts, and the data behind the herdr cockpit apps: PR and Linear inbox, CI, runbooks and meetings",
+  "version": "0.10.0",
+  "description": "Context and plan limits, ticket, PR, design and deploy links in the footer, herdr sidebar counts, and the data behind the herdr cockpit apps: PR and ticket inbox, CI, runbooks and meetings",
   "author": {
     "name": "quaresc"
   },

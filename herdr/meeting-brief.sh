@@ -15,11 +15,14 @@ trap 'rm -f "$DIR/$name.pending"' EXIT
 meeting=$(jq -c --arg id "$id" '.meetings[] | select(.id == $id)' "$CACHE/meetings.json")
 [ -n "$meeting" ] || exit 1
 calendar=$(jq -r '.calendar.server // "claude.ai Google Calendar"' "$CONFIG")
-linear=$(jq -r 'if .linear.enabled then .linear.server else empty end' "$CONFIG")
+get_event=$(jq -r '.calendar.tools.getEvent.tool // "get_event"' "$CONFIG")
+tickets=$(jq -r '(.tickets // .linear // {}) | if .enabled then .server // "claude.ai Linear" else empty end' "$CONFIG")
+# The ticket connector's read tools: the mapped ones, else Linear's.
+ticket_tools=$(jq -r '(.tickets.tools // {get: {tool: "get_issue"}, comments: {tool: "list_comments"}}) | .get.tool, .comments.tool | select(. != null)' "$CONFIG")
 prefix() { printf 'mcp__%s' "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/_/g')"; }
 
-set -- Read Write "$(prefix "$calendar")__get_event"
-[ -n "$linear" ] && set -- "$@" "$(prefix "$linear")__get_issue" "$(prefix "$linear")__list_comments"
+set -- Read Write "$(prefix "$calendar")__$get_event"
+[ -n "$tickets" ] && for tool in $ticket_tools; do set -- "$@" "$(prefix "$tickets")__$tool"; done
 for tool in $(jq -r '.meetingBrief.tools // [] | .[]' "$CONFIG"); do set -- "$@" "$tool"; done
 
 # The live state of all my work, to check older notes against.
@@ -31,7 +34,7 @@ live=$(jq -c '{tickets: [.tickets[] | {id, status}],
 prompt="Write the brief for this meeting to $DIR/$name.md, so I come prepared. Meeting, from my calendar:
 $meeting
 
-Read the full event with get_event (id $id) for its description and attachments. Open the Notion pages and tickets it
+Read the full event with $get_event (id $id) for its description and attachments. Open the Notion pages and tickets it
 links or names, with the tools you have; my assigned tickets and PRs are in $CACHE/inbox.json, and a ticket's runbook,
 when it has one, in ~/.config/cockpit/runbooks/<ticket lowercased>.md. Use nothing else: no Slack, no web.
 

@@ -1,8 +1,8 @@
 {
   "reposDir": "~/code",
   "github": { "enabled": true, "org": "my-org" },
-  "linear": { "enabled": true, "server": "claude.ai Linear", "teams": ["ENG"] },
-  "circleci": { "enabled": false, "server": "circleci", "imageJob": "docker_build" },
+  "tickets": { "enabled": true, "name": "Linear", "server": "claude.ai Linear", "keys": ["ENG"], "urlTemplate": "" },
+  "ci": { "enabled": true, "name": "GitHub", "server": "", "imageJob": "docker_build" },
   "platform": {
     "enabled": false,
     "server": "platform",
@@ -32,7 +32,7 @@
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
   "recap": { "enabled": true, "awayMinutes": 10 },
   "meetingBrief": { "enabled": true, "model": "sonnet", "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
-  "calendar": { "enabled": true, "server": "claude.ai Google Calendar" },
+  "calendar": { "enabled": true, "name": "Google Calendar", "server": "claude.ai Google Calendar" },
   "metabase": { "server": "metabase" },
   "datadog": { "server": "claude.ai Datadog" },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },

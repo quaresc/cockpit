@@ -59,7 +59,7 @@ check_cache() {
   else ok "$name: refreshed $((a / 60)) min ago"; fi
 }
 check_cache "$CACHE/inbox.json" inbox 900
-enabled circleci && check_cache "$CACHE/ci.json" CircleCI 600
+[ "$(jq -r '.ci.enabled != false' "$CONFIG" 2>/dev/null)" = true ] && check_cache "$CACHE/ci.json" CI 600
 enabled calendar && check_cache "$CACHE/meetings.json" meetings 900
 
 # Pinned spaces and their apps
@@ -121,10 +121,32 @@ if enabled platform; then
     warn "platform is on but no tool is mapped: no deploys or previews → /cockpit:setup maps them"
 fi
 
+# The ticket connector's tools, mapped by /cockpit:setup (Linear's by default)
+if jq -e '.linear and (.tickets | not)' "$CONFIG" >/dev/null 2>&1; then
+  warn "config has the old linear block: it still works as Linear's mapping → /cockpit:setup rewrites it as tickets"
+elif enabled tickets; then
+  missing=$(jq -r '.tickets.tools as $t | if $t then ["listMine", "get", "listStates", "setState"] | map(select(($t[.].tool // "") == "")) | join(", ") else "" end' "$CONFIG")
+  [ -z "$missing" ] && ok "ticket tools mapped" || warn "ticket tools not mapped: $missing; cockpit skips what they do → /cockpit:setup maps them"
+fi
+
+# The CI: GitHub's checks through gh, or a CI connector mapped by /cockpit:setup
+if jq -e '.circleci and (.ci | not)' "$CONFIG" >/dev/null 2>&1; then
+  warn "config has the old circleci block: it still works as CircleCI's mapping → /cockpit:setup rewrites it as ci"
+elif [ -n "$(jq -r '.ci.server // empty' "$CONFIG")" ]; then
+  missing=$(jq -r '.ci.tools as $t | if $t then ["listRuns", "listJobs"] | map(select(($t[.].tool // "") == "")) | join(", ") else "" end' "$CONFIG")
+  [ -z "$missing" ] && ok "CI tools mapped" || warn "CI tools not mapped: $missing; no CI runs → /cockpit:setup maps them"
+else
+  ok "CI from GitHub checks"
+fi
+
 # Permission rules for the background MCP calls
-for source in linear circleci platform calendar; do
-  enabled "$source" || continue
-  server=$(jq -r ".$source.server" "$CONFIG")
+for source in tickets ci platform calendar; do
+  # The old linear and circleci blocks count as the ticket and CI connectors.
+  block=$(jq -c --arg s "$source" 'if $s == "tickets" then (.tickets // .linear // {})
+    elif $s == "ci" then (.ci // (if .circleci.enabled then .circleci else {} end)) else (.[$s] // {}) end' "$CONFIG" 2>/dev/null)
+  [ "$(printf '%s' "$block" | jq -r '.enabled // false')" = true ] || continue
+  server=$(printf '%s' "$block" | jq -r --arg s "$source" '.server // (if $s == "tickets" then "claude.ai Linear" else "" end)')
+  [ -n "$server" ] || continue
   rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')"
   jq -e --arg r "$rule" '.permissions.allow // [] | any(. == $r or startswith($r + "__"))' "$HOME/.claude/settings.json" >/dev/null 2>&1 &&
     ok "allow rule for $server" || fail "no allow rule for $server: background refreshes are refused → add \"$rule\" to permissions.allow"

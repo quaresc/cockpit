@@ -81,7 +81,7 @@ function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | nul
     .filter(r => !failing.some(pr => pr.repo === r.repo && pr.branch === r.branch))
   for (const run of overnight.slice(0, 3)) {
     const pr = inbox.mine.find(p => p.repo === run.repo && p.branch === run.branch)
-    lines.push({ icon: 'circleci', text: `CI failed overnight on ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, url: pr && `${pr.url}/checks`, tone: 'bad' })
+    lines.push({ icon: 'ci', text: `CI failed overnight on ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, url: pr && `${pr.url}/checks`, tone: 'bad' })
   }
 
   // Tickets that moved, appeared or went live since the previous brief.
@@ -89,8 +89,8 @@ function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | nul
   if (previous) {
     for (const t of inbox.tickets) {
       const was = before[t.id]
-      if (was === undefined) lines.push({ icon: 'linear', text: `${t.id} assigned: ${t.title}`, url: t.url })
-      else if (was !== t.status) lines.push({ icon: 'linear', text: `${t.id} moved ${was} → ${t.status}`, url: t.url })
+      if (was === undefined) lines.push({ icon: 'ticket', text: `${t.id} assigned: ${t.title}`, url: t.url })
+      else if (was !== t.status) lines.push({ icon: 'ticket', text: `${t.id} moved ${was} → ${t.status}`, url: t.url })
     }
   }
   const live = Object.entries(inbox.deploys ?? {})

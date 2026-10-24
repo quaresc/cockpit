@@ -2,10 +2,11 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, TicketLinks } from '../types'
 
-import { mcp } from './ci'
 import { cacheDir, fill, loadConfig } from './config'
 import { appFor, deployedApps, latestDeploy, previewUrl } from './platform'
 import type { Deployment } from './platform'
+import { citedIn } from './sites'
+import { ticketDetail } from './tickets'
 
 type $ = EngineInterface
 
@@ -19,23 +20,7 @@ export function ticketsIn(text: string, inbox: Inbox | null, known: string[]) {
     .filter(id => teams.has(id.split('-')[0] ?? ''))
 }
 
-type Issue = {
-  id: string
-  title: string
-  url: string
-  description?: string | null
-  attachments?: { url?: string | null; title?: string | null }[] | null
-}
-
-const firstUrl = (texts: string[], pattern: RegExp) => {
-  for (const text of texts) {
-    const found = text.match(pattern)?.[0]
-    if (found) return found.replace(/[>)\]]+$/, '')
-  }
-  return undefined
-}
-
-// The ticket's Linear page, its first Figma frame, its PR, and any Notion page or Slack thread it cites.
+// The ticket's page, its PR, and the first page of each site it cites.
 export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<TicketLinks | null> {
   const path = `${await cacheDir($)}/tickets/${id}.json`
   try {
@@ -44,11 +29,10 @@ export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<T
   } catch {
     // Not cached yet.
   }
-  if (!(await loadConfig($)).linear.enabled) return null
-  const issue = await mcp<Issue>($, 'linear', 'get_issue', { id, fields: ['id', 'title', 'url', 'description', 'attachments'] }).catch(() => null)
+  const issue = await ticketDetail($, id).catch(() => null)
   if (!issue) return null
-  const attached = (issue.attachments ?? []).map(a => a.url ?? '')
-  const texts = [issue.description ?? '', ...attached]
+  const attached = issue.attachments
+  const texts = [issue.description, ...attached]
 
   const key = id.toLowerCase()
   const open = inbox?.mine.find(pr => pr.branch?.toLowerCase().includes(key))
@@ -66,10 +50,8 @@ export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<T
     id: issue.id,
     title: issue.title,
     url: issue.url,
-    figma: firstUrl(texts, /https:\/\/(?:www\.)?figma\.com\/(?:design|file|proto|board)\/[^\s)>\]]+/),
     pr,
-    notion: firstUrl(texts, /https:\/\/(?:www\.)?(?:notion\.so|notion\.site|app\.notion\.com)\/[^\s)>\]]+/),
-    slack: firstUrl(texts, /https:\/\/[a-z0-9-]+\.slack\.com\/archives\/[^\s)>\]]+/),
+    cited: citedIn(texts, 'first'),
     at: Date.now(),
   }
   await $.fs.write(path, JSON.stringify(links))

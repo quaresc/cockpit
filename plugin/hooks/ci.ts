@@ -3,14 +3,15 @@ import type { EngineInterface } from 'claude-code'
 import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Preview } from '../types'
 
 import { cacheDir, fill, home, loadConfig } from './config'
-import { appFor, call, can, createPreview, dashboardName, deployedApps, extendPreview, listPreviews, previewUrl } from './platform'
+import { appFor, call, callMapped, can, createPreview, dashboardName, deployedApps, extendPreview, listAt, listPreviews, pick, previewUrl, text } from './platform'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
+import { completeTicket } from './tickets'
 
 type $ = EngineInterface
 
 const CI_STALE_MS = 55_000
-const CI_VERSION = 2
+const CI_VERSION = 3
 const LOCK_STALE_MS = 2 * 60_000
 
 // ---------------------------------------------------------------------------
@@ -39,18 +40,6 @@ export async function ticketAction($: $, id: string, url: string | undefined, st
 export function shortError(err: Error) {
   const tool = err.message.match(/no verdict for (mcp__\S+?):/)?.[1]
   return tool ? `blocked by auto mode: allow ${tool}` : err.message.slice(0, 200)
-}
-
-export type Source = 'linear' | 'circleci' | 'calendar'
-
-// One MCP call to a source's configured server, its first text block parsed as JSON; throws on a tool error.
-export async function mcp<T>($: $, source: Source, tool: string, args: Record<string, unknown>): Promise<T> {
-  const server = (await loadConfig($))[source].server
-  const result = await $.mcp.call(server, tool, args)
-  const block = result.content.find(c => c.type === 'text')
-  const text = block && 'text' in block ? String(block.text) : ''
-  if (result.isError) throw new Error(`${server} ${tool}: ${text.slice(0, 160)}`)
-  return JSON.parse(text) as T
 }
 
 // A cross-session lock, so one Claude session fetches and notifies for all of them.
@@ -84,52 +73,216 @@ export async function readCi($: $) {
 }
 
 // ---------------------------------------------------------------------------
-// CircleCI: the latest run of each branch I pushed, with progress, failure and image job
+// CI: the latest run of each branch I pushed, with progress, failure and image job; GitHub's checks unless a CI
+// connector is mapped (`ci.server`), whose tools and answers the config maps like the platform's.
 
-type RunNode = {
-  id: string
-  attributes: { created_at: string; current_outcome: string; phase: string }
-  references: { event: { attributes: { vcs: { branch: string; origin_repository_url: string; tag: string } } } }
+export type CiCapability = 'listRuns' | 'listWorkflows' | 'listJobs' | 'getJob' | 'listTests' | 'logs' | 'rerun'
+
+type Ci = Awaited<ReturnType<typeof loadConfig>>['ci']
+
+const FINAL = ['succeeded', 'failed', 'canceled']
+
+// The CI's glyph: CircleCI's, GitHub Actions', GitLab's, else a generic run.
+const CI_MARKS: Record<string, string> = { circleci: '\ue78c', github: '\ueaff', gitlab: '\u{f0ba0}' }
+export const ciMark = (name: string) => CI_MARKS[name.toLowerCase()] ?? '\ueb9e'
+
+// Whether a job, check or image build named after the configured image job.
+const isImageJob = (name: string, imageJob: string) => Boolean(imageJob) && (name === imageJob || name.endsWith(`: ${imageJob}`) || name.endsWith(`/${imageJob}`))
+
+// --- GitHub checks, read with gh: one run per open PR of mine, its head commit's checks.
+
+const CHECKS_QUERY = (org: string) => {
+  const scope = org ? ` org:${org.replace(/[^A-Za-z0-9_.-]/g, '')}` : ''
+  return `query {
+  mine: search(query: "is:pr is:open archived:false author:@me${scope}", type: ISSUE, first: 30) { nodes { ... on PullRequest {
+    headRefName repository { name nameWithOwner } commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state
+      contexts(first: 30) { nodes { ... on CheckRun { databaseId name status conclusion detailsUrl checkSuite { workflowRun { databaseId } } }
+        ... on StatusContext { context state targetUrl } } } } } } } } } }
+}`
 }
-type WorkflowNode = { id: string; attributes: { name: string; outcome: string; phase: string; created_at: string } }
-type JobNode = { id: string; attributes: { name: string; outcome: string; phase: string } }
-type JobDetail = { attributes: { parallel_executions?: { steps: { name: string; exit_code?: number; outcome: string }[] }[] } }
-type TestNode = { name?: string; classname?: string; message?: string }
 
-async function failureOf($: $, job: JobNode): Promise<CiFailure> {
-  const detail = await mcp<JobDetail>($, 'circleci', 'get_job', { job: job.id })
-  const steps = detail.attributes.parallel_executions?.flatMap(p => p.steps) ?? []
-  const step = steps.find(s => s.outcome === 'failed' || (s.exit_code !== undefined && s.exit_code !== 0))?.name
-  const tests = await mcp<{ tests?: TestNode[] }>($, 'circleci', 'list_job_tests', { job: job.id, limit: 3 })
-    .then(t => (t.tests ?? []).map(x => x.name ?? x.classname ?? '?'))
-    .catch(() => [] as string[])
-  return { job: job.attributes.name, jobId: job.id, step, tests }
+type CheckContext = {
+  databaseId?: number
+  name?: string
+  status?: string
+  conclusion?: string | null
+  checkSuite?: { workflowRun?: { databaseId?: number } | null }
+  context?: string
+  state?: string
+  targetUrl?: string | null
+  detailsUrl?: string | null
+}
+type ChecksPr = {
+  headRefName?: string
+  repository?: { name: string; nameWithOwner: string }
+  commits?: { nodes: { commit: { oid: string; committedDate: string; statusCheckRollup: { state: string; contexts: { nodes: CheckContext[] } } | null } }[] }
 }
 
-async function detailsOf($: $, run: RunNode, base: Omit<CiRun, 'done' | 'total'>): Promise<CiRun> {
-  const listed = await mcp<{ workflows: WorkflowNode[] | null }>($, 'circleci', 'list_run_workflows', { run: run.id })
-  // A rerun adds a workflow of the same name to the run: only the newest of each name counts.
-  const newest = new Map<string, WorkflowNode>()
-  for (const workflow of listed.workflows ?? []) {
-    const seen = newest.get(workflow.attributes.name)
-    if (!seen || seen.attributes.created_at < workflow.attributes.created_at) newest.set(workflow.attributes.name, workflow)
+// A cancelled check counts as failed, as in the inbox's PR rollup.
+const CHECK_FAILED = ['FAILURE', 'ERROR', 'TIMED_OUT', 'STARTUP_FAILURE', 'ACTION_REQUIRED', 'CANCELLED']
+const checkName = (c: CheckContext) => c.name ?? c.context ?? '?'
+const isActionsJob = (c: CheckContext) => Boolean(c.databaseId && c.checkSuite?.workflowRun?.databaseId)
+const isCheckDone = (c: CheckContext) => (c.context !== undefined ? !['PENDING', 'EXPECTED'].includes(c.state ?? '') : c.status === 'COMPLETED')
+const checkOutcome = (c: CheckContext) => {
+  const value = c.conclusion ?? c.state ?? ''
+  return value === 'SUCCESS' || value === 'NEUTRAL' || value === 'SKIPPED' ? 'succeeded' : CHECK_FAILED.includes(value) ? 'failed' : value.toLowerCase()
+}
+
+// The failing step of a GitHub Actions job; a check from another app has none to read.
+async function failedStep($: $, slug: string, job: number | undefined) {
+  if (!job) return undefined
+  const { exitCode, stdout } = await $.process.run(['gh', 'api', `repos/${slug}/actions/jobs/${job}`, '--jq', '[.steps[] | select(.conclusion == "failure") | .name][0] // empty'])
+  return exitCode === 0 ? stdout.trim() || undefined : undefined
+}
+
+async function githubRuns($: $, prev: CiState | null): Promise<CiRun[]> {
+  const { github, ci } = await loadConfig($)
+  const { exitCode, stdout, stderr } = await $.process.run(['gh', 'api', 'graphql', '-f', `query=${CHECKS_QUERY(github.org)}`], { timeoutMs: 30_000 })
+  if (exitCode !== 0) throw new Error(`gh: ${stderr.trim().split('\n')[0]}`)
+  const prs = ((JSON.parse(stdout).data as { mine: { nodes: ChecksPr[] } }).mine.nodes ?? []).filter(pr => pr.headRefName && pr.repository)
+  const cached = new Map((prev?.runs ?? []).map(r => [`${r.repo}/${r.branch}/${r.runId}`, r]))
+  const runs: CiRun[] = []
+  for (const pr of prs) {
+    const commit = pr.commits?.nodes[0]?.commit
+    const checks = commit?.statusCheckRollup?.contexts.nodes ?? []
+    if (!commit || checks.length === 0) continue
+    const { name: repo, nameWithOwner: slug } = pr.repository!
+    const branch = pr.headRefName!
+    const isRunning = checks.some(c => !isCheckDone(c))
+    const failures = checks.filter(c => isCheckDone(c) && checkOutcome(c) === 'failed')
+    // An Actions job first: its logs and its rerun are within reach of gh.
+    const failed = failures.find(isActionsJob) ?? failures[0]
+    const workflows = [...new Set(failures.filter(isActionsJob).map(c => String(c.checkSuite!.workflowRun!.databaseId)))]
+    const image = checks.find(c => isImageJob(checkName(c), ci.imageJob))
+    const job = failed && isActionsJob(failed) ? failed.databaseId : undefined
+    // A rerun keeps the commit, so only the failing step of the same job is reused from the cache.
+    const known = cached.get(`${repo}/${branch}/${commit.oid}`)?.failed
+    const step = !failed || isRunning ? undefined : known?.jobId === String(job ?? '') && known.job === checkName(failed) ? known.step : await failedStep($, slug, job)
+    runs.push({
+      repo,
+      slug,
+      branch,
+      runId: commit.oid,
+      createdAt: commit.committedDate,
+      isRunning,
+      outcome: isRunning ? 'running' : failed ? 'failed' : 'succeeded',
+      workflowId: workflows.join(',') || undefined,
+      done: checks.filter(isCheckDone).length,
+      total: checks.length,
+      failed: failed
+        ? {
+            job: checkName(failed),
+            jobId: String(job ?? ''),
+            step,
+            tests: [],
+            logs: job ? `gh run view --job ${job} --log-failed -R ${slug}` : (failed.detailsUrl ?? failed.targetUrl) ? `its page, ${failed.detailsUrl ?? failed.targetUrl}` : 'gh pr checks',
+          }
+        : undefined,
+      dockerTag: image ? (isCheckDone(image) ? checkOutcome(image) : 'running') : undefined,
+    })
   }
-  const workflows = [...newest.values()]
-  const jobs: JobNode[] = []
-  for (const workflow of workflows) {
-    const listed = await mcp<{ jobs: JobNode[] | null }>($, 'circleci', 'list_workflow_jobs', { workflow: workflow.id })
-    jobs.push(...(listed.jobs ?? []))
+  return runs
+}
+
+// --- A CI connector, through the tools and fields the config maps.
+
+const outcomeOf = (ci: Ci, value: unknown) => {
+  const raw = text(value) ?? ''
+  return ci.outcomes[raw] ?? raw
+}
+
+// Ended by its phase when the connector reports one, else by a final outcome.
+const isEnded = (ci: Ci, node: unknown, phasePath: string | undefined, outcomePath: string | undefined) =>
+  phasePath ? ci.endedPhases.includes(text(pick(node, phasePath)) ?? '') : FINAL.includes(outcomeOf(ci, pick(node, outcomePath)))
+
+// How a session reads the failing job's logs, from the tools the connector has.
+const logsHint = (ci: Ci, job: string) => {
+  const tools = (['getJob', 'listTests', 'logs'] as const).map(c => ci.tools[c]?.tool).filter(Boolean)
+  return `the ${ci.name} MCP${tools.length > 0 ? ` (${tools.join(', ')}; keep log tails small)` : ''}, job id ${job}`
+}
+
+async function failureOf($: $, ci: Ci, job: unknown): Promise<CiFailure> {
+  const f = ci.fields
+  const id = text(pick(job, f.jobId)) ?? ''
+  const detail = ci.tools.getJob?.tool ? await callMapped($, ci, 'getJob', { job: id }).catch(() => null) : null
+  const step = listAt(detail, f.steps).find(s => outcomeOf(ci, pick(s, f.stepOutcome)) === 'failed' || ![undefined, 0].includes(pick(s, f.stepExit) as number | undefined))
+  const tests = ci.tools.listTests?.tool
+    ? await callMapped($, ci, 'listTests', { job: id })
+        .then(t => listAt(t, f.tests).slice(0, 3).map(x => text(pick(x, f.testName)) ?? '?'))
+        .catch(() => [] as string[])
+    : []
+  return { job: text(pick(job, f.jobName)) ?? '?', jobId: id, step: text(pick(step, f.stepName)), tests, logs: logsHint(ci, id) }
+}
+
+async function detailsOf($: $, ci: Ci, run: unknown, base: Omit<CiRun, 'done' | 'total'>): Promise<CiRun> {
+  const f = ci.fields
+  const jobs: unknown[] = []
+  let workflowIds: { id: string; isFailed: boolean }[] = []
+  if (ci.tools.listWorkflows?.tool) {
+    // A rerun adds a workflow of the same name to the run: only the newest of each name counts.
+    const newest = new Map<string, unknown>()
+    for (const workflow of listAt(await callMapped($, ci, 'listWorkflows', { run: base.runId }), f.workflows)) {
+      const name = text(pick(workflow, f.workflowName)) ?? ''
+      const seen = newest.get(name)
+      if (!seen || (text(pick(seen, f.workflowCreated)) ?? '') < (text(pick(workflow, f.workflowCreated)) ?? '')) newest.set(name, workflow)
+    }
+    workflowIds = [...newest.values()].map(w => ({ id: text(pick(w, f.workflowId)) ?? '', isFailed: outcomeOf(ci, pick(w, f.workflowOutcome)) === 'failed' }))
+    for (const { id } of workflowIds) jobs.push(...listAt(await callMapped($, ci, 'listJobs', { workflow: id, run: base.runId }), f.jobs))
+  } else {
+    jobs.push(...listAt(await callMapped($, ci, 'listJobs', { run: base.runId, workflow: base.runId }), f.jobs))
   }
-  const failedJob = jobs.find(j => j.attributes.outcome === 'failed')
-  const { imageJob } = (await loadConfig($)).circleci
-  const docker = imageJob ? jobs.find(j => j.attributes.name === imageJob) : undefined
+  const failedJob = jobs.find(j => outcomeOf(ci, pick(j, f.jobOutcome)) === 'failed')
+  const image = jobs.find(j => isImageJob(text(pick(j, f.jobName)) ?? '', ci.imageJob))
   return {
     ...base,
-    workflowId: workflows.find(w => w.attributes.outcome === 'failed')?.id ?? workflows[0]?.id,
-    done: jobs.filter(j => j.attributes.phase === 'ended').length,
+    workflowId: workflowIds.find(w => w.isFailed)?.id ?? workflowIds[0]?.id ?? base.runId,
+    done: jobs.filter(j => isEnded(ci, j, f.jobPhase, f.jobOutcome)).length,
     total: jobs.length,
-    failed: failedJob ? await failureOf($, failedJob) : undefined,
-    dockerTag: docker ? (docker.attributes.phase === 'ended' ? docker.attributes.outcome : 'running') : undefined,
+    failed: failedJob ? await failureOf($, ci, failedJob) : undefined,
+    dockerTag: image ? (isEnded(ci, image, f.jobPhase, f.jobOutcome) ? outcomeOf(ci, pick(image, f.jobOutcome)) : 'running') : undefined,
+  }
+}
+
+async function connectorRuns($: $, ci: Ci, prev: CiState | null): Promise<CiRun[]> {
+  const f = ci.fields
+  const latest = new Map<string, unknown>()
+  for (const run of listAt(await callMapped($, ci, 'listRuns', {}), f.runs)) {
+    const repo = (text(pick(run, f.runRepo)) ?? '').replace(/\.git$/, '').split('/').pop()
+    const branch = text(pick(run, f.runBranch))
+    if (!repo || !branch || text(pick(run, f.runTag))) continue
+    const key = `${repo}/${branch}`
+    const seen = latest.get(key)
+    if (!seen || (text(pick(seen, f.runCreated)) ?? '') < (text(pick(run, f.runCreated)) ?? '')) latest.set(key, run)
+  }
+  const cached = new Map((prev?.runs ?? []).map(r => [r.runId, r]))
+  const runs: CiRun[] = []
+  for (const [key, run] of latest) {
+    const [repo, ...rest] = key.split('/')
+    const outcome = outcomeOf(ci, pick(run, f.runOutcome))
+    const base = {
+      repo: repo ?? '?',
+      branch: rest.join('/'),
+      runId: text(pick(run, f.runId)) ?? '',
+      createdAt: text(pick(run, f.runCreated)) ?? '',
+      isRunning: !isEnded(ci, run, f.runPhase, f.runOutcome),
+      outcome: outcome || 'running',
+    }
+    const known = cached.get(base.runId)
+    // An ended run never changes, so its details are fetched once.
+    runs.push(known && !known.isRunning && !base.isRunning ? known : await detailsOf($, ci, run, base).catch(() => ({ ...base, done: 0, total: 0 })))
+  }
+  return runs
+}
+
+// Reruns the failed jobs of a run: each failed workflow through gh for GitHub Actions, else the connector's rerun tool.
+async function rerun($: $, workflowId: string) {
+  const { ci } = await loadConfig($)
+  if (ci.server) return callMapped($, ci, 'rerun', { workflow: workflowId, run: workflowId })
+  const run = (await readCi($))?.runs.find(r => r.workflowId === workflowId)
+  if (!run?.slug) throw new Error(`no GitHub run ${workflowId} in the CI cache`)
+  for (const id of workflowId.split(',')) {
+    const { exitCode, stderr } = await $.process.run(['gh', 'run', 'rerun', id, '--failed', '-R', run.slug], { timeoutMs: 30_000 })
+    if (exitCode !== 0) throw new Error(`gh run rerun: ${stderr.trim().split('\n')[0]}`)
   }
 }
 
@@ -146,7 +299,7 @@ function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
     const action = pr ? `${pr.url}/checks` : 'space:inbox'
     if (run.outcome === 'succeeded') out.push({ text: `🟢 CI passed: ${run.repo} ${run.branch}`, action })
     else if (run.outcome === 'failed') {
-      const buttons: [string, string][] = pr ? [['Why?', `act:ci:${pr.url}`], ['Rerun', `act:rerun:${pr.url}`]] : []
+      const buttons: [string, string][] = pr ? [['Why?', `act:ci:${pr.url}`], ...(run.workflowId ? [['Rerun', `act:rerun:${pr.url}`] as [string, string]] : [])] : []
       out.push({ text: `🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, action, buttons })
     }
   }
@@ -154,58 +307,33 @@ function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
 }
 
 let ciInflight: Promise<void> | undefined
-let isCircleMissing = false
+let isConnectorMissing = false
 
 export function refreshCi($: $, isForced = false) {
   ciInflight ??= (async () => {
     try {
-      if (isCircleMissing || !(await loadConfig($)).circleci.enabled) return
+      const { ci, github } = await loadConfig($)
+      if (!ci.enabled || (ci.server ? isConnectorMissing : !github.enabled)) return
       // A cache from an older version of this code is rebuilt from scratch, without notifications.
       const stored = await readCi($)
       const prev = stored?.version === CI_VERSION ? stored : null
       if (!isForced && prev && Date.now() - prev.at < CI_STALE_MS) return
       await withLock($, 'ci', async () => {
-        const listed = await mcp<{ runs: RunNode[] | null }>($, 'circleci', 'list_runs', { mine: true, limit: 30 }).catch(async (err: Error) => {
-          // A session started before the CircleCI connector was added has no such server: leave it to the others.
+        const runs = await (ci.server ? connectorRuns($, ci, prev) : githubRuns($, prev)).catch(async (err: Error) => {
+          // A session started before the CI connector was added has no such server: leave it to the others.
           if (err.message.includes('no connected MCP tool')) {
-            isCircleMissing = true
+            isConnectorMissing = true
             return null
           }
-          const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `CircleCI ${shortError(err)}` }
+          const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}` }
           await $.fs.write(`${await cacheDir($)}/ci.json`, JSON.stringify(failed))
           return null
         })
-        if (!listed) return
-        const { runs } = listed
-        const latest = new Map<string, RunNode>()
-        for (const run of runs ?? []) {
-          const vcs = run.references.event.attributes.vcs
-          const repo = vcs.origin_repository_url.split('/').pop()
-          if (!repo || !vcs.branch || vcs.tag) continue
-          const key = `${repo}/${vcs.branch}`
-          const seen = latest.get(key)
-          if (!seen || seen.attributes.created_at < run.attributes.created_at) latest.set(key, run)
-        }
-        const cached = new Map((prev?.runs ?? []).map(r => [r.runId, r]))
-        const next: CiRun[] = []
-        for (const [key, run] of latest) {
-          const [repo, ...rest] = key.split('/')
-          const base = {
-            repo: repo ?? '?',
-            branch: rest.join('/'),
-            runId: run.id,
-            createdAt: run.attributes.created_at,
-            isRunning: run.attributes.phase !== 'ended',
-            outcome: run.attributes.current_outcome,
-          }
-          const known = cached.get(run.id)
-          // An ended run never changes, so its details are fetched once.
-          next.push(known && !known.isRunning && !base.isRunning ? known : await detailsOf($, run, base).catch(() => ({ ...base, done: 0, total: 0 })))
-        }
-        const state: CiState = { at: Date.now(), runs: next, version: CI_VERSION }
+        if (!runs) return
+        const state: CiState = { at: Date.now(), runs, version: CI_VERSION }
         await $.fs.write(`${await cacheDir($)}/ci.json`, JSON.stringify(state))
         const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
-        if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, '🔁 CircleCI', change.text, change.action, change.buttons)
+        if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, `🔁 ${ci.name}`, change.text, change.action, change.buttons)
       })
     } finally {
       ciInflight = undefined
@@ -290,19 +418,7 @@ export async function previewsFor($: $): Promise<Preview[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Requests the herdr inbox app drops in ~/.cache/cockpit/requests: CircleCI reruns, preview redeploys
-
-type Status = { id: string; type: string; name: string }
-
-// Moves a ticket to its team's "Done" state, else the team's first completed one.
-async function release($: $, ticket: string) {
-  const team = ticket.split('-')[0] ?? ''
-  const statuses = await mcp<Status[]>($, 'linear', 'list_issue_statuses', { team })
-  const done = statuses.find(s => s.type === 'completed' && /^done$/i.test(s.name)) ?? statuses.find(s => s.type === 'completed')
-  if (!done) throw new Error(`no completed state in team ${team}`)
-  await mcp($, 'linear', 'save_issue', { id: ticket, state: done.id })
-  return done.name
-}
+// Requests the herdr inbox app drops in ~/.cache/cockpit/requests: CI reruns, preview redeploys, ticket releases
 
 // A ticket moved to a completed state leaves the inbox at once, without waiting for the next fetch.
 async function dropTicket($: $, id: string) {
@@ -374,9 +490,9 @@ export async function processRequests($: $, onDone: () => void) {
     await $.fs.write(`${results}.claimed`, String(Date.now()))
     try {
       if (request.type === 'rerun') {
-        await mcp($, 'circleci', 'rerun_workflow', { workflow: request.workflowId, from_failed: true })
+        await rerun($, request.workflowId)
         await result('done', 'rerun started')
-        await notify($, '🔁 CircleCI', `Rerunning failed jobs: ${request.label}`, 'space:inbox')
+        await notify($, `🔁 ${(await loadConfig($)).ci.name}`, `Rerunning failed jobs: ${request.label}`, 'space:inbox')
       } else if (request.type === 'redeploy') {
         await call($, 'redeployPreview', { preview: request.preview, app: request.app })
         await result('done', 'redeploying')
@@ -394,11 +510,11 @@ export async function processRequests($: $, onDone: () => void) {
         await result('done', `extended by ${request.days} days`)
         await notify($, '🧪 Preview', `${request.preview} extended by ${request.days} days and redeploying`, await previewAction($, request.preview))
       } else {
-        const state = await release($, request.ticket)
+        const state = await completeTicket($, request.ticket)
         const url = (await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`))?.tickets.find(t => t.id === request.ticket)?.url
         await dropTicket($, request.ticket)
         await result('done', `moved to ${state}`)
-        await notify($, '🎫 Linear', `${request.ticket} moved to ${state}`, await ticketAction($, request.ticket, url))
+        await notify($, `🎫 ${(await loadConfig($)).tickets.name}`, `${request.ticket} moved to ${state}`, await ticketAction($, request.ticket, url))
       }
       // Whatever changed, the next fetch picks it up now rather than in five minutes.
       await $.process.run(['touch', `${await cacheDir($)}/refresh-request`])

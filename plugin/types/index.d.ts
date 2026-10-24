@@ -36,10 +36,9 @@ export type TicketLinks = {
   id: string
   title: string
   url: string
-  figma?: string
   pr?: { url: string; number: number }
-  notion?: string
-  slack?: string
+  // The page each kind of site it cites, by the kind's name in hooks/sites.ts.
+  cited?: Record<string, string>
   dashboard?: { url: string; label: string }
   workflow?: { url: string; label: string }
   preview?: { url: string; label: string }
@@ -65,10 +64,13 @@ export type Inbox = {
   deployLinks?: Record<string, { dashboard?: string; workflow?: { url: string; label: string } }>
 }
 
-export type CiFailure = { job: string; jobId: string; step?: string; tests: string[] }
+// The failing job of a run, and how a session reads its logs.
+export type CiFailure = { job: string; jobId: string; step?: string; tests: string[]; logs: string }
 
 export type CiRun = {
   repo: string
+  // owner/repo, for GitHub runs.
+  slug?: string
   branch: string
   runId: string
   createdAt: string

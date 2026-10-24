@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { cacheDir, loadConfig } from './config'
-import type { Platform } from './config'
+import type { Platform, Recipe } from './config'
 
 type $ = EngineInterface
 
@@ -40,8 +40,19 @@ export function pick(value: unknown, path: string | undefined): unknown {
   return undefined
 }
 
-const text = (value: unknown) => (value === undefined || value === null ? undefined : String(value))
-const list = (value: unknown) => (Array.isArray(value) ? (value as unknown[]) : [])
+export const text = (value: unknown) => (value === undefined || value === null ? undefined : String(value))
+export const list = (value: unknown) => (Array.isArray(value) ? (value as unknown[]) : [])
+
+// The list at a dotted path of an answer, where a `[]` segment flattens a list on the way
+// ("attributes.parallel_executions[].steps"); an empty path is the answer itself.
+export function listAt(value: unknown, path: string | undefined) {
+  if (!path) return list(value)
+  const nodes = path.split('.').reduce<unknown[]>(
+    (found, key) => (key.endsWith('[]') ? found.flatMap(n => list(pick(n, key.slice(0, -2)))) : found.map(n => pick(n, key))),
+    [value],
+  )
+  return nodes.flatMap(list)
+}
 
 // The arguments with their "{name}" placeholders filled: a whole-string placeholder keeps the value's type.
 export function fillArgs(template: unknown, values: Record<string, unknown>): unknown {
@@ -66,17 +77,40 @@ export async function can($: $, capability: Capability) {
   return Boolean((await platform($))?.tools[capability]?.tool)
 }
 
-// One call to the tool mapped to a capability, its first text block parsed as JSON; throws when it is not mapped.
-export async function call($: $, capability: Capability, values: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Promise<unknown> {
-  const config = await platform($)
-  const recipe = config?.tools[capability]
-  if (!config || !recipe?.tool) throw new Error(`no platform tool for ${capability}: run /cockpit:setup`)
-  const args = { ...(fillArgs(recipe.args ?? {}, values) as Record<string, unknown>), ...extra }
-  const result = await $.mcp.call(config.server, recipe.tool, args)
+// One call to a recipe's tool with its placeholders filled, its first text block parsed as JSON.
+export async function callRecipe($: $, server: string, recipe: Recipe, values: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Promise<unknown> {
+  // A placeholder without a value (a first page's token) leaves its argument out.
+  const filled = Object.entries(fillArgs(recipe.args ?? {}, values) as Record<string, unknown>).filter(([, v]) => v !== undefined)
+  const args = { ...Object.fromEntries(filled), ...extra }
+  const result = await $.mcp.call(server, recipe.tool, args)
   const block = result.content.find(c => c.type === 'text')
   const body = block && 'text' in block ? String(block.text) : ''
-  if (result.isError) throw new Error(`${config.server} ${recipe.tool}: ${body.slice(0, 160)}`)
-  return body ? JSON.parse(body) : {}
+  if (result.isError) throw new Error(`${server} ${recipe.tool}: ${body.slice(0, 160)}`)
+  try {
+    return body ? (JSON.parse(body) as unknown) : {}
+  } catch {
+    throw new Error(`${server} ${recipe.tool} answered no JSON: ${body.slice(0, 160)}`)
+  }
+}
+
+// One call to the tool a connector's mapping gives a capability; throws when none is mapped.
+export async function callMapped<C extends string>(
+  $: $,
+  connector: { name?: string; server: string; tools: Partial<Record<C, Recipe>> },
+  capability: C,
+  values: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+): Promise<unknown> {
+  const recipe = connector.tools[capability]
+  if (!recipe?.tool) throw new Error(`no ${connector.name ?? 'platform'} tool for ${capability}: run /cockpit:setup`)
+  return callRecipe($, connector.server, recipe, values, extra)
+}
+
+// One call to the platform tool mapped to a capability.
+export async function call($: $, capability: Capability, values: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Promise<unknown> {
+  const config = await platform($)
+  if (!config) throw new Error(`no platform tool for ${capability}: run /cockpit:setup`)
+  return callMapped($, config, capability, values, extra)
 }
 
 const APPS_TTL_MS = 10 * 60_000

@@ -218,7 +218,7 @@ CLAUDE = shutil.which("claude") or os.path.join(HOME, ".claude", "local", "claud
 MEMORY = os.path.join(HOME, ".claude", "projects", re.sub(r"[/.]", "-", REPOS), "memory")
 LOGS = os.path.join(HOME, ".cache", "cockpit")
 TOOLS = ["Bash(gh:*)", "Bash(git:*)", "Bash(jq:*)", "Read", "Write", "Edit", "Grep", "Glob",
-         *[cockpit_config.tool_prefix(CONFIG[source]["server"]) for source in ("linear", "circleci", "platform") if CONFIG[source]["enabled"]],
+         *[cockpit_config.tool_prefix(CONFIG[source]["server"]) for source in ("tickets", "ci", "platform") if CONFIG[source]["enabled"] and CONFIG[source]["server"]],
          *CONFIG["runbookTools"]]
 DEPLOY_FACTS = (f"the platform's {CONFIG['platform']['tools']['deployStatus']['tool']} tool, then gh compare of the merge commit against the deployed tag"
                 if CONFIG["platform"]["enabled"] and "deployStatus" in CONFIG["platform"]["tools"]

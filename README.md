@@ -23,7 +23,7 @@ One agent per space, a few pinned spaces for everything around the code, and the
 | | |
 | --- | --- |
 | 🧭 **Sidebar** | Every agent on one line: its task, the page beside it, its context use; under it the repo, ticket and CI. |
-| 🔗 **Footer** | The ticket, PR, Figma, Notion, Slack thread, deploy dashboard and preview the conversation is about, one click each. |
+| 🔗 **Footer** | The ticket, PR, designs, docs, threads, dashboards and preview the conversation is about, one click each. |
 | 📊 **Show** | Charts, tables, flow charts, sequence diagrams and diffs in a pane beside the agent, like an artifact. |
 | 🧪 **Front checks** | The agent tests its change in a browser beside it, on phone, tablet and desktop, and keeps before/after screenshots for the PR. |
 | 📥 **Inbox** | Review requests, then your tickets by project with their stacked PRs, CI, deploys and previews. |
@@ -41,10 +41,21 @@ on the same branch.
 
 ### 🔗 Footer
 
-Each conversation's footer links what it works on: the ticket it names (else its branch's), the PR, the Figma frame,
-the Notion page, the Slack thread, the deploy dashboard (ArgoCD, Vercel…) and the preview. Links open in your default browser. A chip per view the
-agent showed hides or brings back its pane, and the **browser** chip sends the page beside the agent to your default
-browser.
+Each conversation's footer links what it works on: the ticket it names (else its branch's), the PR, the deploy dashboard
+(ArgoCD, Vercel…), the preview, and the latest page it cites on each of these sites:
+
+| | |
+| --- | --- |
+| Code review | GitLab merge requests, Bitbucket and Azure DevOps pull requests |
+| Tickets | Jira, GitHub and GitLab issues, Azure DevOps work items, Trello, Asana, ClickUp, Shortcut |
+| Design | Figma (FigJam, Slides, Make too), Miro, Excalidraw |
+| Docs | Notion, Confluence, Google Docs, Sheets, Slides and Forms, Coda, Loom |
+| Chat | Slack, Microsoft Teams, Discord |
+| Monitoring | Sentry, Datadog, Grafana, PagerDuty, incident.io |
+| Analytics | Amplitude, Mixpanel, PostHog, Metabase |
+
+Links open in your default browser. A chip per view the agent showed hides or brings back its pane, and the **browser**
+chip sends the page beside the agent to your default browser. Adding a site is one row in `plugin/hooks/sites.ts`.
 
 ### 📊 Show
 
@@ -176,7 +187,10 @@ arrive as a notification: click it to update.
 - herdr 0.9+, and Claude Code with plugin hooks modules
 - `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
 - A Nerd Font: it's drawn with FiraCode Nerd Font Mono.
-- Optional: Linear, CircleCI, Google Calendar, Datadog and Metabase connectors, a platform connector for deploys and
+- Optional: a ticket connector (Linear out of the box; Jira, Trello or any other through `/cockpit:setup`), a CI
+  connector (CI comes from GitHub checks without one; CircleCI, GitLab or any other through `/cockpit:setup`),
+  a calendar connector (Google Calendar out of the box; Outlook or any other through `/cockpit:setup`), Datadog and
+  Metabase connectors, a platform connector for deploys and
   preview environments,
   [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr) for line comments on a diff, and
   [terminal-browser](https://github.com/zenbu-labs/terminal-browser) for front checks beside the agent.
@@ -192,9 +206,10 @@ arrive as a notification: click it to update.
 | --- | --- |
 | `reposDir` | Where your checkouts live. New agent spaces start there. |
 | `github.org` | Only list your PRs from this org. Empty for all. |
-| `linear.teams` | Team keys to recognise in ticket mentions, on top of your tickets' own. |
+| `tickets.*` | Your ticket connector: `name`, `keys` (key prefixes to recognise in mentions, on top of your tickets' own), `urlTemplate` (a ticket's page, `{id}`), and for anything but Linear the `tools`, `fields` and `statusTypes` mapping `/cockpit:setup` writes. |
 | `<connector>.server` | The connector's name in `claude mcp list`. |
-| `circleci.imageJob` | The job that builds the image a preview runs. Enables `preview` and `redeploy`. |
+| `calendar.*` | Your calendar connector: Google Calendar's mapping unless `/cockpit:setup` wrote `tools`, `fields`, `skip` and `only` (which events count as meetings) and `responses` for another. |
+| `ci.*` | Your CI: GitHub checks when `server` is empty, else a CI connector with its `tools`, `fields`, `outcomes` and `endedPhases` mapping (`/cockpit:setup` writes it; CircleCI maps by itself). `imageJob`: the job or check that builds the image a preview runs; enables `preview` and `redeploy`. |
 | `platform.*` | Deploys and preview environments through your platform connector's tools: `tools` maps each capability to a tool and its arguments, `fields` maps what cockpit reads in their answers. `/cockpit:setup` writes both. Dashboard links come from the URL templates and are named after their site. |
 | `brief` | When the morning brief comes, and whether on weekends. |
 | `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |

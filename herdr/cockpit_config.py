@@ -15,10 +15,10 @@ INBOX = os.path.join(HOME, ".cache", "cockpit", "inbox.json")
 DEFAULTS = {
     "reposDir": "~",
     "github": {"enabled": True, "org": ""},
-    "linear": {"enabled": False, "server": "claude.ai Linear", "teams": []},
-    "circleci": {"enabled": False, "server": "circleci", "imageJob": ""},
+    "tickets": {"enabled": False, "name": "Linear", "server": "claude.ai Linear", "keys": [], "urlTemplate": "", "tools": {}, "fields": {}, "statusTypes": {}},
+    "ci": {"enabled": True, "name": "GitHub", "server": "", "imageJob": "", "tools": {}, "fields": {}, "outcomes": {}, "endedPhases": []},
     "platform": {"enabled": False, "server": "", "previewPrefix": "", "previewDashboardUrl": "", "workflowUrl": "", "tools": {}, "fields": {}},
-    "calendar": {"enabled": False, "server": "claude.ai Google Calendar"},
+    "calendar": {"enabled": False, "name": "Google Calendar", "server": "claude.ai Google Calendar", "tools": {}, "fields": {}, "skip": {}, "only": {}, "responses": {}},
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},
     "notifications": True,
@@ -70,12 +70,27 @@ def load():
             raw = json.load(f)
     except (OSError, ValueError):
         raw = {}
+    # A config from before ticket connectors were mapped has a `linear` block; the mod reads it as Linear's mapping.
+    if "tickets" not in raw and isinstance(raw.get("linear"), dict):
+        raw["tickets"] = {"enabled": raw["linear"].get("enabled", False), "server": raw["linear"].get("server", "claude.ai Linear"),
+                          "keys": raw["linear"].get("teams", [])}
+    # Likewise a `circleci` block: CircleCI's mapping when it is on, else GitHub's checks.
+    if "ci" not in raw and isinstance(raw.get("circleci"), dict):
+        old = raw["circleci"]
+        raw["ci"] = ({"enabled": True, "name": "CircleCI", "server": old.get("server", "circleci"), "imageJob": old.get("imageJob", "")}
+                     if old.get("enabled") else {"imageJob": old.get("imageJob", "")})
     config = {**DEFAULTS, **raw}
     for key, value in DEFAULTS.items():
         if isinstance(value, dict):
             config[key] = {**value, **(raw.get(key) or {})}
     config["reposDir"] = os.path.expanduser(config["reposDir"]).rstrip("/") or HOME
     return config
+
+
+def ci_mark(config):
+    """The CI's glyph: CircleCI's, GitHub Actions', GitLab's, else a generic run."""
+    name = config["ci"]["name"].lower()
+    return {"circleci": "\ue78c", "github": "\ueaff", "gitlab": "\U000f0ba0"}.get(name, "\ueb9e")
 
 
 def fill(template, **values):
@@ -98,19 +113,23 @@ def _inbox():
         return {}
 
 
-def ticket_url(ticket_id, inbox=None):
-    """A Linear ticket's URL, in the workspace of the tickets assigned to me."""
+def ticket_url(ticket_id, config, inbox=None):
+    """A ticket's URL: the configured template's, else an assigned ticket's URL cut where its id is a path segment, with
+    the id swapped."""
+    filled = fill(config["tickets"]["urlTemplate"], id=ticket_id.upper())
+    if filled:
+        return filled
     for ticket in (inbox if inbox is not None else _inbox()).get("tickets") or []:
-        match = re.match(r"^https://linear\.app/[^/]+/issue/", ticket.get("url", ""))
-        if match:
-            return match.group(0) + ticket_id.upper()
+        url, known = ticket.get("url", ""), ticket.get("id", "")
+        if known and f"/{known}" in url:
+            return url[:url.rindex(f"/{known}") + 1] + ticket_id.upper()
     return None
 
 
 def team_keys(config, inbox=None):
-    """Linear team keys a ticket mention may use: the configured ones and those of my tickets."""
+    """Ticket key prefixes a mention may use: the configured ones and those of my tickets."""
     tickets = (inbox if inbox is not None else _inbox()).get("tickets") or []
-    keys = {t.upper() for t in config["linear"]["teams"]} | {t["id"].split("-")[0] for t in tickets if "-" in t.get("id", "")}
+    keys = {t.upper() for t in config["tickets"]["keys"]} | {t["id"].split("-")[0] for t in tickets if "-" in t.get("id", "")}
     return sorted(k for k in keys if re.fullmatch(r"[A-Z][A-Z0-9]{1,9}", k))
 
 

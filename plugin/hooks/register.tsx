@@ -6,9 +6,11 @@ import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../t
 import { activityOf, clashWith, logActivity } from './activity'
 import { openUrl } from './browser'
 import { dashboardName } from './platform'
-import { announcePreviews, deployChanges, deploysFor, mcp, notify, previewsFor, processRequests, readCi, refreshCi, shortError, startDeployWatch, ticketAction, withLock } from './ci'
+import { announcePreviews, ciMark, deployChanges, deploysFor, notify, previewsFor, processRequests, readCi, refreshCi, shortError, startDeployWatch, ticketAction, withLock } from './ci'
 import { cacheDir, fill, home, loadConfig } from './config'
 import { dashboardFor, deployLinksFor, linksFor, ticketsIn } from './links'
+import { chipsFor, citedIn, siteMark } from './sites'
+import { myTickets, ticketUrl } from './tickets'
 import { maybeBrief } from './brief'
 import { refreshMeetings } from './meetings'
 import { checkUpdate, forget, heartbeat } from './upkeep'
@@ -59,7 +61,6 @@ const query = (org: string) => {
 }`
 }
 
-const ACTIVE = ['started', 'unstarted', 'triage', 'backlog']
 
 // ---------------------------------------------------------------------------
 // Formatting and classification
@@ -249,7 +250,7 @@ const reportDashboard = async ($: $) => {
     ['review', direct + team === 0 ? `${ICON.review}  nothing to review` : `${ICON.review}  ${direct} you · ${team} team`],
     ['ci_fail', failing > 0 ? `${ICON.fail}  ${failing} failing` : undefined],
     ['ci_ok', failing === 0 ? `${ICON.ok}  all green` : undefined],
-    ['tickets', `${ICON.linear}  ${working} active · ${data.tickets.length}`],
+    ['tickets', `${ICON.ticket}  ${working} active · ${data.tickets.length}`],
     ['limits', limits.length > 0 ? `${ICON.gauge}  ${limits.map(l => `${l.name} ${Math.round(l.percent)}%`).join(' · ')}` : undefined],
   ]
   const key = `${space}|${JSON.stringify(tokens)}`
@@ -296,7 +297,7 @@ const reportUsage = async ($: $, e: SessionMeasureInput) => {
   const pr = current && branch ? (await read($, inbox))?.mine.find(p => p.repo === current.repo && p.branch === branch) : undefined
   const label = current ? [current.repo, branch && (ticketKey(branch) ?? branch.replace(/^[^/]+\//, '').slice(0, 14))].filter(Boolean).join(' · ') : undefined
   const run = current && branch ? (await readCi($))?.runs.find(r => r.repo === current.repo && r.branch === branch) : undefined
-  const text = label && `${ICON.branch} ${label}${run?.isRunning ? `  ${ICON.circleci} ${run.done}/${run.total}` : ''}`
+  const text = label && `${ICON.branch} ${label}${run?.isRunning ? `  ${ciMark((await loadConfig($)).ci.name)} ${run.done}/${run.total}` : ''}`
   const tone = !text ? undefined : run?.isRunning ? 'work_run' : pr && isFailing(pr) ? 'work_fail' : 'work'
   for (const name of ['work', 'work_run', 'work_fail', 'work_ok']) set(name, name === tone ? text : undefined)
   // Two agents on one branch overwrite each other: both rows say so.
@@ -306,13 +307,7 @@ const reportUsage = async ($: $, e: SessionMeasureInput) => {
   await herdr($, args)
 }
 
-// Links the conversation itself names, the newest of each kind winning over the ticket's own.
-const LINK_PATTERNS = {
-  slack: /https:\/\/[a-z0-9-]+\.slack\.com\/archives\/[^\s)>\]"'`]+/g,
-  figma: /https:\/\/(?:www\.)?figma\.com\/(?:design|file|proto|board)\/[^\s)>\]"'`]+/g,
-  notion: /https:\/\/(?:www\.)?(?:notion\.so|notion\.site|app\.notion\.com)\/[^\s)>\]"'`]+/g,
-  pr: /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/g,
-}
+const GITHUB_PR = /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/g
 
 const lastMatch = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].at(-1)?.[0]
 
@@ -334,35 +329,33 @@ const refreshLinks = async ($: $, prompt = '') => {
   const data = await read($, inbox)
   const current = await read($, work)
   const branch = current ? await branchOf($, current) : undefined
-  const { linear } = await loadConfig($)
-  const id = linear.enabled ? (ticketsIn(text, data, linear.teams).at(-1) ?? (branch ? ticketKey(branch) : undefined)) : undefined
-  // Without the ticket itself, its URL follows the workspace of any assigned ticket.
-  const workspace = data?.tickets[0]?.url.match(/^https:\/\/linear\.app\/[^/]+\/issue\//)?.[0]
-  const guessed = workspace && id ? `${workspace}${id}` : ''
+  const { tickets } = await loadConfig($)
+  const id = tickets.enabled ? (ticketsIn(text, data, tickets.keys).at(-1) ?? (branch ? ticketKey(branch) : undefined)) : undefined
+  // Without the ticket itself, its URL comes from the template or an assigned ticket's.
+  const guessed = id ? (ticketUrl(tickets, id, data?.tickets) ?? '') : ''
   const fromTicket = id ? ((await linksFor($, id, data).catch(() => null)) ?? { id, title: '', url: guessed, at: 0 }) : null
-  const pr = lastMatch(text, LINK_PATTERNS.pr)
+  const pr = lastMatch(text, GITHUB_PR)
   const found: TicketLinks = {
     id: id ?? '',
     title: fromTicket?.title ?? '',
     url: fromTicket?.url ?? '',
-    figma: lastMatch(text, LINK_PATTERNS.figma) ?? fromTicket?.figma,
-    notion: lastMatch(text, LINK_PATTERNS.notion) ?? fromTicket?.notion,
-    slack: lastMatch(text, LINK_PATTERNS.slack) ?? fromTicket?.slack,
     pr: pr ? { url: pr, number: Number(pr.split('/').pop()) } : fromTicket?.pr,
+    // The newest page of each site the conversation names wins over the ticket's own.
+    cited: { ...fromTicket?.cited, ...citedIn([text], 'last') },
     at: Date.now(),
   }
   const repo = current?.repo ?? found.pr?.url.match(/github\.com\/[^/]+\/([^/]+)\/pull/)?.[1]
   const prBranch = data?.mine.find(p => p.url === found.pr?.url)?.branch
   Object.assign(found, await dashboardFor($, repo, branch ?? prBranch, text, data).catch(() => ({})))
-  const isEmpty = !found.id && !found.figma && !found.notion && !found.slack && !found.pr && !found.dashboard && !found.preview
+  const isEmpty = !found.id && Object.keys(found.cited ?? {}).length === 0 && !found.pr && !found.dashboard && !found.preview
   await update($, ticket, () => id ?? null)
   await update($, links, () => (isEmpty ? null : found))
 }
 
-// Nerd Font glyphs present in FiraCode Nerd Font 3.0 (no Figma, Notion or Linear logos: a palette, a boxed N, an issue).
+// Nerd Font glyphs present in FiraCode Nerd Font 3.0. Other sites' marks are in sites.ts.
 const ICON = {
-  review: '\uf441', ok: '\uf49e', fail: '\uf52f', linear: '\uf41b', gauge: '\u{f029a}', branch: '\uf418',
-  circleci: '\ue78c', pr: '\uf407', figma: '\u{f03d8}', notion: '\u{f0b15}', slack: '\uf198', view: '\uf080',
+  review: '\uf441', ok: '\uf49e', fail: '\uf52f', ticket: '\uf41b', gauge: '\u{f029a}', branch: '\uf418',
+  pr: '\uf407', view: '\uf080',
   argo: '\u{f0833}', dashboard: '\uf0e4', workflow: '\uf52e', app: '\uf0ac', external: '\uf08e',
 }
 
@@ -372,7 +365,7 @@ const PILL = { main: { fill: '#FFC799', ink: '#101010' }, quiet: { fill: '#2C2C3
 const glyph = (percent: number) => (percent < 12.5 ? '○' : percent < 37.5 ? '◔' : percent < 62.5 ? '◑' : percent < 87.5 ? '◕' : '●')
 
 // ---------------------------------------------------------------------------
-// Inbox: GitHub + Linear, cached on disk so every session shares one fetch
+// Inbox: GitHub + tickets, cached on disk so every session shares one fetch
 
 type GqlPr = {
   __typename?: string
@@ -450,17 +443,6 @@ const fetchGithub = async ($: $) => {
   }
 }
 
-const fetchLinear = async ($: $): Promise<Ticket[] | null> => {
-  if (!(await loadConfig($)).linear.enabled) return null
-  const { issues } = await mcp<{ issues: Ticket[] }>($, 'linear', 'list_issues', {
-    assignee: 'me',
-    limit: 100,
-    fields: ['id', 'title', 'url', 'status', 'statusType', 'parentId', 'project'],
-  })
-  const rank = (t: Ticket) => ACTIVE.indexOf(t.statusType)
-  return issues.filter(t => rank(t) >= 0).sort((a, b) => rank(a) - rank(b))
-}
-
 type News = { text: string; action: string; buttons?: [string, string][] }
 
 // What changed since the previous fetch, worth a notification, each with where its click leads.
@@ -525,9 +507,10 @@ const fetchInbox = async ($: $, cached: Inbox | null) => {
   const errors: string[] = []
   const [gh, tickets] = await Promise.all([
     fetchGithub($).catch((err: Error) => (errors.push(err.message), null)),
-    fetchLinear($).catch((err: Error) => {
+    myTickets($).catch(async (err: Error) => {
+      const { name } = (await loadConfig($)).tickets
       const isConnecting = err.message.includes('no connected MCP tool')
-      errors.push(isConnecting ? 'Linear connector still connecting, retrying in a minute' : `Linear ${shortError(err)}`)
+      errors.push(isConnecting ? `${name} connector still connecting, retrying in a minute` : `${name} ${shortError(err)}`)
       return null
     }),
   ])
@@ -661,12 +644,9 @@ const dashboardIcon = (url: string) => (dashboardName(url) === 'ArgoCD' ? ICON.a
 const siteIcon = (url: string) => {
   const host = url.match(/^https?:\/\/([^/]+)/)?.[1] ?? ''
   if (host.endsWith('github.com')) return '\uf09b'
-  if (host.endsWith('figma.com')) return ICON.figma
-  if (host.endsWith('linear.app')) return ICON.linear
-  if (/notion\.(so|site|com)$/.test(host)) return ICON.notion
-  if (host.endsWith('slack.com')) return ICON.slack
+  if (host.endsWith('linear.app')) return ICON.ticket
   if (host.startsWith('argocd.')) return ICON.argo
-  return ICON.app
+  return siteMark(url) ?? ICON.app
 }
 
 // The agent row, split like Zen's split view when panes sit beside the session: the agent's topic on the left, the
@@ -720,11 +700,12 @@ const reviewPr = async ($: $, pr: Pr) => {
 }
 
 const ciPrompt = (pr: Pr, run: CiRun | undefined) => {
-  const circle = run?.failed
-    ? ` The failing CircleCI job is ${run.failed.job} (job id ${run.failed.jobId}${run.failed.step ? `, step "${run.failed.step}"` : ''}): use the CircleCI MCP (get_job, list_job_tests, then get_job_logs with a small tail).`
+  const job = run?.failed
+    ? ` The failing job is ${run.failed.job}${run.failed.step ? `, step "${run.failed.step}"` : ''}: read its logs with ${run.failed.logs}.`
     : ''
-  const checks = pr.failedChecks?.length ? ` Failing GitHub checks: ${pr.failedChecks.join(', ')} (gh pr checks, gh run view --log-failed).` : ''
-  return `CI is failing on ${pr.url}.${circle}${checks} Explain the cause and propose a fix. Do not push.`
+  const others = (pr.failedChecks ?? []).filter(c => c !== run?.failed?.job)
+  const checks = others.length ? ` Failing GitHub checks: ${others.join(', ')} (gh pr checks, gh run view --log-failed).` : ''
+  return `CI is failing on ${pr.url}.${job}${checks} Explain the cause and propose a fix. Do not push.`
 }
 
 const investigateCi = async ($: $, pr: Pr) => {
@@ -747,7 +728,7 @@ export const register: Register = on => {
   registerSettings(on)
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'inbox', description: 'Toggle the PR review / Linear inbox pane' })
+    await $.command.register({ name: 'inbox', description: 'Toggle the PR review / ticket inbox pane' })
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
     await registerSettingsCommand($)
     await $.tool.register(REPORT_SPEC).catch(() => undefined)
@@ -886,11 +867,9 @@ export const register: Register = on => {
     return (
       <Box flexDirection="row" gap={1}>
         {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
-        {found?.id && found.url && chip('lk-linear', `${ICON.linear} ${found.id}`, found.url, 'main')}
+        {found?.id && found.url && chip('lk-ticket', `${ICON.ticket} ${found.id}`, found.url, 'main')}
         {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url)}
-        {found?.figma && chip('lk-figma', `${ICON.figma} figma`, found.figma)}
-        {found?.notion && chip('lk-notion', `${ICON.notion} notion`, found.notion)}
-        {found?.slack && chip('lk-slack', `${ICON.slack} slack`, found.slack)}
+        {chipsFor(found?.cited ?? {}).map(site => chip(`lk-${site.kind}`, `${site.icon} ${site.label}`, site.url))}
         {found?.dashboard && chip('lk-dashboard', `${dashboardIcon(found.dashboard.url)} ${found.dashboard.label}`, found.dashboard.url)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
         {found?.preview && chip('lk-preview', `${ICON.app} ${found.preview.label}`, found.preview.url)}
@@ -937,6 +916,7 @@ export const register: Register = on => {
     const open = await read($, expanded)
     const message = await read($, note)
     const mutedRepos = await read($, muted)
+    const ticketsName = (await loadConfig($)).tickets.name
     const width = Math.max(40, e.props.bodyColumns)
     const meta = width >= 100 ? 18 : 6
 
@@ -1028,7 +1008,7 @@ export const register: Register = on => {
     const waiting = fresh.filter(pr => !action.includes(pr) && !ready.includes(pr))
     const stale = data.mine.filter(isStalePr)
 
-    // Linear: in progress, then backlog, with the to-deploy ones folded away.
+    // Tickets: in progress, then backlog, with the to-deploy ones folded away.
     const working = data.tickets.filter(t => t.statusType === 'started' && !isDeploying(t))
     const deploying = data.tickets.filter(isDeploying)
     const backlog = data.tickets.filter(t => t.statusType !== 'started')
@@ -1065,7 +1045,7 @@ export const register: Register = on => {
         {fold('ready', ready.length, 'ready to merge', () => ready.map(mineRow))}
         {fold('stale', stale.length, `stale, no update in ${STALE_PR_DAYS} days`, () => stale.map(mineRow))}
         {gap('gap-2')}
-        {heading('Linear', `${data.tickets.length} assigned · ${working.length} in progress`)}
+        {heading(ticketsName, `${data.tickets.length} assigned · ${working.length} in progress`)}
         {working.map(ticketRow)}
         {backlog.length > 0 && <Text dimColor>backlog</Text>}
         {backlog.map(ticketRow)}

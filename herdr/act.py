@@ -2,7 +2,7 @@
 
     act.py review <PR url>       a Claude review of the PR in a new space
     act.py ci <PR url>           a Claude investigation of the PR's failing CI in a new space
-    act.py rerun <PR url>        the PR's failed CircleCI jobs rerun, by the next Claude session
+    act.py rerun <PR url>        the PR's failed CI jobs rerun, by the next Claude session
     act.py plan <ticket id>      a Claude plan for the ticket in a new space
 """
 
@@ -41,11 +41,11 @@ def main(args):
         pr = pr_of(ref)
         run = ci_run_of(pr)
         if not run or not run.get("workflowId"):
-            sys.exit(f"no CircleCI run known for {pr['repo']}#{pr['number']}")
+            sys.exit(f"no CI run to rerun for {pr['repo']}#{pr['number']}")
         inbox.request(state, {"type": "rerun", "workflowId": run["workflowId"], "label": f"rerun {pr['repo']}#{pr['number']}"},
                       "notification", "rerunning…")
     elif kind == "plan":
-        url = cockpit_config.ticket_url(ref) or ""
+        url = cockpit_config.ticket_url(ref, cockpit_config.load()) or ""
         inbox.plan(state, {"id": ref.upper(), "url": url})
     else:
         sys.exit(__doc__)
