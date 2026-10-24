@@ -33,6 +33,16 @@ and what you saw, with the screenshot paths.
 that tab with `terminal-browser action -- tab close` when done, so the
 person's tabs keep their own size.
 
+**Before and after, for a PR description**: `sh ~/.config/cockpit/herdr/shots.sh <url> <dir>` screenshots a page at
+phone, tablet and desktop sizes in throwaway tabs (`--sizes mobile,desktop`, `--full` for the whole page) and prints the
+paths. Take it once for before, into `~/.cache/cockpit/shots/<repo>-<branch>/before`: on `main` with the dev server
+still running, or on the production page when the branch must stay checked out. Then once for after, on the branch,
+into `…/after`. Dismiss cookie banners first so both sides match. Show them to the person with the show tool,
+`placement: "browser"`, one `{type: "compare", title: "Mobile", before, after}` block per size. In the PR description,
+GitHub only takes pictures uploaded through its own editor: open the PR's edit form (or the new PR page) beside you,
+`upload` the screenshots into the description field, check their links appeared, arrange them in a small Before | After
+table, and leave Save or Create to the person.
+
 **Anything that publishes in the person's name stays theirs**: a GitHub review, a comment, a message, a form that
 sends. Fill it in (the review's inline comments, the summary), leave the page on the Submit button and tell the person
 it is ready for them to read and submit. Never press Submit, Send, Approve, Merge or Delete yourself.

@@ -45,6 +45,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   "notifications": true,
   "terminalBrowser": true,
   "checksBrowser": "terminal",
+  "browserIdleMinutes": 60,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
   "runbookTools": []
