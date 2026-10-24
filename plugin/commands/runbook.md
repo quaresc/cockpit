@@ -7,7 +7,7 @@ Build the runbook for $ARGUMENTS (when empty: the ticket this conversation is ab
 
 The runbook lives in `~/.config/cockpit/runbooks/<slug>.md`, slug being the ticket key lowercased, else a short feature slug. When that file already exists, read it first and update it in place: keep its step order and numbering, refresh every status from live facts, add the steps that appeared and mark the ones finished.
 
-Gather the facts before writing, never from memory alone: every PR across repos (gh: state, review, CI), whether merged ones are live in production (the deploy status your connected tools give, e.g. Platform, then `gh api repos/<owner>/<repo>/compare/<merge sha>...<deployed ref>`), the ticket status, and the deploy order, migrations and post-deploy commands from the PRs, the memory notes and the code.
+Gather the facts before writing, never from memory alone: every PR across repos (gh: state, review, CI), whether merged ones are live in production (the deploy status your connected tools give, then `gh api repos/<owner>/<repo>/compare/<merge sha>...<deployed ref>`), the ticket status, and the deploy order, migrations and post-deploy commands from the PRs, the memory notes and the code.
 
 Format:
 - first line `# <TICKET> · <feature>`, second line `updated: <YYYY-MM-DD HH:MM>`, the local time from `date`, never a guess

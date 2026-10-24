@@ -9,7 +9,25 @@
     "stagePrefix": "preview-",
     "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}",
     "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}",
-    "sandboxDefaults": { "settingA": false }
+    "sandboxDefaults": {},
+    "tools": {
+      "deployStatus": { "tool": "deploys_status", "args": { "env": "production" } },
+      "deployHistory": { "tool": "deploys_history", "args": { "env": "production", "app": "{app}" } },
+      "listSandboxes": { "tool": "sandboxes_list", "args": { "owner": "{login}" } },
+      "sandboxStatus": { "tool": "sandboxes_get", "args": { "id": "{stage}" } },
+      "createSandbox": { "tool": "sandboxes_create", "args": { "app": "{product}", "branch": "{branch}" } },
+      "redeploySandbox": { "tool": "sandboxes_redeploy", "args": { "id": "{stage}", "app": "{product}" } },
+      "stopSandbox": { "tool": "sandboxes_stop", "args": { "id": "{stage}" } },
+      "startSandbox": { "tool": "sandboxes_start", "args": { "id": "{stage}" } },
+      "extendSandbox": { "tool": "sandboxes_extend", "args": { "id": "{stage}", "days": "{days}" } }
+    },
+    "fields": {
+      "apps": "apps", "appId": "id", "appRepo": "repository", "appLink": "dashboardUrl", "appTag": "version", "appSha": "commit",
+      "deployments": "deployments", "deployWorkflow": "workflow", "deployNamespace": "namespace", "deployTag": "version", "deployBranch": "branch",
+      "sandboxes": "sandboxes", "sandboxId": "id", "sandboxExpires": "expiresAt", "sandboxActive": "running", "sandboxHealth": "health",
+      "sandboxProducts": "apps", "productName": "name", "productBranch": "branch",
+      "statusProducts": "apps", "statusUrl": "url", "createdId": "id", "healthy": "Healthy"
+    }
   },
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
   "recap": { "enabled": true, "awayMinutes": 10 },

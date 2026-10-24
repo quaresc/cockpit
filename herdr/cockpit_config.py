@@ -17,7 +17,7 @@ DEFAULTS = {
     "github": {"enabled": True, "org": ""},
     "linear": {"enabled": False, "server": "claude.ai Linear", "teams": []},
     "circleci": {"enabled": False, "server": "circleci", "imageJob": ""},
-    "platform": {"enabled": False, "server": "platform", "stagePrefix": "", "sandboxArgoUrl": "", "workflowUrl": ""},
+    "platform": {"enabled": False, "server": "", "stagePrefix": "", "sandboxArgoUrl": "", "workflowUrl": "", "tools": {}, "fields": {}},
     "calendar": {"enabled": False, "server": "claude.ai Google Calendar"},
     "brief": {"enabled": True, "at": "08:30", "weekends": False},
     "meetingBrief": {"enabled": True, "model": "sonnet", "skip": ["lunch", "focus", "break", "wday", "out of office"], "tools": []},

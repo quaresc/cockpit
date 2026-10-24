@@ -482,7 +482,7 @@ def build(state, cols):
                 item.buttons.append(Button(asking(state, f"redeploy-{box['stage']}-{box['product']}", "redeploy"), lambda: redeploy(state, box, pr["url"]),
                                      "d", not item.buttons))
             # A green image with no sandbox running it yet: one click creates one with the configured defaults.
-            if not box and image_ready and CONFIG["platform"]["enabled"]:
+            if not box and image_ready and CONFIG["platform"]["enabled"] and "createSandbox" in CONFIG["platform"]["tools"]:
                 item.buttons.append(Button(asking(state, f"sandbox-{pr['repo']}-{pr.get('branch')}", "sandbox"), lambda: create_sandbox(state, pr),
                                      "s", not item.buttons))
             # ArgoCD: the sandbox running this branch, else the production app; then its latest prod deploy.

@@ -1,6 +1,33 @@
 import type { EngineInterface } from 'claude-code'
 
+import type { Capability } from './platform'
+
 type $ = EngineInterface
+
+// A platform tool for one capability, its arguments with "{name}" placeholders, and the answer's fields to send back
+// as they were (`keep`, for a tool that replaces a whole setup).
+export type Recipe = { tool: string; args?: Record<string, unknown>; keep?: string[] }
+
+// Where each value cockpit reads sits in the platform tools' answers, as dotted paths ("status.health"; "a|b" for
+// the first that has one).
+export type PlatformFields = Partial<Record<
+  | 'apps' | 'appId' | 'appRepo' | 'appLink' | 'appTag' | 'appSha' | 'appKind'
+  | 'deployments' | 'deployWorkflow' | 'deployNamespace' | 'deployTag' | 'deployBranch'
+  | 'sandboxes' | 'sandboxId' | 'sandboxExpires' | 'sandboxActive' | 'sandboxHealth' | 'sandboxProducts'
+  | 'productName' | 'productEnabled' | 'productBranch' | 'statusProducts' | 'statusUrl' | 'createdId' | 'healthy',
+  string
+>> & { skipKinds?: string[] }
+
+export type Platform = {
+  enabled: boolean
+  server: string
+  stagePrefix: string
+  sandboxArgoUrl: string
+  workflowUrl: string
+  sandboxDefaults: Record<string, unknown>
+  tools: Partial<Record<Capability, Recipe>>
+  fields: PlatformFields
+}
 
 // ~/.config/cockpit/config.json, written by /cockpit:setup and shared with the herdr apps.
 export type Config = {
@@ -8,14 +35,8 @@ export type Config = {
   github: { enabled: boolean; org: string }
   linear: { enabled: boolean; server: string; teams: string[] }
   circleci: { enabled: boolean; server: string; imageJob: string }
-  platform: {
-    enabled: boolean
-    server: string
-    stagePrefix: string
-    sandboxArgoUrl: string
-    workflowUrl: string
-    sandboxDefaults: Record<string, unknown>
-  }
+  // The connector whose tools deploy apps and run sandboxes, mapped by /cockpit:setup.
+  platform: Platform
   deployWatch: { enabled: boolean; afterMinutes: number; tools: string[] }
   recap: { enabled: boolean; awayMinutes: number }
   meetingBrief: { enabled: boolean; model: string; skip: string[]; tools: string[] }
@@ -37,7 +58,7 @@ const DEFAULTS: Config = {
   github: { enabled: true, org: '' },
   linear: { enabled: false, server: 'claude.ai Linear', teams: [] },
   circleci: { enabled: false, server: 'circleci', imageJob: '' },
-  platform: { enabled: false, server: 'platform', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '', sandboxDefaults: {} },
+  platform: { enabled: false, server: '', stagePrefix: '', sandboxArgoUrl: '', workflowUrl: '', sandboxDefaults: {}, tools: {}, fields: {} },
   deployWatch: { enabled: false, afterMinutes: 30, tools: [] },
   recap: { enabled: true, awayMinutes: 10 },
   meetingBrief: { enabled: true, model: 'sonnet', skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },

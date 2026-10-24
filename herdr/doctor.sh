@@ -114,6 +114,13 @@ else
   fi
 fi
 
+# The platform connector's tools, mapped by /cockpit:setup to what cockpit does with deploys and sandboxes
+if enabled platform; then
+  mapped=$(jq -r '.platform.tools // {} | to_entries | map(select(.value.tool // "" | length > 0) | .key) | join(", ")' "$CONFIG")
+  [ -n "$mapped" ] && ok "platform tools mapped: $mapped" ||
+    warn "platform is on but no tool is mapped: no deploys or sandboxes → /cockpit:setup maps them"
+fi
+
 # Permission rules for the background MCP calls
 for source in linear circleci platform calendar; do
   enabled "$source" || continue

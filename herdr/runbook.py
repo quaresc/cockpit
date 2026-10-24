@@ -220,8 +220,9 @@ LOGS = os.path.join(HOME, ".cache", "cockpit")
 TOOLS = ["Bash(gh:*)", "Bash(git:*)", "Bash(jq:*)", "Read", "Write", "Edit", "Grep", "Glob",
          *[cockpit_config.tool_prefix(CONFIG[source]["server"]) for source in ("linear", "circleci", "platform") if CONFIG[source]["enabled"]],
          *CONFIG["runbookTools"]]
-DEPLOY_FACTS = ("Platform deploys_status, then gh compare of the merge commit against the deployed tag"
-                if CONFIG["platform"]["enabled"] else "from the deploy tooling the connected tools reach, then gh compare of the merge commit against the deployed ref")
+DEPLOY_FACTS = (f"the platform's {CONFIG['platform']['tools']['deployStatus']['tool']} tool, then gh compare of the merge commit against the deployed tag"
+                if CONFIG["platform"]["enabled"] and "deployStatus" in CONFIG["platform"]["tools"]
+                else "from the deploy tooling the connected tools reach, then gh compare of the merge commit against the deployed ref")
 
 
 def refresh_prompt(book):

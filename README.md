@@ -176,7 +176,8 @@ arrive as a notification: click it to update.
 - herdr 0.9+, and Claude Code with plugin hooks modules
 - `gh` signed in, `jq`, Python 3, and `swiftc` (Xcode command line tools) for notifications
 - A Nerd Font: it's drawn with FiraCode Nerd Font Mono.
-- Optional: Linear, CircleCI, Google Calendar, Platform, Datadog and Metabase connectors,
+- Optional: Linear, CircleCI, Google Calendar, Datadog and Metabase connectors, a platform connector for deploys and
+  sandboxes,
   [herdr-reviewr](https://github.com/persiyanov/herdr-reviewr) for line comments on a diff, and
   [terminal-browser](https://github.com/zenbu-labs/terminal-browser) for front checks beside the agent.
 
@@ -194,7 +195,7 @@ arrive as a notification: click it to update.
 | `linear.teams` | Team keys to recognise in ticket mentions, on top of your tickets' own. |
 | `<connector>.server` | The connector's name in `claude mcp list`. |
 | `circleci.imageJob` | The job that builds the image a sandbox runs. Enables `sandbox` and `redeploy`. |
-| `platform.*` | Deploys and sandboxes. Argo links come from the URL templates, new sandboxes from `sandboxDefaults`. |
+| `platform.*` | Deploys and sandboxes through your platform connector's tools: `tools` maps each capability to a tool and its arguments, `fields` maps what cockpit reads in their answers. `/cockpit:setup` writes both. Argo links come from the URL templates. |
 | `brief` | When the morning brief comes, and whether on weekends. |
 | `deployWatch` | The after-deploy check: how long to wait, and which read-only tools it may use. |
 | `recap` | How long you need to be away before the recap shows. |

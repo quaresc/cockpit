@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Sandbox } from '../types'
 
 import { cacheDir, fill, home, loadConfig } from './config'
+import { appFor, call, can, createSandbox, deployedApps, extendSandbox, listSandboxes, sandboxUrl } from './platform'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
 
@@ -40,7 +41,7 @@ export function shortError(err: Error) {
   return tool ? `blocked by auto mode: allow ${tool}` : err.message.slice(0, 200)
 }
 
-export type Source = 'linear' | 'circleci' | 'platform' | 'calendar'
+export type Source = 'linear' | 'circleci' | 'calendar'
 
 // One MCP call to a source's configured server, its first text block parsed as JSON; throws on a tool error.
 export async function mcp<T>($: $, source: Source, tool: string, args: Record<string, unknown>): Promise<T> {
@@ -216,8 +217,6 @@ export function refreshCi($: $, isForced = false) {
 // ---------------------------------------------------------------------------
 // Deploys: is each merged PR of a "To Deploy" ticket in the production image yet?
 
-type DeployedApp = { repository?: string; imageTag: string | null; commitSha: string | null; name: string }
-
 const compareCache = new Map<string, boolean>()
 
 async function isContained($: $, slug: string, sha: string, ref: string) {
@@ -232,16 +231,15 @@ async function isContained($: $, slug: string, sha: string, ref: string) {
 
 export async function deploysFor($: $, tickets: Inbox['tickets'], merged: MergedPr[]) {
   const waiting = tickets.filter(t => t.statusType === 'started' && /deploy/i.test(t.status))
-  if (waiting.length === 0 || !(await loadConfig($)).platform.enabled) return {}
-  const { apps } = await mcp<{ apps: DeployedApp[] }>($, 'platform', 'deploys_status', { env: 'production' })
-  const appOf = (repo: string) => apps.find(a => a.repository?.toLowerCase().endsWith(`/${repo.toLowerCase()}`))
+  if (waiting.length === 0 || !(await can($, 'deployStatus'))) return {}
+  const apps = await deployedApps($)
   const out: Record<string, DeployedPr[]> = {}
   for (const ticket of waiting) {
     const prs = merged.filter(pr => pr.branch.toLowerCase().includes(ticket.id.toLowerCase()))
     out[ticket.id] = await Promise.all(
       prs.map(async pr => {
-        const app = appOf(pr.repo)
-        const ref = app?.imageTag ?? app?.commitSha ?? null
+        const app = appFor(apps, pr.repo)
+        const ref = app?.tag ?? app?.sha ?? null
         return { repo: pr.repo, number: pr.number, tag: ref, isLive: ref ? await isContained($, pr.slug, pr.mergeSha, ref) : false }
       }),
     )
@@ -275,58 +273,24 @@ export function deployChanges(prev: Inbox, next: Inbox) {
 // ---------------------------------------------------------------------------
 // Sandboxes I own, and which branch each product runs there
 
-type SandboxNode = {
-  id: string
-  expiresAt: string
-  activated?: boolean
-  status: { health: string }
-  products?: { name: string; enabled: boolean; revision?: string }[]
-}
-
 let login: string | undefined
 
 export async function sandboxesFor($: $): Promise<Sandbox[]> {
-  if (!(await loadConfig($)).platform.enabled) return []
+  if (!(await can($, 'listSandboxes'))) return []
   if (!login) {
     const { exitCode, stdout } = await $.process.run(['gh', 'api', 'user', '--jq', '.login'])
     if (exitCode !== 0) return []
     login = stdout.trim()
   }
-  const { sandboxes } = await mcp<{ sandboxes: SandboxNode[] | null }>($, 'platform', 'sandboxes_list', {
-    owner: login,
-    withApps: true,
-  })
-  return (sandboxes ?? []).flatMap(box =>
-    (box.products ?? [])
-      .filter(p => p.enabled && p.revision && !['main', 'master'].includes(p.revision))
-      .map(p => ({ stage: box.id, product: p.name, branch: p.revision ?? '', health: box.status.health, expiresAt: box.expiresAt, activated: box.activated })),
+  return (await listSandboxes($, { login })).flatMap(box =>
+    box.products
+      .filter(p => p.enabled && p.branch && !['main', 'master'].includes(p.branch))
+      .map(p => ({ stage: box.stage, product: p.name, branch: p.branch ?? '', health: box.health, expiresAt: box.expiresAt, activated: box.activated })),
   )
 }
 
 // ---------------------------------------------------------------------------
 // Requests the herdr inbox app drops in ~/.cache/cockpit/requests: CircleCI reruns, sandbox redeploys
-
-type SandboxFlags = {
-  id: string
-  activated: boolean
-  settingA?: boolean
-  settingB?: boolean
-  settingC?: boolean
-  settingD?: boolean
-  settingE?: boolean
-}
-
-// Adds days to a sandbox (expired or not) and switches it back on. Its flags are passed as they
-// are, so the update does not reset monitoring and the rest to the sandbox defaults.
-async function extend($: $, stage: string, days: number) {
-  const { sandboxes } = await mcp<{ sandboxes: SandboxFlags[] | null }>($, 'platform', 'sandboxes_list', {})
-  const box = (sandboxes ?? []).find(s => s.id === stage)
-  if (!box) throw new Error(`sandbox ${stage} not found`)
-  const keys = ['settingA', 'settingB', 'settingC', 'settingD', 'settingE'] as const
-  const flags = Object.fromEntries(keys.filter(key => box[key] !== undefined).map(key => [key, box[key]]))
-  await mcp($, 'platform', 'sandboxes_update', { stage, days: days, ...flags })
-  if (!box.activated) await mcp($, 'platform', 'sandboxes_activate', { stage, activated: true })
-}
 
 type Status = { id: string; type: string; name: string }
 
@@ -348,17 +312,6 @@ async function dropTicket($: $, id: string) {
   await $.fs.write(path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
 }
 
-type SandboxStatus = { sandbox: { activated: boolean; products: { name: string; urls: { label?: string; url: string }[] }[] } }
-
-// A product's first URL on a sandbox, cached ten minutes per sandbox.
-const statusCache = new Map<string, { at: number; status: SandboxStatus }>()
-export async function sandboxUrl($: $, stage: string, product: string) {
-  const hit = statusCache.get(stage)
-  const status = hit && Date.now() - hit.at < 10 * 60_000 ? hit.status : await mcp<SandboxStatus>($, 'platform', 'sandboxes_get', { stage })
-  statusCache.set(stage, { at: Date.now(), status })
-  return status.sandbox.products.find(p => p.name === product)?.urls[0]?.url
-}
-
 // Sandboxes created from the inbox, announced once ArgoCD reports them healthy.
 type Pending = { stage: string; product: string; branch: string; at: number }
 
@@ -369,7 +322,7 @@ export async function announceSandboxes($: $, sandboxes: Sandbox[]) {
   const left: Pending[] = []
   for (const p of pending) {
     const box = sandboxes.find(s => s.stage === p.stage)
-    if (box?.health === 'Healthy') {
+    if (box && box.health === ((await loadConfig($)).platform.fields.healthy ?? 'Healthy')) {
       const url = await sandboxUrl($, p.stage, p.product).catch(() => undefined)
       const argo = fill((await loadConfig($)).platform.sandboxArgoUrl, { stage: p.stage })
       await notify($, '🧪 Sandbox ready', `${p.product} ${p.branch} on ${p.stage}`, url ?? (await sandboxAction($, p.stage)), argo ? [['ArgoCD', argo]] : [])
@@ -380,13 +333,8 @@ export async function announceSandboxes($: $, sandboxes: Sandbox[]) {
   await $.fs.write(path, JSON.stringify(left))
 }
 
-async function createSandbox($: $, product: string, branch: string) {
-  const defaults = (await loadConfig($)).platform.sandboxDefaults
-  const created = await mcp<{ sandbox?: { id: string }; id?: string; stage?: string }>($, 'platform', 'sandboxes_create', {
-    ...defaults,
-    products: [{ name: product, branch }],
-  })
-  const stage = created.sandbox?.id ?? created.id ?? created.stage ?? ''
+async function startSandboxFor($: $, product: string, branch: string) {
+  const stage = await createSandbox($, product, branch)
   if (stage) {
     const path = `${await cacheDir($)}/pending-sandboxes.json`
     const pending = (await readJson<Pending[]>($, path)) ?? []
@@ -430,19 +378,19 @@ export async function processRequests($: $, onDone: () => void) {
         await result('done', 'rerun started')
         await notify($, '🔁 CircleCI', `Rerunning failed jobs: ${request.label}`, 'space:inbox')
       } else if (request.type === 'redeploy') {
-        await mcp($, 'platform', 'sandboxes_redeploy', { stage: request.stage, applications: [request.product] })
+        await call($, 'redeploySandbox', { stage: request.stage, product: request.product })
         await result('done', 'redeploying')
         await notify($, '🧪 Sandbox', `Redeploying ${request.product} on ${request.stage}`, await sandboxAction($, request.stage))
       } else if (request.type === 'create-sandbox') {
-        const stage = await createSandbox($, request.product, request.branch)
+        const stage = await startSandboxFor($, request.product, request.branch)
         await result('done', stage ? `creating ${stage}` : 'creating')
         await notify($, '🧪 Sandbox', `Creating ${stage || 'a sandbox'} for ${request.product} ${request.branch}; a notification follows when it is up`, stage ? await sandboxAction($, stage) : 'space:inbox')
       } else if (request.type === 'stop-sandbox') {
-        await mcp($, 'platform', 'sandboxes_activate', { stage: request.stage, activated: false })
+        await call($, 'stopSandbox', { stage: request.stage })
         await result('done', 'stopped')
         await notify($, '🧪 Sandbox', `${request.stage} stopped; it keeps its setup and extend switches it back on`, 'space:inbox')
       } else if (request.type === 'extend') {
-        await extend($, request.stage, request.days)
+        await extendSandbox($, request.stage, request.days)
         await result('done', `extended by ${request.days} days`)
         await notify($, '🧪 Sandbox', `${request.stage} extended by ${request.days} days and redeploying`, await sandboxAction($, request.stage))
       } else {

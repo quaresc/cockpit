@@ -2,8 +2,10 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, TicketLinks } from '../types'
 
-import { mcp, sandboxUrl } from './ci'
+import { mcp } from './ci'
 import { cacheDir, fill, loadConfig } from './config'
+import { appFor, deployedApps, latestDeploy, sandboxUrl } from './platform'
+import type { Deployment } from './platform'
 
 type $ = EngineInterface
 
@@ -78,55 +80,21 @@ export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<T
 // ArgoCD and Argo Workflows for the repo a session works on: its sandbox when it runs on one,
 // else the production app and that app's latest deploy workflow.
 
-const APPS_TTL_MS = 10 * 60_000
-const DEPLOYS_TTL_MS = 5 * 60_000
-
-type App = { id: string; repository?: string; argoUrl?: string; type?: string }
-type Deployment = { workflowName: string; namespace: string; tag?: string | null; branch?: string | null }
-
-export async function productionApps($: $): Promise<App[]> {
-  const path = `${await cacheDir($)}/apps.json`
-  try {
-    const cached = JSON.parse(await $.fs.read(path)) as { at: number; apps: App[] }
-    if (Date.now() - cached.at < APPS_TTL_MS) return cached.apps
-  } catch {
-    // Not cached yet.
-  }
-  if (!(await loadConfig($)).platform.enabled) return []
-  const { apps } = await mcp<{ apps: App[] }>($, 'platform', 'deploys_status', { env: 'production' })
-  await $.fs.write(path, JSON.stringify({ at: Date.now(), apps }))
-  return apps
-}
-
-const deploys = new Map<string, { at: number; latest: Deployment | null }>()
-
-export async function latestDeploy($: $, appId: string) {
-  const hit = deploys.get(appId)
-  if (hit && Date.now() - hit.at < DEPLOYS_TTL_MS) return hit.latest
-  const { deployments } = await mcp<{ deployments: Deployment[] | null }>($, 'platform', 'deploys_history', {
-    env: 'production',
-    appId,
-  })
-  const latest = deployments?.[0] ?? null
-  deploys.set(appId, { at: Date.now(), latest })
-  return latest
-}
-
 async function workflowLink($: $, latest: Deployment) {
-  const url = fill((await loadConfig($)).platform.workflowUrl, { namespace: latest.namespace, name: latest.workflowName })
+  const url = fill((await loadConfig($)).platform.workflowUrl, { namespace: latest.namespace, name: latest.workflow })
   return url ? { url, label: latest.tag ?? latest.branch ?? 'deploy' } : undefined
 }
 
-// Production ArgoCD app and latest deploy workflow per repo, for the inbox app to link.
+// Each repo's deployed app link (its ArgoCD page) and latest deploy workflow, for the inbox app to link.
 export async function deployLinksFor($: $, repos: string[]) {
-  const apps = await productionApps($)
+  const apps = await deployedApps($)
   const out: Record<string, { argo?: string; workflow?: { url: string; label: string } }> = {}
   for (const repo of [...new Set(repos)]) {
-    const app = apps.find(a => a.repository?.toLowerCase().endsWith(`/${repo.toLowerCase()}`) && a.type !== 'cdn')
+    const app = appFor(apps, repo)
     if (!app) continue
     const latest = await latestDeploy($, app.id).catch(() => null)
     out[repo] = {
-      argo: app.argoUrl,
+      argo: app.link,
       workflow: latest ? await workflowLink($, latest) : undefined,
     }
   }
@@ -147,9 +115,9 @@ export async function argoFor($: $, repo: string | undefined, branch: string | u
   const appUrl = box && repo ? await sandboxUrl($, box.stage, repo).catch(() => undefined) : undefined
   if (appUrl) out.app = { url: appUrl, label: 'app' }
   if (!repo) return out
-  const app = (await productionApps($)).find(a => a.repository?.toLowerCase().endsWith(`/${repo.toLowerCase()}`) && a.type !== 'cdn')
+  const app = appFor(await deployedApps($), repo)
   if (!app) return out
-  if (!out.argo && app.argoUrl) out.argo = { url: app.argoUrl, label: 'prod' }
+  if (!out.argo && app.link) out.argo = { url: app.link, label: 'prod' }
   const latest = await latestDeploy($, app.id).catch(() => null)
   if (latest) out.workflow = await workflowLink($, latest)
   return out

@@ -8,16 +8,17 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 
 2. **herdr plugin.** Read `~/.config/herdr/plugins.json`. When no entry has `plugin_id` "cockpit", run `herdr plugin install quaresc/cockpit/herdr --yes` and read the file again. Keep that entry's `plugin_root`.
 
-3. **Connectors.** Run `claude mcp list` and note the exact names of the connected servers for Linear, CircleCI, Google Calendar and Platform, if any.
+3. **Connectors.** Run `claude mcp list` and note the exact names of the connected servers for Linear, CircleCI and Google Calendar, and of a platform connector whose tools report deploys or run per-branch sandboxes (an Argo, Vercel or in-house connector), if any.
 
-4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, Linear tickets, CircleCI runs, Google Calendar meetings, Platform deploys and sandboxes, front checks in terminal-browser beside the agent, for an agent testing a front change in a browser you watch (installs it with `brew install --cask terminal-browser` when missing, then runs `terminal-browser config set render.transport auto` and `terminal-browser config set render.fps 60`; on macOS with Ghostty, also adds `auto-update-channel = tip` to Ghostty's config and asks me to update Ghostty, since only its tip builds read the frame files herdr hands it). Without it, front checks run in Claude in Chrome. Links and footer chips always open in the default browser. Mark the ones whose connector is missing as such in their description.
+4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, Linear tickets, CircleCI runs, Google Calendar meetings, deploys and sandboxes through the platform connector, front checks in terminal-browser beside the agent, for an agent testing a front change in a browser you watch (installs it with `brew install --cask terminal-browser` when missing, then runs `terminal-browser config set render.transport auto` and `terminal-browser config set render.fps 60`; on macOS with Ghostty, also adds `auto-update-channel = tip` to Ghostty's config and asks me to update Ghostty, since only its tip builds read the frame files herdr hands it). Without it, front checks run in Claude in Chrome. Links and footer chips always open in the default browser. Mark the ones whose connector is missing as such in their description.
 
 5. **Values.** Propose each from what you can detect, and ask only what you cannot settle:
    - `reposDir`: the folder holding the git checkouts; look for one with several `*/.git` among `~/code`, `~/src`, `~/dev`, `~/Work/*`, `~/projects`.
    - `github.org`: limits my own PRs to one organization; offer the orgs from `gh api user/orgs --jq '.[].login'` and "none".
    - `linear.teams`: team keys a ticket mention may use (tickets assigned to me add theirs).
    - each enabled connector's `server`: the exact name from step 3.
-   - Platform only: `stagePrefix`, `sandboxArgoUrl` (with `{stage}`) and `workflowUrl` (with `{namespace}` and `{name}`).
+   - Platform only: `stagePrefix` (the start of a sandbox's id, to spot it in a conversation), `sandboxArgoUrl` (with `{stage}`), `workflowUrl` (with `{namespace}` and `{name}`), and the mapping below.
+   - Platform mapping: list the platform server's tools with their descriptions and input schemas, and map each capability cockpit uses to one: `deployStatus` (the deployed apps and their versions), `deployHistory` (an app's recent deploys), `listSandboxes`, `sandboxStatus` (one sandbox's app URLs), `createSandbox`, `redeploySandbox`, `stopSandbox`, `startSandbox` and `extendSandbox`. Write each as `{ "tool", "args" }`, the arguments from the tool's schema with the placeholders `{app}`, `{login}` (my GitHub login), `{stage}`, `{product}` (the app a sandbox runs), `{branch}` and `{days}`. When updating a sandbox replaces its whole setup, list the settings to send back as they were in `extendSandbox.keep`. Then call `deployStatus` and `listSandboxes` once each (read-only) and fill `fields` with the dotted path of every value in their answers (`status.health`, `urls.0.url`; `a|b` takes the first that has one), and `skipKinds` with app kinds that never build from a repo. Leave out a capability no tool covers; cockpit skips what it cannot do.
    - CircleCI only: `imageJob`, the job that pushes the image a sandbox runs, or empty.
    - `deployWatch`: on only when an observability connector (Datadog or similar) is connected; `tools` lists its `mcp__<server>` prefix.
 
@@ -35,7 +36,25 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
     "stagePrefix": "preview-",
     "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}",
     "workflowUrl": "https://argo-workflows.example.com/workflows/{namespace}/{name}",
-    "sandboxDefaults": { "settingA": false }
+    "sandboxDefaults": {},
+    "tools": {
+      "deployStatus": { "tool": "deploys_status", "args": { "env": "production" } },
+      "deployHistory": { "tool": "deploys_history", "args": { "env": "production", "app": "{app}" } },
+      "listSandboxes": { "tool": "sandboxes_list", "args": { "owner": "{login}" } },
+      "sandboxStatus": { "tool": "sandboxes_get", "args": { "id": "{stage}" } },
+      "createSandbox": { "tool": "sandboxes_create", "args": { "app": "{product}", "branch": "{branch}" } },
+      "redeploySandbox": { "tool": "sandboxes_redeploy", "args": { "id": "{stage}", "app": "{product}" } },
+      "stopSandbox": { "tool": "sandboxes_stop", "args": { "id": "{stage}" } },
+      "startSandbox": { "tool": "sandboxes_start", "args": { "id": "{stage}" } },
+      "extendSandbox": { "tool": "sandboxes_extend", "args": { "id": "{stage}", "days": "{days}" } }
+    },
+    "fields": {
+      "apps": "apps", "appId": "id", "appRepo": "repository", "appLink": "dashboardUrl", "appTag": "version", "appSha": "commit",
+      "deployments": "deployments", "deployWorkflow": "workflow", "deployNamespace": "namespace", "deployTag": "version", "deployBranch": "branch",
+      "sandboxes": "sandboxes", "sandboxId": "id", "sandboxExpires": "expiresAt", "sandboxActive": "running", "sandboxHealth": "health",
+      "sandboxProducts": "apps", "productName": "name", "productBranch": "branch",
+      "statusProducts": "apps", "statusUrl": "url", "createdId": "id", "healthy": "Healthy"
+    }
   },
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
   "recap": { "enabled": true, "awayMinutes": 10 },

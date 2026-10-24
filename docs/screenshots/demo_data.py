@@ -81,7 +81,7 @@ with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
     json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "linear": {"enabled": True, "teams": ["ENG"]},
-               "platform": {"enabled": True, "stagePrefix": "preview-", "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}"}}, f)
+               "platform": {"enabled": True, "stagePrefix": "preview-", "sandboxArgoUrl": "https://argocd.example.com/applications/{stage}", "tools": {"createSandbox": {"tool": "sandboxes_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"
             "- [ ] Write the quotas announcement https://notion.so/acme/quotas\n- [x] Review the billing proration PR (done 2026-10-22)\n")
