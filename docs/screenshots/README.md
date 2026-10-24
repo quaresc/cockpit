@@ -13,7 +13,7 @@ python3 demo_data.py home          # a fake HOME with caches, to-dos and runbook
 .venv/bin/python settings.py       # the /cockpit settings pane
 python3 notifications.py           # the notifications and their buttons
 .venv/bin/python compose_anim.py   # the sidebar, the footer, and an E2E test in terminal-browser
-.venv/bin/python overall.py        # the overview
+.venv/bin/python overall.py        # the whole cockpit at once, animated
 ```
 
 `compose_anim.py` and `overall.py` read the fake app's screenshots, which a Claude session in herdr takes:

@@ -5,7 +5,7 @@ test in terminal-browser beside the agent, its page drawn from real screenshots 
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from term2svg import BAR, CW, LH, PAD, animate, picture, put_ops, screen_of
+from term2svg import BAR, CW, LH, PAD, animate, put_ops, screen_of, timed_pictures, with_pictures
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..")
@@ -132,21 +132,8 @@ frames = [(1.4, e2e(1)), (1.0, e2e(2)), (2.4, e2e(3, "localhost:5173/main/", "iP
           (3.6, e2e(8, "show · quota-ui-shots", "before / after"))]
 pages = {2: "before/mobile.png", 4: "after/mobile.png", 6: "after/desktop.png", 7: os.path.join(OUT, "compare.png")}
 # The page area: below the browser's two bars, right of the split.
-x0, y0 = PAD + B * CW + 6, BAR + PAD + 3 * LH
-w, h = (COLS - B - 1) * CW - 12, (ROWS - 4) * LH
-loop = sum(d for d, _ in frames)
-starts = [sum(d for d, _ in frames[:i]) for i in range(len(frames) + 1)]
-images, style = [], ""
-for i, rel in pages.items():
-    data, (iw, ih) = picture(os.path.join(SHOTS, rel), w, h)
-    # Shown from its frame on, until the next page replaces it or the loop ends.
-    end = next((starts[j] for j in sorted(pages) if j > i), loop)
-    a, b = 100 * starts[i] / loop, 100 * end / loop
-    style += f"@keyframes p{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,{b:.2f}%{{visibility:visible}}{b:.2f}%,100%{{visibility:hidden}}}}" \
-             f".p{i}{{visibility:hidden;animation:p{i} {loop:.2f}s step-end infinite}}"
-    images.append(f'<image class="p{i}" href="data:image/jpeg;base64,{data}" x="{x0 + (w - iw) / 2:.1f}" y="{y0:.1f}" '
-                  f'width="{iw}" height="{ih}"/>')
-svg = animate(frames, "herdr · E2E test in terminal-browser")
-svg = svg.replace("</style>", style + "</style>", 1).replace("</svg>", "".join(images) + "</svg>")
+box = (PAD + B * CW + 6, BAR + PAD + 3 * LH, (COLS - B - 1) * CW - 12, (ROWS - 4) * LH)
+style, images = timed_pictures(frames, {i: path if os.path.isabs(path) else os.path.join(SHOTS, path) for i, path in pages.items()}, box)
+svg = with_pictures(animate(frames, "herdr · E2E test in terminal-browser"), style, images)
 open(os.path.join(OUT, "e2e.svg"), "w").write(svg)
 print("sidebar, footer, e2e")
