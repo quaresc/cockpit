@@ -134,6 +134,7 @@ declare module 'claude-code' {
       links: TicketLinks | null
       views: ViewChip[]
       settings: number | null
+      sidePage: { url: string; title: string } | null
     }
   }
 }

@@ -32,7 +32,8 @@ One agent per space, a few pinned spaces for everything around the code, and the
   of one browser, and the keyboard stays where it was. A page already open comes to the front instead. The agent knows
   which page is open there, drives it with the `side-browser` skill to check a front change against the dev server or
   prepare a review you submit, and follows a sandbox it deploys on ArgoCD. Without terminal-browser, links open in the
-  default browser and front checks run in Claude in Chrome. On macOS, panes scroll smoothly with Ghostty's tip builds
+  default browser and front checks run in Claude in Chrome. The footer's ` browser` chip, or `prefix+f`, opens the page
+  beside the agent in the default browser. On macOS, panes scroll smoothly with Ghostty's tip builds
   and terminal-browser at `render.transport auto`, `render.fps 60`; `/cockpit:doctor` checks all three.
 - **Settings.** `/cockpit` opens a pane to flip links, front checks (pane or Chrome), idle browsers, notifications,
   briefs, recap and the after-deploy check; `/cockpit checks chrome` and the like set one from any session.

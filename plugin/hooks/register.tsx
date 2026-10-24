@@ -4,7 +4,7 @@ import type { EngineInterface, Register, RenderChildren, SessionMeasureInput } f
 import type { CiRun, Inbox, MergedPr, Pr, Ticket, TicketLinks, Work } from '../types'
 
 import { activityOf, clashWith, logActivity } from './activity'
-import { browse } from './browser'
+import { browse, openUrl } from './browser'
 import { announceSandboxes, deployChanges, deploysFor, mcp, notify, processRequests, readCi, refreshCi, sandboxesFor, shortError, startDeployWatch, ticketAction, withLock } from './ci'
 import { cacheDir, fill, home, loadConfig } from './config'
 import { argoFor, deployLinksFor, linksFor, ticketsIn } from './links'
@@ -33,6 +33,7 @@ const usage = atom({ plugin: 'cockpit', key: 'usage' } as const, null)
 const views = atom({ plugin: 'cockpit', key: 'views' } as const, [])
 const ticket = atom({ plugin: 'cockpit', key: 'ticket' } as const, null)
 const links = atom({ plugin: 'cockpit', key: 'links' } as const, null)
+const sidePage = atom({ plugin: 'cockpit', key: 'sidePage' } as const, null)
 
 type $ = EngineInterface
 type Limit = { name: string; percent: number; resetsAt?: string }
@@ -363,7 +364,7 @@ const refreshLinks = async ($: $, prompt = '') => {
 const ICON = {
   review: '\uf441', ok: '\uf49e', fail: '\uf52f', linear: '\uf41b', gauge: '\u{f029a}', branch: '\uf418',
   circleci: '\ue78c', pr: '\uf407', figma: '\u{f03d8}', notion: '\u{f0b15}', slack: '\uf198', view: '\uf080',
-  argo: '\u{f0833}', workflow: '\uf52e', app: '\uf0ac',
+  argo: '\u{f0833}', workflow: '\uf52e', app: '\uf0ac', external: '\uf08e',
 }
 
 // A rounded pill: the caps take the fill colour as their foreground.
@@ -675,6 +676,8 @@ const reportSide = async ($: $) => {
   const browsers = await browsersBeside($, here)
   const tabs = browsers.flatMap(b => b.tabs ?? [])
   const page = tabs.find(t => t.active) ?? tabs[0]
+  const shown = page ? { url: page.url, title: page.title ?? '' } : null
+  if (JSON.stringify(shown) !== JSON.stringify(await read($, sidePage))) await update($, sidePage, () => shown)
   const view = (await read($, views)).find(v => v.isOpen)
   const others = Math.max(0, panes.length - 1 - browsers.length)
   const extra = tabs.length + others - 1
@@ -880,6 +883,7 @@ export const register: Register = on => {
     const current = await read($, usage)
     const found = await read($, links)
     const shown = await read($, views)
+    const beside = await read($, sidePage)
     const tight = (current?.limits ?? []).filter(l => l.percent >= 50)
     const pill = (key: string, label: string, onPress: () => unknown, tone: keyof typeof PILL = 'quiet') => (
       <Button key={key} plain onPress={onPress}>
@@ -904,6 +908,7 @@ export const register: Register = on => {
         {found?.argo && chip('lk-argo', `${ICON.argo} ${found.argo.label}`, found.argo.url, 0.5)}
         {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url, 0.5)}
         {found?.app && chip('lk-app', `${ICON.app} ${found.app.label}`, found.app.url, 0.6)}
+        {beside && pill('lk-external', `${ICON.external} browser`, () => openUrl($, beside.url))}
         {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)).then(() => reportSide($)), v.isOpen ? 'main' : 'quiet'))}
         {tight.map(l => (
           <Text key={`lim-${l.name}`} color={l.percent >= 80 ? 'error' : 'warning'}>
@@ -928,6 +933,7 @@ export const register: Register = on => {
       await update($, ticket, () => null)
       await update($, links, () => null)
       await update($, views, () => [])
+      await update($, sidePage, () => null)
     }
     const here = await herdrHere($).catch(() => undefined)
     if (here) {
