@@ -3,10 +3,18 @@
 <h1 align="center">cockpit</h1>
 
 <p align="center"><b>One space with everything, for Claude Code users who switch context all day.</b><br>
-Run several agents in <a href="https://herdr.dev">herdr</a> without losing track: each one beside its ticket, PR, CI and
-the page it tests, with pinned spaces for your inbox, to-dos, runbooks and meetings.</p>
+cockpit is a Claude Code plugin and a <a href="https://herdr.dev">herdr</a> plugin that work as one
+(<a href="#how-it-works">how the two halves fit</a>): your agents run side by side in herdr, and each sits beside its
+ticket, PR, CI and the page it tests, with pinned spaces for your inbox, to-dos, runbooks and meetings.</p>
 
 ![herdr with the cockpit sidebar, an agent testing its change in terminal-browser beside it, and its footer](docs/overview.svg)
+
+## herdr runs your agents, cockpit tells you what they're working on
+
+herdr is the workspace: spaces, panes and tabs for many agents at once, with their status. It doesn't know about your
+work. cockpit adds that context: each agent shows its ticket, branch, PR, CI and deploy, pinned spaces gather your
+review requests, tickets, meetings and to-dos, notifications come with buttons that act, and inside Claude Code you get
+a footer of links, runbooks and briefs.
 
 ## Install
 
