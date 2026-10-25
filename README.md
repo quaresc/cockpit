@@ -2,8 +2,9 @@
 
 <h1 align="center">cockpit</h1>
 
-<p align="center"><b>Run several Claude Code agents in <a href="https://herdr.dev">herdr</a> without losing track of them.</b><br>
-One agent per space, pinned spaces for your inbox, to-dos, runbooks and meetings, and the right links in every session.</p>
+<p align="center"><b>One space with everything, for Claude Code users who switch context all day.</b><br>
+Run several agents in <a href="https://herdr.dev">herdr</a> without losing track: each one beside its ticket, PR, CI and
+the page it tests, with pinned spaces for your inbox, to-dos, runbooks and meetings.</p>
 
 ![herdr with the cockpit sidebar, an agent testing its change in terminal-browser beside it, and its footer](docs/overview.svg)
 
