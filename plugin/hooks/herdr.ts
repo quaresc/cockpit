@@ -8,8 +8,17 @@ export function herdr($: $, args: string[]) {
   return $.process.run(['herdr', ...args], { timeoutMs: 10_000 })
 }
 
+let isBackground = false
+
+// A background or headless session (a daemon agent, a `claude -p` run) inherits its parent's herdr pane: it stays out of
+// that pane's rows and heartbeat, which belong to the session at its prompt.
+export async function setBackground($: $, isInteractive: boolean) {
+  isBackground = !isInteractive || (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
+  return isBackground
+}
+
 export async function isInHerdr($: $) {
-  return (await $.env.get('HERDR_ENV')) === '1'
+  return !isBackground && (await $.env.get('HERDR_ENV')) === '1'
 }
 
 export type Here = { pane: string; tab: string; space: string }

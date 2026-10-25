@@ -27,7 +27,10 @@ open_url() {
   if [ "$OS" = Darwin ]; then open "$1"; else xdg-open "$1" >/dev/null 2>&1; fi
 }
 CONFIG="$HOME/.config/cockpit/config.json"
-REPOS=$(jq -r '.reposDir // empty' "$CONFIG" 2>/dev/null | sed "s|^~|$HOME|")
+# What the scripts read: the config as the mod resolved it, or the raw file before any session has run.
+SETTINGS="$HOME/.cache/cockpit/config.json"
+[ -f "$SETTINGS" ] || SETTINGS=$CONFIG
+REPOS=$(jq -r '.reposDir // empty' "$SETTINGS" 2>/dev/null | sed "s|^~|$HOME|")
 [ -d "$REPOS" ] || REPOS=$HOME
-SPACES=$(jq -r '(.spaces // ["inbox", "terminal", "to-do", "runbook", "meetings"])[]' "$CONFIG" 2>/dev/null) ||
+SPACES=$(jq -r '(.spaces // ["inbox", "terminal", "to-do", "runbook", "meetings"])[]' "$SETTINGS" 2>/dev/null) ||
   SPACES=$(printf 'inbox\nterminal\nto-do\nrunbook\nmeetings')

@@ -21,8 +21,8 @@ const RESULTS_TTL_MS = 86_400_000
 // ---------------------------------------------------------------------------
 // Shared plumbing
 
-// A system notification; a click opens `action`, a URL or a focus.sh target such as space:inbox or runbook:<slug>.
-// A system notification whose click runs `action`; each button, [label, action], runs its own (macOS).
+// A system notification; a click opens `action`, a URL or a focus.sh target such as space:inbox or runbook:<slug>,
+// and each button, [label, action], runs its own.
 export async function notify($: $, title: string, body: string, action = '', buttons: [string, string][] = []) {
   if (!(await loadConfig($)).notifications) return
   const script = `${await home($)}/.config/cockpit/herdr/notify.sh`

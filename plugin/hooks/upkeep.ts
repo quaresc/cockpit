@@ -15,9 +15,19 @@ export async function ownVersion($: $) {
 }
 
 // One file per running session, so /cockpit:doctor can tell which sessions run which version, and which run none.
+const BEAT_GONE_MS = 10 * 60_000
+let prunedAt = 0
+
 export async function heartbeat($: $, here: { pane: string; space: string } | undefined, work?: { repo: string; branch?: string }) {
   const dir = `${await cacheDir($)}/sessions`
   await $.process.run(['mkdir', '-p', dir])
+  // A session that crashed never removes its file: once an hour, files no session refreshed lately go.
+  if (Date.now() - prunedAt > 3600_000) {
+    prunedAt = Date.now()
+    for (const entry of await $.fs.list(dir).catch(() => [])) {
+      if (entry.kind === 'file' && Date.now() - entry.mtimeMs > BEAT_GONE_MS) await $.process.run(['rm', '-f', `${dir}/${entry.name}`])
+    }
+  }
   const beat = { version: await ownVersion($), at: Date.now(), pane: here?.pane ?? null, space: here?.space ?? null, repo: work?.repo, branch: work?.branch }
   await $.fs.write(`${dir}/${await $.session.id()}.json`, JSON.stringify(beat))
 }

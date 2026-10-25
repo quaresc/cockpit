@@ -65,6 +65,24 @@ def load_json(path, default):
         return default
 
 
+_parsed = {}
+
+
+def load_cached(path, default):
+    """load_json for a redraw: parsed again only when the file changed. The value is shared, so callers only read it."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return default
+    key = (info.st_mtime_ns, info.st_size)
+    hit = _parsed.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    value = load_json(path, default)
+    _parsed[path] = (key, value)
+    return value
+
+
 def write_json(path, value):
     """Writes through a temporary file, so a reader never sees half of it."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
