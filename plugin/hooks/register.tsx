@@ -23,34 +23,44 @@ const usage = atom({ plugin: 'cockpit', key: 'usage' } as const, null)
 const views = atom({ plugin: 'cockpit', key: 'views' } as const, [])
 const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 
+// The session's timers: a /clear starts a new session in the same process, and the old one's must not tick on beside it.
+let timers: { cancel: () => void }[] = []
+
+const stopTimers = () => {
+  for (const timer of timers) timer.cancel()
+  timers = []
+}
+
 export const register: Register = on => {
   registerSettings(on)
 
   on('session.start', async ($, e, next) => {
+    stopTimers()
+    const every = (ms: number, fn: () => void) => void timers.push($.clock.every(ms, fn))
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
     await registerSettingsCommand($)
     await $.tool.register(REPORT_SPEC).catch(() => undefined)
     await $.tool.register(SHOW_SPEC).catch(() => undefined)
-    $.clock.every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
-    $.clock.every(60_000, () => void refreshCi($).catch(() => undefined))
-    $.clock.every(60_000, () => void refreshMeetings($).catch(() => undefined))
+    every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
+    every(60_000, () => void refreshCi($).catch(() => undefined))
+    every(60_000, () => void refreshMeetings($).catch(() => undefined))
     void refreshMeetings($).catch(() => undefined)
     // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
-    $.clock.every(3_000, () => void refreshViews($).catch(() => undefined))
-    $.clock.every(10_000, () => void reportSide($).catch(() => undefined))
-    $.clock.every(60_000, () => void closeIdleBrowsers($).catch(() => undefined))
+    every(3_000, () => void refreshViews($).catch(() => undefined))
+    every(10_000, () => void reportSide($).catch(() => undefined))
+    every(60_000, () => void closeIdleBrowsers($).catch(() => undefined))
     // An answer given in a pane reaches the session as the person's next message.
-    $.clock.every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
+    every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
     // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
-    $.clock.every(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
-    $.clock.every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
+    every(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
+    every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
     const beat = async () => {
       const current = await read($, work)
       await heartbeat($, await hereSoon($), current ? { repo: current.repo, branch: await branchOf($, current) } : undefined)
     }
-    $.clock.every(60_000, () => void beat().catch(() => undefined))
+    every(60_000, () => void beat().catch(() => undefined))
     void beat().catch(() => undefined)
-    $.clock.every(3600_000, () => void checkUpdate($).catch(() => undefined))
+    every(3600_000, () => void checkUpdate($).catch(() => undefined))
     void checkUpdate($).catch(() => undefined)
     void refreshCi($).catch(() => undefined)
     void refresh($, false).catch(() => undefined)
@@ -140,6 +150,7 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    stopTimers()
     if (e.reason !== 'clear') await forget($).catch(() => undefined)
     // A /clear keeps the process: what the old conversation worked on must not follow the new one.
     if (e.reason === 'clear') {
