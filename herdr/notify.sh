@@ -5,6 +5,8 @@
 . "$(dirname "$0")/lib.sh"
 title=$1 body=$2 action=${3:-}
 [ $# -gt 3 ] && shift 3 || set --
+# Notifications switched off in the config silence every caller, the mod's and the apps' alike.
+[ "$(jq -r '.notifications' "$CONFIG" 2>/dev/null)" = false ] && exit 0
 # The terminal app hosting herdr, brought forward when a click focuses a space.
 [ -n "${__CFBundleIdentifier:-}" ] && [ "$__CFBundleIdentifier" != "dev.cockpit.notifier" ] &&
   echo "$__CFBundleIdentifier" > "$HOME/.cache/cockpit/terminal-app" 2>/dev/null

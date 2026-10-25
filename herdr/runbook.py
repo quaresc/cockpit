@@ -23,12 +23,14 @@ INBOX = os.path.join(HOME, ".cache", "cockpit", "inbox.json")
 CONFIG = cockpit_config.load()
 REPOS = CONFIG["reposDir"]
 FOCUS = os.path.join(HOME, ".cache", "cockpit", "runbook-focus.json")
-REQUESTS = os.path.join(HOME, ".cache", "cockpit", "runbook-refresh-requests.json")
+# One file per refresh the mod asks for, and one per runbook naming the session that owns it.
+REQUESTS = os.path.join(HOME, ".cache", "cockpit", "runbook-refresh")
+OWNERS = os.path.join(HOME, ".cache", "cockpit", "runbook-owners")
 # Steps handed to a session, and the mod's tool that session reports their outcome with.
 HANDOFFS = os.path.join(HOME, ".cache", "cockpit", "handoffs")
 REPORT_TOOL = "mcp__cockpit__report_step"
 # A handoff no session took after SENT_WAIT seconds says so; a success shows under its step for DONE_SHOWN seconds.
-SENT_WAIT, DONE_SHOWN = 600, 1800
+SENT_WAIT, DONE_SHOWN = 900, 1800
 NOTIFY = cockpit_config.script("notify.sh")
 # A step that turns done plays for FLASH seconds, each one CASCADE seconds after the previous.
 FLASH, CASCADE = 2.6, 0.3
@@ -137,13 +139,20 @@ def take_focus(state):
 
 def take_requests(state):
     """Refreshes the mod asks for, e.g. when a ticket goes live: each one announces itself, with its reason, when done."""
-    requests = view.load_json(REQUESTS, [])
-    if not requests:
-        return
     try:
-        os.remove(REQUESTS)
+        names = sorted(f for f in os.listdir(REQUESTS) if f.endswith(".json"))
     except OSError:
-        pass
+        return
+    requests = []
+    for name in names:
+        # Renamed before reading, so a request the mod writes meanwhile waits for the next poll instead of being lost.
+        taken = os.path.join(REQUESTS, name + ".taken")
+        try:
+            os.rename(os.path.join(REQUESTS, name), taken)
+        except OSError:
+            continue
+        requests.append(view.load_json(taken, {}))
+        os.remove(taken)
     for request in requests:
         book = next((b for b in state["books"] if b["slug"] == request.get("slug")), None)
         if book:
@@ -177,9 +186,13 @@ def announce(state, slug):
 
 def stamp():
     try:
-        books = tuple(sorted((f, os.path.getmtime(os.path.join(DIR, f))) for f in os.listdir(DIR))) + (os.path.getmtime(INBOX),)
+        books = tuple(sorted((f, os.path.getmtime(os.path.join(DIR, f))) for f in os.listdir(DIR)))
     except OSError:
         books = ()
+    try:
+        books += (os.path.getmtime(INBOX),)
+    except OSError:
+        pass
     try:
         handoffs = tuple(sorted((f, os.path.getmtime(os.path.join(HANDOFFS, f))) for f in os.listdir(HANDOFFS)))
     except OSError:
@@ -252,9 +265,9 @@ def update(state, book):
     command = [CLAUDE, "-p", refresh_prompt(book), "--model", "sonnet", "--permission-mode", "acceptEdits", *dirs, "--allowedTools", *TOOLS]
     if session and session != "-":
         command[1:1] = ["--resume", session, "--fork-session"]
-    log = open(os.path.join(LOGS, f"runbook-refresh-{slug}.log"), "w", encoding="utf-8")
-    state["refreshing"][slug] = subprocess.Popen(command, cwd=REPOS, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                                 start_new_session=True)
+    with open(os.path.join(LOGS, f"runbook-refresh-{slug}.log"), "w", encoding="utf-8") as log:
+        state["refreshing"][slug] = subprocess.Popen(command, cwd=REPOS, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                                     start_new_session=True)
     state["refresh_started"][slug] = time.time()
     state["announced"].discard(slug)
     state["newly"].pop(slug, None)
@@ -274,10 +287,8 @@ def refresh_status(state, book):
 
 
 def owner_of(book):
-    owner = view.load_json(os.path.join(HOME, ".cache", "cockpit", "runbook-owners.json"), {}).get(book["slug"])
-    if isinstance(owner, str):
-        return owner, "-"
-    return (owner or {}).get("pane", "-"), (owner or {}).get("session", "-")
+    owner = view.load_json(os.path.join(OWNERS, f"{book['slug']}.json"), {})
+    return owner.get("pane", "-"), owner.get("session", "-")
 
 
 def mark_done(state, book, step):
@@ -363,15 +374,25 @@ def run_step(state, book, step):
 
 def focus_session(state, handoff):
     """Brings the space of the session running the step into view."""
+    if not handoff.get("pane"):
+        note(state, "its session has not picked the step up yet")
+        return
     try:
-        got = subprocess.run([HERDR, "pane", "get", handoff.get("pane") or "-"], capture_output=True, text=True, timeout=5)
+        got = subprocess.run([HERDR, "pane", "get", handoff["pane"]], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        note(state, "herdr did not answer: try again")
+        return
+    try:
         space = json.loads(got.stdout)["result"]["pane"]["workspace_id"]
-    except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError):
+    except (ValueError, KeyError, TypeError):
         # The session is gone with the step: the row offers run again.
         view.write_json(os.path.join(HANDOFFS, handoff["id"] + ".json"), {**handoff, "state": "unreported"})
         note(state, "its session's pane is gone: run the step again")
         return
-    subprocess.run([HERDR, "workspace", "focus", space], capture_output=True, timeout=5)
+    try:
+        subprocess.run([HERDR, "workspace", "focus", space], capture_output=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        note(state, "herdr did not answer: try again")
 
 
 def delete(state, book):

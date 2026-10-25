@@ -30,7 +30,8 @@ const statusType = (config: Tickets, value: unknown) => {
 }
 
 // A ticket's page: the URL template's, else an assigned ticket's URL cut where its id is a path segment, with the id swapped.
-export function ticketUrl(config: Tickets, id: string, known: Ticket[] = []) {
+export function ticketUrl(config: Tickets, ticket: string, known: Ticket[] = []) {
+  const id = ticket.toUpperCase()
   const filled = fill(config.urlTemplate, { id })
   if (filled) return filled
   const sample = known.find(t => t.id && t.url.includes(`/${t.id}`))

@@ -2,6 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import { notify, withLock } from './ci'
 import { cacheDir, home } from './config'
+import { isNewer } from './match'
 
 type $ = EngineInterface
 
@@ -23,15 +24,6 @@ export async function heartbeat($: $, here: { pane: string; space: string } | un
 
 export async function forget($: $) {
   await $.process.run(['rm', '-f', `${await cacheDir($)}/sessions/${await $.session.id()}.json`])
-}
-
-function isNewer(latest: string, current: string) {
-  const a = latest.split('.').map(Number)
-  const b = current.split('.').map(Number)
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
-  }
-  return false
 }
 
 type UpdateState = { at: number; latest?: string; notified?: string }

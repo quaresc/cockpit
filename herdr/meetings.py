@@ -42,11 +42,14 @@ def until_text(start, now):
     return f"in {minutes // 60} h {minutes % 60:02d}" if minutes < 6 * 60 else start.strftime("%H:%M")
 
 
+_reported = {"value": None}
+
+
 def report(state):
     """The next meeting on the meetings space's sidebar row."""
     now = datetime.now().astimezone()
     upcoming = [m for m in (state or {}).get("meetings", []) if parse(m["end"]) > now]
-    upcoming.sort(key=lambda m: m["start"])
+    upcoming.sort(key=lambda m: parse(m["start"]))
     if not upcoming:
         value = f"{ICON['calendar']}  no meeting this week"
     else:
@@ -54,7 +57,9 @@ def report(state):
         start = parse(m["start"])
         when = "now" if start <= now else until_text(start, now) if start.date() == now.date() else start.strftime("%a %H:%M")
         value = f"{ICON['calendar']}  {when} · {m['title'][:20]}"
-    view.report("cockpit-meetings", "meetings", value)
+    if value != _reported["value"]:
+        view.report("cockpit-meetings", "meetings", value)
+        _reported["value"] = value
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +128,7 @@ def build(state, cols):
 
     now = datetime.now().astimezone()
     meetings = sorted((m for m in (data or {}).get("meetings", []) if parse(m["end"]) > now - timedelta(hours=1)),
-                      key=lambda m: m["start"])
+                      key=lambda m: parse(m["start"]))
     head = line().add(f"{ICON['calendar']}  ", ORANGE).add("Meetings", BOLD + ORANGE)
     if data and data.get("at"):
         head.add(f"   updated {datetime.fromtimestamp(data['at'] / 1000).strftime('%H:%M')}", DIM)

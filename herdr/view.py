@@ -77,8 +77,11 @@ def report(source, token, value):
     """A token on the app's own space row in the herdr sidebar, when the app runs in its pinned space."""
     workspace = os.environ.get("HERDR_WORKSPACE_ID") if os.environ.get("COCKPIT_SPACE") else None
     if workspace:
-        subprocess.run([HERDR, "workspace", "report-metadata", workspace, "--source", source, "--token", f"{token}={value}"],
-                       capture_output=True, timeout=5)
+        try:
+            subprocess.run([HERDR, "workspace", "report-metadata", workspace, "--source", source, "--token", f"{token}={value}"],
+                           capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
 
 # ---------------------------------------------------------------------------

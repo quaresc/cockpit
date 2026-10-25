@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2034  # the scripts sourcing this file use its settings
 # Settings shared by the scripts, from the cockpit config that /cockpit:setup writes.
 H="${HERDR_BIN_PATH:-herdr}"
 ROOT=$(cd "$(dirname "$0")" && pwd -P)

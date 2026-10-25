@@ -13,7 +13,8 @@ case "${1:-}" in
   http://* | https://*) open_url "$1"; exit 0 ;;
   meeting:*)
     mkdir -p "$HOME/.cache/cockpit"
-    jq -n --arg id "${1#meeting:}" '{id: $id, at: now}' > "$HOME/.cache/cockpit/meetings-focus.json"
+    jq -n --arg id "${1#meeting:}" '{id: $id, at: now}' > "$HOME/.cache/cockpit/meetings-focus.json.tmp" &&
+      mv "$HOME/.cache/cockpit/meetings-focus.json.tmp" "$HOME/.cache/cockpit/meetings-focus.json"
     sh "$ROOT/focus-space.sh" meetings
     ;;
   update) nohup sh "$ROOT/update.sh" >"$HOME/.cache/cockpit/update.log" 2>&1 & exit 0 ;;
@@ -29,7 +30,7 @@ case "${1:-}" in
     steps=$([ "$rest" != "$slug" ] && echo "${rest#*:}")
     mkdir -p "$HOME/.cache/cockpit"
     jq -n --arg slug "$slug" --arg steps "$steps" '{slug: $slug, steps: ($steps | split(",") | map(select(. != ""))), at: now}' \
-      > "$HOME/.cache/cockpit/runbook-focus.json"
+      > "$HOME/.cache/cockpit/runbook-focus.json.tmp" && mv "$HOME/.cache/cockpit/runbook-focus.json.tmp" "$HOME/.cache/cockpit/runbook-focus.json"
     sh "$ROOT/focus-space.sh" runbook
     ;;
 esac
