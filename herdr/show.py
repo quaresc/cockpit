@@ -496,8 +496,27 @@ def git_diff(repo, base):
     if patch.returncode != 0:
         return None, patch.stderr.strip() or f"git diff {base or 'HEAD'} failed"
     untracked = [f for f in run("ls-files", "--others", "--exclude-standard").stdout.splitlines() if f][:30]
-    extra = "".join(run("diff", "--no-index", "--", "/dev/null", f).stdout for f in untracked)
-    return patch.stdout + extra, None
+    return patch.stdout + "".join(new_file(repo, f) for f in untracked), None
+
+
+def new_file(repo, path):
+    """An untracked file as git would show it added, read here rather than by one git process per file."""
+    head = f"diff --git a/{path} b/{path}\nnew file mode 100644\n"
+    try:
+        with open(os.path.join(repo, path), "rb") as handle:
+            raw = handle.read(1_000_000)
+    except OSError:
+        return ""
+    if not raw:
+        return head
+    if b"\0" in raw:
+        return f"{head}Binary files /dev/null and b/{path} differ\n"
+    lines = raw.decode("utf-8", "replace").split("\n")
+    ends_cleanly = lines[-1] == ""
+    lines = lines[:-1] if ends_cleanly else lines
+    body = "".join(f"+{line}\n" for line in lines) + ("" if ends_cleanly else "\\ No newline at end of file\n")
+    count = f"1,{len(lines)}" if len(lines) != 1 else "1"
+    return f"{head}--- /dev/null\n+++ b/{path}\n@@ -0,0 +{count} @@\n{body}"
 
 
 def parse_patch(patch):
@@ -661,16 +680,32 @@ def build(state, cols):
     return lines
 
 
-def read_diffs(state):
-    """Runs git again for every repo diff of the view; True when one changed."""
-    changed = False
-    for n, block in enumerate((state["spec"] or {}).get("blocks", [])):
+def diffs_of(spec):
+    """Every repo diff of the view, read again: {block index: (patch, error)}."""
+    out = {}
+    for n, block in enumerate((spec or {}).get("blocks", [])):
         if block.get("type") == "diff" and block.get("patch") is None and block.get("repo"):
-            result = git_diff(block["repo"], block.get("base"))
-            changed |= state["diffs"].get(n) != result
-            state["diffs"][n] = result
-    state["diffs_at"] = time.time()
-    return changed
+            try:
+                out[n] = git_diff(block["repo"], block.get("base"))
+            except (OSError, subprocess.SubprocessError) as err:
+                out[n] = (None, f"git did not answer: {err}")
+    return out
+
+
+def read_diffs(state):
+    """Reads the diffs in a thread, so git never holds up the keys; True once a finished read changed one."""
+    reader = state["diff_reader"]
+    if reader and not reader[0].is_alive():
+        state["diff_reader"], fresh = None, reader[1].get("diffs", {})
+        changed = any(state["diffs"].get(n) != result for n, result in fresh.items())
+        state["diffs"].update(fresh)
+        return changed
+    if not reader and time.time() - state["diffs_at"] > DIFF_EVERY:
+        spec, holder = state["spec"], {}
+        thread = threading.Thread(target=lambda: holder.update(diffs=diffs_of(spec)), daemon=True)
+        state["diffs_at"], state["diff_reader"] = time.time(), (thread, holder)
+        thread.start()
+    return False
 
 
 def commands_of(spec):
@@ -689,15 +724,15 @@ def poll(state):
         state["commands"] = commands_of(state["spec"])
         for command in state["commands"].values():
             command.tick()
-        read_diffs(state)
+        # A read still running belongs to the old spec: its result is dropped.
+        state["diffs"], state["diffs_at"], state["diff_reader"] = diffs_of(state["spec"]), time.time(), None
         return True
     changed = any([c.tick() for c in state["commands"].values()])
     # The CI caches change once a minute at most; redraw when they do.
     seen = tuple(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (os.path.join(CACHE, "ci.json"), os.path.join(CACHE, "inbox.json")))
     if any(b["type"] == "ci" for b in (state["spec"] or {}).get("blocks", [])) and seen != state["caches"]:
         state["caches"], changed = seen, True
-    if time.time() - state["diffs_at"] > DIFF_EVERY:
-        changed |= read_diffs(state)
+    changed |= read_diffs(state)
     return changed
 
 
@@ -734,7 +769,7 @@ def main():
     with open(ALIVE, "w", encoding="utf-8") as handle:
         handle.write(str(os.getpid()))
     atexit.register(forget)
-    state = view.new_state(spec=None, mtime=None, diffs={}, diffs_at=0, folded=set(), reviewr=has_reviewr(), review=None,
+    state = view.new_state(spec=None, mtime=None, diffs={}, diffs_at=0, diff_reader=None, folded=set(), reviewr=has_reviewr(), review=None,
                            commands={}, answered={}, caches=None)
     view.App(NAME, state, build, {}, poll=poll, on_key=on_key).run()
 

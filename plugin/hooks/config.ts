@@ -287,3 +287,11 @@ async function herdrPluginRoot($: $) {
 export function fill(template: string, values: Record<string, string>) {
   return template ? template.replace(/\{(\w+)\}/g, (_, key: string) => encodeURIComponent(values[key] ?? '')) : undefined
 }
+
+
+// A file other sessions or the herdr apps read, written beside it then moved in place, so none reads half of it.
+export async function writeAtomic($: $, path: string, body: string) {
+  const tmp = `${path}.${Math.random().toString(36).slice(2)}.tmp`
+  await $.fs.write(tmp, body)
+  if ((await $.process.run(['mv', tmp, path])).exitCode !== 0) throw new Error(`could not write ${path}`)
+}

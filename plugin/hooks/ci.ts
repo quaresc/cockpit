@@ -2,8 +2,9 @@ import type { EngineInterface } from 'claude-code'
 
 import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Preview } from '../types'
 
-import { cacheDir, fill, home, loadConfig } from './config'
+import { cacheDir, fill, home, loadConfig, writeAtomic } from './config'
 import { appFor, call, callMapped, can, createPreview, dashboardName, deployedApps, extendPreview, listAt, listPreviews, pick, previewUrl, text } from './platform'
+import { ciChanges, hasTicket } from './match'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
 import { completeTicket } from './tickets'
@@ -13,6 +14,9 @@ type $ = EngineInterface
 const CI_STALE_MS = 55_000
 const CI_VERSION = 3
 const LOCK_STALE_MS = 2 * 60_000
+const LOCK_BEAT_MS = 30_000
+const REQUEST_TTL_MS = 10 * 60_000
+const RESULTS_TTL_MS = 86_400_000
 
 // ---------------------------------------------------------------------------
 // Shared plumbing
@@ -42,20 +46,24 @@ export function shortError(err: Error) {
   return tool ? `blocked by auto mode: allow ${tool}` : err.message.slice(0, 200)
 }
 
-// A cross-session lock, so one Claude session fetches and notifies for all of them.
+// A cross-session lock, so one Claude session fetches and notifies for all of them. The holder touches it while it works,
+// so only a lock left by a dead session goes stale; renaming it away first means a single session takes it over.
 export async function withLock<T>($: $, name: string, fn: () => Promise<T>): Promise<T | undefined> {
   const lock = `${await cacheDir($)}/${name}.lock`
   try {
     const age = Date.now() - (await $.fs.stat(lock)).mtimeMs
-    if (age > LOCK_STALE_MS) await $.process.run(['rmdir', lock])
+    const stale = `${lock}.stale-${Math.random().toString(36).slice(2)}`
+    if (age > LOCK_STALE_MS && (await $.process.run(['mv', lock, stale])).exitCode === 0) await $.process.run(['rmdir', stale])
   } catch {
     // No lock yet.
   }
   if ((await $.process.run(['mkdir', '-p', await cacheDir($)])).exitCode !== 0) return undefined
   if ((await $.process.run(['mkdir', lock])).exitCode !== 0) return undefined
+  const beat = $.clock.every(LOCK_BEAT_MS, () => void $.process.run(['touch', lock]).catch(() => undefined))
   try {
     return await fn()
   } finally {
+    beat.cancel()
     await $.process.run(['rmdir', lock])
   }
 }
@@ -286,26 +294,6 @@ async function rerun($: $, workflowId: string) {
   }
 }
 
-// A finished run's notification, its click opening the checks of the branch's PR.
-function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
-  const before = new Map(prev.runs.map(r => [`${r.repo}/${r.branch}`, r]))
-  const out: { text: string; action: string; buttons?: [string, string][] }[] = []
-  for (const run of next.runs) {
-    if (run.isRunning) continue
-    const was = before.get(`${run.repo}/${run.branch}`)
-    const isNewlyEnded = was ? was.runId !== run.runId || was.isRunning : Date.parse(run.createdAt) > prev.at
-    if (!isNewlyEnded) continue
-    const pr = inbox?.mine.find(p => p.repo === run.repo && p.branch === run.branch)
-    const action = pr ? `${pr.url}/checks` : 'space:inbox'
-    if (run.outcome === 'succeeded') out.push({ text: `🟢 CI passed: ${run.repo} ${run.branch}`, action })
-    else if (run.outcome === 'failed') {
-      const buttons: [string, string][] = pr ? [['Why?', `act:ci:${pr.url}`], ...(run.workflowId ? [['Rerun', `act:rerun:${pr.url}`] as [string, string]] : [])] : []
-      out.push({ text: `🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, action, buttons })
-    }
-  }
-  return out
-}
-
 let ciInflight: Promise<void> | undefined
 let isConnectorMissing = false
 
@@ -326,12 +314,12 @@ export function refreshCi($: $, isForced = false) {
             return null
           }
           const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}` }
-          await $.fs.write(`${await cacheDir($)}/ci.json`, JSON.stringify(failed))
+          await writeAtomic($, `${await cacheDir($)}/ci.json`, JSON.stringify(failed))
           return null
         })
         if (!runs) return
         const state: CiState = { at: Date.now(), runs, version: CI_VERSION }
-        await $.fs.write(`${await cacheDir($)}/ci.json`, JSON.stringify(state))
+        await writeAtomic($, `${await cacheDir($)}/ci.json`, JSON.stringify(state))
         const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
         if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, `🔁 ${ci.name}`, change.text, change.action, change.buttons)
       })
@@ -363,7 +351,7 @@ export async function deploysFor($: $, tickets: Inbox['tickets'], merged: Merged
   const apps = await deployedApps($)
   const out: Record<string, DeployedPr[]> = {}
   for (const ticket of waiting) {
-    const prs = merged.filter(pr => pr.branch.toLowerCase().includes(ticket.id.toLowerCase()))
+    const prs = merged.filter(pr => hasTicket(pr.branch, ticket.id))
     out[ticket.id] = await Promise.all(
       prs.map(async pr => {
         const app = appFor(apps, pr.repo)
@@ -385,17 +373,6 @@ export async function startDeployWatch($: $, ticket: string, prs: DeployedPr[]) 
   const tag = prs.map(p => p.tag).find(t => t) ?? ''
   const log = `${await cacheDir($)}/watch-${ticket.toLowerCase()}.log`
   await $.process.run(['sh', '-c', 'nohup sh "$0" "$1" "$2" "$3" >"$4" 2>&1 &', script, ticket, repos, tag, log])
-}
-
-export function deployChanges(prev: Inbox, next: Inbox) {
-  const out: { text: string; ticket: string }[] = []
-  for (const [ticket, prs] of Object.entries(next.deploys ?? {})) {
-    const wasLive = (prev.deploys?.[ticket] ?? []).length > 0 && (prev.deploys?.[ticket] ?? []).every(p => p.isLive)
-    if (prs.length > 0 && prs.every(p => p.isLive) && !wasLive) {
-      out.push({ text: `🚀 Live in production: ${ticket} (${prs.map(p => `${p.repo} ${p.tag}`).join(', ')})`, ticket })
-    }
-  }
-  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -425,36 +402,37 @@ async function dropTicket($: $, id: string) {
   const path = `${await cacheDir($)}/inbox.json`
   const inbox = await readJson<Inbox>($, path)
   if (!inbox) return
-  await $.fs.write(path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
+  await writeAtomic($, path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
 }
 
-// Previews created from the inbox, announced once the platform reports them healthy.
+// Previews created from the inbox, one file each in pending-previews/, announced once the platform reports them healthy.
 type Pending = { preview: string; app: string; branch: string; at: number }
 
 export async function announcePreviews($: $, previews: Preview[]) {
-  const path = `${await cacheDir($)}/pending-previews.json`
-  const pending = await readJson<Pending[]>($, path)
-  if (!pending?.length) return
-  const left: Pending[] = []
-  for (const p of pending) {
+  const dir = `${await cacheDir($)}/pending-previews`
+  for (const entry of await $.fs.list(dir).catch(() => [])) {
+    if (!entry.name.endsWith('.json')) continue
+    const path = `${dir}/${entry.name}`
+    const p = await readJson<Pending>($, path)
+    if (!p) continue
     const box = previews.find(e => e.id === p.preview)
     if (box && box.health === ((await loadConfig($)).platform.fields.healthy ?? 'Healthy')) {
       const url = await previewUrl($, p.preview, p.app).catch(() => undefined)
       const dashboard = fill((await loadConfig($)).platform.previewDashboardUrl, { preview: p.preview })
       await notify($, '🧪 Preview ready', `${p.app} ${p.branch} on ${p.preview}`, url ?? (await previewAction($, p.preview)), dashboard ? [[dashboardName(dashboard), dashboard]] : [])
-    } else if (Date.now() - p.at < 3 * 3600_000) {
-      left.push(p)
+      await $.process.run(['rm', '-f', path])
+    } else if (Date.now() - p.at > 3 * 3600_000) {
+      await $.process.run(['rm', '-f', path])
     }
   }
-  await $.fs.write(path, JSON.stringify(left))
 }
 
 async function startPreviewFor($: $, app: string, branch: string) {
   const preview = await createPreview($, app, branch)
   if (preview) {
-    const path = `${await cacheDir($)}/pending-previews.json`
-    const pending = (await readJson<Pending[]>($, path)) ?? []
-    await $.fs.write(path, JSON.stringify([...pending, { preview, app, branch, at: Date.now() }]))
+    const dir = `${await cacheDir($)}/pending-previews`
+    await $.process.run(['mkdir', '-p', dir])
+    await writeAtomic($, `${dir}/${preview.replace(/[^A-Za-z0-9._-]/g, '_')}.json`, JSON.stringify({ preview, app, branch, at: Date.now() }))
   }
   return preview
 }
@@ -463,9 +441,21 @@ async function previewAction($: $, preview: string) {
   return fill((await loadConfig($)).platform.previewDashboardUrl, { preview }) ?? 'space:inbox'
 }
 
+let prunedAt = 0
+
+// Outcomes nobody came back for (a notification's button has no row waiting) go after a day.
+async function pruneResults($: $, dir: string) {
+  if (Date.now() - prunedAt < 3600_000) return
+  prunedAt = Date.now()
+  for (const entry of await $.fs.list(dir).catch(() => [])) {
+    if (entry.kind === 'file' && Date.now() - entry.mtimeMs > RESULTS_TTL_MS) await $.process.run(['rm', '-f', `${dir}/${entry.name}`])
+  }
+}
+
 export async function processRequests($: $, onDone: () => void) {
   const dir = `${await cacheDir($)}/requests`
   const entries = await $.fs.list(dir).catch(() => [])
+  void pruneResults($, `${dir}/results`).catch(() => undefined)
   for (const entry of entries) {
     if (!entry.name.endsWith('.json') || entry.name.startsWith('claimed-')) continue
     const claimed = `${dir}/claimed-${entry.name}`
@@ -480,6 +470,11 @@ export async function processRequests($: $, onDone: () => void) {
       const outcome: Outcome = { ok: state === 'done', state, message, at: Date.now() }
       await $.fs.write(results, JSON.stringify(outcome))
       await $.process.run(['rm', '-f', `${results}.claimed`])
+    }
+    // A request no session took in time was given up on by the app: running it now would surprise.
+    if (Date.now() - entry.mtimeMs > REQUEST_TTL_MS) {
+      await result('refused', 'expired before a Claude session took it')
+      continue
     }
     const checked = checkRequest(raw)
     if ('refusal' in checked) {

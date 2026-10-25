@@ -233,6 +233,18 @@ async function isOpen($: $, dir: string, name: string) {
   return /^\d+$/.test(pid) && (await $.process.run(['kill', '-0', pid])).exitCode === 0
 }
 
+const PID_RECHECK_MS = 30_000
+const openSeen = new Map<string, { at: number; mtime: number; isOpen: boolean }>()
+
+// isOpen for the polls: kept until the pid file changes or 30 s pass, since a pane that quits removes its pid file.
+async function isOpenSoon($: $, dir: string, name: string, pidMtime: number) {
+  const seen = openSeen.get(name)
+  if (seen && seen.mtime === pidMtime && Date.now() - seen.at < PID_RECHECK_MS) return seen.isOpen
+  const value = pidMtime > 0 && (await isOpen($, dir, name))
+  openSeen.set(name, { at: Date.now(), mtime: pidMtime, isOpen: value })
+  return value
+}
+
 async function openPane($: $, here: { pane: string }, name: string, placement: Placement) {
   const script = `${(await loadConfig($)).herdrPluginRoot}/show.py`
   if (!(await $.fs.stat(script).then(() => true, () => false))) return `the cockpit herdr plugin has no ${script} yet: update it`
@@ -312,22 +324,34 @@ async function refreshed($: $, block: Block): Promise<Block> {
 const CHIPS = 3
 const KEEP_MS = 7 * 86_400_000
 
-async function specsOf($: $, session: string) {
+type Listing = Awaited<ReturnType<EngineInterface['fs']['list']>>
+
+let specsSeen: { key: string; specs: (Spec & { name: string })[] } = { key: '', specs: [] }
+
+// Every view's spec, parsed again only when a spec file in the folder changed: several polls a second ask.
+async function specsOf($: $, session: string, listing?: Listing) {
   const dir = await showDir($)
-  const entries = (await $.fs.list(dir).catch(() => [])).filter(e => /^[a-z0-9][a-z0-9-]*\.json$/.test(e.name))
-  const specs = await Promise.all(entries.map(async e => {
-    const spec = JSON.parse(await $.fs.read(`${dir}/${e.name}`).catch(() => 'null')) as Spec | null
-    return spec && { ...spec, name: e.name.slice(0, -5) }
-  }))
-  // A week-old view is gone for good, chip and file.
-  for (const spec of specs) if (spec && Date.now() - spec.at > KEEP_MS) await $.process.run(['rm', '-f', `${dir}/${spec.name}.json`])
-  return specs.filter((s): s is Spec & { name: string } => s !== null && s.session === session)
+  const entries = (listing ?? (await $.fs.list(dir).catch(() => []))).filter(e => /^[a-z0-9][a-z0-9-]*\.json$/.test(e.name))
+  const key = entries.map(e => `${e.name}:${e.mtimeMs}`).sort().join('|')
+  if (key !== specsSeen.key) {
+    const specs = await Promise.all(entries.map(async e => {
+      const spec = JSON.parse(await $.fs.read(`${dir}/${e.name}`).catch(() => 'null')) as Spec | null
+      return spec && { ...spec, name: e.name.slice(0, -5) }
+    }))
+    // A week-old view is gone for good, chip and file.
+    for (const spec of specs) if (spec && Date.now() - spec.at > KEEP_MS) await $.process.run(['rm', '-f', `${dir}/${spec.name}.json`])
+    specsSeen = { key, specs: specs.filter((s): s is Spec & { name: string } => s !== null && Date.now() - s.at <= KEEP_MS) }
+  }
+  return specsSeen.specs.filter(s => s.session === session)
 }
+
+const pidMtime = (listing: Listing, name: string) => listing.find(e => e.name === `${name}.pid`)?.mtimeMs ?? 0
 
 export async function viewsOf($: $, session: string): Promise<ViewChip[]> {
   const dir = await showDir($)
-  const mine = (await specsOf($, session)).sort((a, b) => b.at - a.at).slice(0, CHIPS)
-  return Promise.all(mine.map(async s => ({ name: s.name, isOpen: await isOpen($, dir, s.name) })))
+  const listing = await $.fs.list(dir).catch(() => [])
+  const mine = (await specsOf($, session, listing)).sort((a, b) => b.at - a.at).slice(0, CHIPS)
+  return Promise.all(mine.map(async s => ({ name: s.name, isOpen: await isOpenSoon($, dir, s.name, pidMtime(listing, s.name)) })))
 }
 
 // A chip's press: an open view's pane closes, a hidden one opens again where it was. Returns whether it opened.
@@ -354,8 +378,9 @@ export async function isViewOpen($: $, name: string) {
 // Every view of this session whose pane is open gets its due sources fetched again.
 export async function refreshSources($: $, session: string) {
   const dir = await showDir($)
-  for (const spec of await specsOf($, session)) {
-    if (!spec.blocks.some(b => b.source) || !(await isOpen($, dir, spec.name))) continue
+  const listing = await $.fs.list(dir).catch(() => [])
+  for (const spec of await specsOf($, session, listing)) {
+    if (!spec.blocks.some(b => b.source) || !(await isOpenSoon($, dir, spec.name, pidMtime(listing, spec.name)))) continue
     const fresh = new Map<number, Block>()
     for (const [n, block] of spec.blocks.entries()) {
       const every = typeof block.every === 'number' ? block.every : (block.source as Block)?.datadog ? 60 : 300
@@ -377,8 +402,10 @@ type Answer = { block: number; type: string; value: unknown; label: string }
 // An answer the person gave in a pane becomes their next message to the session, once.
 export async function collectAnswers($: $, session: string) {
   const dir = await showDir($)
-  const names = new Set((await specsOf($, session)).map(s => s.name))
-  for (const entry of await $.fs.list(dir).catch(() => [])) {
+  const listing = await $.fs.list(dir).catch(() => [])
+  if (!listing.some(e => e.name.endsWith('.answer'))) return
+  const names = new Set((await specsOf($, session, listing)).map(s => s.name))
+  for (const entry of listing) {
     const found = entry.name.match(/^([a-z0-9][a-z0-9-]*)\.(\d+)\.answer$/)
     if (!found || !names.has(found[1]!)) continue
     const path = `${dir}/${entry.name}`

@@ -20,7 +20,7 @@ def t(i, title, status, stype, project=None, parent=None):
             "parentId": parent, "project": project}
 
 inbox = {
-    "at": int(now.timestamp() * 1000),
+    "version": 1, "at": int(now.timestamp() * 1000),
     "direct": [pr("api", 2210, "Rate-limit the public search endpoint", "maya", 40, direct=True),
                pr("mobile", 512, "Offline mode for saved jobs", "jonas", 300, review="APPROVED", direct=True)],
     "team": [pr("web", 1840, "Move the settings page to the new form kit", "lin", 95),

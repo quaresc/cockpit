@@ -51,6 +51,7 @@ export type Usage = { limits: { name: string; percent: number }[] }
 export type ViewChip = { name: string; isOpen: boolean }
 
 export type Inbox = {
+  version?: number
   at: number
   direct: Pr[]
   team: Pr[]
@@ -127,9 +128,6 @@ declare module 'claude-code' {
   interface PluginState {
     cockpit: {
       inbox: Inbox | null
-      isBusy: boolean
-      expanded: string[]
-      note: string
       muted: string[]
       work: Work | null
       usage: Usage | null

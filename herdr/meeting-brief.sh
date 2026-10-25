@@ -19,7 +19,7 @@ get_event=$(jq -r '.calendar.tools.getEvent.tool // "get_event"' "$CONFIG")
 tickets=$(jq -r '(.tickets // .linear // {}) | if .enabled then .server // "claude.ai Linear" else empty end' "$CONFIG")
 # The ticket connector's read tools: the mapped ones, else Linear's.
 ticket_tools=$(jq -r '(.tickets.tools // {get: {tool: "get_issue"}, comments: {tool: "list_comments"}}) | .get.tool, .comments.tool | select(. != null)' "$CONFIG")
-prefix() { printf 'mcp__%s' "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/_/g')"; }
+prefix() { printf 'mcp__%s' "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')"; }
 
 set -- Read Write "$(prefix "$calendar")__$get_event"
 [ -n "$tickets" ] && for tool in $ticket_tools; do set -- "$@" "$(prefix "$tickets")__$tool"; done

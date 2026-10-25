@@ -39,7 +39,10 @@ def script(name):
 
 def open_url(url):
     """Opens a URL in the default browser, on macOS or Linux."""
-    subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", url], capture_output=True)
+    try:
+        subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", url], capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def dashboard_name(url):
@@ -59,7 +62,10 @@ def copy(text):
     """Puts text on the clipboard: pbcopy on macOS, wl-copy or xclip on Linux; False when none exists."""
     for command in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]):
         if shutil.which(command[0]):
-            subprocess.run(command, input=text, text=True)
+            try:
+                subprocess.run(command, input=text, text=True, timeout=5)
+            except subprocess.SubprocessError:
+                return False
             return True
     return False
 
@@ -124,6 +130,12 @@ def ticket_url(ticket_id, config, inbox=None):
         if known and f"/{known}" in url:
             return url[:url.rindex(f"/{known}") + 1] + ticket_id.upper()
     return None
+
+
+def has_ticket(branch, ticket_id):
+    """Whether a branch names the ticket as a whole token: eng-4-login does, eng-42-login does not."""
+    key = re.escape((ticket_id or "").lower())
+    return bool(key) and re.search(rf"(^|[^a-z0-9]){key}(?![0-9])", (branch or "").lower()) is not None
 
 
 def team_keys(config, inbox=None):

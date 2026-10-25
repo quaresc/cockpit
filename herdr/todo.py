@@ -153,8 +153,12 @@ def build(state, cols):
 
 
 def save(state):
+    """Writes the list, keeping to-dos added outside the app since it last read the file (/todo while one is typed)."""
+    if os.path.exists(TODO) and os.path.getmtime(TODO) != state["mtime"]:
+        added = [i for i in read_items() if i["text"] not in state["known"]]
+        state["items"] = added + state["items"]
     write_items(state["items"])
-    state["mtime"] = os.path.getmtime(TODO)
+    state["mtime"], state["known"] = os.path.getmtime(TODO), {i["text"] for i in state["items"]}
     report(state["items"])
 
 
@@ -231,13 +235,15 @@ def poll(state):
     if mtime == state["mtime"] or state["input"] is not None:
         return False
     state["items"], state["mtime"] = read_items(), mtime
+    state["known"] = {i["text"] for i in state["items"]}
     report(state["items"])
     return True
 
 
 def main():
-    state = view.new_state(items=read_items(), mtime=os.path.getmtime(TODO) if os.path.exists(TODO) else 0, input=None,
-                           editing=None, show_done=False)
+    items = read_items()
+    state = view.new_state(items=items, known={i["text"] for i in items}, mtime=os.path.getmtime(TODO) if os.path.exists(TODO) else 0,
+                           input=None, editing=None, show_done=False)
     report(state["items"])
     view.App("to-do", state, build, ICON, actions=ACTIONS, poll=poll, on_key=on_key,
              is_typing=lambda state: state["input"] is not None).run()

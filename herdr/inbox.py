@@ -27,6 +27,8 @@ REFRESH = os.path.join(CACHE, "refresh-request")
 CI = os.path.join(CACHE, "ci.json")
 BRIEF = os.path.join(CACHE, "brief.json")
 REQUESTS = os.path.join(CACHE, "requests")
+SESSIONS = os.path.join(CACHE, "sessions")
+INBOX_VERSION = 1
 MUTED = os.path.join(HOME, ".config", "cockpit", "muted.json")
 
 
@@ -62,11 +64,17 @@ LEAD, REF, NOTES, AGE, ACTIONS = 4, 28, 16, 6, 46
 
 
 def age_days(iso):
-    return (datetime.now(timezone.utc) - datetime.fromisoformat(iso.replace("Z", "+00:00"))).total_seconds() / 86400
+    """Days since an ISO date; None when the date is missing or unreadable (a connector field left unmapped)."""
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat((iso or "").replace("Z", "+00:00"))).total_seconds() / 86400
+    except (ValueError, TypeError):
+        return None
 
 
 def ago(iso):
     days = age_days(iso)
+    if days is None:
+        return ""
     if days < 1 / 24:
         return f"{int(days * 1440)}m"
     if days < 2:
@@ -118,7 +126,19 @@ def is_deploying(ticket):
 
 
 def run(argv):
-    return subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as err:
+        return subprocess.CompletedProcess(argv, 1, "", str(err))
+
+
+def spaces():
+    """herdr's spaces, each with its label stripped of the "[N] " prefix."""
+    try:
+        listed = json.loads(run([HERDR, "workspace", "list"]).stdout)["result"]["workspaces"]
+    except (ValueError, KeyError, TypeError):
+        return []
+    return [{**w, "label": re.sub(r"^\[\d+\]\s*", "", w.get("label", ""))} for w in listed]
 
 
 def open_url(state, url):
@@ -134,6 +154,12 @@ def details(state, pr):
 
 
 def start_space(state, cwd, label, prompt):
+    """A Claude session in a new space; when a space of that label already runs, it comes into view instead."""
+    running = next((w for w in spaces() if w["label"] == label), None)
+    if running:
+        run([HERDR, "workspace", "focus", running["workspace_id"]])
+        note(state, f'"{label}" already runs: focused it')
+        return
     created = run([HERDR, "workspace", "create", "--cwd", cwd, "--label", label, "--focus"])
     try:
         pane = json.loads(created.stdout)["result"]["root_pane"]["pane_id"]
@@ -215,6 +241,11 @@ def settle(state):
             waited, is_claimed = time.time() - job["at"], os.path.exists(path + ".claimed")
             if waited > ANSWER_WAIT or (waited > CLAIM_WAIT and not is_claimed):
                 message = "the session that took it never answered" if is_claimed else "no Claude session picked it up"
+                # Left behind, a request would run whenever a session next starts, maybe hours later.
+                try:
+                    os.remove(os.path.join(REQUESTS, job["file"]))
+                except OSError:
+                    pass
                 state["outcome"][row] = {"ok": False, "message": message, "at": time.time()}
                 del state["pending"][row]
             continue
@@ -265,9 +296,7 @@ def mark_done(state, ticket):
 def set_muted(state, repo, is_muted):
     muted = set(view.load_json(MUTED, []))
     muted = muted | {repo} if is_muted else muted - {repo}
-    os.makedirs(os.path.dirname(MUTED), exist_ok=True)
-    with open(MUTED, "w", encoding="utf-8") as handle:
-        json.dump(sorted(muted), handle)
+    view.write_json(MUTED, sorted(muted))
     note(state, f"{'muted' if is_muted else 'unmuted'} {repo}")
 
 
@@ -284,6 +313,35 @@ def request_refresh(state):
     with open(REFRESH, "w", encoding="utf-8") as handle:
         handle.write(str(time.time()))
     note(state, "refresh requested, it lands within a minute")
+
+
+def close_space(state, space, label):
+    if confirmed(state, f"close-{space}"):
+        result = run([HERDR, "workspace", "close", space])
+        note(state, f"closed {label}" if result.returncode == 0 else f"herdr workspace close failed: {result.stderr.strip()}")
+
+
+_beats = {"at": 0, "beats": []}
+
+
+def heartbeats():
+    """The sessions' heartbeat files, read again at most every 10 s since every redraw asks."""
+    if time.time() - _beats["at"] > 10:
+        names = [n for n in os.listdir(SESSIONS) if n.endswith(".json")] if os.path.isdir(SESSIONS) else []
+        _beats.update(at=time.time(), beats=[view.load_json(os.path.join(SESSIONS, n), {}) for n in names])
+    return _beats["beats"]
+
+
+def merged_sessions(merged, mine):
+    """Live sessions whose branch has merged with no PR of it still open: their space can close."""
+    still_open = {(pr["repo"], pr.get("branch")) for pr in mine}
+    out = {}
+    for beat in heartbeats():
+        key = (beat.get("repo"), beat.get("branch"))
+        is_live = time.time() * 1000 - beat.get("at", 0) < 3 * 60_000
+        if is_live and beat.get("space") and key in merged and key not in still_open:
+            out[beat["space"]] = key
+    return out
 
 
 def toggle(state, group):
@@ -337,6 +395,9 @@ def build(state, cols):
     if data is None:
         line().add("No data yet: the cockpit mod in a Claude session fills ~/.cache/cockpit/inbox.json.", DIM)
         return lines
+    if data.get("version") != INBOX_VERSION:
+        line().add("Refreshing: the inbox cache comes from another cockpit version.", DIM)
+        return lines
 
     # Header, then what needs attention now.
     updated = datetime.fromtimestamp(data["at"] / 1000).strftime("%H:%M")
@@ -364,7 +425,10 @@ def build(state, cols):
     alerts = []  # (text, style, url, preview to extend)
     for preview in sorted({b["id"] for b in data.get("previews") or []}):
         box = next(b for b in data["previews"] if b["id"] == preview)
-        hours = -age_days(box["expiresAt"]) * 24
+        days = age_days(box["expiresAt"])
+        if days is None:
+            continue
+        hours = -days * 24
         url = dashboard_url(preview)
         if hours <= 0:
             alerts.append((f"preview {preview} has expired", RED, url, preview))
@@ -374,7 +438,8 @@ def build(state, cols):
         if box["health"] not in ("Healthy", "Progressing") and hours > 0:
             alerts.append((f"preview {preview} is {box['health'].lower()}", ORANGE, url, None))
     for ci_run in ci.get("runs", []):
-        if not ci_run["isRunning"] and ci_run["outcome"] == "failed" and age_days(ci_run["createdAt"]) * 24 <= RED_ALERT_HOURS:
+        days = age_days(ci_run.get("createdAt"))
+        if not ci_run["isRunning"] and ci_run["outcome"] == "failed" and days is not None and days * 24 <= RED_ALERT_HOURS:
             job = f" · {ci_run['failed']['job']}" if ci_run.get("failed") else ""
             alerts.append((f"ci failed on {ci_run['repo']} {ci_run['branch']}{job}", RED, None, None))
     # A running preview whose branch has merged: it can stop, keeping its setup.
@@ -382,11 +447,18 @@ def build(state, cols):
     for box in data.get("previews") or []:
         if box.get("activated") and (box["app"], box["branch"]) in merged:
             alerts.append((f"preview {box['id']} runs merged {box['app']} {box['branch']}", ORANGE, dashboard_url(box["id"]), ("stop", box["id"])))
+    # A Claude session still on a branch that has merged: its space can close.
+    for space, (repo, branch) in merged_sessions(merged, data["mine"]).items():
+        alerts.append((f"a session still works on merged {repo} {branch}", DIM, None, ("close", space)))
     if alerts:
         line()
         for text, style, url, target in alerts:
             item = line().add(f" {ICON['alert']}  ", style).add(text, style)
-            if isinstance(target, tuple):
+            if isinstance(target, tuple) and target[0] == "close":
+                label = text.removeprefix("a session still works on ")
+                item.buttons.append(Button(asking(state, f"close-{target[1]}", "close space"), lambda s=target[1], b=label: close_space(state, s, b), "a", True))
+                item.buttons.append(Button("go", lambda s=target[1]: run([HERDR, "workspace", "focus", s]), "o", False))
+            elif isinstance(target, tuple):
                 item.buttons.append(Button(asking(state, f"stop-{target[1]}", "stop"), lambda p=target[1]: stop_preview(state, p), "a", True))
                 row_status(item, f"preview-{target[1]}")
             elif target:
@@ -410,9 +482,9 @@ def build(state, cols):
         item.primary = lambda: details(state, pr)
 
     shown = [pr for pr in data["team"] if pr["repo"] not in muted]
-    direct = [pr for pr in data["direct"] if age_days(pr["updatedAt"]) <= OLD_REVIEW_DAYS]
-    team = [pr for pr in shown if age_days(pr["updatedAt"]) <= OLD_REVIEW_DAYS]
-    old = [pr for pr in data["direct"] + shown if age_days(pr["updatedAt"]) > OLD_REVIEW_DAYS]
+    direct = [pr for pr in data["direct"] if (age_days(pr["updatedAt"]) or 0) <= OLD_REVIEW_DAYS]
+    team = [pr for pr in shown if (age_days(pr["updatedAt"]) or 0) <= OLD_REVIEW_DAYS]
+    old = [pr for pr in data["direct"] + shown if (age_days(pr["updatedAt"]) or 0) > OLD_REVIEW_DAYS]
     bots = [r for r in data.get("botRepos", []) if r not in muted]
     hidden = len(data["team"]) - len(shown) + len(data.get("botRepos", [])) - len(bots)
     heading("review", "Review", f"{len(direct)} for you · {len(team)} team · {len(bots)} bots" + (f" · {hidden} muted" if hidden else ""))
@@ -523,7 +595,7 @@ def build(state, cols):
     t_roots = [t for t in tickets if t.get("parentId") not in ticket_ids]
 
     def linked(ticket):
-        return [pr for pr in mine if ticket["id"].lower() in (pr.get("branch") or "").lower()]
+        return [pr for pr in mine if cockpit_config.has_ticket(pr.get("branch"), ticket["id"])]
 
     def linked_roots(ticket):
         """Linked PRs whose parent PR is not linked to the same ticket; their stacks follow them."""
@@ -643,7 +715,7 @@ def build(state, cols):
 
     def pr_rank(pr):
         tree = pr_subtree(pr)
-        if all(age_days(p["updatedAt"]) > STALE_PR_DAYS for p in tree):
+        if all((age_days(p["updatedAt"]) or 0) > STALE_PR_DAYS for p in tree):
             return 3
         if any(needs_me(p) for p in tree):
             return 0

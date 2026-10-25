@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Inbox, TicketLinks } from '../types'
 
 import { cacheDir, fill, loadConfig } from './config'
+import { hasTicket } from './match'
 import { appFor, deployedApps, latestDeploy, previewUrl } from './platform'
 import type { Deployment } from './platform'
 import { citedIn } from './sites'
@@ -11,14 +12,6 @@ import { ticketDetail } from './tickets'
 type $ = EngineInterface
 
 const LINKS_TTL_MS = 15 * 60_000
-
-// A ticket mentioned in a prompt must use a team key from the config or from an assigned ticket.
-export function ticketsIn(text: string, inbox: Inbox | null, known: string[]) {
-  const teams = new Set([...known.map(t => t.toUpperCase()), ...(inbox?.tickets ?? []).map(t => t.id.split('-')[0] ?? '')])
-  return [...text.matchAll(/\b([A-Z][A-Z0-9]{1,9})-(\d{1,6})\b/gi)]
-    .map(m => `${(m[1] ?? '').toUpperCase()}-${m[2]}`)
-    .filter(id => teams.has(id.split('-')[0] ?? ''))
-}
 
 // The ticket's page, its PR, and the first page of each site it cites.
 export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<TicketLinks | null> {
@@ -34,9 +27,8 @@ export async function linksFor($: $, id: string, inbox: Inbox | null): Promise<T
   const attached = issue.attachments
   const texts = [issue.description, ...attached]
 
-  const key = id.toLowerCase()
-  const open = inbox?.mine.find(pr => pr.branch?.toLowerCase().includes(key))
-  const merged = inbox?.merged?.find(pr => pr.branch.toLowerCase().includes(key))
+  const open = inbox?.mine.find(pr => hasTicket(pr.branch, id))
+  const merged = inbox?.merged?.find(pr => hasTicket(pr.branch, id))
   const attachedPr = attached.find(url => /github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url))
   const pr = open
     ? { url: open.url, number: open.number }
@@ -70,15 +62,13 @@ async function workflowLink($: $, latest: Deployment) {
 export async function deployLinksFor($: $, repos: string[]) {
   const apps = await deployedApps($)
   const out: Record<string, { dashboard?: string; workflow?: { url: string; label: string } }> = {}
-  for (const repo of [...new Set(repos)]) {
+  // One deploy history call per repo, side by side: in a row they could outlast the inbox lock.
+  await Promise.all([...new Set(repos)].map(async repo => {
     const app = appFor(apps, repo)
-    if (!app) continue
+    if (!app) return
     const latest = await latestDeploy($, app.id).catch(() => null)
-    out[repo] = {
-      dashboard: app.link,
-      workflow: latest ? await workflowLink($, latest) : undefined,
-    }
-  }
+    out[repo] = { dashboard: app.link, workflow: latest ? await workflowLink($, latest) : undefined }
+  }))
   return out
 }
 

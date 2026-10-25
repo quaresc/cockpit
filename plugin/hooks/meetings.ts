@@ -4,6 +4,7 @@ import type { Inbox, Meeting, MeetingsState } from '../types'
 
 import { notify, withLock } from './ci'
 import { cacheDir, home, loadConfig } from './config'
+import { hasTicket } from './match'
 import { callMapped, listAt, pick, text } from './platform'
 
 type $ = EngineInterface
@@ -99,7 +100,7 @@ async function prepFor($: $, meeting: Meeting) {
   const text = `${meeting.title}\n${meeting.description ?? ''}`
   const lower = text.toLowerCase()
   const tickets = inbox.tickets.filter(t =>
-    lower.includes(t.id.toLowerCase()) || (t.project && t.project.length >= 4 && lower.includes(t.project.toLowerCase())),
+    hasTicket(lower, t.id) || (t.project && t.project.length >= 4 && lower.includes(t.project.toLowerCase())),
   )
   const prs = inbox.mine.filter(pr => text.includes(pr.url) || text.includes(`${pr.repo}#${pr.number}`))
   const parts: string[] = []

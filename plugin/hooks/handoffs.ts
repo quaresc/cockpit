@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Handoff } from '../types'
 
-import { cacheDir } from './config'
+import { cacheDir, home, writeAtomic } from './config'
 
 type $ = EngineInterface
 
@@ -137,4 +137,23 @@ export async function settleTurn($: $) {
         `Call ${REPORT_TOOL_FULL} with done, failed or blocked, or with waiting while it needs my go.`,
     })
   }
+}
+
+// Asks the runbook app for a background refresh of the ticket's runbook; false when there is no runbook or no app running.
+export async function requestRunbookRefresh($: $, id: string, reason: string) {
+  const slug = id.toLowerCase()
+  const hasBook = await $.fs.exists(`${await home($)}/.config/cockpit/runbooks/${slug}.md`)
+  const isRunning = (await $.process.run(['pgrep', '-f', 'runbook\\.py cockpit-space'])).exitCode === 0
+  if (!hasBook || !isRunning) return false
+  const dir = `${await cacheDir($)}/runbook-refresh`
+  await $.process.run(['mkdir', '-p', dir])
+  await writeAtomic($, `${dir}/${slug}.json`, JSON.stringify({ slug, reason }))
+  return true
+}
+
+// The session that ran /runbook for a ticket: the one the runbook app hands that runbook's steps to.
+export async function recordRunbookOwner($: $, ticket: string, pane: string) {
+  const dir = `${await cacheDir($)}/runbook-owners`
+  await $.process.run(['mkdir', '-p', dir])
+  await writeAtomic($, `${dir}/${ticket.toLowerCase()}.json`, JSON.stringify({ pane, session: await $.session.id() }))
 }
