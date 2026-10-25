@@ -9,7 +9,7 @@ mark="$HOME/.cache/cockpit/watched/$slug"
 [ -e "$mark" ] && exit 0
 mkdir -p "$(dirname "$mark")" && touch "$mark"
 
-after=$(jq -r '.deployWatch.afterMinutes // 30' "$CONFIG")
+after=$(jq -r '.deployWatch.afterMinutes // 30' "$SETTINGS")
 deployed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sleep $((after * 60))
 
@@ -25,7 +25,7 @@ Finish with exactly one line of JSON and nothing after it:
 {\"ok\": true or false, \"summary\": \"<at most 12 words>\", \"url\": \"<a link to the logs or dashboard you looked at, or empty>\"}"
 # Each entry of deployWatch.tools is one --allowedTools value, e.g. an observability MCP server.
 set -- Read Edit Write
-for tool in $(jq -r '.deployWatch.tools // [] | .[]' "$CONFIG"); do set -- "$@" "$tool"; done
+for tool in $(jq -r '.deployWatch.tools // [] | .[]' "$SETTINGS"); do set -- "$@" "$tool"; done
 out=$(cd "$REPOS" && claude -p "$prompt" --model sonnet --permission-mode acceptEdits --add-dir "$HOME/.config/cockpit/runbooks" \
   --allowedTools "$@" 2>/dev/null | grep '^{' | tail -1)
 

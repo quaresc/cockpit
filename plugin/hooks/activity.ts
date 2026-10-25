@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-import { cacheDir } from './config'
+import { cacheDir, writeAtomic } from './config'
 
 type $ = EngineInterface
 
@@ -9,17 +9,26 @@ const KEEP = 300
 // What a session did, one JSON line per event in ~/.cache/cockpit/activity/<space>.jsonl, for the herdr recap popup.
 export type Activity = { at: number; kind: 'edit' | 'command' | 'turn'; text: string }
 
+const appended = new Map<string, number>()
+let queue: Promise<unknown> = Promise.resolve()
+
+// One line appended per event, in call order; every 50 lines the file is cut back to its last KEEP.
 export async function logActivity($: $, space: string | undefined, entry: Omit<Activity, 'at'>) {
   if (!space) return
+  const line = JSON.stringify({ at: Date.now(), ...entry })
+  queue = queue.then(() => appendActivity($, space, line)).catch(() => undefined)
+  return queue
+}
+
+async function appendActivity($: $, space: string, line: string) {
   const dir = `${await cacheDir($)}/activity`
   const path = `${dir}/${space}.jsonl`
-  const old = await $.fs.read(path).catch(async () => {
-    await $.process.run(['mkdir', '-p', dir])
-    return ''
-  })
-  const lines = old.split('\n').filter(l => l.length > 0)
-  lines.push(JSON.stringify({ at: Date.now(), ...entry }))
-  await $.fs.write(path, `${lines.slice(-KEEP).join('\n')}\n`)
+  await $.process.run(['sh', '-c', 'mkdir -p "$1" && printf "%s\\n" "$3" >> "$2"', 'sh', dir, path, line])
+  const count = (appended.get(path) ?? 0) + 1
+  appended.set(path, count)
+  if (count % 50 !== 0) return
+  const lines = (await $.fs.read(path).catch(() => '')).split('\n').filter(l => l.length > 0)
+  if (lines.length > KEEP) await writeAtomic($, path, `${lines.slice(-KEEP).join('\n')}\n`)
 }
 
 // The entry a tool call leaves: an edited file, or a shell command's first line; reads and searches leave none.

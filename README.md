@@ -38,7 +38,7 @@ Font.
 <tr><td colspan="2" align="center"><img src="docs/sidebar.svg" width="238" alt="Sidebar: CI runs on an agent's branch, the agent finishes, a review request arrives"></td></tr>
 <tr><td width="24%"><b>🔗 Footer</b></td><td>One click to the ticket, PR, deploy dashboard, preview and each page the conversation cites.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/footer.svg" width="614" alt="Footer: the chips follow what the conversation names"></td></tr>
-<tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys and previews. Each row has its actions.</td></tr>
+<tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys, previews and what each cost in Claude usage. Each row has its actions.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/inbox.svg" width="668" alt="Inbox: the cursor steps through the rows, each showing its buttons"></td></tr>
 <tr><td width="24%"><b>🧪 E2E tests</b></td><td>The agent opens its page in terminal-browser beside it, on phone and desktop, main against the branch, and puts the before/after in the PR.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/e2e.svg" width="829" alt="E2E test: terminal-browser opens beside the agent, phone then desktop, then the before and after"></td></tr>

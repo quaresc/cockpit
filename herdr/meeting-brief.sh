@@ -14,16 +14,16 @@ trap 'rm -f "$DIR/$name.pending"' EXIT
 
 meeting=$(jq -c --arg id "$id" '.meetings[] | select(.id == $id)' "$CACHE/meetings.json")
 [ -n "$meeting" ] || exit 1
-calendar=$(jq -r '.calendar.server // "claude.ai Google Calendar"' "$CONFIG")
-get_event=$(jq -r '.calendar.tools.getEvent.tool // "get_event"' "$CONFIG")
-tickets=$(jq -r '(.tickets // .linear // {}) | if .enabled then .server // "claude.ai Linear" else empty end' "$CONFIG")
+calendar=$(jq -r '.calendar.server // "claude.ai Google Calendar"' "$SETTINGS")
+get_event=$(jq -r '.calendar.tools.getEvent.tool // "get_event"' "$SETTINGS")
+tickets=$(jq -r '.tickets // {} | if .enabled then .server // "claude.ai Linear" else empty end' "$SETTINGS")
 # The ticket connector's read tools: the mapped ones, else Linear's.
-ticket_tools=$(jq -r '(.tickets.tools // {get: {tool: "get_issue"}, comments: {tool: "list_comments"}}) | .get.tool, .comments.tool | select(. != null)' "$CONFIG")
+ticket_tools=$(jq -r '(.tickets.tools // {get: {tool: "get_issue"}, comments: {tool: "list_comments"}}) | .get.tool, .comments.tool | select(. != null)' "$SETTINGS")
 prefix() { printf 'mcp__%s' "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')"; }
 
 set -- Read Write "$(prefix "$calendar")__$get_event"
 [ -n "$tickets" ] && for tool in $ticket_tools; do set -- "$@" "$(prefix "$tickets")__$tool"; done
-for tool in $(jq -r '.meetingBrief.tools // [] | .[]' "$CONFIG"); do set -- "$@" "$tool"; done
+for tool in $(jq -r '.meetingBrief.tools // [] | .[]' "$SETTINGS"); do set -- "$@" "$tool"; done
 
 # The live state of all my work, to check older notes against.
 live=$(jq -c '{tickets: [.tickets[] | {id, status}],
@@ -52,7 +52,7 @@ titles, no filler.
 - ## Bring: up to 2 points or questions for me to raise
 - ## Links: up to 4 '- [short title](url)' lines; attachments you could not read go here by name
 Leave out a section with nothing to say. Write the file, then reply with nothing."
-model=$(jq -r '.meetingBrief.model // "sonnet"' "$CONFIG")
+model=$(jq -r '.meetingBrief.model // "sonnet"' "$SETTINGS")
 cd "$REPOS" && claude -p "$prompt" --model "$model" --permission-mode acceptEdits --add-dir "$DIR" \
   --add-dir "$HOME/.config/cockpit/runbooks" --add-dir "$CACHE" --allowedTools "$@" </dev/null >"$CACHE/meeting-brief-$name.log" 2>&1
 

@@ -123,6 +123,9 @@ export type Config = {
   // A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; 0 keeps it.
   browserIdleMinutes: number
   herdrPluginRoot: string
+  // The pinned herdr spaces, in order, and the extra tools a runbook's background refresh may use.
+  spaces: string[]
+  runbookTools: string[]
 }
 
 // The Linear connector's mapping, the default for a config that names no other.
@@ -209,6 +212,8 @@ const DEFAULTS: Config = {
   e2eBrowser: 'terminal-browser',
   browserIdleMinutes: 60,
   herdrPluginRoot: '',
+  spaces: ['inbox', 'terminal', 'to-do', 'runbook', 'meetings'],
+  runbookTools: [],
 }
 
 let cached: { at: number; config: Config } | undefined
@@ -270,7 +275,19 @@ export async function loadConfig($: $): Promise<Config> {
   config.reposDir = expand(config.reposDir)
   config.herdrPluginRoot = expand(config.herdrPluginRoot) || (await herdrPluginRoot($))
   cached = { at: Date.now(), config }
+  await shareConfig($, config).catch(() => undefined)
   return config
+}
+
+let shared = ''
+
+// The config as the mod reads it, defaults and older formats resolved, for the herdr apps and scripts to read as is.
+async function shareConfig($: $, config: Config) {
+  const body = JSON.stringify(config, null, 2)
+  if (body === shared) return
+  await $.process.run(['mkdir', '-p', await cacheDir($)])
+  await writeAtomic($, `${await cacheDir($)}/config.json`, body)
+  shared = body
 }
 
 // Where herdr keeps the cockpit herdr plugin, as its plugin registry says.

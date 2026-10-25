@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 HOME = os.path.expanduser("~")
 PATH = os.path.join(HOME, ".config", "cockpit", "config.json")
+SHARED = os.path.join(HOME, ".cache", "cockpit", "config.json")
 INBOX = os.path.join(HOME, ".cache", "cockpit", "inbox.json")
 
 DEFAULTS = {
@@ -71,20 +72,18 @@ def copy(text):
 
 
 def load():
+    """The config as the mod resolved it (~/.cache/cockpit/config.json); before any session has run, the file
+    /cockpit:setup writes over the defaults."""
+    try:
+        with open(SHARED, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
     try:
         with open(PATH, encoding="utf-8") as f:
             raw = json.load(f)
     except (OSError, ValueError):
         raw = {}
-    # A config from before ticket connectors were mapped has a `linear` block; the mod reads it as Linear's mapping.
-    if "tickets" not in raw and isinstance(raw.get("linear"), dict):
-        raw["tickets"] = {"enabled": raw["linear"].get("enabled", False), "server": raw["linear"].get("server", "claude.ai Linear"),
-                          "keys": raw["linear"].get("teams", [])}
-    # Likewise a `circleci` block: CircleCI's mapping when it is on, else GitHub's checks.
-    if "ci" not in raw and isinstance(raw.get("circleci"), dict):
-        old = raw["circleci"]
-        raw["ci"] = ({"enabled": True, "name": "CircleCI", "server": old.get("server", "circleci"), "imageJob": old.get("imageJob", "")}
-                     if old.get("enabled") else {"imageJob": old.get("imageJob", "")})
     config = {**DEFAULTS, **raw}
     for key, value in DEFAULTS.items():
         if isinstance(value, dict):

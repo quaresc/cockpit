@@ -4,10 +4,11 @@ import type { Register } from 'claude-code'
 import { activityOf, logActivity } from './activity'
 import { maybeBrief } from './brief'
 import { processRequests, refreshCi } from './ci'
+import { recordCost, startCosts } from './costs'
 import { home } from './config'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, recordRunbookOwner, reportStep, settleTurn } from './handoffs'
-import { herdrHere, hereSoon, pageContext } from './herdr'
+import { herdrHere, hereSoon, pageContext, setBackground } from './herdr'
 import { refresh } from './inbox'
 import { refreshMeetings } from './meetings'
 import { registerSettings, registerSettingsCommand } from './settings'
@@ -37,10 +38,13 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     stopTimers()
     const every = (ms: number, fn: () => void) => void timers.push($.clock.every(ms, fn))
-    await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
-    await registerSettingsCommand($)
     await $.tool.register(REPORT_SPEC).catch(() => undefined)
     await $.tool.register(SHOW_SPEC).catch(() => undefined)
+    // A background session only needs the tools: the session at the prompt refreshes and reports for it.
+    if (await setBackground($, e.isInteractive)) return next(e)
+    await startCosts($).catch(() => undefined)
+    await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
+    await registerSettingsCommand($)
     every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     every(60_000, () => void refreshCi($).catch(() => undefined))
     every(60_000, () => void refreshMeetings($).catch(() => undefined))
@@ -146,12 +150,13 @@ export const register: Register = on => {
 
   on('session.measure', async ($, e, next) => {
     await reportUsage($, e).catch(() => undefined)
+    await recordCost($, e.cost?.usd, await read($, ticket)).catch(() => undefined)
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
     stopTimers()
-    if (e.reason !== 'clear') await forget($).catch(() => undefined)
+    await forget($).catch(() => undefined)
     // A /clear keeps the process: what the old conversation worked on must not follow the new one.
     if (e.reason === 'clear') {
       await update($, work, () => null)

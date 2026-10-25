@@ -9,7 +9,7 @@ ok() { printf 'ok    %s\n' "$*"; }
 warn() { printf 'warn  %s\n' "$*"; }
 fail() { printf 'fail  %s\n' "$*"; }
 age() { echo $(( now - $(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0) )); }
-enabled() { [ "$(jq -r ".$1.enabled // false" "$CONFIG" 2>/dev/null)" = true ]; }
+enabled() { [ "$(jq -r ".$1.enabled // false" "$SETTINGS" 2>/dev/null)" = true ]; }
 
 # Tools and config
 v=$("$H" --version 2>/dev/null | awk '{print $2}')
@@ -41,10 +41,15 @@ find "$CACHE/sessions" -name '*.json' -mmin +5 -delete 2>/dev/null
 "$H" pane list 2>/dev/null | jq -r '.result.panes[] | select(.agent == "claude") | "\(.pane_id) \(.workspace_id)"' |
 while read -r pane ws; do
   label=$("$H" workspace list | jq -r --arg w "$ws" '.result.workspaces[] | select(.workspace_id == $w) | .label' | sed 's/^\[[0-9]*\] *//')
-  beat=$(cat "$CACHE"/sessions/*.json 2>/dev/null | jq -s -c --arg p "$pane" 'map(select(.pane == $p)) | max_by(.at) // empty')
+  # A pane can hold beats from more than one instance (the conversation before a /clear on old code): the one on the
+  # installed version is the session; any other still beating is a leftover.
+  beats=$(cat "$CACHE"/sessions/*.json 2>/dev/null | jq -s -c --arg p "$pane" 'map(select(.pane == $p))')
+  beat=$(printf '%s' "$beats" | jq -c --arg v "$installed" '(map(select(.version == $v)) | max_by(.at)) // max_by(.at) // empty')
   version=$(printf '%s' "$beat" | jq -r '.version // empty')
+  others=$(printf '%s' "$beats" | jq -r --arg v "$version" 'map(select(.version != $v)) | length')
   if [ -z "$beat" ]; then warn "session \"$label\" ($pane) runs no cockpit → /reload-plugins in it, or restart it"
   elif [ -n "$installed" ] && [ "$version" != "$installed" ]; then warn "session \"$label\" runs cockpit $version, $installed is installed → /reload-plugins in it"
+  elif [ "$others" -gt 0 ]; then warn "session \"$label\" on cockpit $version, but an older cockpit still runs in its pane → restart Claude there (exit, then claude --resume)"
   else ok "session \"$label\" on cockpit $version"; fi
 done
 
@@ -59,7 +64,7 @@ check_cache() {
   else ok "$name: refreshed $((a / 60)) min ago"; fi
 }
 check_cache "$CACHE/inbox.json" inbox 900
-[ "$(jq -r '.ci.enabled != false' "$CONFIG" 2>/dev/null)" = true ] && check_cache "$CACHE/ci.json" CI 600
+[ "$(jq -r '.ci.enabled != false' "$SETTINGS" 2>/dev/null)" = true ] && check_cache "$CACHE/ci.json" CI 600
 enabled calendar && check_cache "$CACHE/meetings.json" meetings 900
 
 # Pinned spaces and their apps
@@ -72,7 +77,7 @@ for space in $SPACES; do
 done
 
 # Notifications
-if [ "$(jq -r '.notifications // true' "$CONFIG" 2>/dev/null)" = true ]; then
+if [ "$(jq -r '.notifications // true' "$SETTINGS" 2>/dev/null)" = true ]; then
   if [ "$OS" = Darwin ]; then
     if sh "$ROOT/notifier/build.sh" >/dev/null 2>&1; then
       status=$("$HOME/.config/cockpit/Cockpit.app/Contents/MacOS/cockpit-notify" status 2>/dev/null)
@@ -116,7 +121,7 @@ fi
 
 # The platform connector's tools, mapped by /cockpit:setup to what cockpit does with deploys and previews
 if enabled platform; then
-  mapped=$(jq -r '.platform.tools // {} | to_entries | map(select(.value.tool // "" | length > 0) | .key) | join(", ")' "$CONFIG")
+  mapped=$(jq -r '.platform.tools // {} | to_entries | map(select(.value.tool // "" | length > 0) | .key) | join(", ")' "$SETTINGS")
   [ -n "$mapped" ] && ok "platform tools mapped: $mapped" ||
     warn "platform is on but no tool is mapped: no deploys or previews → /cockpit:setup maps them"
 fi
@@ -125,15 +130,15 @@ fi
 if jq -e '.linear and (.tickets | not)' "$CONFIG" >/dev/null 2>&1; then
   warn "config has the old linear block: it still works as Linear's mapping → /cockpit:setup rewrites it as tickets"
 elif enabled tickets; then
-  missing=$(jq -r '.tickets.tools as $t | if $t then ["listMine", "get", "listStates", "setState"] | map(select(($t[.].tool // "") == "")) | join(", ") else "" end' "$CONFIG")
+  missing=$(jq -r '.tickets.tools as $t | if $t then ["listMine", "get", "listStates", "setState"] | map(select(($t[.].tool // "") == "")) | join(", ") else "" end' "$SETTINGS")
   [ -z "$missing" ] && ok "ticket tools mapped" || warn "ticket tools not mapped: $missing; cockpit skips what they do → /cockpit:setup maps them"
 fi
 
 # The CI: GitHub's checks through gh, or a CI connector mapped by /cockpit:setup
 if jq -e '.circleci and (.ci | not)' "$CONFIG" >/dev/null 2>&1; then
   warn "config has the old circleci block: it still works as CircleCI's mapping → /cockpit:setup rewrites it as ci"
-elif [ -n "$(jq -r '.ci.server // empty' "$CONFIG")" ]; then
-  missing=$(jq -r '.ci.tools as $t | if $t then ["listRuns", "listJobs"] | map(select(($t[.].tool // "") == "")) | join(", ") else "" end' "$CONFIG")
+elif [ -n "$(jq -r '.ci.server // empty' "$SETTINGS")" ]; then
+  missing=$(jq -r '.ci.tools as $t | if $t then ["listRuns", "listJobs"] | map(select(($t[.].tool // "") == "")) | join(", ") else "" end' "$SETTINGS")
   [ -z "$missing" ] && ok "CI tools mapped" || warn "CI tools not mapped: $missing; no CI runs → /cockpit:setup maps them"
 else
   ok "CI from GitHub checks"
@@ -141,9 +146,7 @@ fi
 
 # Permission rules for the background MCP calls
 for source in tickets ci platform calendar; do
-  # The old linear and circleci blocks count as the ticket and CI connectors.
-  block=$(jq -c --arg s "$source" 'if $s == "tickets" then (.tickets // .linear // {})
-    elif $s == "ci" then (.ci // (if .circleci.enabled then .circleci else {} end)) else (.[$s] // {}) end' "$CONFIG" 2>/dev/null)
+  block=$(jq -c --arg s "$source" '.[$s] // {}' "$SETTINGS" 2>/dev/null)
   [ "$(printf '%s' "$block" | jq -r '.enabled // false')" = true ] || continue
   server=$(printf '%s' "$block" | jq -r --arg s "$source" '.server // (if $s == "tickets" then "claude.ai Linear" else "" end)')
   [ -n "$server" ] || continue
@@ -156,7 +159,7 @@ done
 allowed() { jq -e --arg r "$1" '.permissions.allow // [] | any(. as $a | $r == $a or ($r | startswith($a + "__")))' "$HOME/.claude/settings.json" >/dev/null 2>&1; }
 for pair in "datadog:get_datadog_metric" "metabase:query"; do
   source=${pair%%:*} tool=${pair#*:}
-  server=$(jq -r --arg s "$source" '.[$s].server // empty' "$CONFIG" 2>/dev/null)
+  server=$(jq -r --arg s "$source" '.[$s].server // empty' "$SETTINGS" 2>/dev/null)
   [ -n "$server" ] || server=$(printf '%s' "$source" | sed 's/datadog/claude.ai Datadog/')
   rule="mcp__$(printf '%s' "$server" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')__$tool"
   allowed "$rule" && ok "allow rule for $rule" || warn "no allow rule for $rule: its live pane asks or is refused → add it to permissions.allow"

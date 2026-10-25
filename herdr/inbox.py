@@ -28,6 +28,7 @@ CI = os.path.join(CACHE, "ci.json")
 BRIEF = os.path.join(CACHE, "brief.json")
 REQUESTS = os.path.join(CACHE, "requests")
 SESSIONS = os.path.join(CACHE, "sessions")
+COSTS = os.path.join(CACHE, "costs")
 INBOX_VERSION = 1
 MUTED = os.path.join(HOME, ".config", "cockpit", "muted.json")
 
@@ -332,6 +333,16 @@ def heartbeats():
     return _beats["beats"]
 
 
+def ticket_costs():
+    """What each ticket cost, in US dollars, summed over the sessions that worked on it."""
+    total = {}
+    for name in os.listdir(COSTS) if os.path.isdir(COSTS) else []:
+        if name.endswith(".json"):
+            for ticket, usd in view.load_cached(os.path.join(COSTS, name), {}).items():
+                total[ticket] = total.get(ticket, 0) + usd
+    return total
+
+
 def merged_sessions(merged, mine):
     """Live sessions whose branch has merged with no PR of it still open: their space can close."""
     still_open = {(pr["repo"], pr.get("branch")) for pr in mine}
@@ -353,9 +364,9 @@ def toggle(state, group):
 
 
 def build(state, cols):
-    data = view.load_json(INBOX, None)
-    muted = set(view.load_json(MUTED, []))
-    ci = view.load_json(CI, {"runs": []})
+    data = view.load_cached(INBOX, None)
+    muted = set(view.load_cached(MUTED, []))
+    ci = view.load_cached(CI, {"runs": []})
     runs = {(r["repo"], r["branch"]): r for r in ci.get("runs", [])}
     lines = []
 
@@ -408,7 +419,7 @@ def build(state, cols):
         line().add(error, RED)
 
     # The morning brief the mod writes once a day, until dismissed.
-    brief = view.load_json(BRIEF, {})
+    brief = view.load_cached(BRIEF, {})
     if brief.get("date") == datetime.now().strftime("%Y-%m-%d") and not brief.get("dismissed") and brief.get("lines"):
         line()
         written = datetime.fromtimestamp(brief["at"] / 1000).strftime("%H:%M")
@@ -587,6 +598,7 @@ def build(state, cols):
 
     # Work: each ticket with its sub-issues and its PRs (and theirs, stacked) underneath.
     tickets = data["tickets"]
+    costs = ticket_costs()
     ticket_ids = {t["id"] for t in tickets}
     t_children = {}
     for t in tickets:
@@ -610,6 +622,7 @@ def build(state, cols):
 
     def ticket_row(ticket, prefix, cont):
         prs = linked(ticket)
+        usd = costs.get(ticket["id"])
         deploying = is_deploying(ticket)
         if deploying:
             glyph, style = ICON["rocket"], DIM
@@ -623,7 +636,7 @@ def build(state, cols):
         item.add(fit(short_status(ticket), REF - 10), DIM, lambda: open_url(state, ticket["url"]))
         item.add(prefix, DIM)
         item.add(fit(ticket["title"], title_room(LEAD + REF + width(prefix) + 2)) + "  ", "", lambda: open_url(state, ticket["url"]))
-        item.add(" " * (NOTES + AGE))
+        item.add(fit(f"${usd:.2f}" if usd else "", NOTES), DIM).add(" " * AGE)
         deployed = (data.get("deploys") or {}).get(ticket["id"]) or []
         if deploying:
             if deployed and all(d["isLive"] for d in deployed):

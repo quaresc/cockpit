@@ -13,6 +13,7 @@ sys.argv = sys.argv[:1]
 import cockpit_config  # noqa: E402
 import inbox  # noqa: E402
 import show  # noqa: E402
+import view  # noqa: E402
 
 
 class HasTicket(unittest.TestCase):
@@ -45,6 +46,15 @@ class Settle(unittest.TestCase):
             inbox.settle(state)
             self.assertFalse(os.path.exists(os.path.join(folder, "1-rerun.json")))
             self.assertEqual(state["outcome"]["row"]["message"], "no Claude session picked it up")
+
+
+class TicketCosts(unittest.TestCase):
+    def test_sums_every_session(self):
+        with tempfile.TemporaryDirectory() as folder:
+            inbox.COSTS = folder
+            view.write_json(os.path.join(folder, "a.json"), {"ENG-1": 1.5, "ENG-2": 0.25})
+            view.write_json(os.path.join(folder, "b.json"), {"ENG-1": 2.0})
+            self.assertEqual(inbox.ticket_costs(), {"ENG-1": 3.5, "ENG-2": 0.25})
 
 
 class NewFile(unittest.TestCase):
