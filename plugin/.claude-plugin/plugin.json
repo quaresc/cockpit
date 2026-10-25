@@ -1,7 +1,7 @@
 {
   "name": "cockpit",
   "version": "0.11.0",
-  "description": "Context and plan limits, ticket, PR, design and deploy links in the footer, herdr sidebar counts, and the data behind the herdr cockpit apps: PR and ticket inbox, CI, runbooks and meetings",
+  "description": "One space with everything, for Claude Code users who switch context all day: agents, tickets, PRs, CI, inbox and meetings side by side in herdr",
   "author": {
     "name": "quaresc"
   },
