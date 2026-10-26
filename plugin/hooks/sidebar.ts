@@ -3,7 +3,7 @@ import type { EngineInterface, SessionMeasureInput } from 'claude-code'
 
 import { clashWith } from './activity'
 import { ciMark, notify, readCi } from './ci'
-import { cacheDir, loadConfig } from './config'
+import { cacheDir, home, loadConfig } from './config'
 import { browsersBeside, herdr, hereSoon, inboxSpace, spaceLabel, spaceOf } from './herdr'
 import { isDeploying, isFailing, isOldReview, ticketKey } from './match'
 import { siteMark } from './sites'
@@ -62,6 +62,45 @@ export async function reportDashboard($: $) {
   if ((await herdr($, tokenArgs(['workspace', 'report-metadata', space, '--source', 'cockpit'], tokens))).exitCode === 0) lastDashboard = key
 }
 
+// Rows are fitted to the sidebar's width from herdr's config, so herdr never cuts their end off with an ellipsis.
+let sidebarCols: number | undefined
+async function sidebarWidth($: $) {
+  if (sidebarCols === undefined) {
+    const toml = await $.fs.read(`${await home($)}/.config/herdr/config.toml`).catch(() => '')
+    sidebarCols = Number(/^\s*sidebar_width\s*=\s*(\d+)/m.exec(toml)?.[1] ?? 34)
+  }
+  return sidebarCols
+}
+
+const cells = (text: string) => [...text].length
+// A dashed repo name down to its initials and last word: sourcing-front -> s-front.
+const shortRepo = (repo: string) => repo.split('-').map((word, i, words) => (i < words.length - 1 ? word[0] : word)).join('-')
+
+// The work row in `room` cells: repo · ticket and a running CI's progress, tighter spacing first, then the repo
+// shortened, then the ticket alone.
+export function fitWork(repo: string, named: string | undefined, ci: string | undefined, room: number) {
+  const tail = (gap: string) => (ci ? `${gap}${ci}` : '')
+  const candidates = [
+    `${ICON.branch} ${[repo, named].filter(Boolean).join(' · ')}${tail('  ')}`,
+    `${ICON.branch} ${[repo, named].filter(Boolean).join(' ')}${tail(' ')}`,
+    `${ICON.branch} ${[shortRepo(repo), named].filter(Boolean).join(' · ')}${tail(' ')}`,
+    `${ICON.branch} ${[shortRepo(repo), named].filter(Boolean).join(' ')}${tail(' ')}`,
+    `${ICON.branch} ${named ?? shortRepo(repo)}${tail(' ')}`,
+  ]
+  return candidates.find(c => cells(c) <= room) ?? candidates[candidates.length - 1]
+}
+
+// A topic in `room` cells, whole words only.
+export function fitWords(text: string, room: number) {
+  if (cells(text) <= room) return text
+  const words = text.split(' ')
+  while (words.length > 1 && cells(words.join(' ')) > room) words.pop()
+  return words.join(' ')
+}
+
+// What the context gauge takes on the agent row, with herdr's " · " before it; the topic leaves it that room.
+let ctxCells = 8
+
 const glyph = (percent: number) => (percent < 12.5 ? '○' : percent < 37.5 ? '◔' : percent < 62.5 ? '◑' : percent < 87.5 ? '◕' : '●')
 
 // Context, limits and current work: status line, agent rows, shared limits file.
@@ -86,9 +125,9 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
 
   const ctx = context.percent
   const level = ctx === undefined ? undefined : ctx >= 70 ? 'ctx_hot' : ctx >= 45 ? 'ctx_warn' : 'ctx_ok'
-  for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot']) {
-    tokens.push([name, name === level && ctx !== undefined ? `${glyph(ctx)} ${Math.round(ctx)}%` : undefined])
-  }
+  const gauge = ctx === undefined ? undefined : `${glyph(ctx)} ${Math.round(ctx)}%`
+  ctxCells = gauge ? cells(` · ${gauge}`) : 0
+  for (const name of ['ctx_ok', 'ctx_warn', 'ctx_hot']) tokens.push([name, name === level ? gauge : undefined])
   tokens.push(['cost', undefined])
 
   // Third agent row: repo · ticket, coloured by the CI of that branch's PR.
@@ -98,9 +137,10 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
   const pr = current && branch ? data?.mine.find(p => p.repo === current.repo && p.branch === branch) : undefined
   const { tickets, ci } = await loadConfig($)
   const named = branch && (ticketKey(branch, data, tickets.keys) ?? branch.replace(/^[^/]+\//, '').slice(0, 14))
-  const label = current ? [current.repo, named].filter(Boolean).join(' · ') : undefined
   const run = current && branch ? (await readCi($))?.runs.find(r => r.repo === current.repo && r.branch === branch) : undefined
-  const text = label && `${ICON.branch} ${label}${run?.isRunning ? `  ${ciMark(ci.name)} ${run.done}/${run.total}` : ''}`
+  // The row sits under the agent's topic, two cells in.
+  const progress = run?.isRunning ? `${ciMark(ci.name)} ${run.done}/${run.total}` : undefined
+  const text = current ? fitWork(current.repo, named || undefined, progress, (await sidebarWidth($)) - 2) : undefined
   const tone = !text ? undefined : run?.isRunning ? 'work_run' : pr && isFailing(pr) ? 'work_fail' : 'work'
   for (const name of ['work', 'work_run', 'work_fail', 'work_ok']) tokens.push([name, name === tone ? text : undefined])
   // Two agents on one branch overwrite each other: both rows say so.
@@ -150,7 +190,7 @@ export async function reportSide($: $) {
   const right = page ? `${siteIcon(page.url)} ${clip(page.title || page.url.replace(/^https?:\/\//, ''), 10)}` : view ? `${ICON.view} ${clip(view.name, 10)}` : others > 0 ? `${ICON.view} pane` : ''
   const tokens: [string, string | undefined][] = right
     ? [['agent', clip(topic, 12)], ['side_sep', '│'], ['side', extra > 0 ? `${right} +${extra}` : right]]
-    : [['agent', topic], ['side_sep', undefined], ['side', undefined]]
+    : [['agent', fitWords(topic, (await sidebarWidth($)) - 2 - ctxCells)], ['side_sep', undefined], ['side', undefined]]
   const key = JSON.stringify(tokens)
   if (key === lastRow) return
   if ((await herdr($, tokenArgs(['pane', 'report-metadata', here.pane, '--source', 'cockpit'], tokens))).exitCode === 0) lastRow = key
