@@ -191,7 +191,8 @@ class Line:
             room = room_for_parts - used
             if room <= 0:
                 break
-            piece = text if width(text) <= room else fit(text, room)
+            # Padding cut short stays blank rather than ending in an ellipsis.
+            piece = text if width(text) <= room else " " * room if not text.strip() else fit(text, room)
             out += style + piece + RESET
             used += width(piece)
         if tail:

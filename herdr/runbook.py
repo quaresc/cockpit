@@ -41,7 +41,9 @@ ICON = {"done": "", "run": "", "runbook": "", "copy": "", "open": "�
         "fold": "", "unfold": "", "merged": "", "note": ""}
 ICON["session"] = "\uf120"
 OPEN = ("⬜", "⏳", "🟡", "❌")
-NUM, STATUS, WHERE, ACTIONS = 4, 22, 30, 39
+NUM, STATUS, WHERE = 4, 22, 30
+# Of the width the # column leaves, the status and where columns take these shares and the step the rest.
+STATUS_SHARE, WHERE_SHARE = 0.28, 0.24
 PR_REF = re.compile(r"^([\w.-]+)#(\d+)$")
 
 
@@ -436,7 +438,12 @@ def build(state, cols):
     if not books:
         line().add("  No runbook yet: run /runbook in a Claude session working on a ticket.", DIM)
 
-    step_room = max(16, cols - NUM - STATUS - WHERE - ACTIONS - 4)
+    # The table spans the full width, like the inbox: a row's buttons cover its end while it is hovered.
+    table = cols - 1
+    free = table - 4 - NUM - 3
+    status_room = max(STATUS, int(free * STATUS_SHARE))
+    where_room = max(WHERE, int(free * WHERE_SHARE))
+    step_room = max(16, free - status_room - where_room)
     for index, book in enumerate(books):
         is_open = (index == 0) != (book["slug"] in state["toggled"])
         todo = sum(1 for s in book["steps"] if s["status"].startswith(OPEN))
@@ -444,21 +451,22 @@ def build(state, cols):
         head.add(f"  {ICON['unfold'] if is_open else ICON['fold']} ", DIM, lambda b=book: state["toggled"].__ixor__({b["slug"]}))
         head.add(book["title"] or book["slug"], BOLD + (ORANGE if todo else GREEN), lambda b=book: state["toggled"].__ixor__({b["slug"]}))
         head.add(f"   updated {book['updated']} · {todo} to do" if todo else f"   updated {book['updated']} · all done", DIM)
-        # Refresh stays visible on every runbook, not only on hover.
-        head.add("   ")
+        # Refresh stays visible on every runbook, not only on hover, at the table's right edge.
         refresh = lambda b=book: update(state, b)
         status = refresh_status(state, book)
-        if status:
-            head.add(status[0], status[1])
-        else:
-            head.add(CAP_OPEN, PILL_MAIN[0], refresh).add(f"{ICON['update']} refresh", PILL_MAIN[1], refresh).add(CAP_CLOSE, PILL_MAIN[0], refresh)
+        pill = [(status[0], status[1], None)] if status else [
+            (CAP_OPEN, PILL_MAIN[0], refresh), (f"{ICON['update']} refresh", PILL_MAIN[1], refresh), (CAP_CLOSE, PILL_MAIN[0], refresh)]
+        used = sum(width(t) for t, _ in head.parts)
+        head.add(" " * max(3, table - used - sum(width(t) for t, _, _ in pill)))
+        for text, style, action in pill:
+            head.add(text, style, action)
         head.anchor = book["slug"]
-        head.buttons = [Button("delete", lambda b=book: delete(state, b))]
+        head.buttons = ([] if status else [Button("refresh", refresh, main=True)]) + [Button("delete", lambda b=book: delete(state, b))]
         head.primary = lambda b=book: state["toggled"].__ixor__({b["slug"]})
         if not is_open:
             continue
         cols_head = line().add(" " * 4)
-        for label, cells in (("#", NUM), ("status", STATUS), ("step", step_room), ("where", WHERE)):
+        for label, cells in (("#", NUM), ("status", status_room), ("step", step_room), ("where", where_room)):
             cols_head.add(fit(label, cells) + " ", DIM)
         for step in book["steps"]:
             row = line().add(" " * 4)
@@ -467,28 +475,28 @@ def build(state, cols):
             started = state["flash"].get((book["slug"], step["n"]))
             t = time.time() - started if started is not None else None
             if t is not None and t < 0:
-                row.add(fit(f"{SPINNER[0]} " + step["status"].split(" ", 1)[-1], STATUS) + " ", DIM)
+                row.add(fit(f"{SPINNER[0]} " + step["status"].split(" ", 1)[-1], status_room) + " ", DIM)
             elif t is not None and t < 0.5:
-                row.add(fit(f"{SPINNER[int(t * 14) % 4]} " + step["status"].split(" ", 1)[-1], STATUS) + " ", ORANGE)
+                row.add(fit(f"{SPINNER[int(t * 14) % 4]} " + step["status"].split(" ", 1)[-1], status_room) + " ", ORANGE)
             elif t is not None and t < FLASH:
                 # The tint fades from teal to nothing; a spark shows for the first second.
                 fade = 1 - (t - 0.5) / (FLASH - 0.5)
                 row.bg = "\033[48;2;%d;%d;%dm" % (int(16 + 24 * fade), int(16 + 84 * fade), int(16 + 64 * fade))
                 status = step["status"] + (" ✦" if t < 1.5 else "")
-                row.add(fit(status, STATUS) + " ", BOLD + GREEN)
+                row.add(fit(status, status_room) + " ", BOLD + GREEN)
             else:
-                row.add(fit(step["status"], STATUS) + " ", "" if not is_done else DIM)
+                row.add(fit(step["status"], status_room) + " ", "" if not is_done else DIM)
             row.add(fit(step["step"], step_room) + " ", DIM if is_done else "")
             ref = PR_REF.match(step["where"])
             buttons = []
             if ref:
                 repo, number = ref[1], int(ref[2])
                 badge, badge_style = live_badge(repo, number, inbox)
-                where = fit(step["where"], WHERE - width(badge))
+                where = fit(step["where"], where_room - width(badge))
                 row.add(where, LINK + DIM, lambda r=repo, n=number: open_pr(state, r, n)).add(badge, badge_style).add(" ")
                 buttons.append(Button("open", lambda r=repo, n=number: open_pr(state, r, n)))
             else:
-                row.add(fit(step["where"], WHERE) + " ", DIM)
+                row.add(fit(step["where"], where_room) + " ", DIM)
             if step["command"]:
                 buttons.append(Button("copy", lambda c=step["command"]: copy(state, c)))
             handoff = state["handoffs"].get(handoff_id(book, step))
@@ -502,14 +510,15 @@ def build(state, cols):
             row.primary = buttons[0].action if buttons else (lambda: None)
             # The command under its step, wrapped over the full width rather than cut; a click copies it.
             if step["command"]:
-                indent = 4 + NUM + 1 + STATUS + 1
+                indent = 4 + NUM + 1 + status_room + 1
                 for part in textwrap.wrap(step["command"], max(20, cols - indent - 2), break_on_hyphens=False):
                     line().add(" " * indent).add(part, DIM if is_done else ORANGE, lambda c=step["command"]: copy(state, c))
             said = handoff_line(handoff) if handoff else None
             if said:
-                line().add(" " * (4 + NUM + 1 + STATUS + 1)).add(*said)
+                line().add(" " * (4 + NUM + 1 + status_room + 1)).add(*said)
         for text in book["notes"]:
-            line().add(f"    {ICON['note']} ", DIM).add(text, DIM)
+            for n, part in enumerate(textwrap.wrap(text, max(20, cols - 8), break_on_hyphens=False)):
+                line().add(f"    {ICON['note']} " if n == 0 else " " * 6, DIM).add(part, DIM)
         line()
 
     if view.noted(state):
@@ -552,7 +561,7 @@ def main():
                            announced=set(), focus_at=time.time(), reasons={}, seen=None, was_busy=False, handoffs={})
     reload(state)
     report(state["books"])
-    view.App("runbook", state, build, ICON, actions=ACTIONS, poll=poll,
+    view.App("runbook", state, build, ICON, poll=poll,
              timeout=lambda state: 0.06 if state["flash"] else 1.0).run()
 
 
