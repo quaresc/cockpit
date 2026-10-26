@@ -7,7 +7,7 @@ import json, os, socket, sys
 listed = json.load(sys.stdin)["result"]["workspaces"]
 order = [w["workspace_id"] for w in listed]
 label = {w["workspace_id"]: w["label"] for w in listed}
-for i, name in enumerate(os.environ["SPACES"].split()):
+for i, name in enumerate(os.environ["SPACES"].splitlines()):
     found = next((space for space in order if label[space].endswith("  " + name)), None)
     if found is None or order.index(found) == i:
         continue
