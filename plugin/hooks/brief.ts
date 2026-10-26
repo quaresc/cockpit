@@ -41,7 +41,13 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 const refs = (prs: { repo: string; number: number }[]) =>
   prs.slice(0, 3).map(pr => `${pr.repo}#${pr.number}`).join(', ') + (prs.length > 3 ? ` +${prs.length - 3}` : '')
 
-function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | null, previous: Brief | null, today: string) {
+// A line about one PR opens it; a line about several opens the GitHub search that lists just those, the inbox's own query
+// narrowed by the line's filter, since one line holds one link.
+const pullsSearch = (filter: string) => `https://github.com/pulls?q=${encodeURIComponent(`is:pr is:open archived:false ${filter}`)}`
+const link = <T extends { url: string }>(prs: T[], filter: string, one: (pr: T) => string = pr => pr.url) =>
+  prs.length === 1 && prs[0] ? one(prs[0]) : pullsSearch(filter)
+
+export function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | null, previous: Brief | null, today: string, org = '') {
   const lines: BriefLine[] = []
   const now = Date.now()
 
@@ -55,23 +61,26 @@ function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | nul
     lines.push({ icon: 'calendar', text: 'no meetings today', tone: 'good' })
   }
 
+  // My own PRs are scoped to the configured organization, as the inbox's query is.
+  const mine = `author:@me${org ? ` org:${org.replace(/[^A-Za-z0-9_.-]/g, '')}` : ''}`
+
   const fresh = (iso: string) => now - Date.parse(iso) < 60 * 86_400_000
   const direct = inbox.direct.filter(pr => fresh(pr.updatedAt))
   if (direct.length > 0) {
-    lines.push({ icon: 'review', text: `${plural(direct.length, 'review')} for you: ${refs(direct)}`, url: direct[0]?.url, tone: 'warn' })
+    lines.push({ icon: 'review', text: `${plural(direct.length, 'review')} for you: ${refs(direct)}`, url: link(direct, 'user-review-requested:@me'), tone: 'warn' })
   }
 
   const failing = inbox.mine.filter(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR')
   if (failing.length > 0) {
-    lines.push({ icon: 'fail', text: `${plural(failing.length, 'PR')} of yours failing CI: ${refs(failing)}`, url: failing[0] && `${failing[0].url}/checks`, tone: 'bad' })
+    lines.push({ icon: 'fail', text: `${plural(failing.length, 'PR')} of yours failing CI: ${refs(failing)}`, url: link(failing, `${mine} status:failure`, pr => `${pr.url}/checks`), tone: 'bad' })
   }
   const changes = inbox.mine.filter(pr => pr.review === 'CHANGES_REQUESTED')
   if (changes.length > 0) {
-    lines.push({ icon: 'changes', text: `changes requested on ${refs(changes)}`, url: changes[0]?.url, tone: 'warn' })
+    lines.push({ icon: 'changes', text: `changes requested on ${refs(changes)}`, url: link(changes, `${mine} review:changes-requested`), tone: 'warn' })
   }
   const ready = inbox.mine.filter(pr => pr.review === 'APPROVED' && pr.ci === 'SUCCESS')
   if (ready.length > 0) {
-    lines.push({ icon: 'approved', text: `${plural(ready.length, 'PR')} ready to merge: ${refs(ready)}`, url: ready[0]?.url, tone: 'good' })
+    lines.push({ icon: 'approved', text: `${plural(ready.length, 'PR')} ready to merge: ${refs(ready)}`, url: link(ready, `${mine} review:approved status:success`), tone: 'good' })
   }
 
   // CI that ended in failure since the previous brief, or in the last 16 hours, on branches not already listed as failing.
@@ -106,7 +115,7 @@ function compose(inbox: Inbox, ci: CiState | null, meetings: MeetingsState | nul
 // Once a day, from the configured time on (weekdays unless weekends are on), when the inbox and the meetings are fresh:
 // the brief is written for the inbox app, and one notification sums it up.
 export async function maybeBrief($: $) {
-  const { brief, calendar } = await loadConfig($)
+  const { brief, calendar, github } = await loadConfig($)
   if (!brief.enabled) return
   const now = new Date()
   const today = localDate(now)
@@ -127,7 +136,7 @@ export async function maybeBrief($: $) {
     const again = await readJson<Brief>($, `${dir}/brief.json`)
     if (again?.date === today) return
     const ci = await readJson<CiState>($, `${dir}/ci.json`)
-    const { lines, tickets, live } = compose(inbox, ci, meetings, previous, today)
+    const { lines, tickets, live } = compose(inbox, ci, meetings, previous, today, github.org)
     const next: Brief = { date: today, at: Date.now(), lines, tickets, live }
     await $.fs.write(`${dir}/brief.json`, JSON.stringify(next))
     const body = lines.length > 0 ? lines.slice(0, 4).map(l => l.text).join('\n') : 'Nothing waiting on you.'
