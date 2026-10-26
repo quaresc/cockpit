@@ -14,7 +14,8 @@ let isBackground = false
 // out of that pane's rows and heartbeat. A background job the person started with /bg has a job folder and keeps its pane.
 export async function setBackground($: $, isInteractive: boolean) {
   const isDaemon = (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
-  const isJob = isDaemon && (await $.fs.exists(`${(await $.env.get('HOME')) ?? ''}/.claude/jobs/${await $.session.id()}`))
+  const jobDir = await $.env.get('CLAUDE_JOB_DIR')
+  const isJob = isDaemon && Boolean(jobDir) && (await $.fs.exists(jobDir ?? ''))
   isBackground = !isJob && (!isInteractive || isDaemon)
   return isBackground
 }
