@@ -126,6 +126,8 @@ export type Config = {
   // The pinned herdr spaces, in order, and the extra tools a runbook's background refresh may use.
   spaces: string[]
   runbookTools: string[]
+  // Whether the inbox starts work on a branch checked out nowhere in a new herdr worktree, rather than in the main checkout.
+  worktrees: boolean
 }
 
 // The Linear connector's mapping, the default for a config that names no other.
@@ -214,6 +216,7 @@ const DEFAULTS: Config = {
   herdrPluginRoot: '',
   spaces: ['inbox', 'terminal', 'to-do', 'runbook', 'meetings'],
   runbookTools: [],
+  worktrees: false,
 }
 
 let cached: { at: number; config: Config } | undefined

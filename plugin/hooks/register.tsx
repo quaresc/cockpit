@@ -15,7 +15,7 @@ import { registerSettings, registerSettingsCommand } from './settings'
 import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, refreshSources, show } from './show'
 import { clearRows, closeIdleBrowsers, notifyFinished, reportSide, reportUsage } from './sidebar'
 import { checkUpdate, forget, heartbeat } from './upkeep'
-import { branchOf, trackWork } from './work'
+import { branchOf, seedWork, trackWork } from './work'
 
 const links = atom({ plugin: 'cockpit', key: 'links' } as const, null)
 const sidePage = atom({ plugin: 'cockpit', key: 'sidePage' } as const, null)
@@ -43,6 +43,7 @@ export const register: Register = on => {
     // A background session only needs the tools: the session at the prompt refreshes and reports for it.
     if (await setBackground($, e.isInteractive)) return next(e)
     await startCosts($).catch(() => undefined)
+    await seedWork($, e.cwd).catch(() => undefined)
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
     await registerSettingsCommand($)
     every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
