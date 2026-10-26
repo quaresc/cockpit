@@ -2,8 +2,8 @@
 """Runbooks for the herdr runbook space: ~/.config/cockpit/runbooks/*.md, written by /runbook.
 
 Each file is a title, an `updated:` line, a `| # | Step | Where | Status | Command |` table and optional
-notes. The newest runbook is open, the others folded. PRs open on click, commands copy on click, and a
-row shows its buttons while hovered or selected, like the inbox.
+notes. The newest runbook is open, the others folded. PRs open on click, and a row shows its buttons
+while hovered or selected, like the inbox.
 """
 
 import json
@@ -40,7 +40,7 @@ ICON = {"done": "", "run": "", "runbook": "", "copy": "", "open": "�
         "fold": "", "unfold": "", "merged": "", "note": ""}
 ICON["session"] = "\uf120"
 OPEN = ("⬜", "⏳", "🟡", "❌")
-NUM, STATUS, WHERE, COMMAND, ACTIONS = 4, 22, 30, 36, 30
+NUM, STATUS, WHERE, ACTIONS = 4, 22, 30, 30
 PR_REF = re.compile(r"^([\w.-]+)#(\d+)$")
 
 
@@ -208,13 +208,6 @@ def report(books):
 
 # ---------------------------------------------------------------------------
 # Actions
-
-
-def copy(state, command):
-    if not cockpit_config.copy(command):
-        note(state, "no clipboard tool: install wl-copy or xclip")
-        return
-    note(state, f"copied: {command}")
 
 
 def open_pr(state, repo, number):
@@ -435,7 +428,7 @@ def build(state, cols):
     if not books:
         line().add("  No runbook yet: run /runbook in a Claude session working on a ticket.", DIM)
 
-    step_room = max(16, cols - NUM - STATUS - WHERE - COMMAND - ACTIONS - 4)
+    step_room = max(16, cols - NUM - STATUS - WHERE - ACTIONS - 4)
     for index, book in enumerate(books):
         is_open = (index == 0) != (book["slug"] in state["toggled"])
         todo = sum(1 for s in book["steps"] if s["status"].startswith(OPEN))
@@ -457,7 +450,7 @@ def build(state, cols):
         if not is_open:
             continue
         cols_head = line().add(" " * 4)
-        for label, cells in (("#", NUM), ("status", STATUS), ("step", step_room), ("where", WHERE), ("command", COMMAND)):
+        for label, cells in (("#", NUM), ("status", STATUS), ("step", step_room), ("where", WHERE)):
             cols_head.add(fit(label, cells) + " ", DIM)
         for step in book["steps"]:
             row = line().add(" " * 4)
@@ -488,8 +481,6 @@ def build(state, cols):
                 buttons.append(Button("open", lambda r=repo, n=number: open_pr(state, r, n)))
             else:
                 row.add(fit(step["where"], WHERE) + " ", DIM)
-            if step["command"]:
-                row.add(fit(step["command"], COMMAND), ORANGE, lambda c=step["command"]: copy(state, c))
             handoff = state["handoffs"].get(handoff_id(book, step))
             if not is_done:
                 if handoff and in_flight(handoff):
@@ -509,7 +500,7 @@ def build(state, cols):
     if view.noted(state):
         line().add(state["note"], ORANGE)
     else:
-        line().add("run hands a step to its Claude session, which reports back under it · click a PR to open it, a command to copy it · j/k rows · h/l or tab buttons · enter press · /runbook in a session writes one", DIM)
+        line().add("run hands a step to its Claude session, which reports back under it · click a PR to open it · j/k rows · h/l or tab buttons · enter press · /runbook in a session writes one", DIM)
     return lines
 
 
