@@ -9,16 +9,20 @@ export function herdr($: $, args: string[]) {
 }
 
 let isBackground = false
+let isJob = false
 
 // A helper session (a `claude -p` run, a daemon session working for another) inherits its parent's herdr pane: it stays
 // out of that pane's rows and heartbeat. A background job the person started with /bg has a job folder and keeps its pane.
 export async function setBackground($: $, isInteractive: boolean) {
   const isDaemon = (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
   const jobDir = await $.env.get('CLAUDE_JOB_DIR')
-  const isJob = isDaemon && Boolean(jobDir) && (await $.fs.exists(jobDir ?? ''))
+  isJob = isDaemon && Boolean(jobDir) && (await $.fs.exists(jobDir ?? ''))
   isBackground = !isJob && (!isInteractive || isDaemon)
   return isBackground
 }
+
+// A /bg job has no REPL to bind the mod's MCP calls to: it draws its own rows, and leaves fetching to the sessions at a prompt.
+export const isBackgroundJob = () => isJob
 
 export async function isInHerdr($: $) {
   return !isBackground && (await $.env.get('HERDR_ENV')) === '1'

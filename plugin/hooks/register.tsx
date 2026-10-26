@@ -8,7 +8,7 @@ import { recordCost, startCosts } from './costs'
 import { home } from './config'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, recordRunbookOwner, reportStep, settleTurn } from './handoffs'
-import { herdrHere, hereSoon, pageContext, setBackground } from './herdr'
+import { herdrHere, hereSoon, isBackgroundJob, pageContext, setBackground } from './herdr'
 import { refresh } from './inbox'
 import { refreshMeetings } from './meetings'
 import { registerSettings, registerSettingsCommand } from './settings'
@@ -42,14 +42,16 @@ export const register: Register = on => {
     await $.tool.register(SHOW_SPEC).catch(() => undefined)
     // A background session only needs the tools: the session at the prompt refreshes and reports for it.
     if (await setBackground($, e.isInteractive)) return next(e)
+    const fetches = !isBackgroundJob()
+    const fetch = (ms: number, fn: () => void) => fetches && every(ms, fn)
     await startCosts($).catch(() => undefined)
     await seedWork($, e.cwd).catch(() => undefined)
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
     await registerSettingsCommand($)
-    every(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
-    every(60_000, () => void refreshCi($).catch(() => undefined))
-    every(60_000, () => void refreshMeetings($).catch(() => undefined))
-    void refreshMeetings($).catch(() => undefined)
+    fetch(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
+    fetch(60_000, () => void refreshCi($).catch(() => undefined))
+    fetch(60_000, () => void refreshMeetings($).catch(() => undefined))
+    if (fetches) void refreshMeetings($).catch(() => undefined)
     // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
     every(3_000, () => void refreshViews($).catch(() => undefined))
     every(10_000, () => void reportSide($).catch(() => undefined))
@@ -57,8 +59,8 @@ export const register: Register = on => {
     // An answer given in a pane reaches the session as the person's next message.
     every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
     // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
-    every(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
-    every(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
+    fetch(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
+    fetch(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
     const beat = async () => {
       const current = await read($, work)
       await heartbeat($, await hereSoon($), current ? { repo: current.repo, branch: await branchOf($, current) } : undefined)
@@ -67,8 +69,10 @@ export const register: Register = on => {
     void beat().catch(() => undefined)
     every(3600_000, () => void checkUpdate($).catch(() => undefined))
     void checkUpdate($).catch(() => undefined)
-    void refreshCi($).catch(() => undefined)
-    void refresh($, false).catch(() => undefined)
+    if (fetches) {
+      void refreshCi($).catch(() => undefined)
+      void refresh($, false).catch(() => undefined)
+    }
     $.ui.status(undefined)
     void refreshLinks($).catch(() => undefined)
     void reportSide($).catch(() => undefined)
