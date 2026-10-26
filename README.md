@@ -108,15 +108,16 @@ writes which tool does what, so it works as far as the connector's tools go.
 | `metabase`, `datadog` | Connectors for live panes. |
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
 | `e2eBrowser` | Where agents run E2E tests: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
-| `spaces` | Pinned spaces, in sidebar order. |
+| `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `to-do`, `runbook`, `meetings`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
 
 </details>
 
 <details>
 <summary><b>Shortcuts</b></summary>
 
-`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, `prefix+f` the page
-beside the agent in your browser. In the apps: `j`/`k` rows, `h`/`l` buttons, Enter, `R` refresh.
+`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, the `key` of each
+space of your own, `prefix+f` the page beside the agent in your browser. In the apps: `j`/`k` rows, `h`/`l` buttons,
+Enter, `R` refresh.
 
 </details>
 

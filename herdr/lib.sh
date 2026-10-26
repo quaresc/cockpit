@@ -32,5 +32,9 @@ SETTINGS="$HOME/.cache/cockpit/config.json"
 [ -f "$SETTINGS" ] || SETTINGS=$CONFIG
 REPOS=$(jq -r '.reposDir // empty' "$SETTINGS" 2>/dev/null | sed "s|^~|$HOME|")
 [ -d "$REPOS" ] || REPOS=$HOME
-SPACES=$(jq -r '(.spaces // ["inbox", "terminal", "to-do", "runbook", "meetings"])[]' "$SETTINGS" 2>/dev/null) ||
-  SPACES=$(printf 'inbox\nterminal\nto-do\nrunbook\nmeetings')
+# The pinned spaces, one per line as name, icon and cwd split by \037: each is "name" (a built-in, or a space in
+# reposDir) or { name, cwd, icon, key }.
+SPACE_ROWS=$(jq -r '(.spaces // ["inbox", "terminal", "to-do", "runbook", "meetings"])[]
+  | if type == "object" then . else {name: .} end | [.name, .icon // "", .cwd // ""] | join("\u001f")' "$SETTINGS" 2>/dev/null) ||
+  SPACE_ROWS=$(printf 'inbox\nterminal\nto-do\nrunbook\nmeetings')
+SPACES=$(printf '%s\n' "$SPACE_ROWS" | cut -d "$(printf '\037')" -f1)

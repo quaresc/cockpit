@@ -69,12 +69,17 @@ enabled calendar && check_cache "$CACHE/meetings.json" meetings 900
 
 # Pinned spaces and their apps
 spaces=$("$H" workspace list 2>/dev/null | jq -r '.result.workspaces[].label')
-for space in $SPACES; do
-  printf '%s\n' "$spaces" | grep -q "  $space\$" || { fail "space $space missing → sh $LINK/ensure-spaces.sh"; continue; }
+while IFS= read -r space; do
+  [ -n "$space" ] || continue
+  printf '%s\n' "$spaces" | grep -q -- "  $space\$" || { fail "space $space missing → sh $LINK/ensure-spaces.sh"; continue; }
+  grep -Eq "contains = \"  ($space)?\"" "$HOME/.config/herdr/config.toml" 2>/dev/null ||
+    warn "space $space is hidden in the sidebar → add { contains = \"  \" } before the hiding rule of ui.sidebar.spaces in ~/.config/herdr/config.toml"
+  case "$space" in inbox | to-do | runbook | meetings) ;; *) ok "space $space"; continue ;; esac
   app=$(echo "$space" | sed 's/to-do/todo/')
-  [ "$space" = terminal ] && { ok "space terminal"; continue; }
   pgrep -f "herdr/$app-loop\.sh" >/dev/null && ok "space $space, app running" || fail "space $space has no app running → sh $LINK/ensure-spaces.sh"
-done
+done <<EOF
+$SPACES
+EOF
 
 # Notifications
 if [ "$(jq -r '.notifications // true' "$SETTINGS" 2>/dev/null)" = true ]; then

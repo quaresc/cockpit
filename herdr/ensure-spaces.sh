@@ -4,10 +4,18 @@
 prune_installs
 
 ensure() {
-  name=$1 label=$2 app=$3
-  ws=$("$H" workspace list | jq -r --arg n "$name" '[.result.workspaces[] | select(.label | endswith("  " + $n))][0].workspace_id // empty')
+  name=$1 label=$2 app=$3 cwd=${4:-$REPOS}
+  listed=$("$H" workspace list)
+  ws=$(printf '%s' "$listed" | jq -r --arg n "$name" '[.result.workspaces[] | select(.label | endswith("  " + $n))][0].workspace_id // empty')
+  # A space you opened yourself under that name becomes the pinned one, keeping its panes.
   if [ -z "$ws" ]; then
-    ws=$("$H" workspace create --cwd "$REPOS" --label "$label" --no-focus | jq -r '.result.workspace.workspace_id')
+    own=$(printf '%s' "$listed" | jq -r --arg n "$name" '[.result.workspaces[]
+      | (.label | capture("^(?<p>\\[[0-9]+\\] )?(?<rest>.*)$")) as $l | select($l.rest == $n) | [.workspace_id, $l.p // ""]][0] // empty | @tsv')
+    ws=${own%%"$(printf '\t')"*}
+    [ -n "$ws" ] && "$H" workspace rename "$ws" "${own#*"$(printf '\t')"}$label" >/dev/null 2>&1
+  fi
+  if [ -z "$ws" ]; then
+    ws=$("$H" workspace create --cwd "$cwd" --label "$label" --no-focus | jq -r '.result.workspace.workspace_id')
   fi
   [ -n "$app" ] || return 0
   pane=$("$H" pane list --workspace "$ws" | jq -r '.result.panes[0].pane_id // empty')
@@ -29,12 +37,17 @@ ensure() {
   done
 }
 
-for space in $SPACES; do
-  case "$space" in
-    inbox) ensure inbox "$(printf '\357\200\234')  inbox" inbox ;;
-    terminal) ensure terminal "$(printf '\357\222\211')  terminal" "" ;;
-    to-do) ensure to-do "$(printf '\357\221\236')  to-do" todo ;;
-    runbook) ensure runbook "$(printf '\357\220\205')  runbook" runbook ;;
-    meetings) ensure meetings "$(printf '\357\221\225')  meetings" meetings ;;
+printf '%s\n' "$SPACE_ROWS" | while IFS="$(printf '\037')" read -r name icon cwd; do
+  [ -n "$name" ] || continue
+  cwd=$(printf '%s' "$cwd" | sed "s|^~|$HOME|")
+  case "$name" in
+    inbox) glyph='\357\200\234' app=inbox ;;
+    terminal) glyph='\357\222\211' app="" ;;
+    to-do) glyph='\357\221\236' app=todo ;;
+    runbook) glyph='\357\220\205' app=runbook ;;
+    meetings) glyph='\357\221\225' app=meetings ;;
+    *) glyph='\357\220\223' app="" ;;
   esac
+  [ -n "$icon" ] || icon=$(printf "$glyph")
+  ensure "$name" "$icon  $name" "$app" "$cwd" </dev/null
 done

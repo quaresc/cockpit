@@ -16,8 +16,8 @@ delivery = "herdr"
 # Spaces: the pinned ones by name, then the counts the cockpit mod reports on the inbox space.
 [ui.sidebar.spaces]
 rows = [
-  # Only the pinned spaces, labelled "<icon>  <name>"; agent spaces render blank, the agent panel below lists them.
-  [{ token = "workspace", rules = [{ contains = "  inbox" }, { contains = "  terminal" }, { contains = "  to-do" }, { contains = "  runbook" }, { contains = "  meetings" }, { contains = "", hide = true }] }],
+  # Only the pinned spaces, labelled "<icon>  <name>" (the two spaces tell them); agent spaces render blank, the agent panel below lists them.
+  [{ token = "workspace", rules = [{ contains = "  " }, { contains = "", hide = true }] }],
   [{ token = "$review", dim = true }],
   [{ token = "$ci_fail", fg = "#FF8080" }, { token = "$ci_ok", dim = true }],
   [{ token = "$tickets", dim = true }],
