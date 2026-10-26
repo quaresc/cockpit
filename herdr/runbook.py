@@ -3,7 +3,7 @@
 
 Each file is a title, an `updated:` line, a `| # | Step | Where | Status | Command |` table and optional
 notes. The newest runbook is open, the others folded. PRs open on click, and a row shows its buttons
-while hovered or selected, like the inbox; copy puts the step's command on the clipboard.
+while hovered or selected, like the inbox. A step's command shows under it; a click or copy puts it on the clipboard.
 """
 
 import json
@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import textwrap
 import time
 
 import cockpit_config
@@ -499,6 +500,11 @@ def build(state, cols):
                 buttons.insert(1, Button("done", lambda b=book, s=step: mark_done(state, b, s)))
             row.buttons = buttons
             row.primary = buttons[0].action if buttons else (lambda: None)
+            # The command under its step, wrapped over the full width rather than cut; a click copies it.
+            if step["command"]:
+                indent = 4 + NUM + 1 + STATUS + 1
+                for part in textwrap.wrap(step["command"], max(20, cols - indent - 2), break_on_hyphens=False):
+                    line().add(" " * indent).add(part, DIM if is_done else ORANGE, lambda c=step["command"]: copy(state, c))
             said = handoff_line(handoff) if handoff else None
             if said:
                 line().add(" " * (4 + NUM + 1 + STATUS + 1)).add(*said)
@@ -509,7 +515,7 @@ def build(state, cols):
     if view.noted(state):
         line().add(state["note"], ORANGE)
     else:
-        line().add("run hands a step to its Claude session, which reports back under it · click a PR to open it, copy for a step's command · j/k rows · h/l or tab buttons · enter press · /runbook in a session writes one", DIM)
+        line().add("run hands a step to its Claude session, which reports back under it · click a PR to open it, a command to copy it · j/k rows · h/l or tab buttons · enter press · /runbook in a session writes one", DIM)
     return lines
 
 
