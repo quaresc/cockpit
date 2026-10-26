@@ -176,6 +176,60 @@ def repo_dir(repo):
     return path if os.path.isdir(path) else REPOS
 
 
+def checkout_of(repo, branch):
+    """Where the branch is checked out: the repo's main checkout or one of its worktrees; None when nowhere."""
+    main = os.path.join(REPOS, repo)
+    if not branch or not os.path.isdir(main):
+        return None
+    path = None
+    for line in run(["git", "-C", main, "worktree", "list", "--porcelain"]).stdout.splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+        elif line == f"branch refs/heads/{branch}":
+            return path
+    return None
+
+
+def space_on(path):
+    """The herdr space open on a checkout, if any."""
+    real = os.path.realpath(path)
+    return next((w for w in spaces() if os.path.realpath((w.get("worktree") or {}).get("checkout_path") or "") == real), None)
+
+
+def new_worktree(state, pr, label, prompt):
+    """A herdr worktree of the PR's branch, from its remote head, with Claude in its space; False when herdr refuses."""
+    main, branch = os.path.join(REPOS, pr["repo"]), pr.get("branch")
+    if not branch or not os.path.isdir(main):
+        return False
+    run(["git", "-C", main, "fetch", "-q", "origin", branch])
+    created = run([HERDR, "worktree", "create", "--cwd", main, "--branch", branch, "--base", f"origin/{branch}", "--label", label, "--focus"])
+    try:
+        pane = json.loads(created.stdout)["result"]["root_pane"]["pane_id"]
+    except (ValueError, KeyError, TypeError):
+        return False
+    run([HERDR, "pane", "run", pane, "claude " + shlex.quote(prompt)])
+    note(state, f'started "{label}" in a new worktree')
+    return True
+
+
+def on_branch(state, pr, label, prompt):
+    """Claude on the PR's branch: the space already open on its checkout comes into view; else a new space in that
+    checkout; else, with `worktrees` on, a new herdr worktree; else the main checkout, where it checks the branch out."""
+    branch = pr.get("branch")
+    path = checkout_of(pr["repo"], branch)
+    if path:
+        open_space = space_on(path)
+        if open_space:
+            run([HERDR, "workspace", "focus", open_space["workspace_id"]])
+            note(state, f'{branch} is already open in "{open_space["label"]}": focused it')
+            return
+        start_space(state, path, label, f"{prompt} The branch {branch} is checked out here, in {path}: work in it.")
+        return
+    if CONFIG.get("worktrees") and new_worktree(state, pr, label, f"{prompt} This is a new worktree of {branch}: work in it."):
+        return
+    start_space(state, repo_dir(pr["repo"]), label, f"{prompt} Check the branch {branch} out first.")
+
+
 def review(state, pr):
     target = str(pr["number"]) if os.path.isdir(os.path.join(REPOS, pr["repo"])) else pr["url"]
     start_space(state, repo_dir(pr["repo"]), f"review {pr['repo']}#{pr['number']}", f"/code-review {target}")
@@ -189,14 +243,15 @@ def fix_ci(state, pr, ci_run, where):
         job = f" The failing job is {failed['job']}{step}: read its logs with {failed.get('logs') or 'the CI connector'}."
     checks = [c for c in pr.get("failedChecks") or [] if not failed or c != failed["job"]]
     github = f" Failing GitHub checks: {', '.join(checks)} (gh pr checks, gh run view --log-failed)." if checks else ""
-    if where == "here":
-        plan = f" The fix goes on this PR's branch, {pr.get('branch')}."
-    else:
-        plan = (f" Treat it as unrelated to this PR (flaky test or broken main): fix it on a new branch off an updated "
-                f"local main and prepare a separate PR, leaving {pr.get('branch')} untouched.")
-    prompt = f"CI is failing on {pr['url']}.{job}{github}{plan} Explain the cause and propose a fix. Do not push."
-    start_space(state, repo_dir(pr["repo"]), f"ci {pr['repo']}#{pr['number']}", prompt)
+    label = f"ci {pr['repo']}#{pr['number']}"
     state["choice"] = None
+    if where == "here":
+        on_branch(state, pr, label, f"CI is failing on {pr['url']}.{job}{github} The fix goes on this PR's branch. "
+                  "Explain the cause and propose a fix. Do not push.")
+        return
+    plan = (f" Treat it as unrelated to this PR (flaky test or broken main): fix it on a new branch off an updated "
+            f"local main and prepare a separate PR, leaving {pr.get('branch')} untouched.")
+    start_space(state, repo_dir(pr["repo"]), label, f"CI is failing on {pr['url']}.{job}{github}{plan} Explain the cause and propose a fix. Do not push.")
 
 
 def ask_fix(state, pr):
@@ -214,13 +269,13 @@ def plan(state, ticket):
 def continue_ticket(state, ticket, prs):
     if prs:
         pr = prs[0]
-        where = f" Its PR is {pr['url']} on branch {pr.get('branch')} in {pr['repo']}: check that branch out, read the PR's state, review comments and CI,"
-        cwd = repo_dir(pr["repo"])
-    else:
-        where = f" Find its branch (named after {ticket['id'].lower()}) in the repo it touches, check it out,"
-        cwd = REPOS
-    prompt = f"Continue {ticket['id']} ({ticket['url']}).{where} and summarize where it stands before changing anything."
-    start_space(state, cwd, ticket["id"].lower(), prompt)
+        on_branch(state, pr, ticket["id"].lower(), f"Continue {ticket['id']} ({ticket['url']}). Its PR is {pr['url']} on branch "
+                  f"{pr.get('branch')} in {pr['repo']}: read the PR's state, review comments and CI, and summarize where it stands "
+                  "before changing anything.")
+        return
+    prompt = (f"Continue {ticket['id']} ({ticket['url']}). Find its branch (named after {ticket['id'].lower()}) in the repo it "
+              "touches, check it out, and summarize where it stands before changing anything.")
+    start_space(state, REPOS, ticket["id"].lower(), prompt)
 
 
 def request(state, payload, row, working):
@@ -316,10 +371,27 @@ def request_refresh(state):
     note(state, "refresh requested, it lands within a minute")
 
 
-def close_space(state, space, label):
-    if confirmed(state, f"close-{space}"):
-        result = run([HERDR, "workspace", "close", space])
-        note(state, f"closed {label}" if result.returncode == 0 else f"herdr workspace close failed: {result.stderr.strip()}")
+def close_space(state, space, label, is_worktree):
+    """Closes the space; a worktree's space goes with its checkout, unless the checkout holds changes."""
+    if not confirmed(state, f"close-{space}"):
+        return
+    if is_worktree:
+        result = run([HERDR, "worktree", "remove", "--workspace", space])
+        note(state, f"removed the worktree of {label}" if result.returncode == 0 else
+             f"the worktree of {label} was not removed (uncommitted changes?): {result.stderr.strip()[:120]}")
+        return
+    result = run([HERDR, "workspace", "close", space])
+    note(state, f"closed {label}" if result.returncode == 0 else f"herdr workspace close failed: {result.stderr.strip()}")
+
+
+_spaces = {"at": 0, "by_id": {}}
+
+
+def linked_spaces():
+    """herdr's spaces by id, listed again at most every 10 s since every redraw asks."""
+    if time.time() - _spaces["at"] > 10:
+        _spaces.update(at=time.time(), by_id={w["workspace_id"]: w for w in spaces()})
+    return _spaces["by_id"]
 
 
 _beats = {"at": 0, "beats": []}
@@ -467,7 +539,9 @@ def build(state, cols):
             item = line().add(f" {ICON['alert']}  ", style).add(text, style)
             if isinstance(target, tuple) and target[0] == "close":
                 label = text.removeprefix("a session still works on ")
-                item.buttons.append(Button(asking(state, f"close-{target[1]}", "close space"), lambda s=target[1], b=label: close_space(state, s, b), "a", True))
+                is_worktree = bool(((linked_spaces().get(target[1]) or {}).get("worktree") or {}).get("is_linked_worktree"))
+                verb = "remove worktree" if is_worktree else "close space"
+                item.buttons.append(Button(asking(state, f"close-{target[1]}", verb), lambda s=target[1], b=label, w=is_worktree: close_space(state, s, b, w), "a", True))
                 item.buttons.append(Button("go", lambda s=target[1]: run([HERDR, "workspace", "focus", s]), "o", False))
             elif isinstance(target, tuple):
                 item.buttons.append(Button(asking(state, f"stop-{target[1]}", "stop"), lambda p=target[1]: stop_preview(state, p), "a", True))

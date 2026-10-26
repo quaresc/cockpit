@@ -25,7 +25,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
    - Calendar mapping: with the Google Calendar connector, leave `tools`, `fields`, `skip`, `only` and `responses` out: cockpit maps it by itself. With any other, set `name` and `server`, list its tools with their schemas, and map `listEvents` (my coming events, with `{pageToken}` for the next page when it pages) and `getEvent` (one event, `{event}`, read by meeting briefs). Call `listEvents` once (read-only) and fill `fields`: `events` (the list), `nextPage`, `id`, `title`, `start` and `end` (date-times; all-day events must have none at that path), `url`, `join` (the video call), `location`, `description`, `series` (the recurring series' id), `myResponse` (my answer to the invite, when the event carries it), `attendees`, `attendeeSelf`, `attendeeResponse`, `attendeeResource`, `attendeeName`, `attachments`, `attachmentTitle`, `attachmentUrl`. List in `skip` the values that leave an event out, by field path (Outlook: `{ "isCancelled": ["true"], "showAs": ["free"], "isAllDay": ["true"] }`), in `only` the values an event must hold to be kept (`""` stands for a missing field; Google: `{ "eventType": ["", "DEFAULT"] }`), and map invite answers to `accepted`, `tentative`, `declined` and `needsAction` in `responses` (Outlook: `{ "tentativelyAccepted": "tentative", "notResponded": "needsAction", "organizer": "accepted" }`).
    - `deployWatch`: on only when an observability connector (Datadog or similar) is connected; `tools` lists its `mcp__<server>` prefix.
 
-6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` left empty (the mod finds the herdr plugin in herdr's registry, which follows its updates), `enabled: false` for every feature I did not pick, and `e2eBrowser: "chrome"` when I did not pick terminal-browser. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. Merge into an existing file instead of replacing it, and show the result.
+6. **Config.** Write `~/.config/cockpit/config.json` in this shape, with the values above, `herdrPluginRoot` left empty (the mod finds the herdr plugin in herdr's registry, which follows its updates), `enabled: false` for every feature I did not pick, and `e2eBrowser: "chrome"` when I did not pick terminal-browser. Drop `meetings` from `spaces` when the calendar is off. `runbookTools` lists extra tools the background runbook refresh may use, e.g. a read-only database MCP. `worktrees: true` makes the inbox open a branch checked out nowhere in a new herdr worktree instead of the main checkout. Merge into an existing file instead of replacing it, and show the result.
 
 ```json
 {
@@ -69,7 +69,8 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   "browserIdleMinutes": 60,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
-  "runbookTools": []
+  "runbookTools": [],
+  "worktrees": false
 }
 ```
 

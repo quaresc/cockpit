@@ -28,6 +28,7 @@ DEFAULTS = {
     "herdrPluginRoot": "",
     "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
     "runbookTools": [],
+    "worktrees": False,
 }
 
 
