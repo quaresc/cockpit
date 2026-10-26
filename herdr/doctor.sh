@@ -106,6 +106,9 @@ else
   grep -Eq '^[[:space:]]*kitty_graphics[[:space:]]*=[[:space:]]*false' "$HOME/.config/herdr/config.toml" 2>/dev/null &&
     fail "herdr kitty_graphics is off: terminal-browser panes stay blank → set it to true under [experimental]" ||
     ok "herdr kitty graphics on"
+  left=$(sh "$ROOT/prune-browsers.sh" --count)
+  [ "$left" -eq 0 ] && ok "no agent-browser daemons left by closed browsers" ||
+    warn "$left agent-browser daemons left by closed browsers → sh $LINK/prune-browsers.sh"
   transport=$(terminal-browser config get render.transport 2>/dev/null)
   [ "$transport" = auto ] && ok "terminal-browser frame transport auto" ||
     warn "terminal-browser render.transport is ${transport:-unset}: herdr cannot hand its frames to the terminal as files → terminal-browser config set render.transport auto"
