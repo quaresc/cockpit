@@ -10,10 +10,12 @@ export function herdr($: $, args: string[]) {
 
 let isBackground = false
 
-// A background or headless session (a daemon agent, a `claude -p` run) inherits its parent's herdr pane: it stays out of
-// that pane's rows and heartbeat, which belong to the session at its prompt.
+// A helper session (a `claude -p` run, a daemon session working for another) inherits its parent's herdr pane: it stays
+// out of that pane's rows and heartbeat. A background job the person started with /bg has a job folder and keeps its pane.
 export async function setBackground($: $, isInteractive: boolean) {
-  isBackground = !isInteractive || (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
+  const isDaemon = (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
+  const isJob = isDaemon && (await $.fs.exists(`${(await $.env.get('HOME')) ?? ''}/.claude/jobs/${await $.session.id()}`))
+  isBackground = !isJob && (!isInteractive || isDaemon)
   return isBackground
 }
 
