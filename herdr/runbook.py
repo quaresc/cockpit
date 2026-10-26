@@ -3,7 +3,7 @@
 
 Each file is a title, an `updated:` line, a `| # | Step | Where | Status | Command |` table and optional
 notes. The newest runbook is open, the others folded. PRs open on click, and a row shows its buttons
-while hovered or selected, like the inbox.
+while hovered or selected, like the inbox; copy puts the step's command on the clipboard.
 """
 
 import json
@@ -40,7 +40,7 @@ ICON = {"done": "", "run": "", "runbook": "", "copy": "", "open": "�
         "fold": "", "unfold": "", "merged": "", "note": ""}
 ICON["session"] = "\uf120"
 OPEN = ("⬜", "⏳", "🟡", "❌")
-NUM, STATUS, WHERE, ACTIONS = 4, 22, 30, 30
+NUM, STATUS, WHERE, ACTIONS = 4, 22, 30, 39
 PR_REF = re.compile(r"^([\w.-]+)#(\d+)$")
 
 
@@ -208,6 +208,13 @@ def report(books):
 
 # ---------------------------------------------------------------------------
 # Actions
+
+
+def copy(state, command):
+    if not cockpit_config.copy(command):
+        note(state, "no clipboard tool: install wl-copy or xclip")
+        return
+    note(state, f"copied: {command}")
 
 
 def open_pr(state, repo, number):
@@ -481,6 +488,8 @@ def build(state, cols):
                 buttons.append(Button("open", lambda r=repo, n=number: open_pr(state, r, n)))
             else:
                 row.add(fit(step["where"], WHERE) + " ", DIM)
+            if step["command"]:
+                buttons.append(Button("copy", lambda c=step["command"]: copy(state, c)))
             handoff = state["handoffs"].get(handoff_id(book, step))
             if not is_done:
                 if handoff and in_flight(handoff):
@@ -500,7 +509,7 @@ def build(state, cols):
     if view.noted(state):
         line().add(state["note"], ORANGE)
     else:
-        line().add("run hands a step to its Claude session, which reports back under it · click a PR to open it · j/k rows · h/l or tab buttons · enter press · /runbook in a session writes one", DIM)
+        line().add("run hands a step to its Claude session, which reports back under it · click a PR to open it, copy for a step's command · j/k rows · h/l or tab buttons · enter press · /runbook in a session writes one", DIM)
     return lines
 
 
