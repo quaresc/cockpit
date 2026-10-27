@@ -3,10 +3,12 @@
 about a ticket), so the sidebar's spaces stay the work in progress.
 
     actions.py tab <cwd> <label>    a new tab there, in view, its pane id printed; nothing without the space
+    actions.py sidebar              the space's sidebar row lists its sessions again
 """
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -71,7 +73,43 @@ def promote(key, label):
     return True
 
 
+# The sessions the sidebar lists under the actions space, the last line saying how many more there are.
+SLOTS = 6
+STATE = {"working": "◐", "blocked": "⏸", "done": "✓", "idle": "○"}
+
+
+def sidebar_width():
+    try:
+        with open(os.path.join(os.path.expanduser("~"), ".config", "herdr", "config.toml"), encoding="utf-8") as handle:
+            found = re.search(r"^\s*sidebar_width\s*=\s*(\d+)", handle.read(), re.M)
+    except OSError:
+        found = None
+    return int(found.group(1)) if found else 34
+
+
+def sidebar():
+    """Lists the space's Claude sessions under its sidebar row, one line each with its state; a waiting one stands out."""
+    ws = space()
+    if not ws:
+        return
+    tabs = [t for t in (herdr("tab", "list") or {}).get("tabs") or [] if t["workspace_id"] == ws and t.get("agent_status") in STATE]
+    room = sidebar_width() - 4
+    args = ["workspace", "report-metadata", ws, "--source", "cockpit-actions"]
+    for i in range(SLOTS):
+        tab = tabs[i] if i < len(tabs) else None
+        text = tab and view.fit(f"{STATE[tab['agent_status']]} {tab['label']}", room).rstrip()
+        if i == SLOTS - 1 and len(tabs) > SLOTS:
+            tab, text = None, f"  +{len(tabs) - i} more"
+        is_waiting = bool(tab) and tab["agent_status"] == "blocked"
+        for name, value in ((f"act_{i + 1}", None if is_waiting else text), (f"act_{i + 1}_wait", text if is_waiting else None)):
+            args += ["--token", f"{name}={value}"] if value else ["--clear-token", name]
+    herdr(*args)
+
+
 def main(args):
+    if args == ["sidebar"]:
+        sidebar()
+        return
     if len(args) != 3 or args[0] != "tab":
         sys.exit(__doc__)
     pane = open_tab(args[1], args[2])
