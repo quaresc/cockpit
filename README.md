@@ -111,7 +111,7 @@ writes which tool does what, so it works as far as the connector's tools go.
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
 | `e2eBrowser` | Where agents run E2E tests: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
 | `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `actions` (a tab per review, plan or talk the inbox and runbook start), `to-do`, `runbook`, `meetings`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
-| `apps` | `full` (default): the space and show apps drawn with Textual, with charts and pictures as real images in terminals that show them, animations, a command palette and dialogs, about 60–80 MB each; needs [uv](https://docs.astral.sh/uv/), else they run light. `light`: in text, about 20 MB each. `/cockpit` switches it. |
+| `apps` | `full` (default): the space and show apps drawn with Textual, with charts and pictures as real images in terminals that show them, animations, a command palette and dialogs, about 60–80 MB each; needs [uv](https://docs.astral.sh/uv/), else they run light. `light`: in text, about 20 MB each. `rust`, experimental: the full apps in Rust, about 11 MB each (30 MB for show with its images), built with `cargo build --release` in `herdr/tui`. `/cockpit` switches it. |
 
 </details>
 

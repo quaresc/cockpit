@@ -128,8 +128,9 @@ export type Config = {
   runbookTools: string[]
   // Whether the inbox starts work on a branch checked out nowhere in a new herdr worktree, rather than in the main checkout.
   worktrees: boolean
-  // The space and show apps drawn with Textual (images, animations, a command palette) for about three times the memory, or in text.
-  apps: 'light' | 'full'
+  // The space and show apps drawn with Textual (images, animations, a command palette) for about three times the memory, in text, or
+  // the full ones in Rust, experimental.
+  apps: 'light' | 'full' | 'rust'
 }
 
 // A pinned space of your own: where it opens, its sidebar glyph, and the herdr key /cockpit:setup binds to it.

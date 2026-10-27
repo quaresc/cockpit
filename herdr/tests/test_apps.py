@@ -187,7 +187,7 @@ class NewFile(unittest.TestCase):
 class AppMode(unittest.TestCase):
     """app.sh runs the Textual version when apps is full or unset and it starts; anything else gets the text one."""
 
-    def run_app(self, mode, textual=None):
+    def run_app(self, mode, textual=None, rust=None):
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as apps:
             os.makedirs(os.path.join(home, ".config", "cockpit"))
             with open(os.path.join(home, ".config", "cockpit", "config.json"), "w", encoding="utf-8") as handle:
@@ -198,12 +198,23 @@ class AppMode(unittest.TestCase):
             if textual is not None:
                 with open(os.path.join(apps, "demo_tx.py"), "w", encoding="utf-8") as handle:
                     handle.write(textual)
+            if rust is not None:
+                os.makedirs(os.path.join(apps, "tui", "target", "release"))
+                binary = os.path.join(apps, "tui", "target", "release", "cockpit-demo")
+                with open(binary, "w", encoding="utf-8") as handle:
+                    handle.write(rust)
+                os.chmod(binary, 0o755)
             done = subprocess.run(["sh", os.path.join(apps, "app.sh"), "demo", "cockpit-space"], capture_output=True, text=True,
                                   env={**os.environ, "HOME": home}, timeout=120)
             return done.stdout.split()
 
     def test_light_runs_the_text_app(self):
         self.assertEqual(self.run_app("light", "print('textual')"), ["text", "cockpit-space"])
+
+    def test_rust_runs_the_binary_and_falls_back_when_it_fails_at_once(self):
+        self.assertEqual(self.run_app("rust", rust="#!/bin/sh\necho rust \"$@\"\n"), ["rust", "cockpit-space"])
+        self.assertEqual(self.run_app("rust", rust="#!/bin/sh\necho rust\nexit 1\n"), ["rust", "text", "cockpit-space"])
+        self.assertEqual(self.run_app("light", rust="#!/bin/sh\necho rust\n"), ["text", "cockpit-space"])
 
     def test_full_without_a_textual_version_runs_the_text_app(self):
         self.assertEqual(self.run_app("full"), ["text", "cockpit-space"])

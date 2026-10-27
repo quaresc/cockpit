@@ -27,11 +27,11 @@ const SETTINGS: Setting[] = [
   { key: 'recap', path: ['recap', 'enabled'], label: 'Recap when back in a space', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'deploys', path: ['deployWatch', 'enabled'], label: 'Check errors after a deploy', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'meetings', path: ['meetingBrief', 'enabled'], label: 'Meeting briefs', values: [true, false], names: { true: 'on', false: 'off' } },
-  { key: 'apps', path: ['apps'], label: 'Space apps', values: ['full', 'light'], names: { full: 'full: images, animations, palette · about 60–80 MB each, needs uv', light: 'light: text only · about 20 MB each' } },
+  { key: 'apps', path: ['apps'], label: 'Space apps', values: ['full', 'rust', 'light'], names: { full: 'full: images, animations, palette · about 60–80 MB each, needs uv', rust: 'rust: the full apps in Rust, experimental · needs cargo build in herdr/tui', light: 'light: text only · about 20 MB each' } },
 ]
 
 const ALIASES: Record<string, string | boolean | number> = {
-  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0, light: 'light', full: 'full',
+  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0, light: 'light', full: 'full', rust: 'rust',
 }
 
 function valueOf(config: Config, setting: Setting) {
@@ -52,7 +52,7 @@ async function write($: $, setting: Setting, value: string | boolean | number) {
   await $.fs.write(path, `${JSON.stringify(raw, null, 2)}\n`)
   forgetConfig()
   // The space apps stop, and their loops start them again in the new mode; an open show pane keeps its mode until it reopens.
-  if (setting.key === 'apps') await $.process.run(['pkill', '-f', '(inbox|todo|runbook|meetings)(_tx)?\\.py cockpit-space']).catch(() => undefined)
+  if (setting.key === 'apps') await $.process.run(['pkill', '-f', '(inbox|todo|runbook|meetings)(_tx)?(\\.py)? cockpit-space']).catch(() => undefined)
   await update($, shown, () => Date.now())
 }
 

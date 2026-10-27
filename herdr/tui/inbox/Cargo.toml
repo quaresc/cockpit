@@ -1,0 +1,14 @@
+[package]
+name = "cockpit-inbox"
+description = "inbox.py in Rust, for the config's apps: \"rust\"."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+chrono.workspace = true
+crossterm.workspace = true
+notify.workspace = true
+ratatui.workspace = true
+regex.workspace = true
+serde_json.workspace = true

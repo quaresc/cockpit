@@ -16,12 +16,15 @@ v=$("$H" --version 2>/dev/null | awk '{print $2}')
 case "$v" in 0.[0-8].*|"") fail "herdr ${v:-missing}: cockpit needs 0.9 or later → herdr update" ;; *) ok "herdr $v" ;; esac
 gh auth status >/dev/null 2>&1 && ok "gh signed in" || fail "gh not signed in → gh auth login"
 command -v python3 >/dev/null && ok "python3" || fail "python3 missing"
-if [ "$(jq -r '.apps // "full"' "$CONFIG" 2>/dev/null)" = full ]; then
-  command -v uv >/dev/null && ok "uv $(uv --version | awk '{print $2}') runs the full apps" ||
-    warn "uv is missing, so the apps run light → brew install uv, or /cockpit apps light to say so"
-else
-  ok "light apps"
-fi
+case "$(jq -r '.apps // "full"' "$CONFIG" 2>/dev/null)" in
+  light) ok "light apps" ;;
+  rust)
+    missing=$(for app in inbox runbook show; do [ -x "$ROOT/tui/target/release/cockpit-$app" ] || printf '%s ' "$app"; done)
+    [ -z "$missing" ] && ok "Rust apps built" || warn "Rust apps not built: ${missing}run as full → cd $ROOT/tui && cargo build --release" ;;
+  *)
+    command -v uv >/dev/null && ok "uv $(uv --version | awk '{print $2}') runs the full apps" ||
+      warn "uv is missing, so the apps run light → brew install uv, or /cockpit apps light to say so" ;;
+esac
 if [ ! -f "$CONFIG" ]; then fail "no ~/.config/cockpit/config.json → /cockpit:setup"
 elif jq empty "$CONFIG" 2>/dev/null; then ok "config.json"
 else fail "config.json is not valid JSON → fix it or rerun /cockpit:setup"; fi
