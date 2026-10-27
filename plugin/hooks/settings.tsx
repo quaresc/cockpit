@@ -27,10 +27,11 @@ const SETTINGS: Setting[] = [
   { key: 'recap', path: ['recap', 'enabled'], label: 'Recap when back in a space', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'deploys', path: ['deployWatch', 'enabled'], label: 'Check errors after a deploy', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'meetings', path: ['meetingBrief', 'enabled'], label: 'Meeting briefs', values: [true, false], names: { true: 'on', false: 'off' } },
+  { key: 'apps', path: ['apps'], label: 'Space apps', values: ['full', 'light'], names: { full: 'full: images, animations, palette · about 60–80 MB each, needs uv', light: 'light: text only · about 20 MB each' } },
 ]
 
 const ALIASES: Record<string, string | boolean | number> = {
-  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0,
+  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0, light: 'light', full: 'full',
 }
 
 function valueOf(config: Config, setting: Setting) {
@@ -50,6 +51,8 @@ async function write($: $, setting: Setting, value: string | boolean | number) {
   node[setting.path.at(-1)!] = value
   await $.fs.write(path, `${JSON.stringify(raw, null, 2)}\n`)
   forgetConfig()
+  // The space apps stop, and their loops start them again in the new mode; an open show pane keeps its mode until it reopens.
+  if (setting.key === 'apps') await $.process.run(['pkill', '-f', '(inbox|todo|runbook|meetings)(_tx)?\\.py cockpit-space']).catch(() => undefined)
   await update($, shown, () => Date.now())
 }
 
@@ -64,7 +67,13 @@ async function terminalBrowserVersion($: $) {
   return done?.exitCode === 0 ? done.stdout.trim().split(/\s+/).at(-1) : undefined
 }
 
+async function hasUv($: $) {
+  const done = await $.process.run(['sh', '-c', 'PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH" command -v uv'], { timeoutMs: 5_000 }).catch(() => undefined)
+  return done?.exitCode === 0
+}
+
 let version: string | null | undefined
+let uv = true
 
 // Called from the mod's session.start: one hook per event and matcher.
 export async function registerSettingsCommand($: $) {
@@ -76,6 +85,7 @@ export function registerSettings(on: On) {
     const [name, word] = e.args.trim().toLowerCase().split(/\s+/)
     if (!name) {
       version = (await terminalBrowserVersion($)) ?? null
+      uv = await hasUv($)
       await $.ui.open({ id: PANE, title: 'Cockpit' })
       return { text: 'Cockpit settings opened.' }
     }
@@ -115,6 +125,7 @@ export function registerSettings(on: On) {
             ? 'terminal-browser is not installed: E2E tests run in Claude in Chrome.'
             : `terminal-browser ${version ?? ''} · press a value to change it · /cockpit <setting> <value> from any session`}
         </Text>
+        {config.apps === 'full' && !uv ? <Text color="yellow">uv is not installed, so the apps stay light: brew install uv</Text> : null}
       </Box>
     )
   })

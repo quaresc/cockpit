@@ -1,4 +1,5 @@
-"""An animated SVG of a runbook refresh landing: three steps turn done and play their animation."""
+"""An animated SVG of a runbook refresh landing: three steps turn done and play their animation.
+--full draws runbook_tx.py, the Textual version, into runbook-done-full.svg; run it with the venv's python, which has Textual."""
 import fcntl, json, os, pty, select, signal, struct, sys, termios, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import screen_of, rows_svg, window
@@ -6,21 +7,23 @@ from term2svg import screen_of, rows_svg, window
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.join(HERE, "home")
 BOOK = os.path.join(HOME, ".config", "cockpit", "runbooks", "eng-410.md")
-COLS, ROWS, CROP = 140, 26, 17
+FULL = "--full" in sys.argv
+COLS, ROWS, CROP = (140, 30, 30) if FULL else (140, 26, 17)
 HOLD_BEFORE, HOLD_AFTER = 1.2, 2.8
 
 pid, fd = pty.fork()
 if pid == 0:
     os.chdir(os.path.join(HERE, "..", "..", "herdr"))
-    os.execvpe("python3", ["python3", "runbook.py"], {**os.environ, "HOME": HOME, "HERDR_BIN_PATH": "/usr/bin/true", "TERM": "xterm-256color"})
+    argv = [sys.executable, "runbook_tx.py"] if FULL else ["python3", "runbook.py"]
+    os.execvpe(argv[0], argv, {**os.environ, "HOME": HOME, "HERDR_BIN_PATH": "/usr/bin/true", "TERM": "xterm-256color"})
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
 
 out, start, changed, samples = b"", time.time(), None, []
-while time.time() - start < 7:
+while time.time() - start < (9 if FULL else 7):
     if select.select([fd], [], [], 0.02)[0]:
         out += os.read(fd, 1 << 16)
     now = time.time() - start
-    if changed is None and now > 1.5:
+    if changed is None and now > (4.0 if FULL else 1.5):
         # The background refresh writes the file: backfill done, enforcement and banner merged.
         text = open(BOOK).read()
         for a, b in [("⬜ to do | `bin/rails", "✅ backfilled | `bin/rails"), ("⏳ approved, CI green", "✅ merged"), ("🟡 CI running", "✅ merged")]:
@@ -51,8 +54,8 @@ for i, (at, screen, key) in enumerate(frames[1:], 1):
              f".f{i}{{visibility:hidden;animation:f{i} {anim:.2f}s step-end infinite}}"
     layers.append(f'<g class="f{i}">{rows_svg(screen, differ, chars, cover=True)}</g>')
 body = rows_svg(base, range(CROP), chars) + "".join(layers)
-with open(os.path.join(HERE, "..", "runbook-done.svg"), "w") as f:
-    f.write(window(COLS, CROP, "runbook · a refresh lands", chars, body, style))
+with open(os.path.join(HERE, "..", "runbook-done-full.svg" if FULL else "runbook-done.svg"), "w") as f:
+    f.write(window(COLS, CROP, "runbook · a refresh lands" + (" · full" if FULL else ""), chars, body, style))
 print(len(frames), "frames,", f"{anim:.1f}s loop")
 if os.environ.get("FRAMES"):
     from term2svg import svg

@@ -29,6 +29,7 @@ DEFAULTS = {
     "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
     "runbookTools": [],
     "worktrees": False,
+    "apps": "full",
 }
 
 

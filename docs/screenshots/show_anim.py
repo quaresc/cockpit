@@ -1,8 +1,9 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
-back, drawn by the real show.py from fictional data."""
+back, drawn by the real show.py from fictional data. --full draws show_tx.py, the Textual version, with its charts as images,
+into show-full.svg; run it with the venv's python, which has Textual."""
 import json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from term2svg import animate, run, screen_of
+from term2svg import BAR, CW, LH, PAD, animate, run, screen_of
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.join(HERE, "home")
@@ -12,13 +13,20 @@ COLS, ROWS, LEFT = 150, 30, 76
 PANE = COLS - LEFT - 1
 ORANGE, DIMC, INK, QUIET, WHITE, LINE = "FFC799", "707070", "101010", "2C2C30", "D2D2D2", "2C2C30"
 env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true"}
+FULL = "--full" in sys.argv
+PICTURES = os.path.join(HOME, "show-pictures.json")
 
 
 def pane(name, spec, cols, rows, keys=(), wait=2.0):
-    """The show.py screen for this spec, at this size."""
+    """The show.py screen for this spec, at this size; with --full, show_tx.py's, its pictures recorded in PICTURES."""
     os.makedirs(os.path.join(HOME, ".cache", "cockpit", "show"), exist_ok=True)
     json.dump({**spec, "at": int(time.time() * 1000)}, open(os.path.join(HOME, ".cache", "cockpit", "show", f"{name}.json"), "w"))
-    return screen_of(run(["python3", "show.py", name], cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
+    if FULL:
+        argv, wait = [sys.executable, os.path.join(HERE, "show_tx_shot.py"), name], wait + 3
+        env["SHOT_PICTURES"] = PICTURES
+    else:
+        argv = ["python3", "show.py", name]
+    return screen_of(run(argv, cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
 
 
 # A quarter of fictional weekly signups, by sign-in method.
@@ -90,5 +98,21 @@ frames = [  # (seconds on screen, screen)
     (3.4, beside(session(LEFT, 4, "open"), chart_pane)),
 ]
 
-open(os.path.join(OUT, "show.svg"), "w").write(animate(frames, "herdr · show"))
+
+
+def pictures(i):
+    """The charts as images over the pane's half blocks, in the frames that show the pane."""
+    if not FULL or i not in (2, 4):
+        return ""
+    loop = sum(d for d, _ in frames)
+    begin = sum(d for d, _ in frames[:i])
+    a, b = 100 * begin / loop, 100 * (begin + frames[i][0]) / loop
+    style = f"@keyframes c{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,{b:.2f}%{{visibility:visible}}{b:.2f}%,100%{{visibility:hidden}}}}"
+    images = "".join(f'<image href="data:image/png;base64,{p["png"]}" x="{PAD + (LEFT + 1 + p["x"]) * CW:.1f}" y="{BAR + PAD + p["y"] * LH:.1f}" '
+                     f'width="{p["w"] * CW:.1f}" height="{p["h"] * LH:.1f}" preserveAspectRatio="none"/>' for p in json.load(open(PICTURES)))
+    return f'<style>{style}</style><g style="visibility:hidden;animation:c{i} {loop:.2f}s step-end infinite">{images}</g>'
+
+
+open(os.path.join(OUT, "show-full.svg" if FULL else "show.svg"), "w").write(animate(frames, "herdr · show" + (" · full" if FULL else ""),
+                                                                                     pictures if FULL else None))
 print(len(frames), "frames")

@@ -4,11 +4,14 @@ The SVGs in `docs/` are the real herdr apps and composed screens on fictional da
 of the fake app in `webapp/`.
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install pyte fonttools pillow
+python3 -m venv .venv && .venv/bin/pip install pyte fonttools pillow "textual>=8,<9" "textual-image>=0.14,<0.15" "resvg-py>=0.5,<0.6"
 python3 demo_data.py home          # a fake HOME with caches, to-dos and runbooks; run it again before each script
 .venv/bin/python apps_anim.py      # inbox, to-do and meetings, the cursor stepping through the rows
 .venv/bin/python runbook_anim.py   # a refresh landing in the runbook
 .venv/bin/python show_anim.py      # the show tool: a chart hiding to its chip and coming back
+.venv/bin/python apps_anim.py --full inbox   # the same, drawn by the Textual apps: inbox-full.svg,
+.venv/bin/python runbook_anim.py --full      # runbook-done-full.svg
+.venv/bin/python show_anim.py --full         # and show-full.svg, its charts laid over as images (show_tx_shot.py)
 .venv/bin/python features.py       # the recap popup
 .venv/bin/python settings.py       # the /cockpit settings pane
 python3 notifications.py           # the notifications and their buttons

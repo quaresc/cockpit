@@ -128,6 +128,8 @@ export type Config = {
   runbookTools: string[]
   // Whether the inbox starts work on a branch checked out nowhere in a new herdr worktree, rather than in the main checkout.
   worktrees: boolean
+  // The space and show apps drawn with Textual (images, animations, a command palette) for about three times the memory, or in text.
+  apps: 'light' | 'full'
 }
 
 // A pinned space of your own: where it opens, its sidebar glyph, and the herdr key /cockpit:setup binds to it.
@@ -220,6 +222,7 @@ const DEFAULTS: Config = {
   spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],
   runbookTools: [],
   worktrees: false,
+  apps: 'full',
 }
 
 let cached: { at: number; config: Config } | undefined

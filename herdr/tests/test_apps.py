@@ -1,6 +1,7 @@
 """Rules of the herdr apps that need no terminal: python3 -m unittest discover -s herdr/tests"""
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -181,6 +182,38 @@ class NewFile(unittest.TestCase):
             for name in files:
                 git = subprocess.run(["git", "-C", repo, "diff", "--no-index", "--", "/dev/null", name], capture_output=True, text=True).stdout
                 self.assertEqual(show.parse_patch(show.new_file(repo, name)), show.parse_patch(git), name)
+
+
+class AppMode(unittest.TestCase):
+    """app.sh runs the Textual version when apps is full or unset and it starts; anything else gets the text one."""
+
+    def run_app(self, mode, textual=None):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as apps:
+            os.makedirs(os.path.join(home, ".config", "cockpit"))
+            with open(os.path.join(home, ".config", "cockpit", "config.json"), "w", encoding="utf-8") as handle:
+                handle.write(f'{{"apps": "{mode}"}}' if mode else "{}")
+            shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app.sh"), apps)
+            with open(os.path.join(apps, "demo.py"), "w", encoding="utf-8") as handle:
+                handle.write("import sys\nprint('text', *sys.argv[1:])\n")
+            if textual is not None:
+                with open(os.path.join(apps, "demo_tx.py"), "w", encoding="utf-8") as handle:
+                    handle.write(textual)
+            done = subprocess.run(["sh", os.path.join(apps, "app.sh"), "demo", "cockpit-space"], capture_output=True, text=True,
+                                  env={**os.environ, "HOME": home}, timeout=120)
+            return done.stdout.split()
+
+    def test_light_runs_the_text_app(self):
+        self.assertEqual(self.run_app("light", "print('textual')"), ["text", "cockpit-space"])
+
+    def test_full_without_a_textual_version_runs_the_text_app(self):
+        self.assertEqual(self.run_app("full"), ["text", "cockpit-space"])
+        self.assertEqual(self.run_app(None), ["text", "cockpit-space"])
+
+    @unittest.skipUnless(shutil.which("uv") or os.path.exists("/opt/homebrew/bin/uv"), "uv is not installed")
+    def test_full_runs_the_textual_app_and_falls_back_when_it_fails_at_once(self):
+        self.assertEqual(self.run_app("full", "import sys\nprint('textual', *sys.argv[1:])\n"), ["textual", "cockpit-space"])
+        self.assertEqual(self.run_app(None, "import sys\nprint('textual', *sys.argv[1:])\n"), ["textual", "cockpit-space"])
+        self.assertEqual(self.run_app("full", "print('textual')\nraise SystemExit(1)\n"), ["textual", "text", "cockpit-space"])
 
 
 if __name__ == "__main__":
