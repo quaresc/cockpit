@@ -1,7 +1,8 @@
 # Changelog
 
-Each version is tagged `v<version>` and has a GitHub release with these notes. Both halves, the Claude Code plugin and
-the herdr plugin, share the version.
+Each version is tagged `v<version>` and has a GitHub release with these notes, both made by the release workflow once
+`plugin/.claude-plugin/plugin.json` reaches main with a new version. Both halves, the Claude Code plugin and the herdr
+plugin, share the version, and the section for it must be here first.
 
 ## 0.16.3 (2026-10-27)
 
