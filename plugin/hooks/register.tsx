@@ -129,7 +129,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)
     const done = activityOf(String(e.tool), e as unknown as Record<string, unknown>, (await read($, work))?.dir ?? '')
-    if (done && e.agentId === undefined) void hereSoon($).then(here => logActivity($, here?.space, done)).catch(() => undefined)
+    if (done && e.agentId === undefined) void hereSoon($).then(here => logActivity($, here?.tab, done)).catch(() => undefined)
     return next(e)
   })
 
@@ -139,7 +139,7 @@ export const register: Register = on => {
     if (e.agentId === undefined && e.reason === 'answer') void settleTurn($).catch(() => undefined)
     if (e.agentId === undefined && e.reason === 'answer') {
       const first = e.answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? ''
-      void hereSoon($).then(here => logActivity($, here?.space, { kind: 'turn', text: first.slice(0, 200) })).catch(() => undefined)
+      void hereSoon($).then(here => logActivity($, here?.tab, { kind: 'turn', text: first.slice(0, 200) })).catch(() => undefined)
     }
     return next(e)
   })

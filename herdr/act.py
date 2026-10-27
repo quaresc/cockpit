@@ -1,9 +1,9 @@
 """What a notification's button does, with the inbox app's own actions and the inbox cache.
 
-    act.py review <PR url>       a Claude review of the PR in a new space
+    act.py review <PR url>       a Claude review of the PR in the actions space
     act.py ci <PR url>           a Claude investigation of the PR's failing CI in a new space
     act.py rerun <PR url>        the PR's failed CI jobs rerun, by the next Claude session
-    act.py plan <ticket id>      a Claude plan for the ticket in a new space
+    act.py plan <ticket id>      a Claude plan for the ticket in the actions space
 """
 
 import subprocess

@@ -1,5 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
+import { loadConfig } from './config'
+
 type $ = EngineInterface
 
 // The herdr CLI, and where this session sits in herdr: its pane, tab and space, and the browsers beside it.
@@ -60,17 +62,33 @@ export async function inboxSpace($: $) {
   return (await spaces($)).find(w => w.label.endsWith('  inbox'))?.workspace_id
 }
 
-// This session's space: its id, its label without the "[N] " prefix, and whether it is the one in view.
-export async function spaceOf($: $) {
-  const here = await herdrHere($)
-  if (!here) return undefined
-  const space = (await spaces($)).find(w => w.workspace_id === here.space)
-  return space && { id: space.workspace_id, label: bare(space.label), isFocused: space.focused }
+type Tab = { tab_id: string; label: string; focused: boolean }
+
+async function tabOf($: $, id: string) {
+  const { exitCode, stdout } = await herdr($, ['tab', 'get', id])
+  return exitCode === 0 ? (JSON.parse(stdout)?.result?.tab as Tab | undefined) : undefined
 }
 
-export async function spaceLabel($: $, id: string) {
-  const space = (await spaces($)).find(w => w.workspace_id === id)
-  return space && bare(space.label)
+// A pinned space, labelled "<icon>  <name>", holds sessions in tabs of their own, such as the actions space's.
+async function isPinned($: $, label: string) {
+  const names = (await loadConfig($)).spaces.map(s => (typeof s === 'string' ? s : s.name))
+  return names.some(name => label.endsWith(`  ${name}`))
+}
+
+export type Place = { label: string; isFocused: boolean; target: string }
+
+// Where a session shows: its tab when it sits in a pinned space, else its space; `target` is what a notification's click focuses.
+export async function placeOf($: $, at: { space: string; tab?: string }): Promise<Place | undefined> {
+  const space = (await spaces($)).find(w => w.workspace_id === at.space)
+  if (!space) return undefined
+  const tab = at.tab && (await isPinned($, space.label)) ? await tabOf($, at.tab) : undefined
+  if (tab) return { label: tab.label, isFocused: tab.focused, target: `tab:${tab.tab_id}` }
+  return { label: bare(space.label), isFocused: space.focused, target: `workspace:${space.workspace_id}` }
+}
+
+export async function placeHere($: $) {
+  const here = await herdrHere($)
+  return here && placeOf($, here)
 }
 
 export type Browser = { tabs?: { url: string; title?: string; active?: boolean }[] }

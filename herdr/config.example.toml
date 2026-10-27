@@ -72,6 +72,12 @@ command = "sh ~/.config/cockpit/herdr/focus-space.sh terminal"
 description = "terminal space"
 
 [[keys.command]]
+key = "prefix+a"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh actions"
+description = "actions space"
+
+[[keys.command]]
 key = "prefix+d"
 type = "shell"
 command = "sh ~/.config/cockpit/herdr/focus-space.sh to-do"

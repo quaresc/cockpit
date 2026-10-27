@@ -68,7 +68,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   "e2eBrowser": "terminal-browser",
   "browserIdleMinutes": 60,
   "herdrPluginRoot": "",
-  "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
+  "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "runbookTools": [],
   "worktrees": false
 }
@@ -82,4 +82,4 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 
 10. **Permissions.** Background refreshes call MCP tools outside any turn, so auto mode needs allow rules for them. Print the block to add to `permissions` in `~/.claude/settings.json`: `allow` with one `mcp__<server>` entry per enabled connector (the server name with every character outside `A-Za-z0-9_-` turned into `_`), plus the read-only tools live panes call: Datadog's `get_datadog_metric` and Metabase's `execute_question` and `query`, each as `mcp__<server>__<tool>` for the connectors I have; and `deny` with the destructive tools of those servers the cockpit never uses, such as `cancel_workflow`, `rollback_deploy_component`, `delete_*`, `create_event`, `update_event`, `delete_event` and `respond_to_event`. Edit the file only if I say so.
 
-11. **Finish.** Tell me that `/cockpit:doctor` checks the whole setup at any time, that Claude sessions started before now load the footer and the background refreshes once restarted, that the inbox space fills within a minute of the first session starting, and list the herdr keys `prefix+i/t/d/u/m` and those of my own spaces.
+11. **Finish.** Tell me that `/cockpit:doctor` checks the whole setup at any time, that Claude sessions started before now load the footer and the background refreshes once restarted, that the inbox space fills within a minute of the first session starting, and list the herdr keys `prefix+i/t/a/d/u/m` and those of my own spaces.

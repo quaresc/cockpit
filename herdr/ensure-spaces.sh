@@ -43,6 +43,7 @@ printf '%s\n' "$SPACE_ROWS" | while IFS="$(printf '\037')" read -r name icon cwd
   case "$name" in
     inbox) glyph='\357\200\234' app=inbox ;;
     terminal) glyph='\357\222\211' app="" ;;
+    actions) glyph='\357\203\247' app="" ;;
     to-do) glyph='\357\221\236' app=todo ;;
     runbook) glyph='\357\220\205' app=runbook ;;
     meetings) glyph='\357\221\225' app=meetings ;;

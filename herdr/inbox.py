@@ -2,10 +2,12 @@
 """Full-width, mouse-driven inbox for the herdr inbox space.
 
 Reads the caches the cockpit Claude Code mod writes (~/.cache/cockpit) and acts through the
-herdr CLI: detail popups, Claude sessions in new spaces, mutes, and rerun / redeploy / release
+herdr CLI: detail popups, Claude sessions in new spaces or tabs of the actions space, mutes, and rerun / redeploy / release
 requests the mod carries out. A row shows its buttons only while hovered or selected.
 """
 
+import glob
+import itertools
 import json
 import os
 import re
@@ -14,6 +16,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
+import actions
 import cockpit_config
 import view
 from view import BOLD, DIM, GREEN, HERDR, ORANGE, RED, Button, Line, asking, confirmed, fit, note, width
@@ -29,6 +32,8 @@ BRIEF = os.path.join(CACHE, "brief.json")
 REQUESTS = os.path.join(CACHE, "requests")
 SESSIONS = os.path.join(CACHE, "sessions")
 COSTS = os.path.join(CACHE, "costs")
+RUNBOOKS = os.path.join(HOME, ".config", "cockpit", "runbooks")
+PROJECTS = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude"), "projects")
 INBOX_VERSION = 1
 MUTED = os.path.join(HOME, ".config", "cockpit", "muted.json")
 
@@ -47,7 +52,7 @@ ICON = {
     "inbox": "", "review": "", "pr": "", "ticket": "", "github": "",
     "docker": "", "preview": "", "rocket": "", "fix": "",
     "rerun": "", "redeploy": "", "open": "", "mute": "", "plan": "",
-    "continue": "", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "ArgoCD": "󰠳", "Dashboard": "\uf0e4", "deploy": "",
+    "continue": "", "talk": "\uf086", "done": "", "sure?": "", "released": "", "refresh": "", "alert": "", "this": "", "new": "", "cancel": "", "extend": "", "ArgoCD": "󰠳", "Dashboard": "\uf0e4", "deploy": "",
     "stop": "", "today": "", "calendar": "", "dismiss": "",
     "ok": "", "fail": "", "running": "", "approved": "", "changes": "",
     "waiting": "", "fold": "", "unfold": "", "user": "", "team": "",
@@ -154,7 +159,7 @@ def details(state, pr):
         open_url(state, pr["url"])
 
 
-def start_space(state, cwd, label, prompt):
+def start_space(state, cwd, label, prompt, flags=()):
     """A Claude session in a new space; when a space of that label already runs, it comes into view instead."""
     running = next((w for w in spaces() if w["label"] == label), None)
     if running:
@@ -167,8 +172,23 @@ def start_space(state, cwd, label, prompt):
     except (ValueError, KeyError, TypeError):
         note(state, f"herdr workspace create failed: {created.stderr.strip()}")
         return
-    run([HERDR, "pane", "run", pane, "claude " + shlex.quote(prompt)])
+    run([HERDR, "pane", "run", pane, shlex.join(["claude", *flags, prompt])])
     note(state, f'started "{label}" in a new space')
+
+
+def start_action(state, cwd, label, prompt, flags=()):
+    """A one-off Claude session in a tab of the actions space, else in a new space; while it runs, pressing it again
+    brings its tab into view."""
+    pane = actions.pane_of(label)
+    if pane and actions.focus(pane):
+        note(state, f'"{label}" already runs: focused its tab')
+        return
+    pane = actions.open_tab(cwd, label, label)
+    if not pane:
+        start_space(state, cwd, label, prompt, flags)
+        return
+    run([HERDR, "pane", "run", pane, shlex.join(["claude", *flags, prompt])])
+    note(state, f'started "{label}" in the actions space')
 
 
 def repo_dir(repo):
@@ -232,7 +252,7 @@ def on_branch(state, pr, label, prompt):
 
 def review(state, pr):
     target = str(pr["number"]) if os.path.isdir(os.path.join(REPOS, pr["repo"])) else pr["url"]
-    start_space(state, repo_dir(pr["repo"]), f"review {pr['repo']}#{pr['number']}", f"/code-review {target}")
+    start_action(state, repo_dir(pr["repo"]), f"review {pr['repo']}#{pr['number']}", f"/code-review {target}")
 
 
 def fix_ci(state, pr, ci_run, where):
@@ -263,10 +283,16 @@ def ask_fix(state, pr):
 def plan(state, ticket):
     prompt = (f"Pick up {ticket['id']} ({ticket['url']}): read the ticket, find the repos involved, "
               "and propose a plan before coding.")
-    start_space(state, REPOS, ticket["id"].lower(), prompt)
+    start_action(state, REPOS, f"plan {ticket['id'].lower()}", prompt)
 
 
 def continue_ticket(state, ticket, prs):
+    """The ticket's work: a space already open on its PR's branch, else its plan's tab moved out to a space of its own,
+    else a new session."""
+    path = prs and checkout_of(prs[0]["repo"], prs[0].get("branch"))
+    if not (path and space_on(path)) and actions.promote(f"plan {ticket['id'].lower()}", ticket["id"].lower()):
+        note(state, f"moved the plan of {ticket['id']} to a space of its own")
+        return
     if prs:
         pr = prs[0]
         on_branch(state, pr, ticket["id"].lower(), f"Continue {ticket['id']} ({ticket['url']}). Its PR is {pr['url']} on branch "
@@ -276,6 +302,69 @@ def continue_ticket(state, ticket, prs):
     prompt = (f"Continue {ticket['id']} ({ticket['url']}). Find its branch (named after {ticket['id'].lower()}) in the repo it "
               "touches, check it out, and summarize where it stands before changing anything.")
     start_space(state, REPOS, ticket["id"].lower(), prompt)
+
+
+def session_cwd(session):
+    """The folder a Claude session started in, read from its transcript; None once the transcript is gone."""
+    for path in glob.glob(os.path.join(PROJECTS, "*", f"{session}.jsonl")):
+        with open(path, encoding="utf-8") as handle:
+            for line in itertools.islice(handle, 50):
+                try:
+                    cwd = json.loads(line).get("cwd")
+                except (ValueError, AttributeError):
+                    continue
+                if cwd and os.path.isdir(cwd):
+                    return cwd
+    return None
+
+
+def ticket_session(ticket_id):
+    """The session that spent the most on the ticket, with the folder it resumes from; (None, None) when none is left."""
+    spent = []
+    for name in os.listdir(COSTS) if os.path.isdir(COSTS) else []:
+        usd = view.load_cached(os.path.join(COSTS, name), {}).get(ticket_id, 0) if name.endswith(".json") else 0
+        if usd:
+            spent.append((usd, name[:-len(".json")]))
+    for _, session in sorted(spent, reverse=True):
+        cwd = session_cwd(session)
+        if cwd:
+            return session, cwd
+    return None, None
+
+
+def ticket_brief(ticket, prs, data):
+    """What the inbox knows of a ticket, on one line: its PRs, deploys, previews and runbook."""
+    facts = [f"{ticket['id']} \"{ticket['title']}\" ({ticket['url']}) is {ticket['status']}"]
+    for pr in prs:
+        review = (pr.get("review") or "no review").lower().replace("_", " ")
+        checks = f", failing {', '.join(pr['failedChecks'])}" if pr.get("failedChecks") else ""
+        draft = "draft, " if pr.get("isDraft") else ""
+        facts.append(f"PR {pr['url']} on branch {pr.get('branch')} (base {pr.get('base')}): {draft}{review}, CI {pr.get('ci') or 'none'}{checks}")
+    for done in (data.get("deploys") or {}).get(ticket["id"]) or []:
+        facts.append(f"{done['repo']}#{done['number']} " + ("is live in production" if done["isLive"] else f"is not in production yet, prod runs {done['tag']}"))
+    branches = {(pr["repo"], pr.get("branch")) for pr in prs}
+    for box in data.get("previews") or []:
+        if (box["app"], box["branch"]) in branches:
+            facts.append(f"preview {box['id']} runs {box['app']} {box['branch']}" + ("" if box.get("activated") else " (stopped)"))
+    runbook = os.path.join(RUNBOOKS, f"{ticket['id'].lower()}.md")
+    if os.path.exists(runbook):
+        facts.append(f"its runbook is {runbook}")
+    return "; ".join(facts) + "."
+
+
+def talk(state, ticket, prs, data):
+    """A session to talk the ticket over, changing nothing: a fork of the one that worked on it most, else a fresh one."""
+    brief = ticket_brief(ticket, prs, data)
+    hands_off = " Change nothing (no edits, commits, pushes or ticket updates) unless I ask."
+    session, cwd = ticket_session(ticket["id"])
+    label = f"talk {ticket['id'].lower()}"
+    if session:
+        start_action(state, cwd, label, f"This is a fork of your session on {ticket['id']}, opened to talk it over. Per the inbox now: "
+                     f"{brief} Catch up on what changed since (the ticket's comments, the PRs' reviews and CI), sum it up in a "
+                     f"few lines, then wait for my questions.{hands_off}", ("--resume", session, "--fork-session"))
+        return
+    start_action(state, REPOS, label, f"Let's talk {ticket['id']} over. Per the inbox: {brief} Read the ticket with its comments "
+                 f"and the PRs with their reviews and CI, sum up where it stands in a few lines, then wait for my questions.{hands_off}")
 
 
 def request(state, payload, row, working):
@@ -375,6 +464,10 @@ def close_space(state, space, label, is_worktree):
     """Closes the space; a worktree's space goes with its checkout, unless the checkout holds changes."""
     if not confirmed(state, f"close-{space}"):
         return
+    if space.startswith("tab:"):
+        result = run([HERDR, "tab", "close", space[len("tab:"):]])
+        note(state, f"closed {label}" if result.returncode == 0 else f"herdr tab close failed: {result.stderr.strip()}")
+        return
     if is_worktree:
         result = run([HERDR, "worktree", "remove", "--workspace", space])
         note(state, f"removed the worktree of {label}" if result.returncode == 0 else
@@ -416,14 +509,19 @@ def ticket_costs():
 
 
 def merged_sessions(merged, mine):
-    """Live sessions whose branch has merged with no PR of it still open: their space can close."""
+    """Live sessions whose branch has merged with no PR of it still open: their space can close, or their tab
+    ("tab:<id>") when they sit in a pinned space."""
     still_open = {(pr["repo"], pr.get("branch")) for pr in mine}
     out = {}
     for beat in heartbeats():
         key = (beat.get("repo"), beat.get("branch"))
         is_live = time.time() * 1000 - beat.get("at", 0) < 3 * 60_000
-        if is_live and beat.get("space") and key in merged and key not in still_open:
+        if not (is_live and beat.get("space") and key in merged and key not in still_open):
+            continue
+        if not cockpit_config.is_pinned((linked_spaces().get(beat["space"]) or {}).get("label", ""), CONFIG):
             out[beat["space"]] = key
+        elif beat.get("tab"):
+            out[f"tab:{beat['tab']}"] = key
     return out
 
 
@@ -540,9 +638,11 @@ def build(state, cols):
             if isinstance(target, tuple) and target[0] == "close":
                 label = text.removeprefix("a session still works on ")
                 is_worktree = bool(((linked_spaces().get(target[1]) or {}).get("worktree") or {}).get("is_linked_worktree"))
-                verb = "remove worktree" if is_worktree else "close space"
+                is_tab = target[1].startswith("tab:")
+                verb = "close tab" if is_tab else "remove worktree" if is_worktree else "close space"
+                go = [HERDR, "tab", "focus", target[1][len("tab:"):]] if is_tab else [HERDR, "workspace", "focus", target[1]]
                 item.buttons.append(Button(asking(state, f"close-{target[1]}", verb), lambda s=target[1], b=label, w=is_worktree: close_space(state, s, b, w), "a", True))
-                item.buttons.append(Button("go", lambda s=target[1]: run([HERDR, "workspace", "focus", s]), "o", False))
+                item.buttons.append(Button("go", lambda g=go: run(g), "o", False))
             elif isinstance(target, tuple):
                 item.buttons.append(Button(asking(state, f"stop-{target[1]}", "stop"), lambda p=target[1]: stop_preview(state, p), "a", True))
                 row_status(item, f"preview-{target[1]}")
@@ -725,6 +825,7 @@ def build(state, cols):
                 item.buttons.append(Button(cockpit_config.dashboard_name(links["dashboard"]), lambda: open_url(state, links["dashboard"]), "A", False))
             if links.get("workflow"):
                 item.buttons.append(Button("deploy", lambda: open_url(state, links["workflow"]["url"]), "W", False))
+        item.buttons.append(Button("talk", lambda: talk(state, ticket, prs, data), "t", False))
         item.buttons.append(Button("open", lambda: open_url(state, ticket["url"]), "o", False))
         item.primary = lambda: open_url(state, ticket["url"])
         row_status(item, ticket["id"])
@@ -830,7 +931,7 @@ def build(state, cols):
     if view.noted(state, 8):
         line().add(state["note"], ORANGE)
     else:
-        line().add("hover a row for its buttons · click for details · j/k rows · h/l or tab buttons · enter press · a main action · o open · g group by · R refresh", DIM)
+        line().add("hover a row for its buttons · click for details · j/k rows · h/l or tab buttons · enter press · a main action · o open · t talk · g group by · R refresh", DIM)
     return lines
 
 

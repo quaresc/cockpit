@@ -4,7 +4,7 @@ import type { EngineInterface, SessionMeasureInput } from 'claude-code'
 import { clashWith } from './activity'
 import { ciMark, notify, readCi } from './ci'
 import { cacheDir, home, loadConfig } from './config'
-import { browsersBeside, herdr, hereSoon, inboxSpace, spaceLabel, spaceOf } from './herdr'
+import { browsersBeside, herdr, hereSoon, inboxSpace, placeHere, placeOf } from './herdr'
 import { isDeploying, isFailing, isOldReview, ticketKey } from './match'
 import { siteMark } from './sites'
 import { ICON } from './icons'
@@ -144,8 +144,8 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
   const tone = !text ? undefined : run?.isRunning ? 'work_run' : pr && isFailing(pr) ? 'work_fail' : 'work'
   for (const name of ['work', 'work_run', 'work_fail', 'work_ok']) tokens.push([name, name === tone ? text : undefined])
   // Two agents on one branch overwrite each other: both rows say so.
-  const other = current && branch ? await clashWith($, current.repo, branch, here.space) : undefined
-  const otherLabel = other ? (await spaceLabel($, other)) ?? other : undefined
+  const other = current && branch ? await clashWith($, current.repo, branch, here) : undefined
+  const otherLabel = other ? (await placeOf($, other))?.label ?? other.space : undefined
   tokens.push(['clash', otherLabel ? `⚠ same branch as ${otherLabel}` : undefined])
   await herdr($, tokenArgs(['pane', 'report-metadata', here.pane, '--source', 'cockpit'], tokens))
 }
@@ -177,7 +177,7 @@ export async function reportSide($: $) {
   if (!here) return
   const listed = await herdr($, ['pane', 'list', '--workspace', here.space])
   const panes = ((JSON.parse(listed.stdout || '{}')?.result?.panes ?? []) as Pane[]).filter(p => p.tab_id === here.tab)
-  const topic = panes.find(p => p.pane_id === here.pane)?.tokens?.topic || ((await spaceLabel($, here.space)) ?? '')
+  const topic = panes.find(p => p.pane_id === here.pane)?.tokens?.topic || ((await placeOf($, here))?.label ?? '')
   // Alone in its tab, the session has no browser beside it: terminal-browser need not be asked.
   const browsers = panes.length > 1 ? await browsersBeside($, here) : []
   const tabs = browsers.flatMap(b => b.tabs ?? [])
@@ -198,16 +198,16 @@ export async function reportSide($: $) {
 
 let seenAt = Date.now()
 
-// A browser beside this session closes once its space has been out of view for browserIdleMinutes, and no turn runs,
+// A browser beside this session closes once its tab has been out of view for browserIdleMinutes, and no turn runs,
 // so a forgotten page stops drawing; terminal-browser keeps the sign-ins for the next one.
 export async function closeIdleBrowsers($: $) {
   const { browserIdleMinutes } = await loadConfig($)
-  const space = await spaceOf($)
+  const place = await placeHere($)
   const here = await hereSoon($)
-  if (!space || !here) return
+  if (!place || !here) return
   const self = await herdr($, ['pane', 'get', here.pane])
   const isWorking = JSON.parse(self.stdout || '{}')?.result?.pane?.agent_status === 'working'
-  if (space.isFocused || isWorking || !browserIdleMinutes) {
+  if (place.isFocused || isWorking || !browserIdleMinutes) {
     seenAt = Date.now()
     return
   }
@@ -226,11 +226,11 @@ export async function closeIdleBrowsers($: $) {
 
 const FINISHED_AFTER_MS = 30_000
 
-// A long turn that ended while its space was out of view: a notification whose click leads back to it.
+// A long turn that ended while its space, or its tab in a pinned space, was out of view: a notification whose click leads back to it.
 export async function notifyFinished($: $, durationMs: number, answer: string) {
   if (durationMs < FINISHED_AFTER_MS) return
-  const space = await spaceOf($)
-  if (!space || space.isFocused) return
+  const place = await placeHere($)
+  if (!place || place.isFocused) return
   const line = answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? 'Done.'
-  await notify($, `✓ ${space.label}`, line.length > 140 ? `${line.slice(0, 139)}…` : line, `workspace:${space.id}`)
+  await notify($, `✓ ${place.label}`, line.length > 140 ? `${line.slice(0, 139)}…` : line, place.target)
 }

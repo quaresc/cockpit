@@ -376,7 +376,7 @@ def run_step(state, book, step):
 
 
 def focus_session(state, handoff):
-    """Brings the space of the session running the step into view."""
+    """Brings the tab of the session running the step into view, with its space."""
     if not handoff.get("pane"):
         note(state, "its session has not picked the step up yet")
         return
@@ -386,14 +386,14 @@ def focus_session(state, handoff):
         note(state, "herdr did not answer: try again")
         return
     try:
-        space = json.loads(got.stdout)["result"]["pane"]["workspace_id"]
+        tab = json.loads(got.stdout)["result"]["pane"]["tab_id"]
     except (ValueError, KeyError, TypeError):
         # The session is gone with the step: the row offers run again.
         view.write_json(os.path.join(HANDOFFS, handoff["id"] + ".json"), {**handoff, "state": "unreported"})
         note(state, "its session's pane is gone: run the step again")
         return
     try:
-        subprocess.run([HERDR, "workspace", "focus", space], capture_output=True, timeout=5)
+        subprocess.run([HERDR, "tab", "focus", tab], capture_output=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         note(state, "herdr did not answer: try again")
 

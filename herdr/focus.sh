@@ -1,6 +1,7 @@
 #!/bin/sh
 # What a click on a cockpit notification does, besides opening a URL:
 #   workspace:<id>                    the space of that agent
+#   tab:<id>                          the tab of that agent, with its space
 #   space:<name>                      a pinned space, e.g. space:inbox
 #   runbook:<slug>[:<step>,<step>]    the runbook space, that runbook open and its steps played as done
 #   meeting:<event id>                the meetings space, that meeting's brief open
@@ -23,6 +24,7 @@ case "${1:-}" in
     python3 "$ROOT/act.py" "${rest%%:*}" "${rest#*:}" >"$HOME/.cache/cockpit/act.log" 2>&1
     ;;
   workspace:*) "$H" workspace focus "${1#workspace:}" >/dev/null 2>&1 ;;
+  tab:*) "$H" tab focus "${1#tab:}" >/dev/null 2>&1 ;;
   space:*) sh "$ROOT/focus-space.sh" "${1#space:}" ;;
   runbook:*)
     rest=${1#runbook:}
