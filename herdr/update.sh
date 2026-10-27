@@ -12,8 +12,8 @@ for pid in $(pgrep -f "herdr/(inbox|todo|runbook|meetings)-loop\.sh"); do
   pkill -P "$pid"
   kill "$pid"
 done
-# A Textual app runs under app.sh and uv, out of reach of pkill -P: it goes by the argument that marks it.
-pkill -f "(inbox|todo|runbook|meetings)(_tx)?\.py cockpit-space"
+# A Textual or Rust app runs under app.sh (and uv), out of reach of pkill -P: it goes by the argument that marks it.
+pkill -f "(inbox|todo|runbook|meetings)(_tx)?(\.py)? cockpit-space"
 sleep 1
 sh "$root/ensure-spaces.sh"
 sh "$root/pin-spaces.sh"
