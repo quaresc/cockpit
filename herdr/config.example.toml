@@ -25,6 +25,13 @@ rows = [
   [{ token = "$todo", dim = true }],
   [{ token = "$runbook", dim = true }],
   [{ token = "$meetings", fg = "#FFC799" }],
+  # The actions space's sessions, one per line with its state; one waiting for you in the accent colour.
+  [{ token = "$act_1", dim = true }, { token = "$act_1_wait", fg = "#FFC799" }],
+  [{ token = "$act_2", dim = true }, { token = "$act_2_wait", fg = "#FFC799" }],
+  [{ token = "$act_3", dim = true }, { token = "$act_3_wait", fg = "#FFC799" }],
+  [{ token = "$act_4", dim = true }, { token = "$act_4_wait", fg = "#FFC799" }],
+  [{ token = "$act_5", dim = true }, { token = "$act_5_wait", fg = "#FFC799" }],
+  [{ token = "$act_6", dim = true }, { token = "$act_6_wait", fg = "#FFC799" }],
 ]
 
 # Agents: state, task and the pane beside it, context percentage; under it repo · ticket, red when its PR fails CI.
