@@ -32,7 +32,7 @@ def load():
 
 
 def parse(iso):
-    return datetime.fromisoformat(iso).astimezone()
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone()
 
 
 def until_text(start, now):

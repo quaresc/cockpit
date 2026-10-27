@@ -11,6 +11,8 @@ type $ = EngineInterface
 
 const STALE_MS = 5 * 60_000
 const NOTIFY_BEFORE_MS = 5 * 60_000
+// A claude.ai connector connects a moment after the session starts: try it again soon rather than never.
+const MISSING_RETRY_MS = 30_000
 
 export async function readMeetings($: $): Promise<MeetingsState | null> {
   try {
@@ -114,7 +116,7 @@ async function prepFor($: $, meeting: Meeting) {
 }
 
 let inflight: Promise<void> | undefined
-let isCalendarMissing = false
+let calendarMissingAt = 0
 
 // Refreshes the shared meetings cache (one session at a time), then warns once, 5 minutes ahead.
 export function refreshMeetings($: $, isForced = false) {
@@ -124,10 +126,10 @@ export function refreshMeetings($: $, isForced = false) {
       await withLock($, 'meetings', async () => {
         let state: MeetingsState = prev ?? { at: 0, meetings: [], notified: [] }
         if (isForced || Date.now() - state.at > STALE_MS) {
-          const isOff = isCalendarMissing || !(await loadConfig($)).calendar.enabled
+          const isOff = Date.now() - calendarMissingAt < MISSING_RETRY_MS || !(await loadConfig($)).calendar.enabled
           const meetings = isOff ? null : await fetchMeetings($).catch((err: Error) => {
-            // A session started before the calendar connector was added has no such server: leave it to the others.
-            if (err.message.includes('no connected MCP tool')) isCalendarMissing = true
+            // The connector may not be connected yet (at startup, or added later): try again shortly.
+            if (err.message.includes('no connected MCP tool')) calendarMissingAt = Date.now()
             else state = { ...state, error: `Calendar: ${err.message.replace(/^cockpit: /, '')}` }
             return null
           })
