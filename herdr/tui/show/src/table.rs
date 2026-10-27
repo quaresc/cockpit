@@ -120,7 +120,9 @@ impl Table {
             out.push(row);
         }
         if total > view {
-            let (len, start) = ((view * view / total).max(1), self.x * view / total);
+            let len = (view * view / total).max(1);
+            // Scrolled to the right edge, the thumb touches it rather than stopping a cell short.
+            let start = if self.x + view >= total { view - len } else { self.x * view / total };
             let mut row = Row::new().target(Target::Table);
             row = row.add("─".repeat(start), fg(LINE));
             row = row.add("━".repeat(len), fg(if focused { ORANGE } else { DIM }));

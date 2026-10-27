@@ -1,6 +1,8 @@
 //! Charts, flow charts and pictures as real images: drawn in a background thread at the pane's width in pixels (cells
 //! times the terminal's font size), again whenever that width changes, then shown with ratatui-image.
 
+use std::sync::Mutex;
+
 use image::DynamicImage;
 use image::imageops::FilterType;
 use ratatui::layout::Size;
@@ -9,7 +11,6 @@ use ratatui_image::picker::Picker;
 use ratatui_image::sliced::SlicedProtocol;
 use serde_json::Value;
 
-use cockpit_core::theme::{RED, fg};
 
 use crate::row::Row;
 use crate::{mermaid, raster, svg};
@@ -38,8 +39,13 @@ fn rows_for(pixels: u32, font: FontSize) -> u16 {
     pixels.div_ceil(font.height as u32).max(1) as u16
 }
 
+/// One picture is drawn at a time: each takes a few full-size pixel buffers, and ten charts drawn at once would leave
+/// the process holding all of them at its peak.
+static DRAWING: Mutex<()> = Mutex::new(());
+
 /// The block drawn `cols` cells wide, encoded for the terminal here too, since Kitty's deflate takes a while.
 pub fn draw(draw: Draw, block: &Value, cols: usize, picker: &Picker) -> Drawn {
+    let _turn = DRAWING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let (image, size) = pixels(draw, block, cols, picker.font_size())?;
     SlicedProtocol::new(picker, image, Some(size)).map_err(|e| e.to_string())
 }
@@ -63,6 +69,9 @@ fn pixels(draw: Draw, block: &Value, cols: usize, font: FontSize) -> Result<(Dyn
         }
         Draw::Flow => {
             let flow = if block["type"] == "mermaid" { mermaid::flowchart(block["text"].as_str().unwrap_or_default()) } else { block.clone() };
+            if flow["nodes"].as_array().is_none_or(Vec::is_empty) {
+                return Err("no nodes to draw".into());
+            }
             let (text, natural, _) = svg::flow_chart(&flow, label);
             let shown = width.min(natural);
             let image = raster::svg(&text, Some(shown.round()))?;
@@ -114,9 +123,9 @@ impl Picture {
         }
     }
 
-    pub fn rows(&self) -> Vec<Row> {
+    pub fn rows(&self, cols: usize) -> Vec<Row> {
         if let Some(err) = &self.error {
-            return vec![Row::text(format!("cannot draw it: {err}"), fg(RED))];
+            return crate::blocks::error_rows(&format!("cannot draw it: {err}"), cols);
         }
         let height = self.shown.as_ref().map_or(0, |p| p.size().height);
         (0..height).map(|k| Row { image: Some(k), ..Row::new() }).collect()

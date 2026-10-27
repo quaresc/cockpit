@@ -177,10 +177,15 @@ impl ShowApp {
             self.starts.push(self.rows.len());
             let mut rows = vec![Row::new()];
             if let Some(title) = view.spec["title"].as_str().filter(|t| !t.is_empty()) {
-                rows.push(Row::text(title.to_string(), bold(FG)));
+                let mut row = Row::text(title.to_string(), bold(FG));
+                // A block the session refreshes from a source says when it last did.
+                if let Some(at) = view.spec["refreshed_at"].as_f64().and_then(|ms| chrono::Local.timestamp_millis_opt(ms as i64).single()) {
+                    row = row.add(format!("   refreshed {}", at.format("%H:%M")), dim());
+                }
+                rows.push(row);
             }
             if let Some(error) = view.spec["error"].as_str().filter(|e| !e.is_empty()) {
-                rows.push(Row::text(error.to_string(), fg(cockpit_core::theme::RED)));
+                rows.extend(crate::blocks::error_rows(error, self.width));
             }
             let focus = self.focus.as_ref().filter(|(b, _)| *b == n).map(|(_, t)| t);
             rows.extend(view.rows(self.width, focus, &self.ctx));
@@ -365,7 +370,7 @@ impl ShowApp {
 
     fn header(&self) -> Line<'static> {
         let Some(spec) = &self.spec else { return Line::styled(format!("waiting for the view {}…", self.name), dim()) };
-        let at = chrono::Local.timestamp_millis_opt(spec["at"].as_i64().unwrap_or(0)).single().map(|t| t.format("%H:%M:%S").to_string()).unwrap_or_default();
+        let at = chrono::Local.timestamp_millis_opt(spec["at"].as_f64().unwrap_or(0.0) as i64).single().map(|t| t.format("%H:%M:%S").to_string()).unwrap_or_default();
         let title = spec["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(&self.name).to_string();
         Line::from(vec![Span::styled("◆  ", fg(ORANGE)), Span::styled(title, bold(ORANGE)), Span::styled(format!("   {} · {at}", self.name), dim())])
     }

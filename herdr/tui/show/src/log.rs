@@ -23,7 +23,7 @@ static WARN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bwarn(ing)?\b").un
 
 pub struct Log {
     pub command: String,
-    pub every: u64,
+    pub every: f64,
     keep: usize,
     result: Option<(Vec<String>, i32, String)>,
     pub running: bool,
@@ -62,11 +62,12 @@ pub fn run(command: &str, cwd: &Path) -> (String, i32) {
 }
 
 impl Log {
-    pub fn new(block: &Value) -> Self {
+    /// The block's command, run every `every` seconds (`default` when the block says nothing), at least every second.
+    pub fn new(block: &Value, default: f64) -> Self {
         Self {
             command: block["command"].as_str().unwrap_or_default().to_string(),
-            every: block["every"].as_u64().unwrap_or(5).max(1),
-            keep: block["lines"].as_u64().filter(|n| *n > 0).unwrap_or(40) as usize,
+            every: block["every"].as_f64().filter(|e| *e > 0.0).unwrap_or(default).max(1.0),
+            keep: block["lines"].as_f64().filter(|n| *n >= 1.0).map_or(40, |n| n as usize),
             result: None,
             running: false,
             ran_at: None,
@@ -74,7 +75,7 @@ impl Log {
     }
 
     pub fn due(&mut self) -> bool {
-        if self.running || self.ran_at.is_some_and(|at| at.elapsed() < Duration::from_secs(self.every)) {
+        if self.running || self.ran_at.is_some_and(|at| at.elapsed() < Duration::from_secs_f64(self.every)) {
             return false;
         }
         self.running = true;

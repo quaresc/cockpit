@@ -57,12 +57,19 @@ pub fn panel(frame: &mut Frame, area: Rect, info: &[Line<'static>], acts: &[Act]
 }
 
 pub fn footer(frame: &mut Frame, area: Rect) {
-    let mut spans = vec![Span::raw(" ")];
-    for (key, what) in KEYS {
-        spans.push(Span::styled(format!("{key} "), bold(ORANGE)));
-        spans.push(Span::styled(format!("{what}  "), fg(FG)));
-    }
     let palette = vec![Span::styled("^p ", bold(ORANGE)), Span::styled("palette ", fg(FG))];
+    let mut spans = vec![Span::raw(" ")];
+    // A narrow pane drops the last hints rather than cutting the palette's.
+    let mut room = (area.width as usize).saturating_sub(1 + palette.iter().map(|s| width(&s.content)).sum::<usize>());
+    for (key, what) in KEYS {
+        let hint = [Span::styled(format!("{key} "), bold(ORANGE)), Span::styled(format!("{what}  "), fg(FG))];
+        let cells: usize = hint.iter().map(|s| width(&s.content)).sum();
+        if cells > room {
+            break;
+        }
+        room -= cells;
+        spans.extend(hint);
+    }
     let used: usize = spans.iter().chain(&palette).map(|s| width(&s.content)).sum();
     spans.push(Span::raw(" ".repeat((area.width as usize).saturating_sub(used))));
     spans.extend(palette);

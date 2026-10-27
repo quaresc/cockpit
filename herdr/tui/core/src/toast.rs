@@ -43,7 +43,7 @@ impl Toasts {
         let width = 48.min(area.width.saturating_sub(2));
         let mut bottom = area.y + area.height.saturating_sub(1);
         for (text, kind, _) in self.items.iter().rev() {
-            let lines = crate::text::wrap(text, width as usize - 4);
+            let lines = crate::text::wrap(text, (width as usize).saturating_sub(4));
             let height = lines.len() as u16;
             if bottom < area.y + height + 1 {
                 break;

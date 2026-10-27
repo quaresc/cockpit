@@ -86,7 +86,7 @@ def read_books():
     for path in paths:
         try:
             books.append(parse(path))
-        except OSError:
+        except (OSError, ValueError):  # unreadable, or not UTF-8: the other runbooks still show
             continue
     return books
 
@@ -114,7 +114,8 @@ def reload(state):
             newly = [n for n in state["done"][book["slug"]] if n not in before[book["slug"]]]
             if newly:
                 play(state, book["slug"], newly)
-                state["newly"][book["slug"]] = newly
+                # A refresh can write its file more than once: its notification counts every step it turned done.
+                state["newly"][book["slug"]] = state["newly"].get(book["slug"], []) + newly
 
 
 def take_focus(state):
@@ -269,6 +270,11 @@ def update(state, book):
     command = [CLAUDE, "-p", refresh_prompt(book), "--model", "sonnet", "--permission-mode", "acceptEdits", *dirs, "--allowedTools", *TOOLS]
     if session and session != "-":
         command[1:1] = ["--resume", session, "--fork-session"]
+    # The exit status lands beside the log, for an app that only knows the pid (the Rust one) to tell a failure.
+    status = os.path.join(LOGS, f"runbook-refresh-{slug}.exit")
+    if os.path.exists(status):
+        os.remove(status)
+    command = ["sh", "-c", '"$@"; code=$?; echo "$code" > "$0"; exit "$code"', status, *command]
     with open(os.path.join(LOGS, f"runbook-refresh-{slug}.log"), "w", encoding="utf-8") as log:
         state["refreshing"][slug] = subprocess.Popen(command, cwd=REPOS, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                                      start_new_session=True)

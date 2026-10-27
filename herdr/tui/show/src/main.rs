@@ -38,15 +38,18 @@ fn main() -> std::io::Result<()> {
     std::fs::create_dir_all(&dir)?;
     let alive = Alive(dir.join(format!("{name}.pid")));
     std::fs::write(&alive.0, std::process::id().to_string())?;
-    for signal in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM] {
+    // The pane closing (HUP) or the mod hiding the view (TERM) ends the app here: the pid file goes and the terminal
+    // gets its screen and mouse back, which a bare exit in the signal handler would leave in the app's modes.
+    if let Ok(mut signals) = signal_hook::iterator::Signals::new([signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT]) {
         let pid = alive.0.clone();
-        // SAFETY: the handler only unlinks a path built beforehand and exits without unwinding.
-        let _ = unsafe {
-            signal_hook::low_level::register(signal, move || {
+        std::thread::spawn(move || {
+            if signals.forever().next().is_some() {
                 let _ = std::fs::remove_file(&pid);
-                signal_hook::low_level::exit(0);
-            })
-        };
+                let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+                ratatui::restore();
+                std::process::exit(0);
+            }
+        });
     }
     raster::warm_up();
     let mut picker = Picker::from_query_stdio_with_options(QueryStdioOptions { kitty_compression: true, ..Default::default() }).unwrap_or_else(|_| Picker::halfblocks());

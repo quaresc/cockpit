@@ -165,6 +165,8 @@ pub struct Confirm {
     consequence: Option<String>,
     label: String,
     sent: Option<(String, bool)>,
+    /// The answer the mod wrote back into the spec, so a redrawn view does not ask again.
+    answered: Option<String>,
 }
 
 impl Confirm {
@@ -174,11 +176,12 @@ impl Confirm {
             consequence: block["consequence"].as_str().filter(|c| !c.is_empty()).map(str::to_string),
             label: block["confirm_label"].as_str().filter(|l| !l.is_empty()).unwrap_or("Confirm").to_string(),
             sent: None,
+            answered: block["answered"].as_str().filter(|a| !a.is_empty()).map(str::to_string),
         }
     }
 
     pub fn targets(&self) -> Vec<Target> {
-        if self.sent.is_some() { vec![] } else { vec![Target::Button(false), Target::Button(true)] }
+        if self.sent.is_some() || self.answered.is_some() { vec![] } else { vec![Target::Button(false), Target::Button(true)] }
     }
 
     pub fn rows(&self, cols: usize, focus: Option<&Target>) -> Vec<Row> {
@@ -186,7 +189,11 @@ impl Confirm {
             return vec![Row::text(format!("✓ answered: {label}"), if *yes { fg(GREEN) } else { dim() })];
         }
         let mut out = markdown(&self.summary, cols);
-        out.extend(self.consequence.iter().map(|c| Row::text(c.clone(), fg(RED))));
+        out.extend(self.consequence.iter().flat_map(|c| crate::blocks::wrapped(c, cols, fg(RED))));
+        if let Some(answered) = &self.answered {
+            out.push(Row::text(format!("✓ answered: {answered}"), if answered == "cancelled" { dim() } else { fg(GREEN) }));
+            return out;
+        }
         let buttons = [(false, "Cancel".to_string(), LINE, Color::Rgb(72, 72, 78), Color::Rgb(24, 24, 26), FG), (true, self.label.clone(), RED, Color::Rgb(255, 176, 176), Color::Rgb(168, 76, 76), BG)];
         let mut rows = [Row::new(), Row::new(), Row::new()];
         for (yes, label, bg, light, dark, text) in buttons {
@@ -210,7 +217,7 @@ impl Confirm {
 
     pub fn act(&mut self, act: &Act) -> Key {
         match act {
-            Act::Answer(yes) if self.sent.is_none() => {
+            Act::Answer(yes) if self.sent.is_none() && self.answered.is_none() => {
                 let label = if *yes { self.label.clone() } else { "cancelled".into() };
                 self.sent = Some((label.clone(), *yes));
                 Key::Answer(json!(yes), label)

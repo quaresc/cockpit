@@ -33,14 +33,14 @@ def main():
     state = view.new_state(open=set(), work_mode="feature", choice=None, pending={}, outcome={}, seen=None, books=[], toggled=set(),
                            refreshing={}, refresh_started={}, flash={}, newly={}, announced=set(), focus_at=time.time(), reasons={},
                            was_busy=False, handoffs={})
-    if hasattr(module, "read_handoffs"):
-        state["handoffs"] = module.read_handoffs()
-    if hasattr(module, "read_books"):
-        state["books"] = module.read_books()
     # The dialog was the first press of an action that wants two.
     if request.get("armed"):
         state["confirm"] = (request["armed"], time.time())
     try:
+        if hasattr(module, "read_handoffs"):
+            state["handoffs"] = module.read_handoffs()
+        if hasattr(module, "read_books"):
+            state["books"] = module.read_books()
         getattr(module, request["function"])(state, *[resolve(a, module) for a in request.get("args", [])])
         error = None
     except Exception as err:  # the Rust app shows it as a toast rather than crashing

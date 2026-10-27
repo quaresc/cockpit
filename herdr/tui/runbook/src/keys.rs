@@ -86,6 +86,8 @@ impl App {
                 let entries = self.palette_entries();
                 self.palette.open(entries);
             }
+            // ctrl+d or alt+r is not d or r: an action runs on its own key only.
+            KeyCode::Char(_) if ctrl || key.modifiers.contains(KeyModifiers::ALT) => {}
             KeyCode::Char('q') => return true,
             KeyCode::Char('j') | KeyCode::Down => self.move_row(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_row(-1),
@@ -117,7 +119,7 @@ impl App {
             self.go_tab(i);
         } else if let Some(&(_, i)) = self.hits.rows.iter().find(|(r, _)| r.contains(at)) {
             self.selected = i;
-            self.reveal = Some(i);
+            self.reveal = Some((i, i));
         }
     }
 
@@ -125,7 +127,7 @@ impl App {
         let Some(book) = self.book() else { return };
         let last = book.steps.len().saturating_sub(1) as isize;
         self.selected = (self.selected as isize + by).clamp(0, last) as usize;
-        self.reveal = Some(self.selected);
+        self.reveal = Some((self.selected, self.selected));
     }
 
     fn next_tab(&mut self, by: isize) {

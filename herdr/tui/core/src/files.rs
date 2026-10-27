@@ -67,13 +67,16 @@ pub fn open_url(url: &str) {
     let _ = std::process::Command::new(opener).arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
 }
 
-/// Puts text on the clipboard; false when no clipboard tool answers.
+/// Puts text on the clipboard: pbcopy on macOS, wl-copy or xclip on Linux; false when none answers.
 pub fn copy(text: &str) -> bool {
     use std::io::Write;
-    let tool = if cfg!(target_os = "macos") { vec!["pbcopy"] } else { vec!["wl-copy"] };
-    let Ok(mut child) = std::process::Command::new(tool[0]).stdin(std::process::Stdio::piped()).spawn() else { return false };
-    let _ = child.stdin.take().map(|mut stdin| stdin.write_all(text.as_bytes()));
-    child.wait().map(|s| s.success()).unwrap_or(false)
+    let tools: &[&[&str]] = &[&["pbcopy"], &["wl-copy"], &["xclip", "-selection", "clipboard"]];
+    for tool in tools {
+        let Ok(mut child) = std::process::Command::new(tool[0]).args(&tool[1..]).stdin(std::process::Stdio::piped()).spawn() else { continue };
+        let _ = child.stdin.take().map(|mut stdin| stdin.write_all(text.as_bytes()));
+        return child.wait().map(|s| s.success()).unwrap_or(false);
+    }
+    false
 }
 
 /// The herdr CLI's JSON answer, or None when it fails.

@@ -16,9 +16,6 @@ use crate::sessions::ticket_costs;
 
 type Key = (String, String);
 
-/// How deep a stack of PRs goes before a base cycle is cut.
-const MAX_STACK: usize = 16;
-
 fn pr_key(pr: &Value) -> Key {
     (s(pr, "repo").into(), s(pr, "branch").into())
 }
@@ -46,6 +43,8 @@ struct Build<'a> {
     pr_children: HashMap<Key, Vec<&'a Value>>,
     pr_parent: HashMap<Key, Key>,
     t_children: HashMap<String, Vec<&'a Value>>,
+    /// Each ticket's PRs, matched once: sorting and grouping ask again and again.
+    linked: HashMap<String, Vec<&'a Value>>,
     costs: HashMap<String, f64>,
 }
 
@@ -70,7 +69,8 @@ impl<'a> Build<'a> {
             }
         }
         let runs = list(ci, "runs").iter().map(|r| (pr_key(r), r)).collect();
-        Self { data, config, mine, runs, pr_children, pr_parent, t_children, costs: ticket_costs() }
+        let linked = tickets.iter().map(|t| (s(t, "id").to_string(), mine.iter().filter(|pr| has_ticket(s(pr, "branch"), s(t, "id"))).collect())).collect();
+        Self { data, config, mine, runs, pr_children, pr_parent, t_children, linked, costs: ticket_costs() }
     }
 
     fn kids(&self, pr: &Value) -> &[&'a Value] {
@@ -89,6 +89,22 @@ impl<'a> Build<'a> {
         out
     }
 
+    /// A PR with no parent PR, or the first of a base cycle, which would otherwise have no top and show nowhere.
+    fn is_top(&self, pr: &Value) -> bool {
+        let key = pr_key(pr);
+        let mut chain = vec![key.clone()];
+        while let Some(parent) = self.pr_parent.get(chain.last().expect("never empty")) {
+            if *parent == key {
+                return chain.iter().all(|k| *k >= key);
+            }
+            if chain.contains(parent) {
+                return false;
+            }
+            chain.push(parent.clone());
+        }
+        chain.len() == 1
+    }
+
     fn previews(&self) -> &'a [Value] {
         list(self.data, "previews")
     }
@@ -97,7 +113,8 @@ impl<'a> Build<'a> {
         &self.data["deployLinks"][repo]
     }
 
-    fn pr_row(&self, pr: &'a Value, section: &str, depth: usize) -> Row {
+    /// The PR's row with its stack under it; `above` holds the PRs over it, so a base cycle stops where it comes back.
+    fn pr_row(&self, pr: &'a Value, section: &str, above: &[Key]) -> Row {
         let run = self.runs.get(&pr_key(pr)).copied();
         let bx = self.previews().iter().find(|b| s(b, "app") == s(pr, "repo") && s(b, "branch") == s(pr, "branch"));
         let image_ready = run.is_some_and(|r| s(r, "dockerTag") == "succeeded");
@@ -195,14 +212,15 @@ impl<'a> Build<'a> {
             .status(s(pr, "url"))
             .section(section);
         row.children = kids;
-        for kid in self.kids(pr).iter().filter(|_| depth < MAX_STACK) {
-            row.add(self.pr_row(kid, section, depth + 1));
+        let path: Vec<Key> = above.iter().cloned().chain([pr_key(pr)]).collect();
+        for kid in self.kids(pr).iter().filter(|kid| !path.contains(&pr_key(kid))) {
+            row.add(self.pr_row(kid, section, &path));
         }
         row
     }
 
     fn linked(&self, ticket: &Value) -> Vec<&'a Value> {
-        self.mine.iter().filter(|pr| has_ticket(s(pr, "branch"), s(ticket, "id"))).collect()
+        self.linked.get(s(ticket, "id")).cloned().unwrap_or_default()
     }
 
     /// Linked PRs whose parent PR is not linked to the same ticket; their stacks follow them.
@@ -298,7 +316,7 @@ impl<'a> Build<'a> {
             row.add(self.ticket_row(kid, section));
         }
         for root in self.linked_roots(ticket) {
-            row.add(self.pr_row(root, section, 0));
+            row.add(self.pr_row(root, section, &[]));
         }
         row
     }
@@ -364,7 +382,7 @@ impl<'a> Build<'a> {
     fn other(&self, claimed: &HashSet<Key>) -> Row {
         let others: Vec<&Value> = self.mine.iter().filter(|pr| !claimed.contains(&pr_key(pr)) && !self.pr_parent.get(&pr_key(pr)).is_some_and(|p| claimed.contains(p))).collect();
         let mut groups: [Vec<&Value>; 4] = Default::default();
-        for root in others.iter().copied().filter(|pr| !self.pr_parent.contains_key(&pr_key(pr))) {
+        for root in others.iter().copied().filter(|pr| self.is_top(pr)) {
             let tree = self.pr_subtree(root);
             let rank = if tree.iter().all(|p| age_days(s(p, "updatedAt")).unwrap_or(0.0) > STALE_PR_DAYS) {
                 3
@@ -388,7 +406,7 @@ impl<'a> Build<'a> {
             let line = Line::from(vec![Span::styled(label.to_string(), style), Span::styled(format!("  {count}"), dim())]);
             let group = other.add(Row::text(format!("other:{rank}"), line).expand(is_open));
             for root in &groups[rank] {
-                group.add(self.pr_row(root, "Other PRs", 0));
+                group.add(self.pr_row(root, "Other PRs", &[]));
             }
         }
         other

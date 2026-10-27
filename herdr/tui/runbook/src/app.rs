@@ -1,7 +1,7 @@
 //! The app's state and what changes it: the runbook files read again, the steps that turned done played, background
 //! refreshes followed, and the pinned space's duties.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant, SystemTime};
@@ -42,14 +42,16 @@ pub struct App {
     seen: Vec<(String, Option<SystemTime>)>,
     pub active: usize,
     pub selected: usize,
-    /// A row to bring into view on the next frame, once its place is known.
-    pub reveal: Option<usize>,
+    /// Rows to bring into view on the next frame, the first and the last, once their place is known.
+    pub reveal: Option<(usize, usize)>,
     pub scroll: HashMap<String, Glide>,
     pub gauges: HashMap<String, Glide>,
     pub underline: (Glide, Glide),
     pub fx: HashMap<(String, String), RowFx>,
     /// Background refreshes: the pid of their Claude and when they started.
     pub refreshing: HashMap<String, (u32, Instant)>,
+    /// Refreshes asked of the bridge whose pid has not come back yet, so a second R does not start another.
+    asking: HashSet<String>,
     newly: HashMap<String, Vec<String>>,
     reasons: HashMap<String, String>,
     pub bridge: Bridge,
@@ -87,6 +89,7 @@ impl App {
             underline: (Glide::new(0.0, 0.3), Glide::new(0.0, 0.3)),
             fx: HashMap::new(),
             refreshing: HashMap::new(),
+            asking: HashSet::new(),
             newly: HashMap::new(),
             reasons: HashMap::new(),
             bridge: Bridge::default(),
@@ -185,30 +188,38 @@ impl App {
             gauge.go((book.steps.len() - book.todo()) as f32);
         }
         let Some(before) = before else { return };
+        // In tab order, so the runbook brought into view when several changed at once is always the same one.
         let mut played = Vec::new();
-        for (slug, steps) in &done {
-            if let Some(was) = before.get(slug) {
+        for book in &self.books {
+            if let (Some(was), Some(steps)) = (before.get(&book.slug), done.get(&book.slug)) {
                 let newly: Vec<String> = steps.iter().filter(|n| !was.contains(n)).cloned().collect();
                 if !newly.is_empty() {
-                    played.push((slug.clone(), newly));
+                    played.push((book.slug.clone(), newly));
                 }
             }
         }
         for (slug, newly) in played {
-            self.newly.insert(slug.clone(), newly.clone());
+            // A refresh can write the file several times: its notification counts every step it finished.
+            let all = self.newly.entry(slug.clone()).or_default();
+            for n in &newly {
+                if !all.contains(n) {
+                    all.push(n.clone());
+                }
+            }
             self.play(&slug, newly);
         }
     }
 
-    /// The steps' done animation, one after the other, with their runbook brought into view on the first.
+    /// The steps' done animation, one after the other, their runbook and as many of them as fit brought into view.
     fn play(&mut self, slug: &str, steps: Vec<String>) {
         let Some(i) = self.books.iter().position(|b| b.slug == slug) else { return };
         self.go_tab(i);
         for (k, n) in steps.iter().enumerate() {
             self.fx.insert((slug.to_string(), n.clone()), RowFx::new(k as f32 * CASCADE));
         }
-        if let Some(first) = steps.first().and_then(|n| self.books[i].steps.iter().position(|s| &s.n == n)) {
-            self.reveal = Some(first);
+        let rows: Vec<usize> = steps.iter().filter_map(|n| self.books[i].steps.iter().position(|s| &s.n == n)).collect();
+        if let (Some(&first), Some(&last)) = (rows.iter().min(), rows.iter().max()) {
+            self.reveal = Some((first, last));
         }
         let s = if steps.len() > 1 { "s" } else { "" };
         self.toasts.push(format!("{}: step{s} {} done", slug.to_uppercase(), steps.join(", ")), Kind::Good);
@@ -219,9 +230,15 @@ impl App {
         let ended: Vec<String> = self.refreshing.iter().filter(|(_, (pid, _))| !is_alive(*pid)).map(|(slug, _)| slug.clone()).collect();
         for slug in ended {
             self.refreshing.remove(&slug);
-            self.toasts.push(format!("{} refreshed", slug.to_uppercase()), Kind::Good);
             let newly = self.newly.remove(&slug).unwrap_or_default();
             let reason = self.reasons.remove(&slug).unwrap_or_default();
+            // runbook.update writes the exit status beside the log, since a pid alone cannot tell a failure.
+            let status = std::fs::read_to_string(cockpit_core::files::cache().join(format!("runbook-refresh-{slug}.exit")));
+            if status.ok().and_then(|s| s.trim().parse::<i32>().ok()).is_some_and(|code| code != 0) {
+                self.toasts.push(format!("{}: refresh failed, see ~/.cache/cockpit/runbook-refresh-{slug}.log", slug.to_uppercase()), Kind::Bad);
+                continue;
+            }
+            self.toasts.push(format!("{} refreshed", slug.to_uppercase()), Kind::Good);
             if let (true, Some(book)) = (self.pinned, self.books.iter().find(|b| b.slug == slug)) {
                 pinned::announce(book, newly, reason);
             }
@@ -234,6 +251,9 @@ impl App {
     pub fn take_replies(&mut self) {
         while let Ok(reply) = self.bridge.replies.try_recv() {
             self.calls = self.calls.saturating_sub(1);
+            if let Some(slug) = reply.tag.strip_prefix("refresh:") {
+                self.asking.remove(slug);
+            }
             if let Some(error) = reply.error {
                 self.toasts.push(error, Kind::Bad);
             }
@@ -254,14 +274,15 @@ impl App {
     }
 
     pub fn refresh(&mut self, slug: &str) {
-        if self.refreshing.get(slug).is_some_and(|(pid, _)| is_alive(*pid)) {
+        if self.asking.contains(slug) || self.refreshing.get(slug).is_some_and(|(pid, _)| is_alive(*pid)) {
             self.toasts.push(format!("{slug} is already refreshing"), Kind::Good);
             return;
         }
         self.newly.remove(slug);
         if let Some(book) = self.books.iter().find(|b| b.slug == slug) {
             let arg = self.book_arg(book);
-            self.call("refresh", "update", vec![arg], None);
+            self.asking.insert(slug.to_string());
+            self.call(&format!("refresh:{slug}"), "update", vec![arg], None);
         }
     }
 
@@ -314,7 +335,7 @@ impl App {
                 if let Some(i) = self.books.iter().position(|b| b.slug == slug) {
                     self.go_tab(i);
                     self.selected = self.books[i].steps.iter().position(|s| s.n == n).unwrap_or(0);
-                    self.reveal = Some(self.selected);
+                    self.reveal = Some((self.selected, self.selected));
                 }
             }
         }
