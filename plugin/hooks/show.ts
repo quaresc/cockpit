@@ -246,13 +246,13 @@ async function isOpenSoon($: $, dir: string, name: string, pidMtime: number) {
 }
 
 async function openPane($: $, here: { pane: string }, name: string, placement: Placement) {
-  const script = `${(await loadConfig($)).herdrPluginRoot}/show.py`
+  const script = `${(await loadConfig($)).herdrPluginRoot}/app.sh`
   if (!(await $.fs.stat(script).then(() => true, () => false))) return `the cockpit herdr plugin has no ${script} yet: update it`
   const split = await $.process.run(['herdr', 'pane', 'split', here.pane, '--direction', placement === 'down' ? 'down' : 'right'], { timeoutMs: 10_000 })
   const pane = (JSON.parse(split.stdout || '{}')?.result?.pane?.pane_id as string | undefined) ?? ''
   if (split.exitCode !== 0 || !pane) return `herdr pane split failed: ${split.stderr.trim()}`
   // exec, so the pane closes with the app.
-  await $.process.run(['herdr', 'pane', 'run', pane, `exec python3 ${shellQuote(script)} ${shellQuote(name)}`], { timeoutMs: 10_000 })
+  await $.process.run(['herdr', 'pane', 'run', pane, `exec sh ${shellQuote(script)} show ${shellQuote(name)}`], { timeoutMs: 10_000 })
   if (placement === 'zoomed') await $.process.run(['herdr', 'pane', 'zoom', pane, '--on'], { timeoutMs: 10_000 })
   // The keyboard stays with the conversation.
   else await $.process.run(['herdr', 'pane', 'focus', '--pane', pane, '--direction', placement === 'down' ? 'up' : 'left'], { timeoutMs: 10_000 })

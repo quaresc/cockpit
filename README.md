@@ -29,9 +29,11 @@ Setup installs the herdr half, asks which features you want and writes your conf
 everything and says how to fix what is off. Updates arrive as a notification.
 
 **Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Python 3, Xcode command line tools and a Nerd
-Font.
+Font; [uv](https://docs.astral.sh/uv/) too for the full apps (`apps` below).
 
 ## Features
+
+Screenshots show the full apps, the default; unfold **light** under one to see it in text (`apps` below).
 
 <table>
 <tr><td width="24%"><b>🧭 Sidebar</b></td><td>Counts on the pinned spaces; per agent its task, branch, ticket, CI and the page beside it. Red on failing CI or two agents on one branch.</td></tr>
@@ -39,13 +41,13 @@ Font.
 <tr><td width="24%"><b>🔗 Footer</b></td><td>One click to the ticket, PR, deploy dashboard, preview and each page the conversation cites.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/footer.svg" width="614" alt="Footer: the chips follow what the conversation names"></td></tr>
 <tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys, previews and what each cost in Claude usage. Each row has its actions; a review, a plan or a talk about a ticket (forked from the session that worked on it) opens in a tab of the actions space.</td></tr>
-<tr><td colspan="2" align="center"><img src="docs/inbox.svg" width="668" alt="Inbox: the cursor steps through the rows, each showing its buttons"></td></tr>
+<tr><td colspan="2" align="center"><img src="docs/inbox-full.svg" width="668" alt="Inbox: a tree of projects, tickets and stacked PRs, the row's actions in a panel, then the command palette"><details><summary>light</summary><img src="docs/inbox.svg" width="668" alt="Inbox: the cursor steps through the rows, each showing its buttons"></details></td></tr>
 <tr><td width="24%"><b>🧪 E2E tests</b></td><td>The agent opens its page in terminal-browser beside it, on phone and desktop, main against the branch, and puts the before/after in the PR.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/e2e.svg" width="829" alt="E2E test: terminal-browser opens beside the agent, phone then desktop, then the before and after"></td></tr>
 <tr><td width="24%"><b>📋 Runbook</b></td><td><code>/runbook</code> writes the steps left to ship a ticket and keeps them current; steps light up as they get done.</td></tr>
-<tr><td colspan="2" align="center"><img src="docs/runbook-done.svg" width="776" alt="Runbook: a refresh lands and three steps turn done"></td></tr>
+<tr><td colspan="2" align="center"><img src="docs/runbook-done-full.svg" width="776" alt="Runbook: a refresh lands and three steps spin, flash and fade as they turn done"><details><summary>light</summary><img src="docs/runbook-done.svg" width="776" alt="Runbook: a refresh lands and three steps turn done"></details></td></tr>
 <tr><td width="24%"><b>📊 Show</b></td><td>Charts, tables, flow charts, sequence diagrams, diffs, live Metabase or Datadog data and questions, in a pane beside the agent.</td></tr>
-<tr><td colspan="2" align="center"><img src="docs/show.svg" width="829" alt="Show: a chart opens beside the conversation, hides to its chip and comes back"></td></tr>
+<tr><td colspan="2" align="center"><img src="docs/show-full.svg" width="829" alt="Show: charts drawn as images open beside the conversation, hide to their chip and come back"><details><summary>light</summary><img src="docs/show.svg" width="829" alt="Show: a chart opens beside the conversation, hides to its chip and comes back"></details></td></tr>
 <tr><td width="24%"><b>🔔 Notifications</b></td><td>Each leads somewhere useful, with buttons that act: Review, Why?, Rerun, Plan, Join.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/notifications.svg" width="627" alt="Notifications sliding in with their buttons"></td></tr>
 <tr><td width="24%"><b>☀️ Briefs</b></td><td>A morning brief, meeting briefs, a recap when you come back to a space, a check after each deploy.</td></tr>
@@ -55,7 +57,7 @@ Font.
 <tr><td width="24%"><b>📅 Meetings</b></td><td>Your week, with join and prepare on each meeting.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/meetings.svg" width="539" alt="Meetings space"></td></tr>
 <tr><td width="24%"><b>⚙️ Settings</b></td><td><code>/cockpit</code> flips what you change day to day.</td></tr>
-<tr><td colspan="2" align="center"><img src="docs/settings.svg" width="410" alt="The /cockpit settings pane"></td></tr>
+<tr><td colspan="2" align="center"><img src="docs/settings.svg" width="592" alt="The /cockpit settings pane"></td></tr>
 </table>
 
 ## Supported tools
@@ -109,6 +111,7 @@ writes which tool does what, so it works as far as the connector's tools go.
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
 | `e2eBrowser` | Where agents run E2E tests: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
 | `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `actions` (a tab per review, plan or talk the inbox and runbook start), `to-do`, `runbook`, `meetings`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
+| `apps` | `full` (default): the space and show apps drawn with Textual, with charts and pictures as real images in terminals that show them, animations, a command palette and dialogs, about 60–80 MB each; needs [uv](https://docs.astral.sh/uv/), else they run light. `light`: in text, about 20 MB each. `/cockpit` switches it. |
 
 </details>
 

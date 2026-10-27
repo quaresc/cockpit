@@ -3,7 +3,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 from term2svg import screen_of, svg
 
-COLS, ROWS = 72, 14
+COLS, ROWS = 104, 15
 ORANGE, DIMC, INK, QUIET, WHITE = "FFC799", "707070", "101010", "2C2C30", "D2D2D2"
 ops = []
 
@@ -19,11 +19,12 @@ def pill(r, c, label):
 put(2, 3, "Cockpit settings", WHITE, bold=True)
 SETTINGS = [("E2E tests run in", "terminal-browser beside the agent"), ("Close browsers out of view", "after 1 h"),
             ("Notifications", "on"), ("Morning brief", "on"), ("Recap when back in a space", "on"),
-            ("Check errors after a deploy", "off"), ("Meeting briefs", "on")]
+            ("Check errors after a deploy", "off"), ("Meeting briefs", "on"),
+            ("Space apps", "full: images, animations, palette · about 60–80 MB each, needs uv")]
 for i, (label, value) in enumerate(SETTINGS):
     put(4 + i, 3, label.ljust(30)); pill(4 + i, 33, value)
-put(12, 3, "terminal-browser 0.13.4 · press a value to change it", DIMC)
-put(13, 3, "/cockpit <setting> <value> from any session", DIMC)
+put(13, 3, "terminal-browser 0.13.4 · press a value to change it", DIMC)
+put(14, 3, "/cockpit <setting> <value> from any session", DIMC)
 
 screen = screen_of("".join(ops), COLS, ROWS)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.svg"), "w") as f:
