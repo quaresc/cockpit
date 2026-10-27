@@ -17,6 +17,10 @@ use crate::rows::{self, Widths};
 
 const BAR: usize = 32;
 const NOTES_MAX: usize = 6;
+/// The columns a long list gives up on its right: the bar and a gap, as wide as Textual's, for the same column widths.
+const SCROLLBAR: u16 = 2;
+/// Behind a note's `code`, the tint Textual's Markdown gives it.
+const CODE_BG: ratatui::style::Color = ratatui::style::Color::Rgb(35, 30, 26);
 
 impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
@@ -52,25 +56,35 @@ impl App {
         frame.render_widget(Paragraph::new(line), area);
     }
 
-    /// The tab labels, and under them a track whose highlight glides to the active tab.
+    /// The tab labels, scrolled so the active one shows, and under them a track whose highlight glides to it.
     fn draw_tabs(&mut self, frame: &mut Frame, area: Rect) {
-        let mut x = area.x;
+        if area.height < 2 {
+            return;
+        }
+        let mut x = 0;
         let mut spans = Vec::new();
-        let mut active = (0.0, 0.0);
+        let mut tabs = Vec::new();
         for (i, book) in self.books.iter().enumerate() {
             let todo = book.todo();
             let count = if todo > 0 { Span::styled(format!(" {todo}"), fg(ORANGE)) } else { Span::styled(" ✓", fg(GREEN)) };
             let name = book.slug.to_uppercase();
             let label = if i == self.active { bold(FG) } else { dim() };
-            let w = (width(&name) + width(&count.content) + 2) as u16;
+            let w = width(&name) + width(&count.content) + 2;
             spans.extend([Span::raw(" "), Span::styled(name, label), count, Span::raw(" ")]);
-            self.hits.tabs.push((Rect { x, y: area.y, width: w, height: 2 }, i));
-            if i == self.active {
-                active = ((x - area.x) as f32, (x - area.x + w) as f32);
-            }
+            tabs.push((x, w));
             x += w;
         }
-        frame.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
+        let (start, w) = tabs.get(self.active).copied().unwrap_or_default();
+        let shift = (start + w).saturating_sub(area.width as usize).min(start);
+        for (i, &(start, w)) in tabs.iter().enumerate() {
+            if let Some(x) = start.checked_sub(shift).filter(|&x| x < area.width as usize) {
+                let w = w.min(area.width as usize - x) as u16;
+                self.hits.tabs.push((Rect { x: area.x + x as u16, y: area.y, width: w, height: 2 }, i));
+            }
+        }
+        // Under the label, its padding left out.
+        let active = ((start + 1 - shift) as f32, (start + w).saturating_sub(shift + 1) as f32);
+        frame.render_widget(Paragraph::new(Line::from(spans)).scroll((0, shift as u16)), Rect { height: 1, ..area });
         let (start, end) = &mut self.underline;
         if end.target() == 0.0 {
             start.set(active.0);
@@ -80,9 +94,18 @@ impl App {
         end.go(active.1);
         let (from, to) = (start.now().round() as u16, end.now().round() as u16);
         let buf = frame.buffer_mut();
+        let any = !self.books.is_empty();
         for dx in 0..area.width {
-            let lit = !self.books.is_empty() && dx >= from && dx < to;
-            buf[(area.x + dx, area.y + 1)].set_symbol("━").set_fg(if lit { ORANGE } else { LINE });
+            let lit = any && dx >= from && dx < to;
+            // Half cells on either side of the highlight, as Textual's tabs end it.
+            let symbol = if any && dx + 1 == from {
+                "╸"
+            } else if any && dx == to {
+                "╺"
+            } else {
+                "━"
+            };
+            buf[(area.x + dx, area.y + 1)].set_symbol(symbol).set_fg(if lit { ORANGE } else { LINE });
         }
     }
 
@@ -93,8 +116,9 @@ impl App {
             .notes
             .iter()
             .flat_map(|note| {
-                wrap(note, (area.width as usize).saturating_sub(3)).into_iter().enumerate().map(|(i, part)| {
-                    Line::from(vec![Span::styled(if i == 0 { " • " } else { "   " }, dim()), Span::styled(part, fg(FG))])
+                note_lines(note, (area.width as usize).saturating_sub(2)).into_iter().enumerate().map(|(i, mut spans)| {
+                    spans.insert(0, Span::styled(if i == 0 { "• " } else { "  " }, fg(ORANGE)));
+                    Line::from(spans)
                 })
             })
             .take(NOTES_MAX)
@@ -146,12 +170,13 @@ impl App {
         let (mut lines, mut spans) = build(self, area.width as usize);
         let overflow = lines.len() > area.height as usize;
         if overflow {
-            (lines, spans) = build(self, area.width.saturating_sub(1) as usize);
+            (lines, spans) = build(self, area.width.saturating_sub(SCROLLBAR) as usize);
         }
         let (total, height) = (lines.len() as f32, area.height as f32);
         let scroll = self.scroll.entry(book.slug.clone()).or_insert_with(|| Glide::new(0.0, 0.25));
-        if let Some((top, h)) = self.reveal.take().and_then(|i| spans.get(i).copied()) {
-            let (top, h, now) = (top as f32, h as f32, scroll.target());
+        let reveal = self.reveal.take().and_then(|(first, last)| Some((*spans.get(first)?, *spans.get(last)?)));
+        if let Some(((top, _), (last, last_h))) = reveal {
+            let (top, h, now) = (top as f32, (last + last_h).saturating_sub(top) as f32, scroll.target());
             if top < now || h > height {
                 scroll.go(top);
             } else if top + h > now + height {
@@ -163,7 +188,7 @@ impl App {
             scroll.go(scroll.target().clamp(0.0, most));
         }
         let offset = scroll.now().round().clamp(0.0, most) as usize;
-        let content = Rect { width: if overflow { area.width.saturating_sub(1) } else { area.width }, ..area };
+        let content = Rect { width: if overflow { area.width.saturating_sub(SCROLLBAR) } else { area.width }, ..area };
         frame.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), content);
         let buf = frame.buffer_mut();
         for (i, &(top, h)) in spans.iter().enumerate() {
@@ -225,6 +250,9 @@ impl App {
     }
 
     fn draw_panel(&mut self, frame: &mut Frame, area: Rect, info: Vec<Line<'static>>, cmds: &[Cmd]) {
+        if area.height == 0 {
+            return;
+        }
         let buf = frame.buffer_mut();
         for dx in 0..area.width {
             buf[(area.x + dx, area.y)].set_symbol("─").set_fg(PANEL);
@@ -259,9 +287,45 @@ fn visible(area: Rect, top: usize, height: usize, offset: usize) -> Option<Rect>
     (start < end).then(|| Rect { x: area.x, y: area.y + (start - offset) as u16, width: area.width, height: (end - start) as u16 })
 }
 
-/// A bar of BAR cells, half cells included, then the percentage.
+/// A note wrapped to `cells`, its `code` without the backticks and on a tint, as the Markdown of the Textual app shows it.
+fn note_lines(note: &str, cells: usize) -> Vec<Vec<Span<'static>>> {
+    let mut chars = Vec::new();
+    let ticks = note.matches('`').count();
+    for (i, part) in note.split('`').enumerate() {
+        // A backtick nothing closes stays as it is written.
+        let is_code = i % 2 == 1 && ticks > i;
+        if i % 2 == 1 && !is_code {
+            chars.push(('`', false));
+        }
+        chars.extend(part.chars().map(|c| (c, is_code)));
+    }
+    let plain: String = chars.iter().map(|(c, _)| c).collect();
+    let mut at = 0;
+    wrap(&plain, cells)
+        .into_iter()
+        .map(|line| {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            for c in line.chars() {
+                // wrap only drops the spaces where it breaks a line.
+                while chars.get(at).is_some_and(|&(p, _)| p != c && p == ' ') {
+                    at += 1;
+                }
+                let is_code = chars.get(at).is_some_and(|&(_, code)| code);
+                at += 1;
+                let style = if is_code { Style::new().fg(ORANGE).bg(CODE_BG) } else { fg(FG) };
+                match spans.last_mut() {
+                    Some(last) if last.style == style => last.content.to_mut().push(c),
+                    _ => spans.push(Span::styled(c.to_string(), style)),
+                }
+            }
+            spans
+        })
+        .collect()
+}
+
+/// A bar of BAR cells, half cells included and rounded down as Textual's bar is, then the percentage.
 fn gauge_line(progress: f32) -> Line<'static> {
-    let halves = (progress.clamp(0.0, 1.0) * (BAR * 2) as f32).round() as usize;
+    let halves = (progress.clamp(0.0, 1.0) * (BAR * 2) as f32 + 1e-3) as usize;
     let (full, half) = (halves / 2, halves % 2 == 1);
     let mut spans = vec![Span::styled("━".repeat(full), fg(GREEN))];
     if half {
@@ -272,7 +336,7 @@ fn gauge_line(progress: f32) -> Line<'static> {
         let lead = if half { "" } else { "╺" };
         spans.push(Span::styled(format!("{lead}{}", "━".repeat(rest - usize::from(!half))), fg(LINE)));
     }
-    spans.push(Span::styled(format!("{:>5}", format!("{}%", (progress * 100.0) as u32)), fg(FG)));
+    spans.push(Span::styled(format!("{:>5}", format!("{}%", (progress * 100.0).round() as u32)), fg(FG)));
     Line::from(spans)
 }
 
@@ -286,6 +350,7 @@ fn throbber(t: f32) -> Vec<Span<'static>> {
     spans
 }
 
+/// The keys on the left, as many as fit, and the palette's on the right.
 fn draw_footer(frame: &mut Frame, area: Rect) {
     let keys = [("q", "quit"), ("R", "refresh"), ("t", "talk"), ("p", "prev runbook"), ("n", "next runbook")];
     let mut spans = Vec::new();
@@ -293,9 +358,12 @@ fn draw_footer(frame: &mut Frame, area: Rect) {
         spans.push(Span::styled(format!(" {key}"), bold(ORANGE)));
         spans.push(Span::styled(format!(" {what} "), fg(FG)));
     }
-    let palette = vec![Span::styled("^p", bold(ORANGE)), Span::styled(" palette ", fg(FG))];
-    let used: usize = spans.iter().chain(&palette).map(|s| width(&s.content)).sum();
-    spans.push(Span::raw(" ".repeat((area.width as usize).saturating_sub(used))));
+    let palette = vec![Span::styled("▏", fg(LINE)), Span::styled("^p", bold(ORANGE)), Span::styled(" palette ", fg(FG))];
+    let used = |spans: &[Span]| -> usize { spans.iter().chain(&palette).map(|s| width(&s.content)).sum() };
+    while !spans.is_empty() && used(&spans) > area.width as usize {
+        spans.truncate(spans.len() - 2);
+    }
+    spans.push(Span::raw(" ".repeat((area.width as usize).saturating_sub(used(&spans)))));
     spans.extend(palette);
     frame.render_widget(Paragraph::new(Line::from(spans)).style(Style::new().bg(PANEL)), area);
 }

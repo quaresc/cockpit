@@ -19,7 +19,7 @@ use crate::row::{Act, Row, Target};
 
 /// A repo diff is read again this often, so the pane follows the agent's edits.
 const EVERY: Duration = Duration::from_secs(3);
-static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@@ -(\d+)(?:,\d+)? \+(\d+)").unwrap());
+static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap());
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -37,36 +37,59 @@ struct File {
     lines: Vec<(Kind, Option<usize>, Option<usize>, String)>,
 }
 
-/// Files of a unified diff: their path, counts and lines.
+/// Files of a unified diff: their path, counts and lines. A hunk's own counts say where it ends, so a removed `-- x`
+/// or an added `++ x` line is not taken for a file header, and what sits between hunks (`Binary files … differ`) is a note.
 fn parse_patch(patch: &str) -> Vec<File> {
     let (mut files, mut old, mut new): (Vec<File>, usize, usize) = (Vec::new(), 0, 0);
-    const SKIPPED: [&str; 8] = ["--- ", "index ", "new file", "deleted file", "similarity", "rename ", "old mode", "new mode"];
+    let (mut old_left, mut new_left) = (0usize, 0usize);
+    const SKIPPED: [&str; 10] = ["index ", "new file", "deleted file", "similarity", "dissimilarity", "rename ", "copy ", "old mode", "new mode", "--- "];
     for raw in patch.lines() {
+        if old_left > 0 || new_left > 0 {
+            let Some(current) = files.last_mut() else { break };
+            if let Some(text) = raw.strip_prefix('+') {
+                current.added += 1;
+                current.lines.push((Kind::Add, None, Some(new), text.to_string()));
+                (new, new_left) = (new + 1, new_left.saturating_sub(1));
+            } else if let Some(text) = raw.strip_prefix('-') {
+                current.removed += 1;
+                current.lines.push((Kind::Del, Some(old), None, text.to_string()));
+                (old, old_left) = (old + 1, old_left.saturating_sub(1));
+            } else if raw.starts_with('\\') {
+                current.lines.push((Kind::Note, None, None, raw.to_string()));
+            } else {
+                current.lines.push((Kind::Same, Some(old), Some(new), raw.get(1..).unwrap_or("").to_string()));
+                (old, new, old_left, new_left) = (old + 1, new + 1, old_left.saturating_sub(1), new_left.saturating_sub(1));
+            }
+            continue;
+        }
         if let Some(rest) = raw.strip_prefix("diff --git ") {
             let path = rest.split_once(" b/").map_or(rest, |(_, b)| b).to_string();
             files.push(File { path, added: 0, removed: 0, lines: Vec::new() });
             continue;
         }
+        // A plain `diff -u` has no `diff --git` line: its `--- ` starts the file.
+        if raw.starts_with("--- ") && files.last().is_none_or(|f| !f.lines.is_empty()) {
+            let path = raw[4..].split('\t').next().unwrap_or_default();
+            files.push(File { path: path.strip_prefix("a/").unwrap_or(path).to_string(), added: 0, removed: 0, lines: Vec::new() });
+            continue;
+        }
+        if raw.starts_with('\\') {
+            if let Some(current) = files.last_mut() {
+                current.lines.push((Kind::Note, None, None, raw.to_string()));
+            }
+            continue;
+        }
         let Some(current) = files.last_mut() else { continue };
-        if let Some(path) = raw.strip_prefix("+++ ").filter(|p| *p != "/dev/null") {
-            current.path = path.strip_prefix("b/").unwrap_or(path).to_string();
-        } else if SKIPPED.iter().any(|s| raw.starts_with(s)) {
-        } else if raw.starts_with("@@") {
-            (old, new) = HUNK.captures(raw).map_or((0, 0), |m| (m[1].parse().unwrap_or(0), m[2].parse().unwrap_or(0)));
+        if let Some(path) = raw.strip_prefix("+++ ").map(|p| p.split('\t').next().unwrap_or_default()) {
+            if path != "/dev/null" {
+                current.path = path.strip_prefix("b/").unwrap_or(path).to_string();
+            }
+        } else if let Some(m) = HUNK.captures(raw) {
+            let number = |i: usize, default: usize| m.get(i).map_or(default, |g| g.as_str().parse().unwrap_or(0));
+            (old, old_left, new, new_left) = (number(1, 0), number(2, 1), number(3, 0), number(4, 1));
             current.lines.push((Kind::Hunk, None, None, raw.to_string()));
-        } else if let Some(text) = raw.strip_prefix('+') {
-            current.added += 1;
-            current.lines.push((Kind::Add, None, Some(new), text.to_string()));
-            new += 1;
-        } else if let Some(text) = raw.strip_prefix('-') {
-            current.removed += 1;
-            current.lines.push((Kind::Del, Some(old), None, text.to_string()));
-            old += 1;
-        } else if raw.starts_with('\\') {
+        } else if !raw.is_empty() && !SKIPPED.iter().any(|s| raw.starts_with(s)) {
             current.lines.push((Kind::Note, None, None, raw.to_string()));
-        } else {
-            current.lines.push((Kind::Same, Some(old), Some(new), raw.get(1..).unwrap_or("").to_string()));
-            (old, new) = (old + 1, new + 1);
         }
     }
     files
@@ -162,10 +185,11 @@ impl Diff {
             return vec![Row::text(format!("reading {}…", self.repo.as_deref().unwrap_or("")), dim())];
         };
         if let Some(error) = error {
-            return vec![Row::text(error.clone(), fg(RED))];
+            return crate::blocks::error_rows(error, cols);
         }
         let (added, removed): (usize, usize) = (self.files.iter().map(|f| f.added).sum(), self.files.iter().map(|f| f.removed).sum());
-        let mut out = vec![Row::text(format!("{} files  ", self.files.len()), dim()).add(format!("+{added}"), fg(GREEN)).add(" ", Style::new()).add(format!("−{removed}"), fg(RED))];
+        let count = self.files.len();
+        let mut out = vec![Row::text(format!("{count} file{}  ", if count == 1 { "" } else { "s" }), dim()).add(format!("+{added}"), fg(GREEN)).add(" ", Style::new()).add(format!("−{removed}"), fg(RED))];
         for f in &self.files {
             let target = Target::File(f.path.clone());
             let folded = self.folded.contains(&f.path);

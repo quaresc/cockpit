@@ -86,3 +86,68 @@ pub fn csv(columns: &[Value], rows: &[Vec<Value>]) -> String {
     };
     std::iter::once(columns.to_vec()).chain(rows.iter().cloned()).map(|r| r.iter().map(field).collect::<Vec<_>>().join(",") + "\r\n").collect()
 }
+
+/// A JSON object's entries in the order they were written, which serde_json's own map does not keep.
+struct Entries(Vec<(String, Value)>);
+
+impl<'de> serde::Deserialize<'de> for Entries {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = Entries;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Entries, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(Entries(entries))
+            }
+        }
+        deserializer.deserialize_map(Visit)
+    }
+}
+
+/// A list's first object, its entries in order.
+struct First(Entries);
+
+impl<'de> serde::Deserialize<'de> for First {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = First;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a list of objects")
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<First, A::Error> {
+                let first = seq.next_element::<Entries>()?.ok_or_else(|| serde::de::Error::custom("an empty list"))?;
+                while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+                Ok(First(first))
+            }
+        }
+        deserializer.deserialize_seq(Visit)
+    }
+}
+
+/// Columns and rows from a command's JSON, as show.py reads it: {columns, rows}, a list of objects (their keys in the
+/// first one's order), or a list of lists under a header.
+pub fn rows_of(output: &str) -> Result<(Value, Value), String> {
+    let data: Value = serde_json::from_str(output).map_err(|e| e.to_string())?;
+    let shape = "expected {columns, rows}, a list of objects, or a list of lists";
+    match &data {
+        Value::Object(o) if o.contains_key("columns") => Ok((o["columns"].clone(), o.get("rows").cloned().unwrap_or(Value::Array(vec![])))),
+        Value::Array(list) if list.first().is_some_and(Value::is_object) => {
+            let First(first) = serde_json::from_str(output).map_err(|e| e.to_string())?;
+            let columns: Vec<String> = first.0.into_iter().map(|(k, _)| k).collect();
+            let rows = list.iter().map(|d| Value::Array(columns.iter().map(|c| d.get(c).cloned().unwrap_or(Value::Null)).collect())).collect();
+            Ok((columns.into(), Value::Array(rows)))
+        }
+        Value::Array(list) if list.first().is_some_and(Value::is_array) => {
+            let header: Vec<Value> = list[0].as_array().into_iter().flatten().map(|c| Value::String(text(c))).collect();
+            Ok((Value::Array(header), Value::Array(list[1..].to_vec())))
+        }
+        _ => Err(shape.into()),
+    }
+}

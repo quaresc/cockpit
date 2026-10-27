@@ -129,6 +129,15 @@ impl App {
     }
 
     fn call(&mut self, call: Call, armed: Option<String>) {
+        // inbox.py's run takes no state, which the bridge passes first: its argv runs here, off the keys' thread.
+        if call.function == "run" {
+            let argv: Vec<String> = call.args.first().and_then(|a| a.as_array()).into_iter().flatten().filter_map(|a| a.as_str().map(str::to_string)).collect();
+            if let Some((program, args)) = argv.split_first() {
+                let (program, args) = (program.clone(), args.to_vec());
+                std::thread::spawn(move || std::process::Command::new(program).args(args).output());
+            }
+            return;
+        }
         self.in_flight += 1;
         self.bridge.call(call.function, "inbox", call.function, call.args, armed);
     }
@@ -238,6 +247,8 @@ impl App {
         match key.code {
             KeyCode::Char('c') if ctrl => return true,
             KeyCode::Char('p') if ctrl => self.open_palette(),
+            // ctrl+o is not o: a chord must not open, mute or quit.
+            KeyCode::Char(_) if ctrl || key.modifiers.contains(KeyModifiers::ALT) => {}
             KeyCode::Char(c) if self.act_key(c) => {}
             KeyCode::Char('q') => return true,
             KeyCode::Char('g') => self.regroup(),

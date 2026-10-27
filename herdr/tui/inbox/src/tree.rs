@@ -209,14 +209,14 @@ impl Tree {
                 let room = (area.width as usize).saturating_sub(s.depth * GUIDE_DEPTH + PREFIX);
                 let mut spans = vec![Span::styled(s.guide.clone(), Style::new().fg(GUIDE)), Span::styled(prefix, Style::new().fg(FG))];
                 let label = node.row.line(room, requests);
-                if i == at {
-                    spans.extend(label.spans.into_iter().map(|span| {
-                        let style = span.style.patch(cursor);
-                        span.style(style)
-                    }));
+                // A text row's colour sits on its line, which the spans moved into this one would drop.
+                let (base, on_cursor) = (label.style, i == at);
+                spans.extend(label.spans.into_iter().map(|span| {
+                    let style = base.patch(span.style);
+                    span.style(if on_cursor { style.patch(cursor) } else { style })
+                }));
+                if on_cursor {
                     spans[1].style = cursor;
-                } else {
-                    spans.extend(label.spans);
                 }
                 Line::from(spans)
             })

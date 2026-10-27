@@ -84,7 +84,12 @@ impl Palette {
                 self.query.pop();
                 self.filter();
             }
-            KeyCode::Char(c) => {
+            // A quick esc then a key arrives as alt+key: the esc closes the palette.
+            KeyCode::Char(_) if key.modifiers.contains(KeyModifiers::ALT) => {
+                self.is_open = false;
+                return Outcome::Closed;
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.query.push(c);
                 self.filter();
             }

@@ -1,5 +1,5 @@
-//! show.py's Markdown: headings, bullets, quotes, code blocks, rules, pipe tables and inline **bold**, `code` and
-//! [links](url), wrapped to the pane.
+//! show.py's Markdown: headings, bullets, quotes, code blocks, rules, pipe tables and inline **bold**, *italic*,
+//! ~~struck~~, `code`, [links](url) and ![pictures](url), wrapped to the pane.
 
 use std::sync::LazyLock;
 
@@ -11,42 +11,72 @@ use cockpit_core::theme::{DIM, FG, ORANGE, bold, dim, fg};
 
 use crate::row::{Act, Row};
 
-static INLINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(<?(https?://[^)\s>]+)>?\)").unwrap());
+static INLINE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"\*\*(?<bold>.+?)\*\*|__(?<bold2>.+?)__|`(?<code>[^`]+)`|~~(?<struck>.+?)~~",
+        r"|!\[(?<alt>[^\]]*)\]\(<?(?<src>[^)\s>]*)>?\)|\[(?<text>[^\]]+)\]\(<?(?<url>[^)\s>]*)>?\)",
+        r"|\*(?<em>[^*\s](?:[^*]*[^*\s])?)\*|\b_(?<em2>[^_\s](?:[^_]*[^_\s])?)_\b",
+    ))
+    .unwrap()
+});
 static ESCAPE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\\([\\`*_{}\[\]()#+\-.!~|>])").unwrap());
-static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,3})\s+(.*)").unwrap());
+static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$").unwrap());
 static BULLET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\s*)([-*•]|\d+[.)])\s+(.*)").unwrap());
 static RULE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$").unwrap());
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\S+\s*|\s+").unwrap());
-static MARKERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)").unwrap());
+static MARKERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\*\*(.+?)\*\*|`([^`]+)`|!?\[([^\]]*)\]\([^)]*\)|~~(.+?)~~").unwrap());
 
-type Segment = (String, Style, Option<String>);
+pub type Segment = (String, Style, Option<String>);
 
-/// Segments of one line: **bold**, `code` and [links](url), each with the URL a click opens.
+/// Where an escaped character waits while the line is parsed, so `\*` is never italic nor `\#` a heading.
+const HIDDEN: u32 = 0xF0000;
+
+fn hide(raw: &str) -> String {
+    ESCAPE.replace_all(raw, |m: &regex::Captures| char::from_u32(HIDDEN + m[1].chars().next().map_or(0, u32::from)).unwrap_or(' ').to_string()).into_owned()
+}
+
+/// The escaped characters back as themselves.
+fn unhide(text: &str) -> String {
+    text.chars().map(|c| if (HIDDEN..HIDDEN + 128).contains(&u32::from(c)) { char::from_u32(u32::from(c) - HIDDEN).unwrap_or(c) } else { c }).collect()
+}
+
+/// Segments of one line: **bold**, *italic*, ~~struck~~, `code`, [links](url) and ![pictures](url), each with the
+/// web address a click opens.
 fn inline(text: &str, style: Style) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut position = 0;
+    let web = |url: &str| (url.starts_with("http://") || url.starts_with("https://")).then(|| url.to_string());
     for m in INLINE.captures_iter(text) {
         let whole = m.get(0).unwrap();
         if whole.start() > position {
             out.push((text[position..whole.start()].to_string(), style, None));
         }
-        if let Some(b) = m.get(1) {
-            out.push((b.as_str().to_string(), style.add_modifier(Modifier::BOLD), None));
-        } else if let Some(c) = m.get(2) {
-            out.push((c.as_str().to_string(), fg(ORANGE), None));
-        } else {
-            out.push((m[3].to_string(), style.add_modifier(Modifier::UNDERLINED), Some(m[4].to_string())));
+        let group = |name: &str| m.name(name).map(|g| g.as_str().to_string());
+        if let Some(b) = group("bold").or_else(|| group("bold2")) {
+            out.push((b, style.add_modifier(Modifier::BOLD), None));
+        } else if let Some(c) = group("code") {
+            out.push((c, fg(ORANGE), None));
+        } else if let Some(s) = group("struck") {
+            out.push((s, style.add_modifier(Modifier::CROSSED_OUT), None));
+        } else if let Some(alt) = group("alt") {
+            let src = group("src").unwrap_or_default();
+            let label = if alt.is_empty() { "picture".to_string() } else { alt };
+            out.push((format!("▣ {label}"), style.fg(DIM).add_modifier(Modifier::UNDERLINED), web(&src)));
+        } else if let Some(link) = group("text") {
+            out.push((link, style.add_modifier(Modifier::UNDERLINED), web(&group("url").unwrap_or_default())));
+        } else if let Some(em) = group("em").or_else(|| group("em2")) {
+            out.push((em, style.add_modifier(Modifier::ITALIC), None));
         }
         position = whole.end();
     }
     if position < text.len() {
         out.push((text[position..].to_string(), style, None));
     }
-    out
+    out.into_iter().map(|(text, style, url)| (unhide(&text), style, url)).collect()
 }
 
 /// Splits styled segments into rows of at most `room` cells, breaking between words.
-fn wrap(segments: Vec<Segment>, room: usize) -> Vec<Vec<Segment>> {
+pub fn wrap(segments: Vec<Segment>, room: usize) -> Vec<Vec<Segment>> {
     let room = room.max(1);
     let (mut rows, mut row, mut used) = (Vec::new(), Vec::new(), 0);
     for (text, style, url) in segments {
@@ -95,14 +125,14 @@ fn row_of(prefix: &str, prefix_style: Style, segments: Vec<Segment>) -> Row {
 
 /// Inline Markdown markers dropped, for table cells.
 fn plain(text: &str) -> String {
-    MARKERS.replace_all(text, |m: &regex::Captures| m.get(1).or(m.get(2)).or(m.get(3)).map_or("", |g| g.as_str()).to_string()).into_owned()
+    MARKERS.replace_all(text, |m: &regex::Captures| m.get(1).or(m.get(2)).or(m.get(3)).or(m.get(4)).map_or("", |g| g.as_str()).to_string()).into_owned()
 }
 
 /// A pipe table, its widest columns giving way first when the pane is narrow.
 fn pipe_table(lines: &[String], cols: usize, out: &mut Vec<Row>) {
     let cells: Vec<Vec<String>> = lines
         .iter()
-        .map(|r| r.trim().trim_matches('|').split('|').map(|c| plain(c.trim())).collect::<Vec<_>>())
+        .map(|r| r.trim().trim_matches('|').split('|').map(|c| unhide(&plain(c.trim()))).collect::<Vec<_>>())
         .filter(|r: &Vec<String>| !r.concat().chars().all(|c| "-: ".contains(c)))
         .collect();
     let Some(wide) = cells.iter().map(Vec::len).max() else { return };
@@ -129,7 +159,7 @@ pub fn markdown(text: &str, cols: usize) -> Vec<Row> {
     let mut out = Vec::new();
     let (mut in_code, mut pending) = (false, Vec::new());
     for raw in text.lines() {
-        let raw = if in_code { raw.to_string() } else { ESCAPE.replace_all(raw, "$1").into_owned() };
+        let raw = if in_code { raw.to_string() } else { hide(raw) };
         if raw.trim().starts_with('|') && !in_code {
             pending.push(raw);
             continue;
@@ -146,7 +176,11 @@ pub fn markdown(text: &str, cols: usize) -> Vec<Row> {
         } else if RULE.is_match(&raw) {
             out.push(Row::text("─".repeat(room.min(40)), dim()));
         } else if let Some(h) = HEADING.captures(&raw) {
-            let style = if h[1].len() == 1 { bold(ORANGE) } else { Style::new().add_modifier(Modifier::BOLD) };
+            let style = match h[1].len() {
+                1 => bold(ORANGE),
+                2 | 3 => Style::new().add_modifier(Modifier::BOLD),
+                _ => Style::new().add_modifier(Modifier::BOLD | Modifier::ITALIC),
+            };
             out.push(row_of("", Style::new(), inline(&h[2], style)));
         } else if let Some(b) = BULLET.captures(&raw) {
             let mark = if "-*•".contains(&b[2]) { "• ".to_string() } else { format!("{} ", &b[2]) };

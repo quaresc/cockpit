@@ -162,7 +162,14 @@ impl Row {
     /// the age stays in view; a request in flight, or its outcome, takes the notes' place.
     pub fn line(&self, room: usize, requests: &Requests) -> Line<'static> {
         let cells = match &self.body {
-            Body::Text(line) => return line.clone(),
+            Body::Text(line) => {
+                // An alert's extend or stop has no notes cell: its progress follows the text.
+                let mut line = line.clone();
+                if let Some((text, style)) = self.progress(requests) {
+                    line.spans.push(Span::styled(format!("   {text}"), style));
+                }
+                return line;
+            }
             Body::Cells(cells) => cells,
         };
         let mut spans: Vec<Span<'static>> = cells.lead.iter().map(|(g, st)| Span::styled(g.clone(), *st)).collect();
@@ -172,11 +179,8 @@ impl Row {
         let ref_room = (REF as i64).min(10.max(avail.div_euclid(2))) as usize;
         spans.push(Span::styled(format!("{} ", fit(&cells.reference.0, ref_room - 1)), cells.reference.1));
         let (mut notes, mut age) = (cells.notes.clone(), cells.age.clone());
-        let status = self.status.as_deref().unwrap_or("");
-        if let Some(job) = requests.pending.get(status) {
-            (notes, age) = ((format!("{} {}", icon("refresh"), job.working), fg(ORANGE)), String::new());
-        } else if let Some(outcome) = requests.outcome.get(status) {
-            (notes, age) = ((outcome.message.clone(), fg(if outcome.ok { GREEN } else { RED })), String::new());
+        if let Some(progress) = self.progress(requests) {
+            (notes, age) = (progress, String::new());
         }
         let title_room = 4.max(avail - ref_room as i64) as usize;
         spans.push(Span::styled(format!("{} ", fit(&cells.title.0, title_room)), cells.title.1));
@@ -185,5 +189,15 @@ impl Row {
             spans.push(Span::styled(fit(&format!("{age:>AGE$}"), AGE), fg(DIM)));
         }
         Line::from(spans)
+    }
+
+    /// The working text of a request this row filed, or its outcome for a few seconds after.
+    fn progress(&self, requests: &Requests) -> Option<(String, Style)> {
+        let status = self.status.as_deref()?;
+        if let Some(job) = requests.working(status) {
+            return Some((format!("{} {}", icon("refresh"), job.working), fg(ORANGE)));
+        }
+        let outcome = requests.outcome.get(status)?;
+        Some((outcome.message.clone(), fg(if outcome.ok { GREEN } else { RED })))
     }
 }

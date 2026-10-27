@@ -30,7 +30,7 @@ impl Dialog {
             },
             Dialog::Pick { options, selected, .. } => match key.code {
                 KeyCode::Down | KeyCode::Char('j') => {
-                    *selected = (*selected + 1).min(options.len() - 1);
+                    *selected = (*selected + 1).min(options.len().saturating_sub(1));
                     None
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -61,8 +61,10 @@ impl Dialog {
                 })
                 .collect()),
         };
-        let lines = crate::text::wrap(question, width as usize - 6).len() as u16;
-        let height = lines + body.len() as u16 + 5;
+        let lines = crate::text::wrap(question, (width as usize).saturating_sub(6)).len() as u16;
+        // Borders, a row of padding above and below, the question, a blank row, the body, and Pick's hint.
+        let hint = u16::from(matches!(self, Dialog::Pick { .. }));
+        let height = 2 + 2 + lines + 1 + body.len() as u16 + hint;
         let box_ = Rect { x: area.x + (area.width - width) / 2, y: area.y + area.height.saturating_sub(height) / 2, width, height };
         frame.render_widget(Clear, box_);
         let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().fg(ORANGE)).style(Style::new().bg(SURFACE));
@@ -71,6 +73,6 @@ impl Dialog {
         if matches!(self, Dialog::Pick { .. }) {
             text.push(Line::from(Span::styled("j/k move · enter picks · esc cancels", Style::new().fg(DIM))));
         }
-        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).block(block.padding(ratatui::widgets::Padding::horizontal(2))), box_);
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).block(block.padding(ratatui::widgets::Padding::new(2, 2, 1, 1))), box_);
     }
 }
