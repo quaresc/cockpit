@@ -217,7 +217,7 @@ const DEFAULTS: Config = {
   e2eBrowser: 'terminal-browser',
   browserIdleMinutes: 60,
   herdrPluginRoot: '',
-  spaces: ['inbox', 'terminal', 'to-do', 'runbook', 'meetings'],
+  spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],
   runbookTools: [],
   worktrees: false,
 }

@@ -6,23 +6,23 @@ type $ = EngineInterface
 
 const KEEP = 300
 
-// What a session did, one JSON line per event in ~/.cache/cockpit/activity/<space>.jsonl, for the herdr recap popup.
+// What a session did, one JSON line per event in ~/.cache/cockpit/activity/<tab>.jsonl, for the herdr recap popup.
 export type Activity = { at: number; kind: 'edit' | 'command' | 'turn'; text: string }
 
 const appended = new Map<string, number>()
 let queue: Promise<unknown> = Promise.resolve()
 
 // One line appended per event, in call order; every 50 lines the file is cut back to its last KEEP.
-export async function logActivity($: $, space: string | undefined, entry: Omit<Activity, 'at'>) {
-  if (!space) return
+export async function logActivity($: $, tab: string | undefined, entry: Omit<Activity, 'at'>) {
+  if (!tab) return
   const line = JSON.stringify({ at: Date.now(), ...entry })
-  queue = queue.then(() => appendActivity($, space, line)).catch(() => undefined)
+  queue = queue.then(() => appendActivity($, tab, line)).catch(() => undefined)
   return queue
 }
 
-async function appendActivity($: $, space: string, line: string) {
+async function appendActivity($: $, tab: string, line: string) {
   const dir = `${await cacheDir($)}/activity`
-  const path = `${dir}/${space}.jsonl`
+  const path = `${dir}/${tab}.jsonl`
   await $.process.run(['sh', '-c', 'mkdir -p "$1" && printf "%s\\n" "$3" >> "$2"', 'sh', dir, path, line])
   const count = (appended.get(path) ?? 0) + 1
   appended.set(path, count)
@@ -44,17 +44,18 @@ export function activityOf(tool: string, input: Record<string, unknown>, root: s
   return undefined
 }
 
-type Beat = { at: number; space: string | null; repo?: string; branch?: string }
+type Beat = { at: number; space: string | null; tab?: string | null; repo?: string; branch?: string }
 
-// Another live session on the same repo and branch: the space it runs in, to warn both before they collide.
-export async function clashWith($: $, repo: string, branch: string, space: string | undefined) {
+// Another live session on the same repo and branch in another space or tab: where it runs, to warn both before they collide.
+export async function clashWith($: $, repo: string, branch: string, here: { space: string; tab: string }) {
   const dir = `${await cacheDir($)}/sessions`
   const self = await $.session.id()
   for (const entry of await $.fs.list(dir).catch(() => [])) {
     if (!entry.name.endsWith('.json') || entry.name === `${self}.json`) continue
     const beat = JSON.parse(await $.fs.read(`${dir}/${entry.name}`).catch(() => '{}')) as Partial<Beat>
     const isLive = Date.now() - (beat.at ?? 0) < 3 * 60_000
-    if (isLive && beat.repo === repo && beat.branch === branch && beat.space && beat.space !== space) return beat.space
+    const isElsewhere = beat.space !== here.space || (beat.tab && beat.tab !== here.tab)
+    if (isLive && beat.repo === repo && beat.branch === branch && beat.space && isElsewhere) return { space: beat.space, tab: beat.tab ?? undefined }
   }
   return undefined
 }

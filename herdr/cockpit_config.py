@@ -26,7 +26,7 @@ DEFAULTS = {
     "e2eBrowser": "terminal-browser",
     "browserIdleMinutes": 60,
     "herdrPluginRoot": "",
-    "spaces": ["inbox", "terminal", "to-do", "runbook", "meetings"],
+    "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
     "runbookTools": [],
     "worktrees": False,
 }
@@ -91,6 +91,12 @@ def load():
             config[key] = {**value, **(raw.get(key) or {})}
     config["reposDir"] = os.path.expanduser(config["reposDir"]).rstrip("/") or HOME
     return config
+
+
+def is_pinned(label, config):
+    """Whether a herdr space label, "[N] <icon>  <name>", is one of the pinned spaces."""
+    names = [s["name"] if isinstance(s, dict) else s for s in config["spaces"]]
+    return any(label.endswith(f"  {name}") for name in names)
 
 
 def ci_mark(config):

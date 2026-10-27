@@ -34,7 +34,25 @@ REPOS=$(jq -r '.reposDir // empty' "$SETTINGS" 2>/dev/null | sed "s|^~|$HOME|")
 [ -d "$REPOS" ] || REPOS=$HOME
 # The pinned spaces, one per line as name, icon and cwd split by \037: each is "name" (a built-in, or a space in
 # reposDir) or { name, cwd, icon, key }.
-SPACE_ROWS=$(jq -r '(.spaces // ["inbox", "terminal", "to-do", "runbook", "meetings"])[]
+SPACE_ROWS=$(jq -r '(.spaces // ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"])[]
   | if type == "object" then . else {name: .} end | [.name, .icon // "", .cwd // ""] | join("\u001f")' "$SETTINGS" 2>/dev/null) ||
-  SPACE_ROWS=$(printf 'inbox\nterminal\nto-do\nrunbook\nmeetings')
+  SPACE_ROWS=$(printf 'inbox\nterminal\nactions\nto-do\nrunbook\nmeetings')
 SPACES=$(printf '%s\n' "$SPACE_ROWS" | cut -d "$(printf '\037')" -f1)
+
+# Whether a space label, "[N] <icon>  <name>", is one of the pinned spaces.
+pinned() {
+  printf '%s\n' "$SPACES" | { while IFS= read -r name; do case "$1" in *"  $name") exit 0 ;; esac; done; exit 1; }
+}
+
+# Where the session in pane $1 shows, as label, click target and whether it is in view, split by tabs: its tab when
+# it sits in a pinned space, else its space.
+place() {
+  found=$("$H" pane get "$1" 2>/dev/null | jq -c '.result.pane') && [ -n "$found" ] || return 1
+  space=$("$H" workspace list | jq -c --arg w "$(printf '%s' "$found" | jq -r '.workspace_id')" '.result.workspaces[] | select(.workspace_id == $w)')
+  [ -n "$space" ] || return 1
+  if pinned "$(printf '%s' "$space" | jq -r '.label')"; then
+    "$H" tab get "$(printf '%s' "$found" | jq -r '.tab_id')" | jq -r '.result.tab | [.label, "tab:" + .tab_id, .focused] | @tsv'
+  else
+    printf '%s' "$space" | jq -r '[(.label | sub("^\\[[0-9]+\\] *"; "")), "workspace:" + .workspace_id, .focused] | @tsv'
+  fi
+}

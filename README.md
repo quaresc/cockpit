@@ -38,7 +38,7 @@ Font.
 <tr><td colspan="2" align="center"><img src="docs/sidebar.svg" width="238" alt="Sidebar: CI runs on an agent's branch, the agent finishes, a review request arrives"></td></tr>
 <tr><td width="24%"><b>🔗 Footer</b></td><td>One click to the ticket, PR, deploy dashboard, preview and each page the conversation cites.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/footer.svg" width="614" alt="Footer: the chips follow what the conversation names"></td></tr>
-<tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys, previews and what each cost in Claude usage. Each row has its actions.</td></tr>
+<tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys, previews and what each cost in Claude usage. Each row has its actions; a review, a plan or a talk about a ticket (forked from the session that worked on it) opens in a tab of the actions space.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/inbox.svg" width="668" alt="Inbox: the cursor steps through the rows, each showing its buttons"></td></tr>
 <tr><td width="24%"><b>🧪 E2E tests</b></td><td>The agent opens its page in terminal-browser beside it, on phone and desktop, main against the branch, and puts the before/after in the PR.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/e2e.svg" width="829" alt="E2E test: terminal-browser opens beside the agent, phone then desktop, then the before and after"></td></tr>
@@ -108,14 +108,14 @@ writes which tool does what, so it works as far as the connector's tools go.
 | `metabase`, `datadog` | Connectors for live panes. |
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
 | `e2eBrowser` | Where agents run E2E tests: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
-| `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `to-do`, `runbook`, `meetings`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
+| `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `actions` (a tab per review, plan or talk the inbox and runbook start), `to-do`, `runbook`, `meetings`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
 
 </details>
 
 <details>
 <summary><b>Shortcuts</b></summary>
 
-`prefix+i` inbox, `prefix+t` terminal, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, the `key` of each
+`prefix+i` inbox, `prefix+t` terminal, `prefix+a` actions, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, the `key` of each
 space of your own, `prefix+f` the page beside the agent in your browser. In the apps: `j`/`k` rows, `h`/`l` buttons,
 Enter, `R` refresh.
 

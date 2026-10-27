@@ -1,10 +1,12 @@
 #!/bin/sh
-# The recap popup: what a space's agent did since you left it. q closes it.
+# The recap popup: what a tab's agent did since you left it. q closes it.
 . "$(dirname "$0")/lib.sh"
-ws=${RECAP_SPACE:?} since=${RECAP_SINCE:?}
-log="$HOME/.cache/cockpit/activity/$ws.jsonl"
-label=$("$H" workspace list | jq -r --arg w "$ws" '.result.workspaces[] | select(.workspace_id == $w) | .label' | sed 's/^\[[0-9]*\] *//')
-status=$("$H" pane list | jq -r --arg w "$ws" '[.result.panes[] | select(.workspace_id == $w and .agent != null)][0].agent_status // empty')
+tab=${RECAP_TAB:?} since=${RECAP_SINCE:?}
+log="$HOME/.cache/cockpit/activity/$tab.jsonl"
+agent=$("$H" pane list | jq -c --arg t "$tab" '[.result.panes[] | select(.tab_id == $t and .agent != null)][0] // empty')
+label=$(place "$(printf '%s' "$agent" | jq -r '.pane_id // empty')" | cut -f1)
+[ -n "$label" ] || label=$("$H" tab get "$tab" | jq -r '.result.tab.label')
+status=$(printf '%s' "$agent" | jq -r '.agent_status // empty')
 mins=$(( ($(date +%s) - since) / 60 ))
 B=$(printf '\033[1m') D=$(printf '\033[2m') O=$(printf '\033[38;2;255;199;153m') G=$(printf '\033[38;2;153;255;228m') R=$(printf '\033[0m')
 {

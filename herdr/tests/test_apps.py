@@ -10,6 +10,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.argv = sys.argv[:1]
 
+import actions  # noqa: E402
 import cockpit_config  # noqa: E402
 import inbox  # noqa: E402
 import show  # noqa: E402
@@ -95,6 +96,78 @@ class OnBranch(unittest.TestCase):
         inbox.on_branch(self.state(), {"repo": "api", "branch": "me/eng-4-login"}, "eng-4", "Continue.")
         create = next(argv for argv in self.herdr if argv[1:3] == ["workspace", "create"])
         self.assertEqual(os.path.realpath(create[create.index("--cwd") + 1]), os.path.realpath(self.tree))
+
+
+class Actions(unittest.TestCase):
+    def setUp(self):
+        self.saved = inbox.run, inbox.spaces, actions.pane_of, actions.open_tab, actions.promote
+        self.herdr = []
+        inbox.run = lambda argv: self.herdr.append(argv) or subprocess.CompletedProcess(argv, 0, '{"result": {"root_pane": {"pane_id": "w9:p1"}}}', "")
+        inbox.spaces = lambda: []
+        actions.pane_of = lambda key: None
+
+    def tearDown(self):
+        inbox.run, inbox.spaces, actions.pane_of, actions.open_tab, actions.promote = self.saved
+
+    def state(self):
+        return {"note": "", "note_at": 0}
+
+    def test_an_action_runs_in_a_tab_of_the_actions_space(self):
+        actions.open_tab = lambda cwd, label, key=None: "w3:p7"
+        inbox.start_action(self.state(), "/repos", "review api#4", "/code-review 4")
+        self.assertEqual(self.herdr, [[inbox.HERDR, "pane", "run", "w3:p7", "claude '/code-review 4'"]])
+
+    def test_without_the_actions_space_it_gets_a_space(self):
+        actions.open_tab = lambda cwd, label, key=None: None
+        inbox.start_action(self.state(), "/repos", "talk eng-4", "Talk.", ("--resume", "s1", "--fork-session"))
+        self.assertEqual(self.herdr[0][1:3], ["workspace", "create"])
+        self.assertEqual(self.herdr[1], [inbox.HERDR, "pane", "run", "w9:p1", "claude --resume s1 --fork-session Talk."])
+
+    def test_continue_moves_the_plan_out_of_the_actions_space(self):
+        moved = []
+        actions.promote = lambda key, label: moved.append((key, label)) or True
+        inbox.continue_ticket(self.state(), {"id": "ENG-4", "url": "u"}, [])
+        self.assertEqual(moved, [("plan eng-4", "eng-4")])
+        self.assertEqual(self.herdr, [])
+
+    def test_a_merged_session_in_a_pinned_space_closes_its_tab_only(self):
+        saved = inbox.heartbeats, inbox.linked_spaces, inbox.CONFIG
+        inbox.CONFIG = {**inbox.CONFIG, "spaces": ["inbox", "actions"]}
+        now = time.time() * 1000
+        inbox.heartbeats = lambda: [{"at": now, "space": "w2", "tab": "w2:t3", "repo": "api", "branch": "b"},
+                                    {"at": now, "space": "w5", "tab": "w5:t1", "repo": "api", "branch": "c"}]
+        inbox.linked_spaces = lambda: {"w2": {"label": "\uf0e7  actions"}, "w5": {"label": "eng-4"}}
+        try:
+            self.assertEqual(inbox.merged_sessions({("api", "b"), ("api", "c")}, []), {"tab:w2:t3": ("api", "b"), "w5": ("api", "c")})
+        finally:
+            inbox.heartbeats, inbox.linked_spaces, inbox.CONFIG = saved
+
+
+class TicketSession(unittest.TestCase):
+    def test_the_session_that_spent_most_and_still_has_its_transcript(self):
+        with tempfile.TemporaryDirectory() as folder:
+            saved = inbox.COSTS, inbox.PROJECTS
+            inbox.COSTS, inbox.PROJECTS = os.path.join(folder, "costs"), os.path.join(folder, "projects")
+            try:
+                view.write_json(os.path.join(inbox.COSTS, "gone.json"), {"ENG-1": 9.0})
+                view.write_json(os.path.join(inbox.COSTS, "small.json"), {"ENG-1": 0.5})
+                view.write_json(os.path.join(inbox.COSTS, "big.json"), {"ENG-1": 4.0, "ENG-2": 1.0})
+                os.makedirs(os.path.join(inbox.PROJECTS, "-repos"))
+                for session in ("small", "big"):
+                    with open(os.path.join(inbox.PROJECTS, "-repos", f"{session}.jsonl"), "w", encoding="utf-8") as handle:
+                        handle.write('{"type": "summary"}\n{"cwd": "%s"}\n' % folder)
+                self.assertEqual(inbox.ticket_session("ENG-1"), ("big", folder))
+                self.assertEqual(inbox.ticket_session("ENG-3"), (None, None))
+            finally:
+                inbox.COSTS, inbox.PROJECTS = saved
+
+
+class IsPinned(unittest.TestCase):
+    def test_by_name_after_the_icon(self):
+        config = {"spaces": ["inbox", "actions", {"name": "notes"}]}
+        self.assertTrue(cockpit_config.is_pinned("[3] \uf0e7  actions", config))
+        self.assertTrue(cockpit_config.is_pinned("x  notes", config))
+        self.assertFalse(cockpit_config.is_pinned("[6] eng-4 actions", config))
 
 
 class NewFile(unittest.TestCase):
