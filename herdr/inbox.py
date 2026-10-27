@@ -334,7 +334,8 @@ def ticket_session(ticket_id):
 
 def ticket_brief(ticket, prs, data):
     """What the inbox knows of a ticket, on one line: its PRs, deploys, previews and runbook."""
-    facts = [f"{ticket['id']} \"{ticket['title']}\" ({ticket['url']}) is {ticket['status']}"]
+    facts = [f"{ticket['id']} \"{ticket['title']}\"" + (f" ({ticket['url']})" if ticket.get("url") else "")
+             + (f" is {ticket['status']}" if ticket.get("status") else "")]
     for pr in prs:
         review = (pr.get("review") or "no review").lower().replace("_", " ")
         checks = f", failing {', '.join(pr['failedChecks'])}" if pr.get("failedChecks") else ""
@@ -352,11 +353,13 @@ def ticket_brief(ticket, prs, data):
     return "; ".join(facts) + "."
 
 
-def talk(state, ticket, prs, data):
-    """A session to talk the ticket over, changing nothing: a fork of the one that worked on it most, else a fresh one."""
+def talk(state, ticket, prs, data, owner=None):
+    """A session to talk the ticket over, changing nothing: a fork of `owner` when given, else of the session that worked
+    on it most, else a fresh one."""
     brief = ticket_brief(ticket, prs, data)
     hands_off = " Change nothing (no edits, commits, pushes or ticket updates) unless I ask."
-    session, cwd = ticket_session(ticket["id"])
+    cwd = owner and session_cwd(owner)
+    session, cwd = (owner, cwd) if cwd else ticket_session(ticket["id"])
     label = f"talk {ticket['id'].lower()}"
     if session:
         start_action(state, cwd, label, f"This is a fork of your session on {ticket['id']}, opened to talk it over. Per the inbox now: "

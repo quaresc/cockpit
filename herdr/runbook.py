@@ -15,6 +15,7 @@ import textwrap
 import time
 
 import cockpit_config
+import inbox
 import view
 from view import BOLD, CAP_CLOSE, CAP_OPEN, DIM, GREEN, HERDR, LINK, ORANGE, PILL_MAIN, RED, Button, Line, fit, note, width
 
@@ -37,7 +38,7 @@ NOTIFY = cockpit_config.script("notify.sh")
 FLASH, CASCADE = 2.6, 0.3
 SPINNER = "◐◓◑◒"
 
-ICON = {"done": "", "run": "", "runbook": "", "copy": "", "open": "", "update": "", "delete": "",
+ICON = {"done": "", "talk": "\uf086", "run": "", "runbook": "", "copy": "", "open": "", "update": "", "delete": "",
         "fold": "", "unfold": "", "merged": "", "note": ""}
 ICON["session"] = "\uf120"
 OPEN = ("⬜", "⏳", "🟡", "❌")
@@ -289,6 +290,17 @@ def refresh_status(state, book):
     return None
 
 
+def talk(state, book):
+    """Talks the runbook's ticket over in the actions space, forking the session that wrote the runbook."""
+    data = view.load_json(INBOX, {})
+    key = book["slug"].upper() if re.fullmatch(r"[a-z]+-\d+", book["slug"]) else book["slug"]
+    ticket = next((t for t in data.get("tickets") or [] if t["id"] == key), None) or {
+        "id": key, "title": book["title"], "url": cockpit_config.ticket_url(key, CONFIG, data) if key != book["slug"] else ""}
+    prs = [pr for pr in data.get("mine") or [] if cockpit_config.has_ticket(pr.get("branch"), key)]
+    _, session = owner_of(book)
+    inbox.talk(state, ticket, prs, data, None if session == "-" else session)
+
+
 def owner_of(book):
     owner = view.load_json(os.path.join(OWNERS, f"{book['slug']}.json"), {})
     return owner.get("pane", "-"), owner.get("session", "-")
@@ -461,7 +473,8 @@ def build(state, cols):
         for text, style, action in pill:
             head.add(text, style, action)
         head.anchor = book["slug"]
-        head.buttons = ([] if status else [Button("refresh", refresh, main=True)]) + [Button("delete", lambda b=book: delete(state, b))]
+        head.buttons = ([] if status else [Button("refresh", refresh, main=True)]) + [Button("talk", lambda b=book: talk(state, b)),
+                                                                                      Button("delete", lambda b=book: delete(state, b))]
         head.primary = lambda b=book: state["toggled"].__ixor__({b["slug"]})
         if not is_open:
             continue
