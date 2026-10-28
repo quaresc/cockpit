@@ -1,9 +1,12 @@
-//! The runbook files, read as runbook.py's `parse` reads them: a title, an `updated:` line, a step table and notes.
+//! The runbook files, read as runbook.py's `parse` reads them: a title, an `updated:` line, a step table and notes; a
+//! `\|` in a cell is a pipe of its text, not a column's end.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use serde_json::{Value, json};
+
+use crate::table;
 
 /// A status starting with one of these is a step still to do.
 pub const OPEN: [&str; 4] = ["⬜", "⏳", "🟡", "❌"];
@@ -59,7 +62,11 @@ pub fn dir() -> PathBuf {
 }
 
 pub fn parse(path: &Path) -> std::io::Result<Book> {
-    let text = std::fs::read_to_string(path)?;
+    Ok(parse_text(path, &std::fs::read_to_string(path)?))
+}
+
+/// The runbook in this text; anything that is not a title, an `updated:` line, a step row or a note is skipped.
+pub fn parse_text(path: &Path, text: &str) -> Book {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
     let mut book = Book {
         path: path.to_path_buf(),
@@ -72,16 +79,14 @@ pub fn parse(path: &Path) -> std::io::Result<Book> {
     let mut in_notes = false;
     for raw in text.lines() {
         let line = raw.trim();
-        if line.starts_with("# ") && book.title.is_empty() {
-            book.title = line[2..].to_string();
+        if let Some(title) = line.strip_prefix("# ").filter(|_| book.title.is_empty()) {
+            book.title = title.to_string();
         } else if line.to_lowercase().starts_with("updated:") {
             book.updated = line.split_once(':').map(|(_, v)| v.trim().to_string()).unwrap_or_default();
         } else if line.starts_with("## ") {
             in_notes = line.to_lowercase().contains("note");
         } else if line.starts_with('|') {
-            let mut cells: Vec<String> = line.trim_matches('|').split('|').map(|c| c.trim().to_string()).collect();
-            let rule = cells.concat().chars().all(|c| "-: ".contains(c));
-            if cells.len() >= 4 && !rule && cells[0] != "#" {
+            if let Some(mut cells) = table::step_cells(line) {
                 cells.resize(cells.len().max(5), String::new());
                 book.steps.push(Step {
                     n: cells[0].clone(),
@@ -95,7 +100,7 @@ pub fn parse(path: &Path) -> std::io::Result<Book> {
             book.notes.push(line.trim_start_matches(['-', '*', '•', ' ']).trim().to_string());
         }
     }
-    Ok(book)
+    book
 }
 
 fn mtime(path: &Path) -> Option<SystemTime> {

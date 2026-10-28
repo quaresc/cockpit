@@ -1,17 +1,20 @@
-//! What frames the tree: the header with its error lines, the highlighted row's details and buttons under it, and
-//! the footer of key hints.
+//! What frames the tree: the header with its error lines, the filter bar, the highlighted row's details and buttons
+//! (or the picked rows' shared ones) under it, and the footer of key hints.
 
 use cockpit_core::acts::{self, Act};
 use cockpit_core::text::{width, wrap};
-use cockpit_core::theme::{FG, ORANGE, PANEL, bold, fg};
+use cockpit_core::theme::{DIM, FG, ORANGE, PANEL, bold, fg};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
-const MAX_PANEL: u16 = 12;
-const KEYS: [(&str, &str); 5] = [("q", "quit"), ("g", "group by"), ("R", "refresh"), ("space", "fold"), ("enter", "open")];
+use crate::tree::pill_width;
+
+const MAX_PANEL: u16 = 24;
+const KEYS: [(&str, &str); 7] = [("q", "quit"), ("/", "filter"), ("v", "pick"), ("g", "group by"), ("R", "refresh"), ("space", "fold"), ("enter", "open")];
+const PICKING: [(&str, &str); 3] = [("v", "pick"), ("V", "all alike"), ("esc", "drop picks")];
 
 fn plain(line: &Line) -> String {
     line.spans.iter().map(|s| s.content.as_ref()).collect()
@@ -43,25 +46,43 @@ pub fn panel(frame: &mut Frame, area: Rect, info: &[Line<'static>], acts: &[Act]
     }
     let bar = Rect { y: buttons_y, height: 1, ..body };
     frame.render_widget(Paragraph::new(acts::buttons(acts)), bar);
-    let mut x = bar.x;
+    places(acts, bar.x, buttons_y)
+}
+
+/// Each button's cells on a line of buttons starting at `x`.
+fn places(acts: &[Act], mut x: u16, y: u16) -> Vec<(Rect, usize)> {
     acts.iter()
         .enumerate()
         .map(|(n, act)| {
-            let key = act.key.map(|k| format!("  {k}")).unwrap_or_default();
-            let cells = width(&format!(" {}{key} ", act.label)) as u16;
-            let rect = Rect { x, y: buttons_y, width: cells, height: 1 };
-            x += cells + 1;
+            let cells = pill_width(act) as u16;
+            let rect = Rect { x, y, width: cells - 1, height: 1 };
+            x += cells;
             (rect, n)
         })
         .collect()
 }
 
-pub fn footer(frame: &mut Frame, area: Rect) {
+/// The picked rows' summary for the panel: how many of what, then their names.
+pub fn picked_info(summary: &str, names: &[String], shared: bool) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(vec![Span::styled(format!("{summary} picked"), bold(ORANGE)), Span::styled("   esc drops them", fg(DIM))])];
+    const NAMES: usize = 5;
+    lines.extend(names.iter().take(NAMES).map(|n| Line::styled(format!("  {n}"), fg(DIM))));
+    if names.len() > NAMES {
+        lines.push(Line::styled(format!("  and {} more", names.len() - NAMES), fg(DIM)));
+    }
+    if !shared {
+        lines.push(Line::styled("no action is shared by all of them", fg(DIM)));
+    }
+    lines
+}
+
+/// Key hints, the palette's at the right; a narrow pane drops the last hints rather than cutting the palette's.
+pub fn footer(frame: &mut Frame, area: Rect, picking: bool) {
     let palette = vec![Span::styled("^p ", bold(ORANGE)), Span::styled("palette ", fg(FG))];
     let mut spans = vec![Span::raw(" ")];
-    // A narrow pane drops the last hints rather than cutting the palette's.
     let mut room = (area.width as usize).saturating_sub(1 + palette.iter().map(|s| width(&s.content)).sum::<usize>());
-    for (key, what) in KEYS {
+    let keys: &[(&str, &str)] = if picking { &PICKING } else { &KEYS };
+    for (key, what) in keys {
         let hint = [Span::styled(format!("{key} "), bold(ORANGE)), Span::styled(format!("{what}  "), fg(FG))];
         let cells: usize = hint.iter().map(|s| width(&s.content)).sum();
         if cells > room {
@@ -74,6 +95,15 @@ pub fn footer(frame: &mut Frame, area: Rect) {
     spans.push(Span::raw(" ".repeat((area.width as usize).saturating_sub(used))));
     spans.extend(palette);
     frame.render_widget(Paragraph::new(Line::from(spans)).style(Style::new().bg(PANEL)), area);
+}
+
+/// The compact layout's footer while rows are picked: how many, then the buttons they share.
+pub fn picked_footer(frame: &mut Frame, area: Rect, summary: &str, acts: &[Act]) -> Vec<(Rect, usize)> {
+    let lead = format!(" {summary} picked  ");
+    let mut line = acts::buttons(acts);
+    line.spans.insert(0, Span::styled(lead.clone(), bold(ORANGE)));
+    frame.render_widget(Paragraph::new(line).style(Style::new().bg(PANEL)), area);
+    places(acts, area.x + width(&lead) as u16, area.y)
 }
 
 /// The area less one cell each side, Textual's `padding: 0 1`.

@@ -18,7 +18,10 @@ const CURSOR_BLURRED: Color = Color::Rgb(70, 56, 44);
 pub enum Key {
     Unused,
     Used,
+    /// An answer that closes the question.
     Answer(Value, String),
+    /// A diff line's comment: the block stays open for more.
+    Comment(Value, String),
 }
 
 /// A row of a box with Textual's tall border: thick left edge, thin right one, the top and bottom as eighth blocks.

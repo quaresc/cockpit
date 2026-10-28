@@ -9,9 +9,10 @@ python3 demo_data.py home          # a fake HOME with caches, to-dos and runbook
 .venv/bin/python apps_anim.py      # inbox, to-do and meetings, the cursor stepping through the rows
 .venv/bin/python runbook_anim.py   # a refresh landing in the runbook
 .venv/bin/python show_anim.py      # the show tool: a chart hiding to its chip and coming back
-.venv/bin/python apps_anim.py --full inbox   # the same, drawn by the Textual apps: inbox-full.svg,
-.venv/bin/python runbook_anim.py --full      # runbook-done-full.svg
-.venv/bin/python show_anim.py --full         # and show-full.svg, its charts laid over as images (show_tx_shot.py)
+(cd ../../herdr/tui && cargo build --release)  # the Rust apps, then the same drawn by them:
+.venv/bin/python apps_anim.py --rust         # inbox-rust.svg, todo-rust.svg, meetings-rust.svg
+.venv/bin/python runbook_anim.py --rust      # runbook-done-rust.svg
+.venv/bin/python show_anim.py --rust         # show-rust.svg, its charts laid over as images (COCKPIT_SHOT_DIR)
 .venv/bin/python features.py       # the recap popup
 .venv/bin/python settings.py       # the /cockpit settings pane
 python3 notifications.py           # the notifications and their buttons

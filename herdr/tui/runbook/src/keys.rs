@@ -1,19 +1,24 @@
-//! Keys and clicks: rows, tabs, the selected step's actions, the runbook's own, and the palette over all of them.
+//! Keys and clicks: rows, tabs, the selected step's actions, the runbook's own, the filter bar, picking steps for a batch,
+//! the editor, and the palette over all of them.
 
 use cockpit_core::acts::Act;
 use cockpit_core::dialog::Answer;
+use cockpit_core::input::Edit;
 use cockpit_core::palette::{Entry, Outcome};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
 use crate::acts::{book_acts, step_acts};
-use crate::app::{App, Cmd};
+use crate::app::{App, Cmd, key};
+use crate::edit;
+use crate::filter::Filter;
+use crate::table::Column;
 
 impl App {
     /// The selected step's actions, each as the command it runs.
     pub fn step_cmds(&self) -> Vec<Cmd> {
         let Some(book) = self.book() else { return Vec::new() };
-        let Some(step) = book.steps.get(self.selected) else { return Vec::new() };
+        let Some(step) = book.steps.get(self.selected).filter(|_| self.shown().contains(&self.selected)) else { return Vec::new() };
         step_acts(book, step, &self.handoffs).into_iter().map(|act| step_cmd(&book.slug, &step.n, &step.step, act)).collect()
     }
 
@@ -46,8 +51,9 @@ impl App {
             Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
             Event::Mouse(mouse) => {
                 let at = Position::new(mouse.column, mouse.row);
+                let free = self.dialog.is_none() && !self.palette.is_open && self.editor.is_none();
                 match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) if self.dialog.is_none() && !self.palette.is_open => self.click(at),
+                    MouseEventKind::Down(MouseButton::Left) if free => self.click(at),
                     MouseEventKind::ScrollDown if self.hits.list.contains(at) => self.scroll_by(3.0),
                     MouseEventKind::ScrollUp if self.hits.list.contains(at) => self.scroll_by(-3.0),
                     _ => {}
@@ -62,8 +68,8 @@ impl App {
         if let Some((dialog, _)) = &mut self.dialog {
             match dialog.key(key) {
                 Some(Answer::Yes) => {
-                    if let Some((_, Cmd::Act { slug, n, act, .. })) = self.dialog.take() {
-                        self.perform(&slug, n.as_deref(), &act, act.confirm.clone());
+                    if let Some((_, cmd)) = self.dialog.take() {
+                        self.confirmed(cmd);
                     }
                 }
                 Some(_) => self.dialog = None,
@@ -72,14 +78,34 @@ impl App {
             return false;
         }
         if self.palette.is_open {
-            if let Outcome::Chosen(id) = self.palette.key(key)
-                && let Some(cmd) = self.cmds.get(id).cloned()
-            {
-                self.act(cmd);
+            match self.palette.key(key) {
+                Outcome::Chosen(id) => {
+                    if let Some(cmd) = self.cmds.get(id).cloned() {
+                        self.act(cmd);
+                    }
+                }
+                Outcome::Elsewhere(target) => cockpit_core::hub::go(&target),
+                Outcome::Open | Outcome::Closed => {}
+            }
+            return false;
+        }
+        if let Some(editor) = &mut self.editor {
+            match editor.key(key) {
+                edit::Outcome::Save => self.save(),
+                edit::Outcome::Cancel => self.editor = None,
+                edit::Outcome::Editing => {}
             }
             return false;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if is_global_filter_key(key) {
+            self.open_filter(true);
+            return false;
+        }
+        if self.filter.editing {
+            self.filter_key(key);
+            return false;
+        }
         match key.code {
             KeyCode::Char('c' | 'q') if ctrl => return true,
             KeyCode::Char('p') if ctrl => {
@@ -91,6 +117,16 @@ impl App {
             KeyCode::Char('q') => return true,
             KeyCode::Char('j') | KeyCode::Down => self.move_row(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_row(-1),
+            KeyCode::Esc if !self.picked.is_empty() => self.picked.clear(),
+            KeyCode::Esc if self.filter.is_on() => self.clear_filter(),
+            KeyCode::Char('/') => self.open_filter(false),
+            KeyCode::Char('v') => self.pick(),
+            KeyCode::Char('V') => self.pick_open(),
+            KeyCode::Char('d') if !self.picked.is_empty() => self.ask_done(),
+            KeyCode::Char('c') if !self.picked.is_empty() => self.copy_picked(),
+            KeyCode::Char('e') => self.edit_selected(Column::Command),
+            KeyCode::Char('E') => self.edit_selected(Column::Status),
+            KeyCode::Char('a') => self.add(),
             KeyCode::Enter => {
                 if let Some(cmd) = self.step_cmds().into_iter().next() {
                     self.act(cmd);
@@ -110,6 +146,66 @@ impl App {
         false
     }
 
+    /// A key while the filter bar is typed in: the list follows each change, `/` widens it to every runbook and back.
+    fn filter_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('/') if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+                self.filter.global = !self.filter.global;
+                self.refilter();
+            }
+            KeyCode::Down => self.move_row(1),
+            KeyCode::Up => self.move_row(-1),
+            _ => match self.filter.input.key(key) {
+                Edit::Submit if self.filter.query().is_empty() => self.clear_filter(),
+                Edit::Submit => self.filter.editing = false,
+                Edit::Cancel => self.clear_filter(),
+                Edit::Changed => self.refilter(),
+                Edit::Ignored => {}
+            },
+        }
+    }
+
+    fn open_filter(&mut self, global: bool) {
+        self.filter.editing = true;
+        self.filter.global |= global;
+        self.refilter();
+    }
+
+    fn clear_filter(&mut self) {
+        self.filter = Filter::default();
+        self.refilter();
+        self.reveal = Some((self.selected, self.selected));
+    }
+
+    /// The step under the cursor picked or put back.
+    fn pick(&mut self) {
+        let Some(book) = self.book() else { return };
+        let Some(step) = book.steps.get(self.selected) else { return };
+        let k = key(&book.slug, &step.n);
+        if !self.picked.remove(&k) {
+            self.picked.insert(k);
+        }
+    }
+
+    /// Every open step shown picked; all of them put back when they were already.
+    fn pick_open(&mut self) {
+        let Some(book) = self.book() else { return };
+        let open: Vec<String> = self.shown().into_iter().filter(|&i| book.steps[i].is_open()).map(|i| key(&book.slug, &book.steps[i].n)).collect();
+        if open.iter().all(|k| self.picked.contains(k)) {
+            for k in &open {
+                self.picked.remove(k);
+            }
+        } else {
+            self.picked.extend(open);
+        }
+    }
+
+    fn edit_selected(&mut self, column: Column) {
+        if let Some((slug, n)) = self.book().and_then(|b| b.steps.get(self.selected).map(|s| (b.slug.clone(), s.n.clone()))) {
+            self.edit(&slug, &n, column);
+        }
+    }
+
     fn click(&mut self, at: Position) {
         if let Some(&(_, i)) = self.hits.buttons.iter().find(|(r, _)| r.contains(at)) {
             if let Some(cmd) = self.step_cmds().into_iter().nth(i) {
@@ -123,10 +219,14 @@ impl App {
         }
     }
 
+    /// The cursor `by` rows on, among the shown ones.
     fn move_row(&mut self, by: isize) {
-        let Some(book) = self.book() else { return };
-        let last = book.steps.len().saturating_sub(1) as isize;
-        self.selected = (self.selected as isize + by).clamp(0, last) as usize;
+        let shown = self.shown();
+        if shown.is_empty() {
+            return;
+        }
+        let at = shown.iter().position(|&i| i == self.selected).unwrap_or(0) as isize;
+        self.selected = shown[(at + by).clamp(0, shown.len() as isize - 1) as usize];
         self.reveal = Some((self.selected, self.selected));
     }
 
@@ -140,10 +240,15 @@ impl App {
     fn scroll_by(&mut self, lines: f32) {
         if let Some(book) = self.book() {
             let slug = book.slug.clone();
-            let scroll = self.scroll.entry(slug).or_insert_with(|| crate::anim::Glide::new(0.0, 0.25));
+            let scroll = self.scroll.entry(slug).or_insert_with(|| cockpit_core::anim::Glide::new(0.0, 0.25));
             scroll.go(scroll.target() + lines);
         }
     }
+}
+
+/// ctrl+/ as terminals send it: some as ctrl+/, most as the 0x1f byte that reads as ctrl+7 or ctrl+_.
+fn is_global_filter_key(key: KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('/' | '7' | '_'))
 }
 
 fn step_cmd(slug: &str, n: &str, step: &str, act: Act) -> Cmd {

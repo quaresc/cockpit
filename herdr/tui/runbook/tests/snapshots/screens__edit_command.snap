@@ -1,0 +1,34 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, 90, 30)"
+---
+   Runbooks   3 · 25 steps left
+ ENG-410 13  ENG-420 12  ENG-398 ✓
+╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-410 · Daily quotas: usage counters (exports + previews) for the settings page   upda
+ ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━  24%
+
+ 6   ⬜  to do, approved green   Merge and deploy web (banner   web#1836
+                                on settings page)
+
+ 7   ⬜  to do, approved green   Merge and deploy billing PR 3  billing#379              ▐
+                                (store + broadcast)                                     ▐
+
+ 8   ⬜  to do                   Backfill dry run               prod
+                                $
+                                ./bin/backfill_daily_quota_usa
+                                ge --dry-run
+                                ↳ running in its session…
+
+
+ • Deploy order is consumer first: api, then web, then billing PR 3; PR 4 only once
+   charts#402 is on the charts' production branch.
+ • billing#380 targets PR 3's branch: merge #379 first, then retarget #380 to main.
+ • The backfill only counts accounts whose plan sets a daily quota on its exports.
+──────────────────────────────────────────────────────────────────────────────────────────
+ #8  Backfill dry run
+ ╭ ENG-410 step 8: command ─────────────────────────────────────────────────────────────╮
+ │ $ ./bin/backfill_daily_quota_usage --dry-run --limit 10 | tee out.log                │
+ │ enter saves to the runbook · esc cancels                                             │
+ ╰──────────────────────────────────────────────────────────────────────────────────────╯
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette

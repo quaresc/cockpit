@@ -1,44 +1,61 @@
-//! The inbox app: the tree rebuilt when the caches change or the ages move, keys and clicks run the highlighted row's
-//! actions through inbox.py, a dialog asking first when an action changes something.
+//! The inbox app: the tree rebuilt when the caches change or the ages move, what changed since the last rebuild shown
+//! on its rows, details fetched for the highlighted PR; a frame drawn only when something changed.
 
+use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cockpit_core::acts::Act;
+use cockpit_core::anim::{self, Effects};
 use cockpit_core::bridge::Bridge;
-use cockpit_core::dialog::{Answer, Dialog};
-use cockpit_core::files;
-use cockpit_core::palette::{self, Entry, Palette};
+use cockpit_core::dialog::Dialog;
+use cockpit_core::files::{self, Density};
+use cockpit_core::focus;
+use cockpit_core::input::Input;
+use cockpit_core::palette::Palette;
 use cockpit_core::term;
 use cockpit_core::theme::base;
-use cockpit_core::toast::{Kind, Toasts};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use cockpit_core::toast::{Kind as Toast, Toasts};
+use cockpit_core::widgets::filter_line;
+use crossterm::event::{Event, KeyEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::Line;
-use ratatui::widgets::Block;
+use ratatui::widgets::{Block, Paragraph};
+use serde_json::Value;
 
-use crate::facts::Config;
-use crate::model;
+use crate::changes::{self, Snapshot};
+use crate::details::{Details, Fetched};
+use crate::facts::{Config, is_failing, list, s};
+use crate::history::History;
+use crate::inputs::Inputs;
+use crate::model::{self, Ctx};
 use crate::panel;
 use crate::requests::Requests;
-use crate::row::Call;
+use crate::row::{Call, Kind};
+use crate::select::{self, Picked};
 use crate::sessions::Local;
-use crate::tree::Tree;
+use crate::tree::{Paint, Tree};
 
-/// What the cache files and the clock looked like at the last rebuild: a change rebuilds, and so does every 30 s.
-type Stamp = (Vec<Option<SystemTime>>, u64, bool);
+/// The cache files' times at the last rebuild, and the 30 s period it fell in: the ages move every period.
+type Stamp = (Vec<Option<SystemTime>>, u64);
 
-enum Command {
+pub(crate) enum Command {
     Act(String, usize),
     GoTo(String),
     Refresh,
     Regroup,
+    Filter,
 }
 
 /// What a dialog's answer runs.
-enum Asked {
+pub(crate) enum Asked {
     Armed(Call, String),
     Picks(Vec<Call>),
+    /// A batch: each picked row's call, armed when it changes something.
+    Batch(String, Vec<(Call, Option<String>)>),
+    /// A batch whose action asks where first: each picked row's calls, one per choice.
+    BatchPicks(String, Vec<Vec<Call>>),
 }
 
 pub struct App {
@@ -47,88 +64,216 @@ pub struct App {
     bridge: Bridge,
     in_flight: usize,
     requests: Requests,
-    tree: Tree,
+    pub(crate) tree: Tree,
     head: Vec<Line<'static>>,
-    by_status: bool,
+    pub(crate) by_status: bool,
+    compact: bool,
+    /// False for fixtures: no file is read or watched, nothing is fetched.
+    live: bool,
+    inputs: Inputs,
     seen: Option<Stamp>,
     _watcher: Option<notify::RecommendedWatcher>,
-    changes: Receiver<()>,
+    changes: Option<Receiver<()>>,
     settled: Instant,
-    palette: Palette,
-    commands: Vec<Command>,
-    dialog: Option<(Dialog, Asked)>,
-    toasts: Toasts,
-    buttons: Vec<(Rect, usize)>,
+    pub(crate) palette: Palette,
+    pub(crate) commands: Vec<Command>,
+    pub(crate) dialog: Option<(Dialog, Asked)>,
+    pub(crate) toasts: Toasts,
+    pub(crate) buttons: Vec<(Rect, usize)>,
+    pub(crate) filter: Input,
+    pub(crate) editing: bool,
+    pub(crate) picked: Picked,
+    effects: Effects,
+    animating: bool,
+    /// A toast shows, which goes on its own.
+    toasting: bool,
+    snapshot: Option<Snapshot>,
+    details: Details,
+    history: History,
+    focus_seen: SystemTime,
 }
 
 impl App {
-    pub fn new() -> Self {
-        let (watcher, changes) = files::watch(&[files::cache(), files::config_dir()]);
-        let mut app = Self {
-            config: Config::load(),
-            local: Local::default(),
+    fn base(config: Config, local: Local, compact: bool, live: bool, inputs: Inputs, series: HashMap<String, Vec<f64>>) -> Self {
+        let mut palette = Palette::default();
+        palette.app = "inbox".into();
+        let mut tree = Tree::default();
+        tree.compact = compact;
+        Self {
+            config,
+            local,
             bridge: Bridge::default(),
             in_flight: 0,
             requests: Requests::default(),
-            tree: Tree::default(),
+            tree,
             head: Vec::new(),
             by_status: false,
+            compact,
+            live,
+            inputs,
             seen: None,
-            _watcher: watcher,
-            changes,
+            _watcher: None,
+            changes: None,
             settled: Instant::now(),
-            palette: Palette::default(),
+            palette,
             commands: Vec::new(),
             dialog: None,
             toasts: Toasts::default(),
             buttons: Vec::new(),
-        };
+            filter: Input::default(),
+            editing: false,
+            picked: Picked::default(),
+            effects: Effects::default(),
+            animating: false,
+            toasting: false,
+            snapshot: None,
+            details: Details::new(live),
+            history: History::new(live, series),
+            focus_seen: SystemTime::now(),
+        }
+    }
+
+    /// The app on the real caches, watched.
+    pub fn start() -> Self {
+        let dirs = [files::cache(), files::config_dir(), files::cache().join("focus")];
+        let (watcher, changes) = files::watch(&dirs);
+        let compact = files::density() == Density::Compact;
+        let mut app = Self::base(Config::load(), Local::default(), compact, true, Inputs::default(), HashMap::new());
+        app._watcher = watcher;
+        app.changes = Some(changes);
         app.reload(true);
         app
+    }
+
+    /// The app on given data, for tests: nothing read, watched or fetched.
+    pub fn fixture(inputs: Inputs, config: Value, compact: bool, local: Local, series: HashMap<String, Vec<f64>>) -> Self {
+        let mut app = Self::base(Config::from(config), local, compact, false, inputs, series);
+        app.rebuild();
+        app
+    }
+
+    /// New data for a fixture app, as a rebuild after the caches changed would see it.
+    pub fn feed(&mut self, inputs: Inputs) {
+        self.inputs = inputs;
+        self.rebuild();
+    }
+
+    /// Details for a PR as the hub would answer them, by kind (review_threads, failed_tests, ci_log).
+    pub fn show_details(&mut self, url: &str, answers: &[(&str, Value)]) {
+        let mut fetched = Fetched::default();
+        for (kind, answer) in answers {
+            fetched.absorb(kind, answer);
+        }
+        self.details.set(url, fetched);
+    }
+
+    /// Whether some row's effect still plays, for tests.
+    pub fn playing(&mut self) -> bool {
+        self.effects.active()
     }
 
     fn stamp(&self) -> Stamp {
         let paths = [files::cache().join("inbox.json"), files::config_dir().join("muted.json"), files::cache().join("ci.json"), files::cache().join("brief.json")];
         let times = paths.iter().map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok()).collect();
-        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        (times, now / 30, self.by_status)
+        (times, period())
     }
 
-    fn reload(&mut self, force: bool) {
+    /// Reads the caches again when they changed or the ages moved; true when it did.
+    fn reload(&mut self, force: bool) -> bool {
         let seen = self.stamp();
-        if force || self.seen.as_ref() != Some(&seen) {
-            self.seen = Some(seen);
-            let (head, top) = model::model(self.by_status, &self.config, &mut self.local);
-            self.head = head;
-            self.tree.replace(top);
+        if !force && self.seen.as_ref() == Some(&seen) {
+            return false;
         }
+        self.seen = Some(seen);
+        self.inputs = Inputs::read();
+        let ids = model::usable(&self.inputs).map(|d| list(d, "tickets").iter().map(|t| s(t, "id").to_string()).collect()).unwrap_or_default();
+        self.history.want(ids);
+        self.rebuild();
+        true
     }
 
-    /// The bridge's replies, the files' changes and the requests in flight, whichever came in.
-    fn pump(&mut self) {
+    /// The rows from the inputs at hand; what changed since the last rebuild starts its effect.
+    pub(crate) fn rebuild(&mut self) {
+        let ctx = Ctx { config: &self.config, by_status: self.by_status, compact: self.compact, series: self.history.series() };
+        let (head, top) = model::model(&self.inputs, &ctx, &mut self.local);
+        self.head = head;
+        self.tree.replace(top);
+        self.picked.keep_known(&self.tree);
+        let Some(data) = model::usable(&self.inputs) else {
+            self.snapshot = None;
+            return;
+        };
+        let snapshot = changes::snapshot(data, &self.inputs.ci, &self.local.agents());
+        if let Some(before) = &self.snapshot {
+            for (key, change) in changes::diff(before, &snapshot) {
+                self.effects.start(&key, change.effect());
+                self.details.forget(&key);
+            }
+        }
+        self.snapshot = Some(snapshot);
+    }
+
+    /// The bridge's replies, the files' changes, focus requests and fetches, whichever came in; true when any did.
+    fn pump(&mut self) -> bool {
+        let mut changed = false;
         let mut force = false;
         while let Ok(reply) = self.bridge.replies.try_recv() {
             self.in_flight = self.in_flight.saturating_sub(1);
             if let Some(error) = reply.error {
-                self.toasts.push(error, Kind::Bad);
+                self.toasts.push(error, Toast::Bad);
             }
-            self.toasts.push(reply.note, Kind::Note);
+            self.toasts.push(reply.note, Toast::Note);
             self.requests.merge(&reply.pending);
             force = true;
         }
-        let changed = self.changes.try_iter().count() > 0;
+        if self.history.pump() {
+            self.rebuild();
+            changed = true;
+        }
+        changed |= self.details.pump();
+        if !self.live {
+            return changed;
+        }
+        let files_changed = self.changes.as_ref().is_some_and(|rx| rx.try_iter().count() > 0);
         if self.settled.elapsed() >= Duration::from_secs(1) {
             self.settled = Instant::now();
+            let before = self.requests.count();
             for note in self.requests.settle() {
-                self.toasts.push(note, Kind::Note);
+                self.toasts.push(note, Toast::Note);
             }
+            changed |= self.requests.count() != before;
         }
-        if force || changed || self.seen.as_ref().is_none_or(|s| s.1 != self.stamp().1) {
-            self.reload(force);
+        if let Some(target) = focus::take("inbox", &mut self.focus_seen) {
+            self.focus(&target);
+            changed = true;
         }
+        if force || files_changed || self.seen.as_ref().is_none_or(|s| s.1 != period()) {
+            changed |= self.reload(force);
+        }
+        changed
     }
 
-    fn call(&mut self, call: Call, armed: Option<String>) {
+    /// Brings the row a palette jump or another app asked for into view, and flashes it.
+    pub fn focus(&mut self, target: &Value) {
+        let key = target["key"].as_str().or(target.as_str()).unwrap_or_default().to_string();
+        let Some(node) = self.tree.by_key(&key) else {
+            self.toasts.push(format!("{key} is not in the inbox any more"), Toast::Note);
+            return;
+        };
+        if self.tree.filtering() {
+            self.clear_filter();
+        }
+        self.tree.go_to(node);
+        self.effects.start(&key, anim::tone("focus"));
+    }
+
+    pub(crate) fn clear_filter(&mut self) {
+        self.filter = Input::default();
+        self.editing = false;
+        self.tree.set_filter("");
+    }
+
+    pub(crate) fn call(&mut self, call: Call, armed: Option<String>) {
         // inbox.py's run takes no state, which the bridge passes first: its argv runs here, off the keys' thread.
         if call.function == "run" {
             let argv: Vec<String> = call.args.first().and_then(|a| a.as_array()).into_iter().flatten().filter_map(|a| a.as_str().map(str::to_string)).collect();
@@ -142,166 +287,47 @@ impl App {
         self.bridge.call(call.function, "inbox", call.function, call.args, armed);
     }
 
-    /// Runs a row's action: a choice asks which, a change asks first, the rest runs at once.
-    fn act(&mut self, node: usize, n: usize) {
+    /// The panel's lines and buttons: the picked rows' summary and shared actions, else the highlighted row's details.
+    fn panel_content(&mut self) -> (Vec<Line<'static>>, Vec<Act>) {
+        if !self.picked.is_empty() {
+            let rows = self.picked.rows(&self.tree);
+            let shared = select::shared(&self.tree, &rows);
+            let names: Vec<String> = rows.iter().map(|&n| self.tree.nodes[n].row.name.clone()).collect();
+            return (panel::picked_info(&select::describe(&self.tree, &rows), &names, !shared.is_empty()), shared);
+        }
+        let Some(node) = self.tree.current() else { return (Vec::new(), Vec::new()) };
         let row = &self.tree.nodes[node].row;
-        let Some(act) = row.acts.get(n) else { return };
-        if !act.picks.is_empty() {
-            let dialog = Dialog::Pick { question: format!("{}: {}", act.act.label, row.name), options: act.act.choices.clone(), selected: 0 };
-            self.dialog = Some((dialog, Asked::Picks(act.picks.clone())));
-        } else if let (Some(key), Some(call)) = (&act.act.confirm, &act.call) {
-            let dialog = Dialog::Confirm { question: format!("{}: {}?", act.act.label, row.name) };
-            self.dialog = Some((dialog, Asked::Armed(call.clone(), key.clone())));
-        } else if let Some(call) = act.call.clone() {
-            self.call(call, None);
+        let mut info = row.details();
+        let acts = row.acts.iter().map(|a| a.act.clone()).collect();
+        if let (Kind::Pr | Kind::Review, Some(pr)) = (row.kind, row.item.clone()) {
+            let run = list(&self.inputs.ci, "runs").iter().find(|r| s(r, "repo") == s(&pr, "repo") && s(r, "branch") == s(&pr, "branch")).cloned();
+            let failing = is_failing(&pr) || run.as_ref().is_some_and(|r| s(r, "outcome") == "failed");
+            let url = row.key.clone();
+            self.details.want(&url, &pr, run.as_ref(), failing);
+            info.extend(self.details.lines(&url));
         }
+        (info, acts)
     }
 
-    fn answer(&mut self, answer: Answer) {
-        let Some((_, asked)) = self.dialog.take() else { return };
-        match (answer, asked) {
-            (Answer::Yes, Asked::Armed(call, key)) => self.call(call, Some(key)),
-            (Answer::Picked(n), Asked::Picks(calls)) => {
-                if let Some(call) = calls.get(n) {
-                    self.call(call.clone(), None);
-                }
-            }
-            _ => {}
-        }
+    /// Whether the highlighted row waits for its details, for the spinner to turn.
+    fn waiting(&self) -> bool {
+        !self.compact && self.tree.current().is_some_and(|n| self.details.loading(&self.tree.nodes[n].row.key))
     }
 
-    fn primary(&mut self) {
-        let Some(node) = self.tree.current() else { return };
-        match self.tree.nodes[node].row.primary.clone() {
-            Some(call) => self.call(call, None),
-            None => self.tree.toggle(node),
-        }
+    /// Notes whether effects play and toasts show, which want frames of their own.
+    fn pace(&mut self) {
+        self.animating = self.effects.active();
+        self.toasting = self.toasts.any();
     }
 
-    fn regroup(&mut self) {
-        self.by_status = !self.by_status;
-        self.reload(true);
+    pub(crate) fn row_acts(&self) -> Vec<Act> {
+        self.tree.current().map(|n| self.tree.nodes[n].row.acts.iter().map(|a| a.act.clone()).collect()).unwrap_or_default()
     }
+}
 
-    fn refresh(&mut self) {
-        self.call(crate::row::call("request_refresh", vec![]), None);
-    }
-
-    /// Every row's actions and a "go to" for each, then refresh and regroup; the main actions show before typing.
-    fn open_palette(&mut self) {
-        let mut entries = Vec::new();
-        self.commands.clear();
-        let mut push = |commands: &mut Vec<Command>, text: String, help: String, featured: bool, command: Command| {
-            entries.push(Entry { text, help, featured, id: commands.len() });
-            commands.push(command);
-        };
-        for node in &self.tree.nodes {
-            let row = &node.row;
-            for (n, act) in row.acts.iter().enumerate() {
-                push(&mut self.commands, format!("{}  {}", act.act.label, row.name), row.section.clone(), act.act.main, Command::Act(node.path.clone(), n));
-            }
-            if !row.name.is_empty() {
-                push(&mut self.commands, format!("go to  {}", row.name), row.section.clone(), false, Command::GoTo(node.path.clone()));
-            }
-        }
-        push(&mut self.commands, "refresh the inbox".into(), "asks the mod for fresh data".into(), true, Command::Refresh);
-        let regroup = format!("group work by {}", if self.by_status { "feature" } else { "status" });
-        push(&mut self.commands, regroup, "g".into(), true, Command::Regroup);
-        self.palette.open(entries);
-    }
-
-    fn run_command(&mut self, id: usize) {
-        match self.commands.get(id) {
-            Some(Command::Act(path, n)) => {
-                let n = *n;
-                if let Some(node) = self.tree.node(&path.clone()) {
-                    self.act(node, n);
-                }
-            }
-            Some(Command::GoTo(path)) => {
-                if let Some(node) = self.tree.node(&path.clone()) {
-                    self.tree.go_to(node);
-                }
-            }
-            Some(Command::Refresh) => self.refresh(),
-            Some(Command::Regroup) => self.regroup(),
-            None => {}
-        }
-    }
-
-    /// A key; true quits.
-    fn key(&mut self, key: KeyEvent) -> bool {
-        if let Some((dialog, _)) = &mut self.dialog {
-            if let Some(answer) = dialog.key(key) {
-                self.answer(answer);
-            }
-            return false;
-        }
-        if self.palette.is_open {
-            if let palette::Outcome::Chosen(id) = self.palette.key(key) {
-                self.run_command(id);
-            }
-            return false;
-        }
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Char('c') if ctrl => return true,
-            KeyCode::Char('p') if ctrl => self.open_palette(),
-            // ctrl+o is not o: a chord must not open, mute or quit.
-            KeyCode::Char(_) if ctrl || key.modifiers.contains(KeyModifiers::ALT) => {}
-            KeyCode::Char(c) if self.act_key(c) => {}
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('g') => self.regroup(),
-            KeyCode::Char('R') => self.refresh(),
-            KeyCode::Char('j') | KeyCode::Down => self.tree.step(1),
-            KeyCode::Char('k') | KeyCode::Up => self.tree.step(-1),
-            KeyCode::PageDown => self.tree.step(self.tree.page()),
-            KeyCode::PageUp => self.tree.step(-self.tree.page()),
-            KeyCode::Home => self.tree.step(isize::MIN / 2),
-            KeyCode::End => self.tree.step(isize::MAX / 2),
-            KeyCode::Char(' ') => {
-                if let Some(node) = self.tree.current() {
-                    self.tree.toggle(node);
-                }
-            }
-            KeyCode::Enter => self.primary(),
-            _ => {}
-        }
-        false
-    }
-
-    /// The highlighted row's action bound to this key, run; false when it has none.
-    fn act_key(&mut self, c: char) -> bool {
-        let Some(node) = self.tree.current() else { return false };
-        let Some(n) = self.tree.nodes[node].row.acts.iter().position(|a| a.act.key == Some(c)) else { return false };
-        self.act(node, n);
-        true
-    }
-
-    fn mouse(&mut self, mouse: MouseEvent) {
-        if self.dialog.is_some() || self.palette.is_open {
-            return;
-        }
-        match mouse.kind {
-            MouseEventKind::ScrollDown => self.tree.scroll(3),
-            MouseEventKind::ScrollUp => self.tree.scroll(-3),
-            MouseEventKind::Down(MouseButton::Left) => {
-                if let Some((node, on_glyph)) = self.tree.at(mouse.column, mouse.row) {
-                    self.tree.select(node);
-                    let row = &self.tree.nodes[node].row;
-                    if on_glyph || (row.primary.is_none() && !self.tree.nodes[node].kids.is_empty()) {
-                        self.tree.toggle(node);
-                    }
-                    return;
-                }
-                let pressed = self.buttons.iter().find(|(r, _)| r.contains((mouse.column, mouse.row).into())).map(|(_, n)| *n);
-                if let (Some(n), Some(node)) = (pressed, self.tree.current()) {
-                    self.act(node, n);
-                }
-            }
-            _ => {}
-        }
-    }
+/// The 30 s period now falls in.
+fn period() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) / 30
 }
 
 impl term::App for App {
@@ -309,20 +335,26 @@ impl term::App for App {
         let area = frame.area();
         frame.render_widget(Block::new().style(base()), area);
         let head_height = panel::height(&self.head, area.width.saturating_sub(2)).max(1);
-        let (info, acts) = match self.tree.current() {
-            Some(node) => {
-                let row = &self.tree.nodes[node].row;
-                (row.details(), row.acts.iter().map(|a| a.act.clone()).collect())
-            }
-            None => (Vec::new(), Vec::new()),
-        };
-        let panel_height = panel::panel_height(&info, &acts, area.width);
-        let [head, tree, bottom, footer] =
-            Layout::vertical([Constraint::Length(head_height), Constraint::Min(1), Constraint::Length(panel_height), Constraint::Length(1)]).areas(area);
+        let (info, acts) = if self.compact { (Vec::new(), Vec::new()) } else { self.panel_content() };
+        let panel_height = if self.compact { 0 } else { panel::panel_height(&info, &acts, area.width).min(area.height / 2) };
+        let bar = u16::from(self.editing || self.tree.filtering());
+        let [head, filter, tree, bottom, footer] =
+            Layout::vertical([Constraint::Length(head_height), Constraint::Length(bar), Constraint::Min(1), Constraint::Length(panel_height), Constraint::Length(1)]).areas(area);
         panel::header(frame, head, &self.head);
-        self.tree.render(frame, panel::inset(tree), &self.requests);
-        self.buttons = panel::panel(frame, bottom, &info, &acts);
-        panel::footer(frame, footer);
+        if bar > 0 {
+            frame.render_widget(Paragraph::new(filter_line(&self.filter, self.editing, self.tree.matched())), panel::inset(filter));
+        }
+        let row_acts = if self.compact && self.picked.is_empty() { self.row_acts() } else { Vec::new() };
+        let paint = Paint { requests: &self.requests, picked: &self.picked.keys, effects: &mut self.effects, buttons: self.compact.then_some(row_acts.as_slice()) };
+        let clicks = self.tree.render(frame, panel::inset(tree), paint);
+        self.buttons = if self.compact { clicks } else { panel::panel(frame, bottom, &info, &acts) };
+        if self.compact && !self.picked.is_empty() {
+            let rows = self.picked.rows(&self.tree);
+            let shared = select::shared(&self.tree, &rows);
+            self.buttons = panel::picked_footer(frame, footer, &select::describe(&self.tree, &rows), &shared);
+        } else {
+            panel::footer(frame, footer, !self.picked.is_empty());
+        }
         if let Some((dialog, _)) = &self.dialog {
             dialog.render(frame, area);
         }
@@ -342,15 +374,25 @@ impl term::App for App {
             _ => false,
         };
         self.pump();
+        self.pace();
         quit
     }
 
     fn tick(&mut self) -> bool {
-        self.pump();
-        true
+        let changed = self.pump();
+        let (was_animating, was_toasting) = (self.animating, self.toasting);
+        self.pace();
+        // One more frame after the last effect or toast goes, to draw the screen at rest.
+        changed || self.animating || was_animating || self.toasting || was_toasting || self.waiting()
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_millis(if self.in_flight > 0 { 100 } else { 250 })
+        Duration::from_millis(if self.animating {
+            33
+        } else if self.toasting || self.waiting() || self.in_flight > 0 {
+            100
+        } else {
+            1000
+        })
     }
 }

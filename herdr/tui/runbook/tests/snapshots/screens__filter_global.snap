@@ -1,0 +1,28 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, 90, 24)"
+---
+   Runbooks   3 · 25 steps left
+ ENG-410 /0  ENG-420 /2  ENG-398 /0
+━━━━━━━━━━━━╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-420 · Delete the legacy search filter and its data   updated 2026-10-22 18:00   R re
+ ━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━  45%
+
+ 4b  ✅  done, 10-21 03:51Z      Hotswap reindex                prod api
+                                `listings_expanded`                                     ▐
+                                $ bin/search index_all
+
+ • Steps 8–11 go together between two 03:45 UTC scrubber runs: merge #88, wait for its
+   docker build, deploy both drops, then tag; others tag the scrubber too (v2026.10.19,
+   v2026.10.20), so merge #88 only on drop day.
+ • Never run a hotswap reindex while #2207 deploys: it holds a timeout: :infinity
+   transaction on listings and the drop gives up after 5 s.
+ • Removing the SOPS keys makes images older than api v2026.10.14.2 / search #890 crash
+──────────────────────────────────────────────────────────────────────────────────────────
+ #4b  Hotswap reindex `listings_expanded`
+ status ✅  done, 10-21 03:51Z
+ $ bin/search index_all listings_expanded
+
+   copy command  c     edit  e
+ / sweep    2 matches   in every runbook · / this one only
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette

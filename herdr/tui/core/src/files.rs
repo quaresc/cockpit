@@ -23,8 +23,10 @@ pub fn herdr_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("COCKPIT_HERDR_DIR") {
         return PathBuf::from(dir);
     }
+    // A release binary sits in herdr/bin/, a dev build in herdr/tui/target/release/.
     let exe = std::env::current_exe().unwrap_or_default();
-    exe.ancestors().nth(4).map(Path::to_path_buf).unwrap_or_default()
+    let released = exe.parent().and_then(Path::file_name).is_some_and(|name| name == "bin");
+    exe.ancestors().nth(if released { 2 } else { 4 }).map(Path::to_path_buf).unwrap_or_default()
 }
 
 pub fn load(path: &Path) -> Option<Value> {
@@ -52,6 +54,7 @@ pub fn watch(dirs: &[PathBuf]) -> (Option<RecommendedWatcher>, Receiver<()>) {
     let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if event.is_ok() {
             let _ = tx.send(());
+            crate::term::wake();
         }
     });
     let Ok(mut watcher) = watcher else { return (None, rx) };

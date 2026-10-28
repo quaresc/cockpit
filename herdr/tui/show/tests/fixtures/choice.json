@@ -1,0 +1,23 @@
+{
+ "title": "Choice",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "choice",
+   "prompt": "Which plan gets the quota first?",
+   "options": [
+    {
+     "label": "Free",
+     "preview": "Most orgs, **lowest** risk."
+    },
+    {
+     "label": "Pro"
+    },
+    {
+     "label": "Enterprise"
+    }
+   ]
+  }
+ ],
+ "placement": "right"
+}

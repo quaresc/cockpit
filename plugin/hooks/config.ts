@@ -128,9 +128,11 @@ export type Config = {
   runbookTools: string[]
   // Whether the inbox starts work on a branch checked out nowhere in a new herdr worktree, rather than in the main checkout.
   worktrees: boolean
-  // The space and show apps drawn with Textual (images, animations, a command palette) for about three times the memory, in text, or
-  // the full ones in Rust, experimental.
-  apps: 'light' | 'full' | 'rust'
+  // The space and show apps in Rust (images, animations, a command palette, about 11 MB each), drawn with Textual for
+  // about 60–80 MB each, or in text.
+  apps: 'rust' | 'full' | 'light'
+  // How tight the Rust apps lay out their rows: compact puts a row's buttons on it, like the light apps.
+  density: 'comfortable' | 'compact'
 }
 
 // A pinned space of your own: where it opens, its sidebar glyph, and the herdr key /cockpit:setup binds to it.
@@ -223,7 +225,8 @@ const DEFAULTS: Config = {
   spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],
   runbookTools: [],
   worktrees: false,
-  apps: 'full',
+  apps: 'rust',
+  density: 'comfortable',
 }
 
 let cached: { at: number; config: Config } | undefined

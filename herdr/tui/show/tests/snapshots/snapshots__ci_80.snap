@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  CI   view · hh:mm
+
+ Build
+   api · me/eng-412-daily-quotas   #2198 Daily quotas per account
+   ████████████████████████████████████████  12/12 jobs · failure
+   ✗ test · mix test
+     test/quota_test.exs:42
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

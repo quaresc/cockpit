@@ -49,6 +49,11 @@ impl Requests {
         }
     }
 
+    /// How many requests are in flight or show their outcome, to tell when that changed.
+    pub fn count(&self) -> usize {
+        self.pending.len() + self.outcome.len()
+    }
+
     /// The row's latest request still in flight.
     pub fn working(&self, row: &str) -> Option<&Job> {
         self.pending.values().filter(|job| job.row == row).max_by(|a, b| a.at.total_cmp(&b.at))

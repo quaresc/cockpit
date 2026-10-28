@@ -1,0 +1,12 @@
+{
+ "title": "Diff",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "diff",
+   "title": "Quota change",
+   "patch": "diff --git a/src/quota.rs b/src/quota.rs\nindex 1111111..2222222 100644\n--- a/src/quota.rs\n+++ b/src/quota.rs\n@@ -1,7 +1,8 @@\n /// The daily quota of a plan.\n pub fn quota(plan: &str) -> Option<u32> {\n-    match plan { \"free\" => Some(10), \"pro\" => Some(100), _ => None }\n+    match plan { \"free\" => Some(10), \"pro\" => Some(200), _ => None }\n }\n \n-const RESET: &str = \"00:00\";\n+const RESET: &str = \"00:00 UTC\";\n+const WINDOW_SECONDS: u64 = 86_400; // a long comment that goes on and on so that the line is wider than the pane is and must wrap\n fn main() {}\ndiff --git a/lib/quota.py b/lib/quota.py\nnew file mode 100644\n--- /dev/null\n+++ b/lib/quota.py\n@@ -0,0 +1,3 @@\n+def quota(plan):\n+    \"\"\"The daily quota.\"\"\"\n+    return {\"free\": 10, \"pro\": 200}.get(plan)\n"
+  }
+ ],
+ "placement": "right"
+}

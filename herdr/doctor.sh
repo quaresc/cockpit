@@ -16,14 +16,35 @@ v=$("$H" --version 2>/dev/null | awk '{print $2}')
 case "$v" in 0.[0-8].*|"") fail "herdr ${v:-missing}: cockpit needs 0.9 or later → herdr update" ;; *) ok "herdr $v" ;; esac
 gh auth status >/dev/null 2>&1 && ok "gh signed in" || fail "gh not signed in → gh auth login"
 command -v python3 >/dev/null && ok "python3" || fail "python3 missing"
-case "$(jq -r '.apps // "full"' "$CONFIG" 2>/dev/null)" in
+mode=$(jq -r '.apps // "rust"' "$CONFIG" 2>/dev/null)
+case "${mode:-rust}" in
   light) ok "light apps" ;;
-  rust)
-    missing=$(for app in inbox runbook show; do [ -x "$ROOT/tui/target/release/cockpit-$app" ] || printf '%s ' "$app"; done)
-    [ -z "$missing" ] && ok "Rust apps built" || warn "Rust apps not built: ${missing}run as full → cd $ROOT/tui && cargo build --release" ;;
-  *)
+  full)
     command -v uv >/dev/null && ok "uv $(uv --version | awk '{print $2}') runs the full apps" ||
       warn "uv is missing, so the apps run light → brew install uv, or /cockpit apps light to say so" ;;
+  *)
+    # The release's binaries, else a dev build; each must be there, since the apps start the hub beside their own.
+    dir=$ROOT/bin
+    [ -x "$dir/cockpit-inbox" ] || [ ! -x "$ROOT/tui/target/release/cockpit-inbox" ] || dir=$ROOT/tui/target/release
+    missing=$(for app in hub inbox runbook show todo meetings; do [ -x "$dir/cockpit-$app" ] || printf '%s ' "$app"; done)
+    want=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/herdr-plugin.toml")
+    have=$(cat "$dir/.version" 2>/dev/null)
+    runs=$("$dir/cockpit-inbox" --version 2>/dev/null)
+    if [ -n "$missing" ]; then warn "Rust apps missing (${missing% }), so they run full or light → sh $ROOT/fetch-apps.sh, or cargo build --release in $ROOT/tui"
+    elif [ "$dir" = "$ROOT/bin" ] && [ "$have" != "$want" ]; then warn "Rust apps are from ${have:-an unknown version}, cockpit is on $want → sh $ROOT/fetch-apps.sh"
+    elif [ -z "$runs" ]; then fail "Rust apps in $dir do not run on this machine → rm -rf $ROOT/bin && sh $ROOT/fetch-apps.sh"
+    else ok "Rust apps in $dir (${runs#cockpit-inbox })"; fi
+    # A hub left with a dead socket keeps every action and search waiting.
+    if pgrep -f "cockpit-(inbox|todo|runbook|meetings) cockpit-space" >/dev/null; then
+      if [ ! -S "$CACHE/hub.sock" ]; then ok "hub not started yet: the apps start it when they first need it"
+      elif python3 -c 'import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(2)
+s.connect(sys.argv[1])
+s.sendall(b"{\"op\": \"ping\"}\n")
+sys.exit(0 if b"ok" in s.recv(256) else 1)' "$CACHE/hub.sock" 2>/dev/null; then ok "hub answers"
+      else fail "hub not answering on $CACHE/hub.sock → pkill -x cockpit-hub; the apps start a new one"; fi
+    fi ;;
 esac
 if [ ! -f "$CONFIG" ]; then fail "no ~/.config/cockpit/config.json → /cockpit:setup"
 elif jq empty "$CONFIG" 2>/dev/null; then ok "config.json"

@@ -16,3 +16,11 @@ pub mod text;
 pub mod theme;
 pub mod toast;
 pub mod widgets;
+
+/// `--version` prints the binary's name and the workspace version, then exits: doctor checks the binaries run with it.
+pub fn answer_version(name: &str) {
+    if std::env::args().skip(1).any(|a| a == "--version") {
+        println!("{name} {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+}

@@ -28,3 +28,19 @@ jobs:
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate plugin
       - run: claude plugin test plugin
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: herdr/tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: herdr/tui
+      - run: cargo clippy --release --workspace --locked -- -D warnings
+      - run: cargo test --workspace --locked

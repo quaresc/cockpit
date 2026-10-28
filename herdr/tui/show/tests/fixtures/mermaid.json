@@ -1,0 +1,17 @@
+{
+ "title": "Mermaid",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "mermaid",
+   "title": "Flowchart",
+   "text": "graph LR\n  A[Spec] --> B{Fresh?}\n  B -->|yes| C[Draw]\n  B -->|no| D[Wait]"
+  },
+  {
+   "type": "mermaid",
+   "title": "Sequence",
+   "text": "sequenceDiagram\n  Session->>Mod: show\n  Mod->>Pane: spec\n  Pane-->>Mod: answer"
+  }
+ ],
+ "placement": "right"
+}

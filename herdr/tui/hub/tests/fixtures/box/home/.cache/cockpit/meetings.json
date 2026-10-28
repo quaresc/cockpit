@@ -1,0 +1,4 @@
+{"at": 1793114742042, "meetings": [
+ {"id": "ev1_20261028T084500Z", "title": "Team daily", "start": "2026-10-28T09:45:00+01:00", "end": "2026-10-28T10:00:00+01:00", "url": "https://calendar/ev1", "join": "https://meet/abc", "response": "accepted", "attendees": 9, "briefable": true},
+ {"id": "ev2/odd id", "title": "Planning", "start": "2026-10-28T14:00:00+01:00", "end": "2026-10-28T15:00:00+01:00", "url": "https://calendar/ev2", "response": "accepted", "attendees": 4, "briefable": true}
+]}

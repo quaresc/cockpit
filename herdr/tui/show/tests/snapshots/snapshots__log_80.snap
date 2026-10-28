@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  Log   view · hh:mm
+
+ Counter
+ 11                                                                           │
+ 12                                                                           │
+ 13                                                                           │
+ 14                                                                           │
+ 15                                                                           │
+ 16                                                                           │
+ 17                                                                           │
+ 18                                                                           ┃
+ 19                                                                           ┃
+ 20                                                                           ┃
+ 21                                                                           ┃
+ 22                                                                           ┃
+ 23                                                                           ┃
+ 24                                                                           ┃
+ 25                                                                           ┃
+ 26                                                                           ┃
+ 27                                                                           ┃
+ 28                                                                           ┃
+ 29                                                                           ┃
+ 30                                                                           ┃
+
+ ✓ · every 600s · hh:mm   following the last 20 of 30
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

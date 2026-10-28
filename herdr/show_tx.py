@@ -7,6 +7,7 @@
 
 Charts, flow charts and pictures are real images where the terminal draws them (Kitty graphics, Sixel), else half blocks;
 markdown, tables, diffs, logs and questions are Textual widgets; sequence charts and CI runs still go through show.py's renderers.
+A before/after pair shows its pictures side by side when the pane is wide, one above the other otherwise.
 """
 
 import atexit
@@ -137,6 +138,26 @@ class Picture(Vertical):
         image = self.query_one(Image)
         image.styles.width = cells
         image.image = io.BytesIO(data)
+
+
+class Compare(Vertical):
+    """Before and after, each a picture under its label: side by side from `WIDE` columns, stacked below."""
+
+    WIDE = 100
+
+    def __init__(self, block):
+        super().__init__()
+        self.block = block
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="pair"):
+            for key in ("before", "after"):
+                with Vertical(classes="side"):
+                    yield Static(Text(key, style="bold #909094"))
+                    yield Picture({"path": self.block[key]}, draw_image)
+
+    def on_resize(self):
+        self.query_one(".pair").set_class(self.size.width >= self.WIDE, "wide")
 
 
 def font_of(cell):
@@ -321,6 +342,8 @@ def widget(block, n, cwd):
         return Picture(block, draw_flow)
     if kind == "image":
         return Picture(block, draw_image)
+    if kind == "compare":
+        return Compare(block)
     if kind == "diff":
         return Diff(block)
     if kind == "log":
@@ -377,6 +400,10 @@ class ShowApp(App):
     Markdown { margin: 0; padding: 0; background: $background; }
     DataTable { height: auto; max-height: 18; }
     Picture { height: auto; }
+    Compare, .pair, .side { height: auto; }
+    .pair { layout: vertical; }
+    .pair.wide { layout: horizontal; }
+    .pair.wide .side { width: 1fr; margin-right: 2; }
     Picture Image { width: auto; height: auto; }
     Collapsible { padding: 0; border-top: none; background: $background; }
     OptionList { height: auto; max-height: 8; }

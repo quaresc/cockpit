@@ -21,6 +21,23 @@ fn fonts() -> Arc<usvg::fontdb::Database> {
         .clone()
 }
 
+/// mimalloc's `mi_option_disallow_arena_alloc` (its place in v3's `mi_option_e`, which libmimalloc-sys does not name).
+const DISALLOW_ARENA_ALLOC: libmimalloc_sys::mi_option_t = 26;
+
+/// Has mimalloc take memory from the system segment by segment rather than from a reserved arena, so the pages a
+/// collection frees leave the process (an arena keeps them resident); called first thing in main.
+pub fn release_freed_pages() {
+    // SAFETY: setting a mimalloc option, safe at any time.
+    unsafe { libmimalloc_sys::mi_option_set(DISALLOW_ARENA_ALLOC, 1) };
+}
+
+/// Hands the memory a draw freed back to the system at once: its pixel buffers are large, and keeping them for reuse
+/// would leave an idle pane holding tens of megabytes.
+pub fn give_back() {
+    // SAFETY: mimalloc's own collection, safe from any thread.
+    unsafe { libmimalloc_sys::mi_collect(true) };
+}
+
 /// Starts reading the system fonts, so the first chart does not wait for them.
 pub fn warm_up() {
     std::thread::spawn(fonts);
@@ -40,6 +57,12 @@ pub fn svg(text: &str, width: Option<f64>) -> Result<DynamicImage, String> {
         [c.red(), c.green(), c.blue(), c.alpha()]
     }).collect();
     RgbaImage::from_raw(w, h, data).map(DynamicImage::ImageRgba8).ok_or_else(|| "bad pixels".into())
+}
+
+/// Whether a picture's bytes are an SVG, by its name or its first characters.
+pub fn is_svg(path: &std::path::Path, bytes: &[u8]) -> bool {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]).trim_start().to_string();
+    path.extension().is_some_and(|e| e == "svg") || head.starts_with("<svg") || head.starts_with("<?xml")
 }
 
 /// A local path for a path or an http(s) URL, downloading the URL once.

@@ -40,13 +40,16 @@ impl Bridge {
         let tag = tag.to_string();
         std::thread::spawn(move || {
             let _ = tx.send(through_hub(&tag, &request).unwrap_or_else(|| run(&tag, &request)));
+            crate::term::wake();
         });
     }
 }
 
 /// The hub's answer, or None when it has no such action (or is not there), for bridge.py to run it.
 fn through_hub(tag: &str, request: &Value) -> Option<Reply> {
-    let ask = json!({"op": "act", "app": request["module"], "action": request["function"], "args": request["args"], "armed": request["armed"]});
+    // The asking app's pane, for an action that opens something over it, like reviewr.
+    let env = json!({"HERDR_PANE_ID": std::env::var("HERDR_PANE_ID").unwrap_or_default()});
+    let ask = json!({"op": "act", "app": request["module"], "action": request["function"], "args": request["args"], "armed": request["armed"], "env": env});
     let answer = crate::hub::request(&ask, std::time::Duration::from_secs(120)).ok()?;
     if answer["unknown"].as_bool() == Some(true) {
         return None;

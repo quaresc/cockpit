@@ -1,5 +1,6 @@
 //! graphics.py in Rust: line charts, bar charts and flow charts as SVG, every size in pixels of the pane so a chart
-//! drawn at the terminal's cell size fills whole cells; `font` is the label size.
+//! drawn at the terminal's cell size fills whole cells; `font` is the label size. A chart also says where its points
+//! fall, for the mouse, and marks the hovered one: a crosshair on a line chart, a band behind a bar.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -59,12 +60,31 @@ fn legend(names: &[String], mut x: f64, y: f64, font: f64) -> String {
     out
 }
 
+/// Where a chart's points fall in its pixels, to tell which one the mouse is over.
+#[derive(Clone, Copy, Debug)]
+pub enum Geometry {
+    /// Points spread from `left` over `width` pixels.
+    Line { left: f64, width: f64, points: usize },
+    /// Rows of bars from `top`, one every `step` pixels.
+    Bar { top: f64, step: f64, rows: usize },
+}
+
+impl Geometry {
+    /// The point under pixel (x, y), the nearest one when between two.
+    pub fn at(&self, x: f64, y: f64) -> usize {
+        match *self {
+            Geometry::Line { left, width, points } => (((x - left) / width.max(1.0)) * points.saturating_sub(1) as f64).round().clamp(0.0, points.saturating_sub(1) as f64) as usize,
+            Geometry::Bar { top, step, rows } => (((y - top) / step.max(1.0)).floor().max(0.0) as usize).min(rows.saturating_sub(1)),
+        }
+    }
+}
+
 fn values(block: &Value, ys: &[usize]) -> Vec<f64> {
     rows(block).iter().flat_map(|r| ys.iter().filter_map(|&i| number(at(r, i))).collect::<Vec<_>>()).collect()
 }
 
-/// Lines over a soft area, round y ticks, the last value of each series at its end.
-pub fn line_chart(block: &Value, width: f64, height: f64, font: f64) -> Option<String> {
+/// Lines over a soft area, round y ticks, the last value of each series at its end; a crosshair at the hovered point.
+pub fn line_chart(block: &Value, width: f64, height: f64, font: f64, hover: Option<usize>) -> Option<(String, Geometry)> {
     let rows = rows(block);
     let (xi, ys, names) = axes(block);
     let values = values(block, &ys);
@@ -131,14 +151,25 @@ pub fn line_chart(block: &Value, width: f64, height: f64, font: f64) -> Option<S
             esc(&compact(last))
         );
     }
+    if let Some(k) = hover.filter(|k| *k < rows.len()) {
+        let x = x_of(k);
+        let _ = write!(body, r#"<line x1="{x:.1}" x2="{x:.1}" y1="{top:.1}" y2="{:.1}" stroke="{TEXT}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1}"/>"#, top + ph, 1.4 * s, 3.0 * s, 3.0 * s);
+        for (n, &i) in ys.iter().enumerate() {
+            if let Some(v) = number(at(&rows[k], i)) {
+                let color = SERIES[n % SERIES.len()];
+                let _ = write!(body, r#"<circle cx="{x:.1}" cy="{:.1}" r="{:.1}" fill="{color}" stroke="{BG}" stroke-width="{:.2}"/>"#, y_of(v), 5.5 * s, 2.0 * s);
+            }
+        }
+    }
     if ys.len() > 1 {
         body.push_str(&legend(&names, left, font * 1.2, font));
     }
-    Some(svg(width, height, &body, &defs))
+    Some((svg(width, height, &body, &defs), Geometry::Line { left, width: pw, points: rows.len() }))
 }
 
-/// Horizontal bars on a faint track, the value at each bar's end; returns the SVG and its height.
-pub fn bar_chart(block: &Value, width: f64, font: f64) -> Option<(String, f64)> {
+/// Horizontal bars on a faint track, the value at each bar's end, a band behind the hovered row; returns the SVG, its
+/// height and where its rows fall.
+pub fn bar_chart(block: &Value, width: f64, font: f64, hover: Option<usize>) -> Option<(String, f64, Geometry)> {
     let rows = rows(block);
     let (xi, ys, names) = axes(block);
     let values = values(block, &ys);
@@ -154,7 +185,11 @@ pub fn bar_chart(block: &Value, width: f64, font: f64) -> Option<(String, f64)> 
     let track = width - label - value_room;
     let mut body = String::new();
     let mut y = top;
-    for r in &rows {
+    let step = bar * ys.len() as f64 + gap;
+    for (k, r) in rows.iter().enumerate() {
+        if hover == Some(k) {
+            let _ = write!(body, r#"<rect x="0" y="{:.1}" width="{width:.1}" height="{step:.1}" rx="{:.1}" fill="{GRID}"/>"#, y - gap / 2.0, gap);
+        }
         let _ = write!(
             body,
             r#"<text x="{:.1}" y="{:.1}" font-size="{font:.1}" fill="{FG}" text-anchor="end">{}</text>"#,
@@ -183,7 +218,8 @@ pub fn bar_chart(block: &Value, width: f64, font: f64) -> Option<(String, f64)> 
         body.insert_str(0, &legend(&names, label, font * 1.3, font));
     }
     let height = y + font * 0.2;
-    Some((svg(width, height, &format!(r#"<rect width="{width}" height="{height:.0}" fill="{BG}"/>{body}"#), ""), height))
+    let geometry = Geometry::Bar { top: top - gap / 2.0, step, rows: rows.len() };
+    Some((svg(width, height, &format!(r#"<rect width="{width}" height="{height:.0}" fill="{BG}"/>{body}"#), ""), height, geometry))
 }
 
 /// Each node's layer, the longest path to it over forward edges; the edges that close a cycle point backwards.
@@ -347,4 +383,20 @@ pub fn svg_size(text: &str) -> (f64, f64) {
         return (w, h);
     }
     find(r#"viewBox="[\d.\s-]*?([\d.]+)\s+([\d.]+)""#).unwrap_or((300.0, 150.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_hovered_point_gets_a_crosshair_and_the_mouse_finds_it() {
+        let block = json!({"columns": ["d", "v"], "rows": [["a", 1], ["b", 3], ["c", 2]]});
+        let (plain, geometry) = line_chart(&block, 400.0, 200.0, 10.0, None).unwrap();
+        let (hovered, _) = line_chart(&block, 400.0, 200.0, 10.0, Some(1)).unwrap();
+        assert!(!plain.contains("stroke-dasharray=\"4.2") && hovered.matches("<circle").count() > plain.matches("<circle").count());
+        let Geometry::Line { left, width, .. } = geometry else { panic!("a line chart") };
+        assert_eq!((geometry.at(left, 0.0), geometry.at(left + width / 2.0 + 1.0, 0.0), geometry.at(1e6, 0.0)), (0, 1, 2));
+    }
 }

@@ -1,7 +1,7 @@
 //! What inbox.py derives from a cache entry: ages, the CI and review glyphs, a ticket's status and links, a dashboard's
 //! name; and the config values it reads.
 
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use cockpit_core::theme::{DIM, GREEN, ORANGE, RED, fg};
@@ -41,10 +41,23 @@ pub fn reference(pr: &Value) -> String {
     format!("{}#{}", s(pr, "repo"), text(pr, "number"))
 }
 
+/// A fixed "now" for snapshot tests, in UTC, so ages and clocks read the same on every run.
+static FROZEN: OnceLock<DateTime<Utc>> = OnceLock::new();
+
+pub fn freeze(at: &str) {
+    if let Ok(at) = DateTime::parse_from_rfc3339(at) {
+        let _ = FROZEN.set(at.with_timezone(&Utc));
+    }
+}
+
+fn now() -> DateTime<Utc> {
+    FROZEN.get().copied().unwrap_or_else(Utc::now)
+}
+
 /// Days since an ISO date; None when it is missing or unreadable (a connector field left unmapped).
 pub fn age_days(iso: &str) -> Option<f64> {
     let at = DateTime::parse_from_rfc3339(iso).ok()?;
-    Some((Utc::now() - at.with_timezone(&Utc)).num_milliseconds() as f64 / 86_400_000.0)
+    Some((now() - at.with_timezone(&Utc)).num_milliseconds() as f64 / 86_400_000.0)
 }
 
 pub fn ago(iso: &str) -> String {
@@ -58,11 +71,16 @@ pub fn ago(iso: &str) -> String {
 
 /// A cache's millisecond timestamp as local HH:MM.
 pub fn clock(ms: &Value) -> String {
-    Local.timestamp_millis_opt(ms.as_i64().unwrap_or(0)).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
+    let ms = ms.as_i64().unwrap_or(0);
+    let shown = if FROZEN.get().is_some() { Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%H:%M").to_string()) } else { Local.timestamp_millis_opt(ms).single().map(|t| t.format("%H:%M").to_string()) };
+    shown.unwrap_or_default()
 }
 
 pub fn today() -> String {
-    Local::now().format("%Y-%m-%d").to_string()
+    match FROZEN.get() {
+        Some(at) => at.format("%Y-%m-%d").to_string(),
+        None => Local::now().format("%Y-%m-%d").to_string(),
+    }
 }
 
 pub fn is_failing(pr: &Value) -> bool {
@@ -137,7 +155,10 @@ pub struct Config {
 
 impl Config {
     pub fn load() -> Self {
-        let raw = cockpit_core::files::config();
+        Self::from(cockpit_core::files::config())
+    }
+
+    pub fn from(raw: Value) -> Self {
         crate::icons::set_ci(s(&raw["ci"], "name"));
         Self { raw }
     }

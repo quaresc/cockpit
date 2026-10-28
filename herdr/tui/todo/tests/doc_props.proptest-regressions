@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 499f8a3f28fce15f7f8bb4db59c553c87571f171fb7144202a952fb1cd335a00 # shrinks to (text, _) = ("- [x] oA\n- [ ] A\n- [ ] 0\n- [ ] A\n- [ ] A\n- [ ] -", false), pick = Index(3074457345618258603), op = 1, new = "o"

@@ -1,7 +1,7 @@
 //! What the other parts of cockpit say about a step: the session a step was handed to, and the inbox's view of its PR.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cockpit_core::theme::{GREEN, ORANGE, RED, bold, fg};
@@ -29,8 +29,8 @@ fn ms(handoff: &Value, key: &str) -> f64 {
     handoff[key].as_f64().unwrap_or_default() / 1000.0
 }
 
-pub fn read() -> HashMap<String, Value> {
-    let Ok(entries) = std::fs::read_dir(dir()) else { return HashMap::new() };
+pub fn read(dir: &Path) -> HashMap<String, Value> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return HashMap::new() };
     entries
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
@@ -45,6 +45,29 @@ pub fn in_flight(handoff: &Value) -> bool {
         "sent" => now() - ms(handoff, "sentAt") <= SENT_WAIT,
         state => state == "running" || state == "waiting",
     }
+}
+
+/// A step marked done by hand closes its session's handoff, as `runbook.mark_done` does.
+pub fn close(dir: &Path, handoff: &Value) {
+    if !in_flight(handoff) {
+        return;
+    }
+    let (Some(id), Some(fields)) = (handoff["id"].as_str(), handoff.as_object()) else { return };
+    let mut closed = fields.clone();
+    closed.insert("state".into(), "done".into());
+    closed.insert("message".into(), "marked done by hand".into());
+    closed.insert("reportedAt".into(), ((now() * 1000.0) as u64).into());
+    let _ = cockpit_core::files::write(&dir.join(format!("{id}.json")), &Value::Object(closed));
+}
+
+/// Whether the step's session is at it now, for its row to pulse.
+pub fn is_running(handoff: &Value) -> bool {
+    matches!(handoff["state"].as_str(), Some("running" | "waiting"))
+}
+
+/// Whether the step's session gave up on it, for its row to flash red when it says so.
+pub fn has_failed(handoff: &Value) -> bool {
+    matches!(handoff["state"].as_str(), Some("failed" | "blocked"))
 }
 
 /// What the step's session made of it, shown under the step, or None once a success is old news.

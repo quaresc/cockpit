@@ -1,0 +1,566 @@
+{
+ "at": 1793177850733,
+ "error": "Calendar: list_events: Resource has been exhausted (e.g. check quota).",
+ "meetings": [
+  {
+   "id": "evt00_20261028",
+   "title": "Team Daily",
+   "start": "2026-10-28T09:45:00+01:00",
+   "end": "2026-10-28T10:00:00+01:00",
+   "url": "https://calendar.example.com/event/0",
+   "join": "https://meet.example.com/abc-00",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "alice@example.com",
+    "bob@example.com",
+    "carol@example.com",
+    "dan@example.com",
+    "erin@example.com",
+    "frank@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt_now",
+   "title": "Pairing on quotas",
+   "start": "2026-10-28T10:00:00+01:00",
+   "end": "2026-10-28T10:30:00+01:00",
+   "url": "https://calendar.example.com/event/now",
+   "join": "https://meet.example.com/now",
+   "response": "accepted",
+   "attendees": 2,
+   "people": [
+    "bob@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt_soon",
+   "title": "Quick sync",
+   "start": "2026-10-28T10:10:00+01:00",
+   "end": "2026-10-28T10:25:00+01:00",
+   "url": "https://calendar.example.com/event/soon",
+   "join": null,
+   "response": "tentative",
+   "attendees": 3,
+   "people": [],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt01_20261028",
+   "title": "Ledger Move Daily",
+   "start": "2026-10-28T11:15:00+01:00",
+   "end": "2026-10-28T11:30:00+01:00",
+   "url": "https://calendar.example.com/event/1",
+   "join": "https://meet.example.com/abc-01",
+   "response": "accepted",
+   "attendees": 4,
+   "people": [
+    "bob@example.com",
+    "carol@example.com",
+    "dan@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt02_20261028",
+   "title": "Accounts Daily",
+   "start": "2026-10-28T11:45:00+01:00",
+   "end": "2026-10-28T12:00:00+01:00",
+   "url": "https://calendar.example.com/event/2",
+   "join": "https://meet.example.com/abc-02",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "carol@example.com",
+    "dan@example.com",
+    "erin@example.com",
+    "frank@example.com",
+    "grace@example.com",
+    "heidi@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt03_20261028",
+   "title": "Team Daily",
+   "start": "2026-10-29T09:45:00+01:00",
+   "end": "2026-10-29T10:00:00+01:00",
+   "url": "https://calendar.example.com/event/3",
+   "join": "https://meet.example.com/abc-03",
+   "response": "accepted",
+   "attendees": 10,
+   "people": [
+    "dan@example.com",
+    "erin@example.com",
+    "frank@example.com",
+    "grace@example.com",
+    "heidi@example.com",
+    "ivan@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt04_20261028",
+   "title": "Backend Chapter",
+   "start": "2026-10-29T10:00:00+01:00",
+   "end": "2026-10-29T11:00:00+01:00",
+   "url": "https://calendar.example.com/event/4",
+   "join": "https://meet.example.com/abc-04",
+   "response": "accepted",
+   "attendees": 16,
+   "people": [
+    "erin@example.com",
+    "frank@example.com",
+    "grace@example.com",
+    "heidi@example.com",
+    "ivan@example.com",
+    "judy@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt05_20261028",
+   "title": "Ledger Move Daily",
+   "start": "2026-10-29T11:15:00+01:00",
+   "end": "2026-10-29T11:30:00+01:00",
+   "url": "https://calendar.example.com/event/5",
+   "join": "https://meet.example.com/abc-05",
+   "response": "accepted",
+   "attendees": 4,
+   "people": [
+    "frank@example.com",
+    "grace@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt06_20261028",
+   "title": "Accounts Daily",
+   "start": "2026-10-29T11:45:00+01:00",
+   "end": "2026-10-29T12:00:00+01:00",
+   "url": "https://calendar.example.com/event/6",
+   "join": "https://meet.example.com/abc-06",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "grace@example.com",
+    "heidi@example.com",
+    "ivan@example.com",
+    "judy@example.com",
+    "ken@example.com",
+    "liz@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt07_20261028",
+   "title": "Claude Code Office Hours",
+   "start": "2026-10-29T14:30:00+01:00",
+   "end": "2026-10-29T15:00:00+01:00",
+   "url": "https://calendar.example.com/event/7",
+   "join": "https://meet.example.com/abc-07",
+   "response": "needsAction",
+   "attendees": 5,
+   "people": [
+    "heidi@example.com",
+    "ivan@example.com",
+    "judy@example.com",
+    "ken@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt08_20261028",
+   "title": "Weekly Sync Search operations",
+   "start": "2026-10-29T15:30:00+01:00",
+   "end": "2026-10-29T15:55:00+01:00",
+   "url": "https://calendar.example.com/event/8",
+   "join": "https://meet.example.com/abc-08",
+   "response": "needsAction",
+   "attendees": 3,
+   "people": [
+    "ivan@example.com",
+    "judy@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt09_20261028",
+   "title": "Accounts - Tech Refinement",
+   "start": "2026-10-29T16:00:00+01:00",
+   "end": "2026-10-29T17:00:00+01:00",
+   "url": "https://calendar.example.com/event/9",
+   "join": "https://meet.example.com/abc-09",
+   "response": "needsAction",
+   "attendees": 10,
+   "people": [
+    "judy@example.com",
+    "ken@example.com",
+    "liz@example.com",
+    "mallory@example.com",
+    "nina@example.com",
+    "oscar@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt10_20261028",
+   "title": "Hiring calibration",
+   "start": "2026-10-29T17:00:00+01:00",
+   "end": "2026-10-29T17:45:00+01:00",
+   "url": "https://calendar.example.com/event/10",
+   "join": "https://meet.example.com/abc-10",
+   "response": "needsAction",
+   "attendees": 4,
+   "people": [
+    "ken@example.com",
+    "liz@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt11_20261028",
+   "title": "Monthly Apéro",
+   "start": "2026-10-29T18:00:00+01:00",
+   "end": "2026-10-29T21:00:00+01:00",
+   "url": "https://calendar.example.com/event/11",
+   "join": null,
+   "response": "needsAction",
+   "attendees": 1,
+   "people": [],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt12_20261028",
+   "title": "Accounts Daily",
+   "start": "2026-10-30T11:45:00+01:00",
+   "end": "2026-10-30T12:00:00+01:00",
+   "url": "https://calendar.example.com/event/12",
+   "join": "https://meet.example.com/abc-12",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "mallory@example.com",
+    "nina@example.com",
+    "oscar@example.com",
+    "peggy@example.com",
+    "alice@example.com",
+    "bob@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt13_20261028",
+   "title": "Team Daily",
+   "start": "2026-11-02T09:45:00+01:00",
+   "end": "2026-11-02T10:00:00+01:00",
+   "url": "https://calendar.example.com/event/13",
+   "join": "https://meet.example.com/abc-13",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "nina@example.com",
+    "oscar@example.com",
+    "peggy@example.com",
+    "alice@example.com",
+    "bob@example.com",
+    "carol@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt14_20261028",
+   "title": "ENG: mission leads sync 🤝",
+   "start": "2026-11-02T10:00:00+01:00",
+   "end": "2026-11-02T10:30:00+01:00",
+   "url": "https://calendar.example.com/event/14",
+   "join": "https://meet.example.com/abc-14",
+   "response": "accepted",
+   "attendees": 4,
+   "people": [
+    "oscar@example.com",
+    "peggy@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt15_20261028",
+   "title": "Accounts: Weekly Kick off",
+   "start": "2026-11-02T10:00:00+01:00",
+   "end": "2026-11-02T10:45:00+01:00",
+   "url": "https://calendar.example.com/event/15",
+   "join": "https://meet.example.com/abc-15",
+   "response": "needsAction",
+   "attendees": 9,
+   "people": [
+    "peggy@example.com",
+    "alice@example.com",
+    "bob@example.com",
+    "carol@example.com",
+    "dan@example.com",
+    "erin@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt16_20261028",
+   "title": "Accounts - Tech sync",
+   "start": "2026-11-02T11:00:00+01:00",
+   "end": "2026-11-02T11:30:00+01:00",
+   "url": "https://calendar.example.com/event/16",
+   "join": "https://meet.example.com/abc-16",
+   "response": "tentative",
+   "attendees": 9,
+   "people": [
+    "alice@example.com",
+    "bob@example.com",
+    "carol@example.com",
+    "dan@example.com",
+    "erin@example.com",
+    "frank@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt17_20261028",
+   "title": "Ledger Move: Week Start",
+   "start": "2026-11-02T11:30:00+01:00",
+   "end": "2026-11-02T11:55:00+01:00",
+   "url": "https://calendar.example.com/event/17",
+   "join": "https://meet.example.com/abc-17",
+   "response": "accepted",
+   "attendees": 4,
+   "people": [
+    "bob@example.com",
+    "carol@example.com",
+    "dan@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt18_20261028",
+   "title": "Welcome Theo!",
+   "start": "2026-11-02T12:30:00+01:00",
+   "end": "2026-11-02T14:00:00+01:00",
+   "url": "https://calendar.example.com/event/18",
+   "join": "https://meet.example.com/abc-18",
+   "response": "accepted",
+   "attendees": 13,
+   "people": [
+    "carol@example.com",
+    "dan@example.com",
+    "erin@example.com",
+    "frank@example.com",
+    "grace@example.com",
+    "heidi@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt19_20261028",
+   "title": "👥 Weekly Staff",
+   "start": "2026-11-02T14:00:00+01:00",
+   "end": "2026-11-02T14:45:00+01:00",
+   "url": "https://calendar.example.com/event/19",
+   "join": "https://meet.example.com/abc-19",
+   "response": "needsAction",
+   "attendees": 7,
+   "people": [
+    "dan@example.com",
+    "erin@example.com",
+    "frank@example.com",
+    "grace@example.com",
+    "heidi@example.com",
+    "ivan@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt20_20261028",
+   "title": "Backend Staff meeting",
+   "start": "2026-11-02T14:45:00+01:00",
+   "end": "2026-11-02T15:15:00+01:00",
+   "url": "https://calendar.example.com/event/20",
+   "join": "https://meet.example.com/abc-20",
+   "response": "needsAction",
+   "attendees": 3,
+   "people": [
+    "erin@example.com",
+    "frank@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt21_20261028",
+   "title": "👥 Maya / Jonas - Weekly",
+   "start": "2026-11-02T16:00:00+01:00",
+   "end": "2026-11-02T16:25:00+01:00",
+   "url": "https://calendar.example.com/event/21",
+   "join": "https://meet.example.com/abc-21",
+   "response": "accepted",
+   "attendees": 2,
+   "people": [
+    "frank@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt22_20261028",
+   "title": "Team Daily",
+   "start": "2026-11-03T09:45:00+01:00",
+   "end": "2026-11-03T10:00:00+01:00",
+   "url": "https://calendar.example.com/event/22",
+   "join": "https://meet.example.com/abc-22",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "grace@example.com",
+    "heidi@example.com",
+    "ivan@example.com",
+    "judy@example.com",
+    "ken@example.com",
+    "liz@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt23_20261028",
+   "title": "Accounts Daily",
+   "start": "2026-11-03T11:00:00+01:00",
+   "end": "2026-11-03T11:15:00+01:00",
+   "url": "https://calendar.example.com/event/23",
+   "join": "https://meet.example.com/abc-23",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "heidi@example.com",
+    "ivan@example.com",
+    "judy@example.com",
+    "ken@example.com",
+    "liz@example.com",
+    "mallory@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt24_20261028",
+   "title": "Ledger Move Daily",
+   "start": "2026-11-03T11:15:00+01:00",
+   "end": "2026-11-03T11:30:00+01:00",
+   "url": "https://calendar.example.com/event/24",
+   "join": "https://meet.example.com/abc-24",
+   "response": "accepted",
+   "attendees": 4,
+   "people": [
+    "ivan@example.com",
+    "judy@example.com",
+    "ken@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt25_20261028",
+   "title": "Accounts Lunch @Berlin",
+   "start": "2026-11-03T12:00:00+01:00",
+   "end": "2026-11-03T13:50:00+01:00",
+   "url": "https://calendar.example.com/event/25",
+   "join": "https://meet.example.com/abc-25",
+   "response": "tentative",
+   "attendees": 6,
+   "people": [
+    "judy@example.com",
+    "ken@example.com",
+    "liz@example.com",
+    "mallory@example.com",
+    "nina@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  },
+  {
+   "id": "evt26_20261028",
+   "title": "[ENG] Design review",
+   "start": "2026-11-03T16:30:00+01:00",
+   "end": "2026-11-03T17:15:00+01:00",
+   "url": "https://calendar.example.com/event/26",
+   "join": "https://meet.example.com/abc-26",
+   "response": "needsAction",
+   "attendees": 9,
+   "people": [
+    "ken@example.com",
+    "liz@example.com",
+    "mallory@example.com",
+    "nina@example.com",
+    "oscar@example.com",
+    "peggy@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt27_20261028",
+   "title": "Lin / Sam - staff collab",
+   "start": "2026-11-03T17:15:00+01:00",
+   "end": "2026-11-03T17:45:00+01:00",
+   "url": "https://calendar.example.com/event/27",
+   "join": "https://meet.example.com/abc-27",
+   "response": "accepted",
+   "attendees": 3,
+   "people": [
+    "liz@example.com",
+    "mallory@example.com"
+   ],
+   "attachments": [],
+   "briefable": true
+  },
+  {
+   "id": "evt28_20261028",
+   "title": "Team Daily",
+   "start": "2026-11-04T09:45:00+01:00",
+   "end": "2026-11-04T10:00:00+01:00",
+   "url": "https://calendar.example.com/event/28",
+   "join": "https://meet.example.com/abc-28",
+   "response": "accepted",
+   "attendees": 9,
+   "people": [
+    "mallory@example.com",
+    "nina@example.com",
+    "oscar@example.com",
+    "peggy@example.com",
+    "alice@example.com",
+    "bob@example.com"
+   ],
+   "attachments": [],
+   "briefable": false
+  }
+ ]
+}
