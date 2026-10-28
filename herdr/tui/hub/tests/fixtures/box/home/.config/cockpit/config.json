@@ -1,0 +1,6 @@
+{"reposDir": "@BOX@/repos", "github": {"enabled": true, "org": "acme"},
+ "tickets": {"enabled": true, "name": "Linear", "server": "claude.ai Linear", "keys": ["ENG"], "urlTemplate": ""},
+ "ci": {"enabled": true, "name": "CircleCI", "server": "circleci"},
+ "platform": {"enabled": true, "server": "platform", "previewDashboardUrl": "https://argo/{preview}", "tools": {"deployStatus": {"tool": "deploy_status"}, "createPreview": {"tool": "create"}}},
+ "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
+ "runbookTools": ["mcp__notion"], "worktrees": false}

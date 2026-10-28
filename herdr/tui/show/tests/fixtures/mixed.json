@@ -1,0 +1,34 @@
+{
+ "title": "Mixed",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "markdown",
+   "title": "Summary",
+   "text": "Two blocks, **compact**."
+  },
+  {
+   "type": "table",
+   "title": "Plans",
+   "columns": [
+    "plan",
+    "orgs"
+   ],
+   "rows": [
+    [
+     "free",
+     412
+    ],
+    [
+     "pro",
+     120
+    ]
+   ]
+  },
+  {
+   "type": "markdown",
+   "text": "An untitled block."
+  }
+ ],
+ "placement": "right"
+}

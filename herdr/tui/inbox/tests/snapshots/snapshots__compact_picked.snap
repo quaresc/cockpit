@@ -1,0 +1,24 @@
+---
+source: inbox/tests/snapshots.rs
+expression: "render(&mut app, 90, 20)"
+---
+   Inbox   updated 10:00
+ Previews: the preview connector is not connected
+ ├      mobile#521              feat: offline cart               Ravi               4d
+ ├ ▶  2 more team requests
+ ├ ▶ 2 older than 60 days
+ └ ▶  2 muted repos
+ ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (g)
+ ├ ▼ ● Usage limits  4
+ │ ├ ▼    ENG-414   to review     [Frontend] - Add a "Know more… $0.88
+▌│ │ └ ▼   web#1866                feat(quota): link the quota…                   22h
+ │ │   ├    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides
+ │ │   └    translations
+ │ ├ ▼    ENG-413   to merge      [Frontend] - Show the export … $23.91
+ │ │ └ ▼   web#1864                feat(settings): show the ex…  preview         22h
+▌│ │   └ ▼   web#1866                feat(quota): link the quo…                   22h
+ │ │     ├    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hide
+ │ │     └    translations
+ │ ├ ▼    ENG-415   to review     [Backend] - Ask again when a … ▁▃▅█ $11.58
+▌│ │ └ ▼   api#2224                feat: ask again when a shar…  image           18h
+ 2 PRs picked    open  o

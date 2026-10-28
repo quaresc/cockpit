@@ -1,0 +1,32 @@
+{
+ "title": "Sequence",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "sequence",
+   "title": "Answer",
+   "actors": [
+    "Pane",
+    "Mod",
+    "Session"
+   ],
+   "messages": [
+    {
+     "from": "Pane",
+     "to": "Mod",
+     "label": "answer file"
+    },
+    {
+     "from": "Mod",
+     "to": "Session",
+     "label": "prompt"
+    },
+    {
+     "note": "once per answer",
+     "over": "Mod"
+    }
+   ]
+  }
+ ],
+ "placement": "right"
+}

@@ -1,6 +1,7 @@
 name: release
 
-# A new version in plugin.json on main gets its tag and GitHub release, with its CHANGELOG.md section as notes.
+# A new version in plugin.json on main gets its tag and GitHub release, with its CHANGELOG.md section as notes, then the
+# Rust apps built for each machine as release assets, which herdr/fetch-apps.sh installs. A manual run rebuilds them.
 on:
   push:
     branches: [main]
@@ -13,20 +14,32 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      build: ${{ steps.release.outputs.build }}
     steps:
       - uses: actions/checkout@v4
       - name: Tag and release the version
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           version=$(jq -r .version plugin/.claude-plugin/plugin.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           if gh release view "v$version" >/dev/null 2>&1; then
             echo "v$version is already released"
+            echo "build=$MANUAL" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           herdr=$(sed -n 's/^version = "\(.*\)"$/\1/p' herdr/herdr-plugin.toml)
           if [ "$herdr" != "$version" ]; then
             echo "::error::herdr/herdr-plugin.toml is on $herdr, plugin.json on $version"
+            exit 1
+          fi
+          apps=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' herdr/tui/Cargo.toml)
+          if [ "$apps" != "$version" ]; then
+            echo "::error::herdr/tui/Cargo.toml is on $apps, plugin.json on $version"
             exit 1
           fi
           awk -v head="## $version" '$0 == head || index($0, head " ") == 1 { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md |
@@ -36,3 +49,51 @@ jobs:
             exit 1
           fi
           gh release create "v$version" --target "$GITHUB_SHA" --title "$version" --notes-file notes.md
+          echo "build=true" >> "$GITHUB_OUTPUT"
+
+  apps:
+    needs: release
+    if: needs.release.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both macOS targets build on the arm runner, x86_64 by cross-compiling.
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: herdr/tui
+          key: ${{ matrix.target }}
+      - name: Build the apps
+        working-directory: herdr/tui
+        run: cargo build --release --locked --target "$TARGET"
+      - name: Pack and upload them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COPYFILE_DISABLE: "1"
+        run: |
+          name="cockpit-apps-$VERSION-$TARGET.tar.gz"
+          tar -C "herdr/tui/target/$TARGET/release" -czf "$name" \
+            cockpit cockpit-hub cockpit-inbox cockpit-runbook cockpit-show cockpit-todo cockpit-meetings
+          if command -v sha256sum >/dev/null; then sha256sum "$name"; else shasum -a 256 "$name"; fi > "$name.sha256"
+          cat "$name.sha256"
+          gh release upload "v$VERSION" "$name" "$name.sha256" --clobber

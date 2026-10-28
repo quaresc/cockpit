@@ -1,0 +1,34 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, 90, 30)"
+---
+   Runbooks   3 · 25 steps left
+ ENG-410 13  ENG-420 12  ENG-398 ✓
+╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-410 · Daily quotas: usage counters (exports + previews) for the settings page   upda
+ ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━  24%
+
+ #   status                     step                           where                    ▐
+                                                                                        ▐
+ 1   ✅  done, v0.3.0 cut        Release usage 0.3.0 schema     event-schemas-registry#  ▐
+                                                               57
+
+ 2   ✅  done, applied           Grant billing the usage vhost  infra#811
+
+ 3   ✅  done, applied           Grant billing configure on     infra#814
+                                reply exchange                  merged
+
+ 4   ✅  done, expired           Preview e2e (backfill, limits, pv-quotas-7f3a
+                                banner)
+
+
+ • Deploy order is consumer first: api, then web, then billing PR 3; PR 4 only once
+   charts#402 is on the charts' production branch.
+ • billing#380 targets PR 3's branch: merge #379 first, then retarget #380 to main.
+ ╭ ENG-410: a new step under step 4 ────────────────────────────────────────────────────╮
+─│ step     Check consumer lag                                                          │─
+ │ where    Datadog                                                                     │
+ │ command  kubectl get pods                                                            │
+ │ tab or enter next field · enter on the last saves · esc cancels                      │
+ ╰──────────────────────────────────────────────────────────────────────────────────────╯
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette

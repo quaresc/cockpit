@@ -2,3 +2,6 @@ __pycache__/
 .DS_Store
 docs/screenshots/home/
 .venv/
+herdr/bin/
+herdr/bin.*/
+herdr/fetch.lock/

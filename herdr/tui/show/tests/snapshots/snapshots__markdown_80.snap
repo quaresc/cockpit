@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  Markdown   view · hh:mm
+                                                                               ┃
+ Notes                                                                         ┃
+                                  Quota report                                 ┃
+                                                                               ┃
+ The daily quotas shipped on Tuesday; this note sums up what changed, what did ┃
+ not and where to look. A second line of the same paragraph joins the first, as┃
+ CommonMark says.                                                              ┃
+                                                                               ┃
+ Changes                                                                       ┃
+                                                                               ┃
+ • The API counts each export                                                  ┃
+   ▪ against the organisation's quota                                          ┃
+     ‣ reset at midnight UTC                                                   ┃
+ ☑ backend merged                                                              ┃
+ ☐ front behind the daily_quotas flag                                          ┃
+                                                                               ┃
+ 1. Ship the API                                                               ┃
+ 2. Ship the front                                                             ┃
+ 3. Watch the dashboards                                                       ┃
+                                                                               ┃
+ ▌ Quotas are per organisation, not per teammate. See                          ┃
+ ▌ https://example.com/quotas for the rules.                                   ┃
+                                                                               ┃
+ Numbers                                                                       ┃
+                                                                               ┃
+ ┌────────────┬─────────────┬───────┐                                          ┃
+ │ Plan       │ Daily quota │ Share │                                          ┃
+ ├────────────┼─────────────┼───────┤                                          ┃
+ │ Free       │          10 │  62%  │                                          ┃
+ │ Pro        │         200 │  30%  │                                          ┃
+ │ Enterprise │   unlimited │  8%   │                                          ┃
+ └────────────┴─────────────┴───────┘                                          ┃
+                                                                               ┃
+  fn quota(plan: &str) -> Option<u32> {                                   rust │
+      // Enterprise has none.                                                  │
+      match plan { "free" => Some(10), "pro" => Some(200), _ => None }         │
+  }                                                                            │
+                                                                               │
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

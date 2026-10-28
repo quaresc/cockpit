@@ -33,15 +33,16 @@ export const SHOW_SPEC = {
     'source:{datadog:{queries:[...], from?:"now-1h"}} to refresh itself every `every` seconds, or command:<shell printing JSON> ' +
     'with every; {type:"flow", nodes:[{id, label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], ' +
     'direction?:"down"|"right"}; {type:"sequence", actors?:[...], messages:[{from, to, label, reply?} | {note, over}]}; ' +
-    '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"image", path|url, caption?}; {type:"diff", repo:<absolute ' +
-    'path>, base?} following the working tree, or {type:"diff", patch}; {type:"log", command, every?, lines?} tailing a command; ' +
+    '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"image", path|url, caption?} (an animated GIF plays, so ' +
+    'an E2E recording shows as one); {type:"compare", before, after} for two screenshots (a before/after of a front change); ' +
+    '{type:"diff", repo:<absolute path>, base?} following the working tree, or {type:"diff", patch}, whose lines the person can ' +
+    'comment on, each comment reaching you as their next message; {type:"log", command, every?, lines?} tailing a command; ' +
     '{type:"ci", repo, branch} for the CI run of a branch; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
     '{type:"confirm", summary, consequence?, confirm_label?}, whose answer reaches you as the person\'s next message; ' +
     '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane. placement:"browser" ' +
     'draws the view as a web page in the browser beside the session instead, at full resolution: use it for tables too ' +
     'wide for a pane, big diagrams, pictures and side-by-side diffs; it takes markdown, table, chart, flow, sequence, ' +
-    'mermaid, image and diff blocks, with rows given in the call, and {type:"compare", before, after} for two screenshots ' +
-    'side by side (a before/after of a front change).',
+    'mermaid, image, compare and diff blocks, with rows given in the call.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -208,7 +209,6 @@ export function viewError(input: Record<string, unknown>): string | undefined {
     const error = blockError(block as Block, `/blocks/${n}`)
     if (error) return error
     const b = block as Block
-    if (b.type === 'compare' && input.placement !== 'browser') return `at /blocks/${n}: a compare block needs placement "browser"`
     if (input.placement === 'browser' && (!PAGE_BLOCKS.includes(b.type as string) || b.source !== undefined || b.command !== undefined)) {
       return `at /blocks/${n}: a browser view takes ${list(PAGE_BLOCKS)} blocks with their data in the call; show this one in a pane`
     }
@@ -246,13 +246,13 @@ async function isOpenSoon($: $, dir: string, name: string, pidMtime: number) {
 }
 
 async function openPane($: $, here: { pane: string }, name: string, placement: Placement) {
-  const script = `${(await loadConfig($)).herdrPluginRoot}/show.py`
+  const script = `${(await loadConfig($)).herdrPluginRoot}/app.sh`
   if (!(await $.fs.stat(script).then(() => true, () => false))) return `the cockpit herdr plugin has no ${script} yet: update it`
   const split = await $.process.run(['herdr', 'pane', 'split', here.pane, '--direction', placement === 'down' ? 'down' : 'right'], { timeoutMs: 10_000 })
   const pane = (JSON.parse(split.stdout || '{}')?.result?.pane?.pane_id as string | undefined) ?? ''
   if (split.exitCode !== 0 || !pane) return `herdr pane split failed: ${split.stderr.trim()}`
   // exec, so the pane closes with the app.
-  await $.process.run(['herdr', 'pane', 'run', pane, `exec python3 ${shellQuote(script)} ${shellQuote(name)}`], { timeoutMs: 10_000 })
+  await $.process.run(['herdr', 'pane', 'run', pane, `exec sh ${shellQuote(script)} show ${shellQuote(name)}`], { timeoutMs: 10_000 })
   if (placement === 'zoomed') await $.process.run(['herdr', 'pane', 'zoom', pane, '--on'], { timeoutMs: 10_000 })
   // The keyboard stays with the conversation.
   else await $.process.run(['herdr', 'pane', 'focus', '--pane', pane, '--direction', placement === 'down' ? 'up' : 'left'], { timeoutMs: 10_000 })
@@ -398,8 +398,22 @@ export async function refreshSources($: $, session: string) {
 }
 
 type Answer = { block: number; type: string; value: unknown; label: string }
+type Comment = { path: string; line: number; text: string }
 
-// An answer the person gave in a pane becomes their next message to the session, once.
+// What the person's answer says to the session, in their words.
+export function answerText(name: string, answer: Answer, block: Block | undefined) {
+  if (answer.type === 'comment') {
+    const { path, line, text } = answer.value as Comment
+    return `In the ${name} pane I commented on ${path}:${line}: ${text}`
+  }
+  const asked = (block?.prompt ?? block?.summary ?? block?.title ?? '') as string
+  return answer.type === 'confirm'
+    ? `In the ${name} pane I ${answer.value ? 'confirmed' : 'declined'}${asked ? `: ${asked.split('\n')[0]}` : ''}.`
+    : `In the ${name} pane I picked "${answer.label}"${asked ? ` for: ${asked.replace(/[.?!:]$/, '')}` : ''}.`
+}
+
+// An answer the person gave in a pane becomes their next message to the session, once. A question's answer is written
+// back into the view so a redrawn pane does not ask again; a diff's comments leave it as it is, for the next one.
 export async function collectAnswers($: $, session: string) {
   const dir = await showDir($)
   const listing = await $.fs.list(dir).catch(() => [])
@@ -414,14 +428,10 @@ export async function collectAnswers($: $, session: string) {
     if (!answer) continue
     const spec = await readSpec($, found[1]!)
     const block = spec?.blocks[answer.block]
-    if (spec && block) {
+    if (spec && block && answer.type !== 'comment') {
       spec.blocks[answer.block] = { ...block, answered: answer.label }
       await writeSpec($, found[1]!, spec)
     }
-    const asked = (block?.prompt ?? block?.summary ?? block?.title ?? '') as string
-    const text = answer.type === 'confirm'
-      ? `In the ${found[1]} pane I ${answer.value ? 'confirmed' : 'declined'}${asked ? `: ${asked.split('\n')[0]}` : ''}.`
-      : `In the ${found[1]} pane I picked "${answer.label}"${asked ? ` for: ${asked.replace(/[.?!:]$/, '')}` : ''}.`
-    void $.prompt.submit({ text })
+    void $.prompt.submit({ text: answerText(found[1]!, answer, block) })
   }
 }

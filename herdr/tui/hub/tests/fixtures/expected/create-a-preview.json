@@ -1,0 +1,22 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/requests/<MS>-create-preview.json": {
+      "app": "web",
+      "branch": "me/eng-401-form",
+      "label": "preview for web me/eng-401-form",
+      "type": "create-preview"
+    }
+  },
+  "note": "",
+  "pending": {
+    "https://github.com/acme/web/pull/12": {
+      "at": 0,
+      "file": "<MS>-create-preview.json",
+      "label": "preview for web me/eng-401-form",
+      "working": "creating…"
+    }
+  },
+  "refreshing": []
+}

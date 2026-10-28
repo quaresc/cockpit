@@ -1,0 +1,20 @@
+---
+source: todo/tests/snapshots.rs
+expression: "render(&mut app, 60, 16)"
+---
+   To-do   4 open
+
+     add a to-do
+
+     Thursday follow up on archive/restore, especially t…
+     review ENG-398 admin export https://github.com/acme…
+     ask to get assigned on PR reviews, especially the f…
+     ADR Noor
+
+    3 done
+────────────────────────────────────────────────────────────
+ ADR Noor
+ open
+
+
+ enter save  esc cancel                         ▏^p palette

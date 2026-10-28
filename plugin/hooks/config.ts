@@ -128,6 +128,8 @@ export type Config = {
   runbookTools: string[]
   // Whether the inbox starts work on a branch checked out nowhere in a new herdr worktree, rather than in the main checkout.
   worktrees: boolean
+  // How tight the space apps lay out their rows: compact puts a row's buttons on the row itself.
+  density: 'comfortable' | 'compact'
 }
 
 // A pinned space of your own: where it opens, its sidebar glyph, and the herdr key /cockpit:setup binds to it.
@@ -220,6 +222,7 @@ const DEFAULTS: Config = {
   spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],
   runbookTools: [],
   worktrees: false,
+  density: 'comfortable',
 }
 
 let cached: { at: number; config: Config } | undefined

@@ -1,0 +1,36 @@
+{
+  "calls": [
+    {
+      "args": [
+        "worktree",
+        "create",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--branch",
+        "me/other",
+        "--base",
+        "origin/me/other",
+        "--label",
+        "ci api#7",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'CI is failing on https://github.com/acme/api/pull/7. The fix goes on this PR'\"'\"'s branch. Explain the cause and propose a fix. Do not push. This is a new worktree of me/other: work in it.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "started \"ci api#7\" in a new worktree",
+  "pending": {},
+  "refreshing": []
+}

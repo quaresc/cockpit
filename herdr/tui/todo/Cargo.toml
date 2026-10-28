@@ -1,0 +1,18 @@
+[package]
+name = "cockpit-todo"
+description = "The to-do space: the Markdown checkbox list in ~/.config/cockpit/todo.md."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde_json.workspace = true
+notify.workspace = true
+chrono.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest = "1"

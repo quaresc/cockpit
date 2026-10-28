@@ -1,0 +1,1 @@
+{"tickets": {"enabled": true, "keys": ["ENG", "OPS"], "urlTemplate": "https://linear.app/acme/issue/{id}"}, "density": "comfortable"}

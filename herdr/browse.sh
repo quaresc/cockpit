@@ -4,4 +4,9 @@
 #   browse.sh --beside [<Claude session id>]                               the browser beside it, as JSON
 #   browse.sh --external [<Claude session id>]                             its page, in the default browser
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
-exec python3 "$(dirname "$0")/browse.py" "$@"
+dir=$(dirname "$0")
+for binary in "$dir/bin/cockpit" "$dir/tui/target/release/cockpit"; do
+  [ -x "$binary" ] && exec "$binary" browse "$@"
+done
+echo "cockpit: no cockpit binary for this machine yet; /cockpit:doctor says why" >&2
+exit 1

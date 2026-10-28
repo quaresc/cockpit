@@ -1,0 +1,28 @@
+{
+  "calls": [
+    {
+      "args": [
+        "-",
+        "-",
+        "Run step 1 of the NOTES runbook (<BOX>/home/.config/cockpit/runbooks/notes.md): Look, on api#4. Check its preconditions first. For anything that touches production, show me exactly what it will do and wait for my go before running it. Handoff notes-1: report how it went with the mcp__cockpit__report_step tool, done, failed or blocked once it has run, or waiting while it needs my go. It sets the step's status in the runbook; without that tool, set the status yourself."
+      ],
+      "cmd": "ask-session.sh",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/handoffs/notes-1.json": {
+      "id": "notes-1",
+      "path": "<BOX>/home/.config/cockpit/runbooks/notes.md",
+      "sentAt": 0,
+      "slug": "notes",
+      "state": "sent",
+      "step": "1",
+      "title": "Look"
+    }
+  },
+  "note": "step 1 sent to its session",
+  "pending": {},
+  "refreshing": []
+}

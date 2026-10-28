@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  Flow   view · hh:mm
+
+ Preview
+  ▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀▀▀
+    ▄▄▄▄▀▀▄▄▄▄
+    ▀▀▀▀▀▀▀▀▀▀
+  ▄▄▄▄▄▀▀▀▀▀▄▄▄▄
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

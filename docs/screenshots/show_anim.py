@@ -1,8 +1,9 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
-back, drawn by the real show.py from fictional data."""
-import json, os, shutil, subprocess, sys, time
+back, drawn by the Rust app (built in herdr/tui) from fictional data, its charts laid over from the pictures it saves to
+COCKPIT_SHOT_DIR."""
+import base64, json, os, shutil, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from term2svg import animate, run, screen_of
+from term2svg import BAR, CW, LH, PAD, animate, run, screen_of
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.join(HERE, "home")
@@ -11,14 +12,20 @@ OUT = os.path.join(HERE, "..")
 COLS, ROWS, LEFT = 150, 30, 76
 PANE = COLS - LEFT - 1
 ORANGE, DIMC, INK, QUIET, WHITE, LINE = "FFC799", "707070", "101010", "2C2C30", "D2D2D2", "2C2C30"
-env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true"}
+env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true", "COCKPIT_HERDR_DIR": APPS,
+       "COCKPIT_HUB_IDLE_SECS": "20"}
+SHOTS = os.path.join(HOME, "show-shots")
 
 
 def pane(name, spec, cols, rows, keys=(), wait=2.0):
-    """The show.py screen for this spec, at this size."""
+    """The show screen for this spec, at this size, its pictures saved to SHOTS."""
     os.makedirs(os.path.join(HOME, ".cache", "cockpit", "show"), exist_ok=True)
     json.dump({**spec, "at": int(time.time() * 1000)}, open(os.path.join(HOME, ".cache", "cockpit", "show", f"{name}.json"), "w"))
-    return screen_of(run(["python3", "show.py", name], cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
+    shutil.rmtree(SHOTS, ignore_errors=True)
+    os.makedirs(SHOTS)
+    argv, wait = [os.path.join(APPS, "tui", "target", "release", "cockpit-show"), name], wait + 3
+    env["COCKPIT_SHOT_DIR"] = SHOTS
+    return screen_of(run(argv, cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
 
 
 # A quarter of fictional weekly signups, by sign-in method.
@@ -90,5 +97,29 @@ frames = [  # (seconds on screen, screen)
     (3.4, beside(session(LEFT, 4, "open"), chart_pane)),
 ]
 
-open(os.path.join(OUT, "show.svg"), "w").write(animate(frames, "herdr · show"))
+def placed():
+    """Each picture with the cells it holds in the pane, from the app's shot folder."""
+    out = []
+    for at in sorted(f for f in os.listdir(SHOTS) if f.endswith(".at")):
+        png = os.path.join(SHOTS, at[:-3] + ".png")
+        if os.path.exists(png):
+            x, y, w, h = json.load(open(os.path.join(SHOTS, at)))
+            out.append({"x": x, "y": y, "w": w, "h": h, "png": base64.b64encode(open(png, "rb").read()).decode()})
+    return out
+
+
+def pictures(i):
+    """The charts as images over the pane's half blocks, in the frames that show the pane."""
+    if i not in (2, 4):
+        return ""
+    loop = sum(d for d, _ in frames)
+    begin = sum(d for d, _ in frames[:i])
+    a, b = 100 * begin / loop, 100 * (begin + frames[i][0]) / loop
+    style = f"@keyframes c{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,{b:.2f}%{{visibility:visible}}{b:.2f}%,100%{{visibility:hidden}}}}"
+    images = "".join(f'<image href="data:image/png;base64,{p["png"]}" x="{PAD + (LEFT + 1 + p["x"]) * CW:.1f}" y="{BAR + PAD + p["y"] * LH:.1f}" '
+                     f'width="{p["w"] * CW:.1f}" height="{p["h"] * LH:.1f}" preserveAspectRatio="none"/>' for p in placed())
+    return f'<style>{style}</style><g style="visibility:hidden;animation:c{i} {loop:.2f}s step-end infinite">{images}</g>'
+
+
+open(os.path.join(OUT, "show.svg"), "w").write(animate(frames, "herdr · show", pictures))
 print(len(frames), "frames")

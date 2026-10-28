@@ -1,0 +1,34 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, 90, 30)"
+---
+   Runbooks   3 · 25 steps left
+ ENG-410 13  ENG-420 12  ENG-398 ✓
+━━━━━━━━━━━━╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-420 · Delete the legacy search filter and its data   updated 2026-10-22 18:00   R re
+ ━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━  45%
+
+                                $ GET
+                                api_listings_expanded_producti
+                                on/_mapping/field/legacy_*                              ▐
+
+ 4d  ⬜  to do                   Delete previous index (still   prod OpenSearch
+                                holds legacy hashes)
+                                $ DELETE
+                                api_listings_expanded_producti
+                                on-<older ts>
+
+
+ • Steps 8–11 go together between two 03:45 UTC scrubber runs: merge #88, wait for its
+   docker build, deploy both drops, then tag; others tag the scrubber too (v2026.10.19,
+   v2026.10.20), so merge #88 only on drop day.
+ • Never run a hotswap reindex while #2207 deploys: it holds a timeout: :infinity
+   transaction on listings and the drop gives up after 5 s.
+ • Removing the SOPS keys makes images older than api v2026.10.14.2 / search #890 crash
+──────────────────────────────────────────────────────────────────────────────────────────
+ #4d  Delete previous index (still holds legacy hashes)
+ status ⬜  to do
+ $ DELETE api_listings_expanded_production-<older ts>
+
+   run  r     done  d     copy command  c     edit  e
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette

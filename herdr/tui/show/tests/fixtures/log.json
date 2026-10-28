@@ -1,0 +1,13 @@
+{
+ "title": "Log",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "log",
+   "title": "Counter",
+   "command": "seq 1 30",
+   "every": 600
+  }
+ ],
+ "placement": "right"
+}

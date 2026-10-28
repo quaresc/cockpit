@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  Mixed   view · hh:mm
+
+ Summary
+ Two blocks, compact.
+
+ Plans
+  plan  orgs
+  free   412
+  pro    120
+
+ An untitled block.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

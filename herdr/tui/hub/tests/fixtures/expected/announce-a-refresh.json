@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "📋 ENG-401 · Google sign-in",
+        "no change · 2 to do",
+        "runbook:eng-401"
+      ],
+      "cmd": "notify.sh",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "",
+  "pending": {},
+  "refreshing": []
+}

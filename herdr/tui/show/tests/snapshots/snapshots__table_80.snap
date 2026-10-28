@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  Table   view · hh:mm
+
+ Orgs
+  org        plan        previews  seats  active
+  Initech    pro            1,234     12  yes
+  Hooli Inc  free               9      1  no
+  Acme       —               45.5      3  yes
+  Globex     enterprise   120,000    250  yes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

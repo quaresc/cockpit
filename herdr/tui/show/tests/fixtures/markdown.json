@@ -1,0 +1,12 @@
+{
+ "title": "Markdown",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "markdown",
+   "title": "Notes",
+   "text": "# Quota report\n\nThe daily quotas shipped on **Tuesday**; this note sums up *what changed*, what ~~did not~~ and where to look.\nA second line of the same paragraph joins the first, as CommonMark says.\n\n## Changes\n\n- The API counts each export\n  - against the organisation's quota\n    - reset at midnight UTC\n- [x] backend merged\n- [ ] front behind the `daily_quotas` flag\n\n1. Ship the API\n2. Ship the front\n10. Watch the dashboards\n\n> Quotas are per organisation, not per teammate.\n> See https://example.com/quotas for the rules.\n\n### Numbers\n\n| Plan | Daily quota | Share |\n|:-----|------------:|:-----:|\n| Free | 10 | 62% |\n| Pro | 200 | 30% |\n| Enterprise | unlimited | 8% |\n\n```rust\nfn quota(plan: &str) -> Option<u32> {\n    // Enterprise has none.\n    match plan { \"free\" => Some(10), \"pro\" => Some(200), _ => None }\n}\n```\n\nEscapes stay literal: 2 \\* 3, \\# not a heading, \\[not a link\\].\n\n---\n\nRead [the ADR](https://example.com/adr) or ![the chart](https://example.com/c.png).\n"
+  }
+ ],
+ "placement": "right"
+}

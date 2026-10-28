@@ -58,31 +58,31 @@ command = ["sh", "ensure-spaces.sh"]
 command = ["sh", "prune-browsers.sh"]
 
 [[startup]]
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "tab.created"
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "tab.closed"
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "tab.renamed"
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "pane.agent_status_changed"
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "pane.moved"
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "pane.closed"
-command = ["python3", "actions.py", "sidebar"]
+command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
 on = "pane.closed"

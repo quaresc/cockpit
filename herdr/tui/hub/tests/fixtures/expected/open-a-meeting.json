@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "args": [
+        "https://calendar/ev1"
+      ],
+      "cmd": "open",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "opened https://calendar/ev1",
+  "pending": {},
+  "refreshing": []
+}
