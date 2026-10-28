@@ -43,4 +43,4 @@ jobs:
         with:
           workspaces: herdr/tui
       - run: cargo clippy --release --workspace --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --no-fail-fast
