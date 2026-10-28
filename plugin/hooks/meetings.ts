@@ -2,10 +2,11 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, Meeting, MeetingsState } from '../types'
 
-import { notify, withLock } from './ci'
+import { notify } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import { hasTicket } from './match'
 import { callMapped, listAt, pick, text } from './platform'
+import { withLease, writeDoc } from './store'
 
 type $ = EngineInterface
 
@@ -123,7 +124,7 @@ export function refreshMeetings($: $, isForced = false) {
   inflight ??= (async () => {
     try {
       const prev = await readMeetings($)
-      await withLock($, 'meetings', async () => {
+      await withLease($, 'meetings', async () => {
         let state: MeetingsState = prev ?? { at: 0, meetings: [], notified: [] }
         if (isForced || Date.now() - state.at > STALE_MS) {
           const isOff = Date.now() - calendarMissingAt < MISSING_RETRY_MS || !(await loadConfig($)).calendar.enabled
@@ -148,7 +149,7 @@ export function refreshMeetings($: $, isForced = false) {
         }
         const live = new Set(state.meetings.map(m => m.id))
         state.notified = [...state.notified.filter(id => live.has(id)), ...soon.map(m => m.id)]
-        await $.fs.write(`${await cacheDir($)}/meetings.json`, JSON.stringify(state))
+        await writeDoc($, 'meetings', state)
       })
     } finally {
       inflight = undefined

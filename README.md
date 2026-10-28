@@ -131,8 +131,10 @@ Enter, `R` refresh.
 
 ## How it works
 
-`plugin/` is the Claude Code half: it fetches in your sessions, one at a time, into `~/.cache/cockpit`. `herdr/` is the
-herdr half: the space apps read that cache, and their buttons leave requests the next session carries out. The
+`plugin/` is the Claude Code half: it fetches in your sessions, one at a time, and hands what it fetched to the hub.
+`herdr/` is the herdr half: the space apps and the hub, one `cockpit` binary. The hub is the only writer of the shared
+data, kept with a week of its history in `~/.cache/cockpit/store.redb` and mirrored as JSON beside it; it pushes each
+change to the apps, whose buttons leave requests the next session carries out. The
 screenshots are the real apps on made-up data; [`docs/screenshots`](docs/screenshots) regenerates them.
 
 ## License

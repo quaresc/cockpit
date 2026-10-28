@@ -14,7 +14,7 @@
         "no change · 2 to do",
         "runbook:eng-401"
       ],
-      "cmd": "notify.sh",
+      "cmd": "notify",
       "stdin": ""
     }
   ],

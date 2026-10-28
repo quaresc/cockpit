@@ -19,16 +19,10 @@ pub fn main(args: &[String]) {
         Ok(_) => {}
         Err(message) => {
             let cut: String = message.chars().take(200).collect();
-            let _ = std::process::Command::new("sh").arg(script("notify.sh")).args(["⚠️ Cockpit", &cut, "space:inbox"]).output();
+            cockpit_core::notify::post("⚠️ Cockpit", &cut, "space:inbox", &[]);
             crate::proc::fail(&message);
         }
     }
-}
-
-/// One of the plugin's scripts, through the link that follows herdr's updates, else in the herdr folder.
-fn script(name: &str) -> std::path::PathBuf {
-    let linked = files::config_dir().join("herdr").join(name);
-    if linked.exists() { linked } else { files::herdr_dir().join(name) }
 }
 
 /// The action's note; an error says why nothing happened.

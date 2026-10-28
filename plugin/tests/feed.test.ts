@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { CiState, Inbox } from '../types'
 
-import { HUB_FRESH_MS, hubErrors, hubOwns, hubOwnsCi, modFetchedAt, modInbox } from '../hooks/feed'
+import { HUB_FRESH_MS, hubOwns, hubOwnsCi, modFetchedAt, modPart } from '../hooks/feed'
 import { changes, prChanges, ticketChanges } from '../hooks/match'
 
 const inbox = (over: Partial<Inbox> = {}): Inbox => ({ at: 0, direct: [], team: [], botRepos: [], mine: [], tickets: [], errors: [], ...over })
@@ -15,13 +15,6 @@ test('the hub owns a part only while it wrote it less than three minutes ago', a
   expect(hubOwns(data, 'github', now + HUB_FRESH_MS)).toBe(false)
   expect(hubOwns(null, 'github', now)).toBe(false)
   expect(hubOwns(inbox(), 'github', now)).toBe(false)
-})
-
-test('the hub errors show while the hub runs, and go with it', async () => {
-  const data = inbox({ hub: { at: now - 1000, errors: ['GitHub: rate limited, next try at 10:42'] } })
-  expect(hubErrors(data, now)).toEqual(['GitHub: rate limited, next try at 10:42'])
-  expect(hubErrors(data, now + HUB_FRESH_MS)).toEqual([])
-  expect(hubErrors(inbox(), now)).toEqual([])
 })
 
 test('the mod times its own fetches, not the hub writes', async () => {
@@ -49,16 +42,11 @@ test('PR and ticket news split, so each side announces only what it fetched', as
   expect(changes(prev, next).length).toBe(2)
 })
 
-test('the mod writes what it fetched and keeps the hub part as the file has it', async () => {
-  const pr = (n: number) => ({ repo: 'api', number: n, title: 't', url: `https://github.com/acme/api/pull/${n}`, author: 'me', updatedAt: '', isDraft: false, isDirect: false, review: null, ci: null })
-  const ticket = { id: 'ENG-1', title: 'a', url: 'u', status: 'Todo', statusType: 'unstarted' }
-  const hub = { at: now, github: now, errors: ['GitHub: HTTP 502'] }
-  const file = inbox({ version: 1, mine: [pr(4)], botRepos: ['web'], tickets: [ticket], hub })
-  const kept = modInbox(file, null, null, false, 5 * 60_000, now)
-  expect([kept.mine, kept.botRepos, kept.tickets, kept.hub, kept.at, kept.modAt]).toEqual([[pr(4)], ['web'], [ticket], hub, now, now])
-  const fetched = modInbox(file, { direct: [], team: [], botRepos: [], mine: [pr(5)], merged: [] }, [], true, 5 * 60_000, now)
-  expect(fetched.mine).toEqual([pr(5)])
-  expect(fetched.tickets).toEqual([])
+test('the mod sends only what it fetched, and its own fetch time', async () => {
+  const pr = { repo: 'api', number: 5, title: 't', url: 'https://github.com/acme/api/pull/5', author: 'me', updatedAt: '', isDraft: false, isDirect: false, review: null, ci: null }
+  expect(modPart(null, null, false, 5 * 60_000, now)).toEqual({ at: now, modAt: now })
+  const fetched = modPart({ direct: [], team: [], botRepos: [], mine: [pr], merged: [] }, [], true, 5 * 60_000, now)
+  expect([fetched.mine, fetched.tickets, fetched.direct]).toEqual([[pr], [], []])
   // A failed source makes the mod due again a minute later rather than five.
   expect(fetched.modAt).toBe(now - 4 * 60_000)
 })

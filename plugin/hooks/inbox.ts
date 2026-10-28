@@ -3,14 +3,15 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, MergedPr, Pr } from '../types'
 
-import { announcePreviews, deploysFor, notify, previewsFor, shortError, startDeployWatch, ticketAction, withLock } from './ci'
-import { cacheDir, home, loadConfig, writeAtomic } from './config'
+import { announcePreviews, deploysFor, notify, previewsFor, shortError, startDeployWatch, ticketAction } from './ci'
+import { cacheDir, home, loadConfig } from './config'
 import { requestRunbookRefresh } from './handoffs'
 import { deployLinksFor } from './links'
-import { hubErrors, hubOwns, modFetchedAt, modInbox } from './feed'
+import { hubOwns, modFetchedAt, modPart } from './feed'
 import { deployChanges, prChanges, ticketChanges } from './match'
 import type { News } from './match'
 import { reportDashboard } from './sidebar'
+import { withLease, writeDoc } from './store'
 import { myTickets } from './tickets'
 
 type $ = EngineInterface
@@ -167,7 +168,7 @@ export function refresh($: $, isForced: boolean) {
       const isAsked = cached !== null && asked > modFetchedAt(cached)
       if (!isForced && !isAsked && isCurrent && Date.now() - modFetchedAt(cached) < STALE_MS) return
       // A cache from another version is not compared against, so its shape never turns into notifications.
-      await withLock($, 'inbox', () => fetchInbox($, isCurrent ? cached : null))
+      await withLease($, 'inbox', () => fetchInbox($, isCurrent ? cached : null))
     } finally {
       await reportDashboard($).catch(() => undefined)
       inflight = undefined
@@ -187,23 +188,24 @@ async function fetchInbox($: $, cached: Inbox | null) {
       return null
     }),
   ])
-  // The hub's fields as it last wrote them: read again under the lock, which it takes to write as well.
+  // The hub's fields as it last wrote them, beside what this fetch brought, to work out deploys and previews.
   const latest = await readInbox($)
   const kept = latest?.version === INBOX_VERSION ? latest : cached
   // A failed source is retried on the next minute tick instead of waiting out the cache.
-  const next = { ...modInbox(kept, gh, tickets, errors.length > 0, STALE_MS), version: INBOX_VERSION }
-  next.deploys = await deploysFor($, next.tickets, next.merged ?? []).catch((err: Error) => {
+  const part: Partial<Inbox> = { ...modPart(gh, tickets, errors.length > 0, STALE_MS), version: INBOX_VERSION }
+  const seen = { direct: [], team: [], botRepos: [], mine: [], tickets: [], merged: [], errors: [], ...kept, ...part } as Inbox
+  part.deploys = await deploysFor($, seen.tickets, seen.merged ?? []).catch((err: Error) => {
     errors.push(`Deploy status ${shortError(err)}`)
     return cached?.deploys ?? {}
   })
-  const deployRepos = [...next.mine.map(pr => pr.repo), ...Object.values(next.deploys ?? {}).flat().map(d => d.repo)]
-  next.deployLinks = await deployLinksFor($, deployRepos).catch(() => cached?.deployLinks ?? {})
-  next.previews = await previewsFor($).catch((err: Error) => {
+  const deployRepos = [...seen.mine.map(pr => pr.repo), ...Object.values(part.deploys ?? {}).flat().map(d => d.repo)]
+  part.deployLinks = await deployLinksFor($, deployRepos).catch(() => cached?.deployLinks ?? {})
+  part.previews = await previewsFor($).catch((err: Error) => {
     errors.push(`Previews ${shortError(err)}`)
     return cached?.previews ?? []
   })
-  next.errors = [...errors, ...hubErrors(kept)]
-  await writeAtomic($, `${await cacheDir($)}/inbox.json`, JSON.stringify(next))
+  part.errors = errors
+  const next = await writeDoc<Inbox>($, 'inbox', part, 'patch')
   await update($, inbox, () => next)
   await announcePreviews($, next.previews ?? []).catch(() => undefined)
 

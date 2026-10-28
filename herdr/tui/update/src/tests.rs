@@ -216,10 +216,11 @@ fn the_space_apps_restarted_are_those_of_this_folders_binary() {
     let ours = dir.path().join("bin/cockpit").canonicalize().unwrap();
     let (here, through_link, elsewhere) = (dir.path().join("bin/cockpit"), link.join("bin/cockpit"), other.path().join("bin/cockpit"));
     let listed = format!(
-        "  101 {} inbox cockpit-space\n  102 {} runbook cockpit-space\n 103 {} todo cockpit-space\n104 {} show demo\n105 {} hub\n106 bin/cockpit meetings cockpit-space\n107 sh app.sh inbox cockpit-space\n",
+        "  101 {} inbox cockpit-space\n  102 {} runbook cockpit-space\n 103 {} todo cockpit-space\n104 {} show demo\n105 {} hub\n106 bin/cockpit meetings cockpit-space\n107 sh app.sh inbox cockpit-space\n108 {} space inbox\n",
         here.display(),
         through_link.display(),
         elsewhere.display(),
+        here.display(),
         here.display(),
         here.display()
     );

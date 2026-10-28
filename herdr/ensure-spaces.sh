@@ -31,7 +31,7 @@ ensure() {
       # A clean line first: an app that died with mouse reporting on leaves mouse codes typed at the prompt.
       *zsh* | *bash* | *fish* | -sh*)
         "$H" pane send-keys "$pane" C-c >/dev/null 2>&1
-        "$H" pane run "$pane" "printf '\\033[?1003l\\033[?1006l\\033[?1000l'; clear; sh '$LINK/$app-loop.sh'" >/dev/null
+        "$H" pane run "$pane" "printf '\\033[?1003l\\033[?1006l\\033[?1000l'; clear; sh '$LINK/app.sh' space $app" >/dev/null
         return 0 ;;
       "") sleep 1 ;;
       *) return 0 ;;

@@ -296,8 +296,7 @@ pub fn announce(_: &mut Ctx, args: &[Value]) -> Res {
     }
     let action = if newly.is_empty() { format!("runbook:{slug}") } else { format!("runbook:{slug}:{}", newly.join(",")) };
     let title = book["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(&slug).to_string();
-    let notify = config::script("notify.sh").to_string_lossy().into_owned();
-    proc::spawn(&[String::from("sh"), notify, format!("📋 {title}"), body, action], None, None, |_| {}).map_err(|e| e.to_string())?;
+    std::thread::spawn(move || cockpit_core::notify::post(&format!("📋 {title}"), &body, &action, &[]));
     Ok(())
 }
 
