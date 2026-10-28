@@ -1,5 +1,5 @@
 //! A palette jump to another app: its pinned space comes into view, then the app is asked to bring the item into view.
-//! A past session found by memex opens instead as a fork in a tab of the actions space.
+//! A past Claude session opens instead as a fork in a tab of the actions space.
 
 use std::path::Path;
 

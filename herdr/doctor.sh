@@ -154,17 +154,6 @@ else
   fi
 fi
 
-# memex for the palette's past Claude sessions: optional, the palette searches only cockpit without it
-if ! command -v memex >/dev/null; then
-  ok "memex not installed: ctrl+p finds no past Claude sessions (brew install memex, then memex index, adds them)"
-else
-  mv=$(memex --version 2>/dev/null | awk '{print $2}')
-  scanned=$(memex index stats --format json --non-interactive --no-update-check 2>/dev/null | jq -r '.scan_cache.age_seconds // empty')
-  if [ -z "$scanned" ]; then warn "memex $mv has no index: ctrl+p finds no past sessions → memex index"
-  elif [ "$scanned" -gt 86400 ]; then warn "memex $mv index last refreshed $((scanned / 3600)) h ago → memex index, or memex daemon enable --continuous to keep it fresh"
-  else ok "memex $mv, index refreshed $((scanned / 60)) min ago"; fi
-fi
-
 # The platform connector's tools, mapped by /cockpit:setup to what cockpit does with deploys and previews
 if enabled platform; then
   mapped=$(jq -r '.platform.tools // {} | to_entries | map(select(.value.tool // "" | length > 0) | .key) | join(", ")' "$SETTINGS")

@@ -64,8 +64,6 @@ impl Sandbox {
         for tool in ["claude", "open", "xdg-open", "pbcopy", "gh"] {
             executable(&bin.join(tool), &logcall);
         }
-        // A memex that finds nothing, so a machine with the real one installed runs the same tests.
-        executable(&bin.join("memex"), "#!/bin/sh\nexit 1\n");
         let herdr_dir = root.join("herdr");
         std::fs::create_dir_all(&herdr_dir).unwrap();
         for name in ["ask-session.sh", "notify.sh", "meeting-brief.sh"] {

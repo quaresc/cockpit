@@ -29,7 +29,7 @@ Setup installs the herdr half with the apps built for your machine (macOS or Lin
 asks which features you want and writes your config. `/cockpit:doctor` checks everything and says how to fix what is
 off. Updates arrive as a notification.
 
-**Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Xcode command line tools and a Nerd Font; [memex](https://github.com/nicosuave/memex) is optional, for past sessions.
+**Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Xcode command line tools and a Nerd Font.
 
 ## Features
 
@@ -56,7 +56,7 @@ off. Updates arrive as a notification.
 <tr><td colspan="2" align="center"><img src="docs/meetings.svg" width="539" alt="Meetings space"></td></tr>
 <tr><td width="24%"><b>⚙️ Settings</b></td><td><code>/cockpit</code> flips what you change day to day. In every app, ctrl+p searches all of them: a ticket, its runbook, its PRs, a view.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/settings.svg" width="546" alt="The /cockpit settings pane"></td></tr>
-<tr><td width="24%"><b>🕰️ Past sessions</b></td><td>With memex installed, ctrl+p also finds your past Claude sessions by what was said in them; choosing one opens a fork of it in the actions space that sums up where it stood.</td></tr>
+<tr><td width="24%"><b>🕰️ Past sessions</b></td><td>ctrl+p also finds your past Claude sessions by what was said in them, from an index the hub keeps on its own; choosing one opens a fork of it in the actions space that sums up where it stood.</td></tr>
 </table>
 
 ## Supported tools
