@@ -129,6 +129,51 @@ export type Handoff = {
   isNudged?: boolean
 }
 
+// The monitor space's document: each app of the watched environment, and for those with a recent release (or pinned)
+// their releases with a before/after verdict, alerting monitors, open errors and a day of errors and p95.
+export type Health = { errors: number; hits: number; p95: number | null }
+export type Verdict = {
+  state: 'watching' | 'ok' | 'moved' | 'failed' | 'unknown'
+  summary: string
+  before: Health | null
+  after: Health | null
+  newIssues: string[]
+  until: string
+}
+export type Release = {
+  id: number
+  tag: string
+  actor: string
+  isMine: boolean
+  phase: string
+  startedAt: string
+  finishedAt: string | null
+  tickets: { id: string; url: string }[]
+  prs: { repo: string; number: number; url: string }[]
+  verdict: Verdict | null
+}
+export type Issue = { id: string; type: string; message: string; count: number; firstSeen: string; firstVersion: string; url: string; isNew: boolean }
+export type Monitors = { ok: number; warn: number; alert: number; nodata: number; alerting: { id: number; name: string; status: string; url: string }[] }
+export type MonitoredApp = {
+  id: string
+  name: string
+  service: string
+  repo: string
+  health: string
+  tag: string
+  deployedAt: string
+  behind: number
+  argoUrl: string
+  datadogUrl: string
+  watched: boolean
+  pinned: boolean
+  monitors: Monitors | null
+  series: { errors: number[]; p95: number[] } | null
+  issues: Issue[]
+  releases: Release[]
+}
+export type MonitorState = { version: 1; at: number; env: string; errors: string[]; apps: MonitoredApp[] }
+
 export type MeetingsState ={ at: number; meetings: Meeting[]; notified: string[]; error?: string }
 
 declare module 'claude-code' {

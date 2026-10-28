@@ -11,6 +11,7 @@ import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, recordRunbookOwner, reportS
 import { herdrHere, hereSoon, isBackgroundJob, pageContext, setBackground } from './herdr'
 import { refresh } from './inbox'
 import { refreshMeetings } from './meetings'
+import { refreshMonitor } from './monitor'
 import { registerSettings, registerSettingsCommand } from './settings'
 import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, refreshSources, show } from './show'
 import { clearRows, closeIdleBrowsers, notifyFinished, reportSide, reportUsage } from './sidebar'
@@ -51,6 +52,7 @@ export const register: Register = on => {
     fetch(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     fetch(60_000, () => void refreshCi($).catch(() => undefined))
     fetch(60_000, () => void refreshMeetings($).catch(() => undefined))
+    fetch(60_000, () => void refreshMonitor($).catch(() => undefined))
     if (fetches) void refreshMeetings($).catch(() => undefined)
     // A view hidden with q in its pane, or closed with herdr, turns its chip quiet within a few seconds.
     every(3_000, () => void refreshViews($).catch(() => undefined))

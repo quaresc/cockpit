@@ -13,7 +13,7 @@ pub const VERBS: [(char, &[&str]); 13] = [
     ('r', &["run", "rerun", "redo", "review"]),
     ('R', &["refresh"]),
     ('t', &["talk"]),
-    ('u', &["undo"]),
+    ('u', &["undo", "roll back"]),
     ('v', &["pick", "mark"]),
     ('V', &["pick all alike"]),
     ('w', &["switch view"]),

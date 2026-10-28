@@ -54,6 +54,7 @@ off. Updates arrive as a notification.
 <tr><td colspan="2" align="center"><img src="docs/todo.svg" width="561" alt="To-do space"></td></tr>
 <tr><td width="24%"><b>📅 Meetings</b></td><td>Your week, as a list or drawn day by day, with join and prepare on each meeting.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/meetings.svg" width="539" alt="Meetings space"></td></tr>
+<tr><td width="24%"><b>🩺 Monitor</b></td><td>Every new release of the environment, from the platform connector, with a verdict once it has run a while: errors, p95 and new Datadog errors before and after, alerting monitors and a day of numbers per app. From a release or an error: investigate, fix it in a draft PR, file a bug or roll back, each in a tab of the actions space. Opt in by adding <code>monitor</code> to <code>spaces</code>.</td></tr>
 <tr><td width="24%"><b>⚙️ Settings</b></td><td><code>/cockpit</code> flips what you change day to day. In every app, ctrl+p searches all of them: a ticket, its runbook, its PRs, a view.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/settings.svg" width="546" alt="The /cockpit settings pane"></td></tr>
 <tr><td width="24%"><b>🕰️ Past sessions</b></td><td>ctrl+p also finds your past Claude sessions by what was said in them, from an index the hub keeps on its own; choosing one opens a fork of it in the actions space that sums up where it stood.</td></tr>
@@ -112,10 +113,11 @@ connectors, unless a token below lets the hub fetch them too.
 | `ci.token` | Optional, for CircleCI: a personal API token (CircleCI → User settings → Personal API tokens). The hub then fetches your runs itself, fresh without a Claude session. Stays in this file only. |
 | `calendar` | Calendar connector: Google Calendar, or another and its mapping. |
 | `platform` | Deploy and preview connector, and its mapping. |
-| `metabase`, `datadog` | Connectors for live panes. |
+| `metabase`, `datadog` | Connectors for live panes; Datadog's also feeds the monitor space. |
+| `monitor` | The monitor space: `env`, the Datadog `queries` of a service (`errors`, `hits`, `p95`, with `{service}` and `{env}`), when a release counts as moved (`moved`: `errorPoints`, `p95Ratio`, `minHits`) and whose releases notify (`notify`: `mine`, `all` or `none`). |
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
 | `e2eBrowser` | Where agents run E2E tests: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
-| `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `actions` (a tab per review, plan or talk the inbox and runbook start), `to-do`, `runbook`, `meetings`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
+| `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `actions` (a tab per review, plan or talk the inbox and runbook start), `to-do`, `runbook`, `meetings`, the opt-in `monitor`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
 | `density` | `comfortable` (default): a row's actions in a panel under the list. `compact`: denser rows with their buttons on the row itself. `/cockpit` switches it. |
 
 </details>
@@ -123,9 +125,10 @@ connectors, unless a token below lets the hub fetch them too.
 <details>
 <summary><b>Shortcuts</b></summary>
 
-`prefix+i` inbox, `prefix+t` terminal, `prefix+a` actions, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings, the `key` of each
-space of your own, `prefix+f` the page beside the agent in your browser. In the apps: `j`/`k` rows, `h`/`l` buttons,
-Enter, `R` refresh.
+`prefix+i` inbox, `prefix+t` terminal, `prefix+a` actions, `prefix+d` to-do, `prefix+u` runbook, `prefix+m` meetings,
+`prefix+o` monitor, the `key` of each space of your own, `prefix+f` the page beside the agent in your browser. The apps
+share their keys: `j`/`k` rows, `g`/`G` the ends, `[` `]` the groups, Enter the row's main action, `o` open, `/` filter,
+`v` pick, `R` refresh, ctrl+p everything.
 
 </details>
 

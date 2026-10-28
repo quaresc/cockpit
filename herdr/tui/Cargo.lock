@@ -382,6 +382,7 @@ dependencies = [
  "cockpit-hub",
  "cockpit-inbox",
  "cockpit-meetings",
+ "cockpit-monitor",
  "cockpit-runbook",
  "cockpit-show",
  "cockpit-todo",
@@ -460,6 +461,19 @@ dependencies = [
  "ratatui",
  "ratatui-image",
  "resvg",
+ "serde_json",
+]
+
+[[package]]
+name = "cockpit-monitor"
+version = "0.18.0"
+dependencies = [
+ "chrono",
+ "cockpit-core",
+ "crossterm",
+ "insta",
+ "ratatui",
+ "serde",
  "serde_json",
 ]
 

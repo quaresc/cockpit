@@ -14,6 +14,7 @@ cockpit-update.workspace = true
 cockpit-hub = { path = "../hub" }
 cockpit-inbox = { path = "../inbox" }
 cockpit-meetings = { path = "../meetings" }
+cockpit-monitor = { path = "../monitor" }
 cockpit-runbook = { path = "../runbook" }
 cockpit-show = { path = "../show" }
 cockpit-todo = { path = "../todo" }

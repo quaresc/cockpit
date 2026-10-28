@@ -1,0 +1,10 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/refresh-request": "<T>"
+  },
+  "note": "refresh requested, it lands within a minute",
+  "pending": {},
+  "refreshing": []
+}

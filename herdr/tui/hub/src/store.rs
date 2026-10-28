@@ -1,7 +1,7 @@
-//! The documents the apps, the mod and the hub share: inbox, ci, meetings and brief. The hub is their only writer. Each
-//! lives in ~/.cache/cockpit/store.redb with a week of its past versions, and is mirrored to <name>.json, written whole
-//! through a rename, for whatever reads files. Subscribers get each new version pushed, and leases let one Claude
-//! session at a time do a job for all of them, such as fetching the tickets.
+//! The documents the apps, the mod and the hub share: inbox, ci, meetings, brief and monitor. The hub is their only
+//! writer. Each lives in ~/.cache/cockpit/store.redb with a week of its past versions, and is mirrored to <name>.json,
+//! written whole through a rename, for whatever reads files. Subscribers get each new version pushed, and leases let one
+//! Claude session at a time do a job for all of them, such as fetching the tickets.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use serde_json::{Map, Value, json};
 
 /// The documents the store keeps; any other name is refused, so no request names a file of its own.
-pub const DOCS: [&str; 4] = ["inbox", "ci", "meetings", "brief"];
+pub const DOCS: [&str; 5] = ["inbox", "ci", "meetings", "brief", "monitor"];
 
 const CURRENT: TableDefinition<&str, &[u8]> = TableDefinition::new("current");
 const PAST: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("past");
