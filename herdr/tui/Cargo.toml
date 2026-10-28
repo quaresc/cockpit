@@ -1,7 +1,7 @@
 # The space apps in Rust, for the config's `apps: "rust"`: one binary each, sharing the core crate.
 [workspace]
 resolver = "3"
-members = ["core", "inbox", "runbook", "show"]
+members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ edition = "2024"
 
 [workspace.dependencies]
 cockpit-core = { path = "core" }
+insta = "1"
 ansi-to-tui = "8.0.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 crossterm = "0.29.0"

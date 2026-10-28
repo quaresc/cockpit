@@ -25,8 +25,9 @@ impl cockpit_core::term::App for app::App {
         app::App::event(self, event)
     }
 
-    fn tick(&mut self) {
+    fn tick(&mut self) -> bool {
         app::App::tick(self);
+        true
     }
 
     /// Fast while something moves, every second otherwise, a little faster while a bridge call or refresh runs.

@@ -12,3 +12,6 @@ serde_json.workspace = true
 tachyonfx.workspace = true
 regex.workspace = true
 notify.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

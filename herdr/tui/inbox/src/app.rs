@@ -345,8 +345,9 @@ impl term::App for App {
         quit
     }
 
-    fn tick(&mut self) {
+    fn tick(&mut self) -> bool {
         self.pump();
+        true
     }
 
     fn timeout(&self) -> Duration {
