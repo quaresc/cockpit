@@ -65,4 +65,4 @@ expression: "render(&mut app(false), width, HEIGHT)"
    Today   morning brief, 09:00
 
    dismiss  x
- q quit  / filter  v pick  g group by            ^p palette
+ q quit  / filter  v pick  w group by            ^p palette

@@ -8,7 +8,7 @@ expression: "render(&mut app, 90, 30)"
  ▼   Alerts   4
  ├─      preview preview-quota expires in 1.5 h
  └─      ci failed on web dev/eng-414-quota-banner-know-more · test
- ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (g)
+ ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  └─ ▼ ● Usage limits  4
     ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know more… $0.88
     │  └─ ▼   web#1866                feat(quota): link the quot…                   22h
@@ -30,5 +30,5 @@ expression: "render(&mut app, 90, 30)"
 ──────────────────────────────────────────────────────────────────────────────────────────
     preview preview-quota expires in 1.5 h
 
-   extend 2 days  a
- q quit  / filter  v pick  g group by  R refresh  space fold  enter open       ^p palette
+   extend 2 days  +
+ q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

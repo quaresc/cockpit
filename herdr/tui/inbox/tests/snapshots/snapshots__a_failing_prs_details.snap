@@ -26,7 +26,7 @@ expression: "render(&mut app, 90, HEIGHT)"
  ├─      ranker#9                feat: typo tolerance            Lin                6d
  ├─ ▶ 2 older than 60 days
  └─ ▶  2 muted repos
- ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (g)
+ ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  ├─ ▼ ● Usage limits  4
  │  ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know mo… $0.88
  │  │  └─ ▼   web#1866                feat(quota): link the qu…                   22h
@@ -64,5 +64,5 @@ expression: "render(&mut app, 90, HEIGHT)"
    Tests: 2 failed, 41 passed
    exit code 1
 
-   fix ci  a     rerun  u     open  o
- q quit  / filter  v pick  g group by  R refresh  space fold  enter open       ^p palette
+   fix ci  f     rerun  r     open  o
+ q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

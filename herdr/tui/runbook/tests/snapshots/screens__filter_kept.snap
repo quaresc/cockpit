@@ -29,6 +29,6 @@ expression: "screen(&mut app, 90, 30)"
  status ⬜  to do
  $ ./bin/recount_quota_usage --dry-run
 
-   run  r     done  d     copy command  c     edit  e
+   run  r     done  x     copy command  c     edit  e
  / dry   2 matches   esc clears
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

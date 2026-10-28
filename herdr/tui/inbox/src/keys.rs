@@ -4,6 +4,7 @@
 use cockpit_core::dialog::{Answer, Dialog};
 use cockpit_core::hub;
 use cockpit_core::input::{Edit, Input};
+use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
 use cockpit_core::toast::Kind as Toast;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -33,23 +34,24 @@ impl App {
         if self.editing {
             return self.filter_key(key);
         }
+        if keys::is_quit(&key) {
+            return true;
+        }
         match key.code {
-            KeyCode::Char('c') if ctrl => return true,
             KeyCode::Char('p') if ctrl => self.open_palette(),
             // ctrl+o is not o: a chord must not open, mute or quit.
             KeyCode::Char(_) if ctrl || key.modifiers.contains(KeyModifiers::ALT) => {}
             KeyCode::Char('/') => self.start_filter(),
             KeyCode::Esc if !self.picked.is_empty() => self.picked.clear(),
             KeyCode::Esc if self.tree.filtering() => self.clear_filter(),
-            KeyCode::Char('v' | 'x') if self.pick() => {}
+            KeyCode::Char('v') if self.pick() => {}
             KeyCode::Char('V') => {
                 if let Some(node) = self.tree.current() {
                     self.picked.same_kind(&self.tree, node);
                 }
             }
             KeyCode::Char(c) if self.act_key(c) => {}
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('g') => self.regroup(),
+            KeyCode::Char('w') => self.regroup(),
             KeyCode::Char('R') => self.refresh(),
             KeyCode::Char(' ') => {
                 if let Some(node) = self.tree.current() {
@@ -62,16 +64,14 @@ impl App {
         false
     }
 
-    /// Up, down, page and home/end, in the tree or while typing a filter.
+    /// The shared moves in the tree, or the arrows and pages while typing a filter.
     fn move_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Char('j') | KeyCode::Down => self.tree.step(1),
-            KeyCode::Char('k') | KeyCode::Up => self.tree.step(-1),
-            KeyCode::PageDown => self.tree.step(self.tree.page()),
-            KeyCode::PageUp => self.tree.step(-self.tree.page()),
-            KeyCode::Home => self.tree.step(isize::MIN / 2),
-            KeyCode::End => self.tree.step(isize::MAX / 2),
-            _ => {}
+        match keys::movement(&key) {
+            Some(Move::By(n)) => self.tree.step(n),
+            Some(Move::Pages(n)) => self.tree.step(n * self.tree.page()),
+            Some(Move::Top) => self.tree.step(isize::MIN / 2),
+            Some(Move::Bottom) => self.tree.step(isize::MAX / 2),
+            Some(Move::Group(_)) | None => {}
         }
     }
 
@@ -161,9 +161,15 @@ impl App {
         self.picked.clear();
     }
 
+    /// Enter: the row's main action, else what a click on it does, else its fold.
     fn primary(&mut self) {
         let Some(node) = self.tree.current() else { return };
-        match self.tree.nodes[node].row.primary.clone() {
+        let row = &self.tree.nodes[node].row;
+        if let Some(n) = row.acts.iter().position(|a| a.act.main) {
+            self.act(node, n);
+            return;
+        }
+        match row.primary.clone() {
             Some(call) => self.call(call, None),
             None => self.tree.toggle(node),
         }
@@ -197,7 +203,7 @@ impl App {
         }
         push(&mut self.commands, "refresh the inbox".into(), "asks the mod for fresh data".into(), true, Command::Refresh);
         let regroup = format!("group work by {}", if self.by_status { "feature" } else { "status" });
-        push(&mut self.commands, regroup, "g".into(), true, Command::Regroup);
+        push(&mut self.commands, regroup, "w".into(), true, Command::Regroup);
         push(&mut self.commands, "filter rows".into(), "/".into(), true, Command::Filter);
         self.palette.open(entries);
     }

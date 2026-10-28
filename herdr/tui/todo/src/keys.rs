@@ -4,6 +4,7 @@
 use cockpit_core::acts::Act;
 use cockpit_core::dialog::Answer;
 use cockpit_core::input::Edit;
+use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
@@ -35,8 +36,8 @@ impl App {
                 let Some(item) = self.item(text) else { return Vec::new() };
                 let text = item.text.clone();
                 let mut acts = vec![
-                    (Act::new(if item.done { "reopen" } else { "done" }, 'x', "toggle").main(), Cmd::Toggle(vec![text.clone()])),
-                    (Act::new("edit", 'e', "edit"), Cmd::Edit(text.clone())),
+                    (Act::new(if item.done { "reopen" } else { "done" }, 'x', "toggle"), Cmd::Toggle(vec![text.clone()])),
+                    (Act::new("edit", 'e', "edit").main(), Cmd::Edit(text.clone())),
                 ];
                 if let Some((token, _)) = links::split(&text, &self.tokens).into_iter().find(|p| p.1) {
                     let shown = if token.to_lowercase().starts_with("http") { "link".to_string() } else { token.to_uppercase() };
@@ -110,7 +111,7 @@ impl App {
 
     fn key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        if ctrl && matches!(key.code, KeyCode::Char('c' | 'q')) {
+        if ctrl && keys::is_quit(&key) {
             return true;
         }
         if let Some((dialog, _)) = &mut self.dialog {
@@ -165,15 +166,21 @@ impl App {
         if ctrl || key.modifiers.contains(KeyModifiers::ALT) {
             return false;
         }
+        if keys::is_quit(&key) {
+            return true;
+        }
+        if let Some(to) = keys::movement(&key) {
+            match to {
+                Move::By(n) => self.move_sel(n),
+                Move::Pages(n) => self.move_sel(10 * n),
+                Move::Top => self.select_at(0),
+                Move::Bottom => self.select_at(usize::MAX),
+                Move::Group(_) => {}
+            }
+            return false;
+        }
         let item = self.selected_item();
         match key.code {
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('j') | KeyCode::Down => self.move_sel(1),
-            KeyCode::Char('k') | KeyCode::Up => self.move_sel(-1),
-            KeyCode::PageDown => self.move_sel(10),
-            KeyCode::PageUp => self.move_sel(-10),
-            KeyCode::Home | KeyCode::Char('g') => self.select_at(0),
-            KeyCode::End | KeyCode::Char('G') => self.select_at(usize::MAX),
             KeyCode::Char('a') => self.start_edit(None),
             KeyCode::Char('u') => self.undo(),
             KeyCode::Char('z') => self.show_done = !self.show_done,

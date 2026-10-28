@@ -115,16 +115,19 @@ impl Log {
         if self.result.is_some() { vec![Target::Log] } else { vec![] }
     }
 
-    /// j/k a line, d/u half the block, g the first line, G back to following the end.
+    /// j/k a line, ctrl+d/ctrl+u half the block, g the first line, G back to following the end.
     pub fn key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
         let last = self.total().saturating_sub(SHOWN);
         let top = self.top.unwrap_or(last);
         let to = |by: isize| top.saturating_add_signed(by).min(last);
         let top = match key.code {
             KeyCode::Char('k') | KeyCode::Up => to(-1),
             KeyCode::Char('j') | KeyCode::Down => to(1),
-            KeyCode::Char('u') | KeyCode::PageUp => to(-(SHOWN as isize) / 2),
-            KeyCode::Char('d') | KeyCode::PageDown => to(SHOWN as isize / 2),
+            KeyCode::Char('u') if ctrl => to(-(SHOWN as isize) / 2),
+            KeyCode::Char('d') if ctrl => to(SHOWN as isize / 2),
+            KeyCode::PageUp => to(-(SHOWN as isize) / 2),
+            KeyCode::PageDown => to(SHOWN as isize / 2),
             KeyCode::Char('g') | KeyCode::Home => 0,
             KeyCode::Char('G') | KeyCode::End => last,
             _ => return false,

@@ -28,7 +28,7 @@ expression: "render(&mut app, 60, HEIGHT)"
  ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature
  ├ ▼ ● Usage limits  4
  │ ├ ▼    ENG-414   t… [Frontend] -… $0.88
- │ │ └ ▼   web#1866    feat(quota)…          fix ci  a
+ │ │ └ ▼   web#1866    feat(quota)…          fix ci  f
  │ │   ├    test · 2 failing: QuotaBanner links to the hel
  │ │   └    translations
  │ ├ ▼    ENG-413   t… [Frontend] -… $23.91
@@ -65,4 +65,4 @@ expression: "render(&mut app, 60, HEIGHT)"
 
 
 
- q quit  / filter  v pick  g group by            ^p palette
+ q quit  / filter  v pick  w group by            ^p palette

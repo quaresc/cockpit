@@ -22,7 +22,7 @@ expression: "screen(&mut app, width, 40)"
                                 on settings page)                                       ▐
  7   ⬜  to do, approved green   Merge and deploy billing PR 3  billing#379              ▐
                                 (store + broadcast)                                     ▐
- 8   ⬜  to do                   Backfil   session  s     done  d     copy command  c    ▐
+ 8   ⬜  to do                   Backfil   session  s     done  x     copy command  c    ▐
                                 $                                                       ▐
                                 ./bin/backfill_daily_quota_usa                          ▐
                                 ge --dry-run                                            ▐
@@ -41,4 +41,4 @@ expression: "screen(&mut app, width, 40)"
    charts#402 is on the charts' production branch.
  • billing#380 targets PR 3's branch: merge #379 first, then retarget #380 to main.
  • The backfill only counts accounts whose plan sets a daily quota on its exports.
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette
