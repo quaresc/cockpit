@@ -232,7 +232,10 @@ fn outcome(sandbox: &Sandbox, reply: &Value, before: &BTreeMap<String, Value>) -
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
-    let calls: Vec<Value> = sandbox.calls().iter().map(|c| norm(&json!({"cmd": c["cmd"], "args": c["args"], "stdin": c.get("stdin")}), root)).collect();
+    // Linux opens a URL with xdg-open where macOS uses open: the recorded calls say open.
+    let opener = |cmd: &Value| if cmd == "xdg-open" { json!("open") } else { cmd.clone() };
+    let calls: Vec<Value> =
+        sandbox.calls().iter().map(|c| norm(&json!({"cmd": opener(&c["cmd"]), "args": c["args"], "stdin": c.get("stdin")}), root)).collect();
     let mut refreshing: Vec<&String> = reply["refreshing"].as_object().map(|m| m.keys().collect()).unwrap_or_default();
     refreshing.sort();
     json!({
