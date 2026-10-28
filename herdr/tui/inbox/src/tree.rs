@@ -1,11 +1,13 @@
 //! The inbox tree: rows known by their path (a stacked PR shows under each ticket its stack belongs to), folds and the
 //! cursor kept across rebuilds, guides between levels, and the visible rows scrolled to keep the cursor in view. A
-//! filter narrows it to the matching rows and their ancestors.
+//! filter narrows it to the matching rows and their ancestors. A row changed since you last looked shows a marker, and
+//! so does a folded row hiding one.
 
 use std::collections::{HashMap, HashSet};
 
 use cockpit_core::acts::{self, Act};
 use cockpit_core::anim::Effects;
+use cockpit_core::seen::{self, MARK_WIDTH, Seen};
 use cockpit_core::text::width;
 use cockpit_core::theme::{BG, DIM, FG, ORANGE, SURFACE};
 use ratatui::Frame;
@@ -47,6 +49,7 @@ pub struct Paint<'a> {
     pub effects: &'a mut Effects,
     /// The compact layout's buttons, drawn at the end of the cursor row.
     pub buttons: Option<&'a [Act]>,
+    pub looked: &'a Seen,
 }
 
 #[derive(Default)]
@@ -225,6 +228,19 @@ impl Tree {
         self.nodes.iter().position(|n| n.row.key == key)
     }
 
+    /// The keys a row's marker stands for: its own, and those of the rows it hides folded.
+    pub fn marker_keys(&self, node: usize) -> Vec<&str> {
+        let mut keys = vec![self.nodes[node].row.key.as_str()];
+        if self.visible_kids(node).is_empty() {
+            let mut stack = self.nodes[node].kids.clone();
+            while let Some(kid) = stack.pop() {
+                keys.push(&self.nodes[kid].row.key);
+                stack.extend(&self.nodes[kid].kids);
+            }
+        }
+        keys
+    }
+
     pub fn select(&mut self, node: usize) {
         self.cursor = self.nodes[node].path.clone();
         self.follow = true;
@@ -298,14 +314,20 @@ impl Tree {
             let prefix = if !has_kids { "  " } else if self.visible_kids(s.node).is_empty() { "▶ " } else { "▼ " };
             let room = (area.width as usize).saturating_sub(s.depth * self.guide_depth() + PREFIX);
             let on_cursor = i == at;
+            let marked = self.marker_keys(s.node).into_iter().any(|key| paint.looked.is_marked(key));
             let buttons = paint.buttons.filter(|_| on_cursor).map(|acts| fitting(acts, room)).unwrap_or_default();
             let buttons_width: usize = buttons.iter().map(pill_width).sum();
             let mut spans = vec![Span::styled(s.guide.clone(), Style::new().fg(GUIDE)), Span::styled(prefix, Style::new().fg(FG))];
             let hits = self.hits.get(&s.node).map(Vec::as_slice).unwrap_or(&[]);
-            let mut label = node.row.line(room, paint.requests, hits);
+            let text_room = room.saturating_sub(if marked { MARK_WIDTH } else { 0 });
+            let mut label = node.row.line(text_room, paint.requests, hits);
             // The compact layout's buttons cover the row's end, so its cells stay in line.
             if !buttons.is_empty() {
-                label.spans = cut(label.spans, room.saturating_sub(buttons_width + 1));
+                label.spans = cut(label.spans, text_room.saturating_sub(buttons_width + 1));
+            }
+            if marked {
+                let mark = seen::mark();
+                spans.push(if on_cursor { mark.style(cursor) } else { mark });
             }
             let is_context = self.filtering() && !self.hits.contains_key(&s.node);
             let is_picked = paint.picked.contains(&node.row.key);

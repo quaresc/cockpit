@@ -1,7 +1,8 @@
 //! The palette's search across the apps: one index of the inbox's PRs and tickets, the runbooks and their steps, the
 //! show views and their blocks, the to-do items and the meetings, rebuilt when the watcher says a file changed; then the
-//! past Claude sessions from their own index.
+//! week's events (what changed, and when), then the past Claude sessions from their own index.
 
+mod embed;
 pub mod sessions;
 mod transcript;
 
@@ -19,6 +20,8 @@ use crate::act::{read_books, runbooks_dir};
 use crate::value::{list, text};
 
 const BEST: usize = 50;
+/// The events a search shows after the apps' entries.
+const EVENTS: usize = 12;
 const OPEN: [&str; 4] = ["⬜", "⏳", "🟡", "❌"];
 
 #[derive(Clone, Debug)]
@@ -46,11 +49,50 @@ pub fn invalidate() {
     DIRTY.store(true, Ordering::SeqCst);
 }
 
-/// The entries matching the query, best first, 50 at most, then the few past sessions that best match it.
+/// The entries matching the query, best first, 50 at most, then the week's events and the few past sessions that best
+/// match it.
 pub fn search(query: &str) -> Vec<Value> {
     let mut found = apps(query);
+    found.extend(history(query, crate::store::global().events(0, 2000), crate::server::now_secs() * 1000));
     found.extend(sessions::search(query));
     found
+}
+
+/// The events matching the query, newest first among the best, each leading to the row it touched.
+fn history(query: &str, events: Vec<Value>, now_ms: u64) -> Vec<Value> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let entries: Vec<Entry> = events
+        .iter()
+        .map(|e| {
+            let app = if e["app"] == "monitor" { "monitor" } else { "inbox" };
+            let ago = ago(now_ms.saturating_sub(e["at"].as_u64().unwrap_or(0)));
+            entry(app, "changed", text(&e["title"]), ago, text(&e["key"]))
+        })
+        .collect();
+    // The target keeps the event's time, so a reference to it can say when it happened.
+    let at = |found: &Entry| entries.iter().position(|e| std::ptr::eq(e, found)).map(|i| events[i]["at"].clone()).unwrap_or_default();
+    best(&entries, query)
+        .into_iter()
+        .take(EVENTS)
+        .map(|e| {
+            let mut json = e.json();
+            json["target"]["at"] = at(e);
+            json
+        })
+        .collect()
+}
+
+/// "5 min ago", "3 h ago", "2 d ago".
+fn ago(ms: u64) -> String {
+    let min = ms / 60_000;
+    match min {
+        0 => "just now".into(),
+        1..60 => format!("{min} min ago"),
+        60..1440 => format!("{} h ago", min / 60),
+        _ => format!("{} d ago", min / 1440),
+    }
 }
 
 fn apps(query: &str) -> Vec<Value> {
@@ -87,7 +129,21 @@ pub fn build(home: &Path) -> Vec<Entry> {
     show(&cache.join("show"), &mut out);
     todo(&std::fs::read_to_string(home.join(".config/cockpit/todo.md")).unwrap_or_default(), &mut out);
     meetings(&files::load(&cache.join("meetings.json")).unwrap_or(Value::Null), &mut out);
+    monitor(&files::load(&cache.join("monitor.json")).unwrap_or(Value::Null), &mut out);
     out
+}
+
+/// The monitor's apps and their releases, each with how it stands.
+fn monitor(data: &Value, out: &mut Vec<Entry>) {
+    for app in list(&data["apps"]) {
+        let (id, name) = (text(&app["id"]), text(&app["name"]));
+        out.push(entry("monitor", "app", name.clone(), format!("{} · {}", text(&app["tag"]), text(&app["health"])), id.clone()));
+        for release in list(&app["releases"]) {
+            let help = [release["verdict"]["state"].as_str(), release["verdict"]["summary"].as_str()].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+            let key = format!("{id}/release/{}", text(&release["id"]));
+            out.push(entry("monitor", "release", format!("{name} {}", text(&release["tag"])), help, key));
+        }
+    }
 }
 
 fn entry(app: &'static str, kind: &'static str, title: String, help: String, key: String) -> Entry {
@@ -180,6 +236,22 @@ fn meetings(data: &Value, out: &mut Vec<Entry>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_weeks_events_match_newest_first_and_lead_to_their_row() {
+        let now = 10 * 86_400_000;
+        let events = vec![
+            json!({"at": now - 3 * 3_600_000, "app": "inbox", "key": "ENG-412", "title": "🎫 ENG-412: To review → Done"}),
+            json!({"at": now - 2 * 86_400_000, "app": "inbox", "key": "ENG-412", "title": "🎫 ENG-412: In progress → To review"}),
+            json!({"at": now - 60_000, "app": "monitor", "key": "api-production/release/2", "title": "⚠️ api v2 moved: errors 0.1% → 2%"}),
+        ];
+        let found = history("ENG-412", events.clone(), now);
+        let titles: Vec<&str> = found.iter().map(|e| e["title"].as_str().unwrap()).collect();
+        assert_eq!(titles, ["🎫 ENG-412: To review → Done", "🎫 ENG-412: In progress → To review"]);
+        assert_eq!((&found[0]["help"], &found[0]["target"]), (&json!("3 h ago"), &json!({"app": "inbox", "key": "ENG-412", "at": now - 3 * 3_600_000})));
+        assert_eq!(history("moved", events.clone(), now)[0]["target"], json!({"app": "monitor", "key": "api-production/release/2", "at": now - 60_000}));
+        assert!(history("", events, now).is_empty());
+    }
 
     fn home() -> tempfile::TempDir {
         let home = tempfile::tempdir().unwrap();

@@ -1,5 +1,5 @@
 //! The list's rows: by app (troubled apps first and unfolded, each with its alerting monitors, new issues and releases
-//! under it) or as a timeline of every release, newest first; and each row's actions.
+//! under it) or as a timeline of every release, newest first; each row's actions, and the keys its marker stands for.
 
 use cockpit_core::acts::Act;
 use serde_json::json;
@@ -49,18 +49,7 @@ impl App {
         }
         let mut rows = Vec::new();
         for app in ordered(doc) {
-            let mut kids: Vec<(String, Item)> = Vec::new();
-            for m in app.alerting() {
-                let id = id_text(&m.id);
-                kids.push((format!("{}/monitor/{id}", app.id), Item::Monitor(app.id.clone(), id)));
-            }
-            for issue in app.new_issues() {
-                kids.push((format!("{}/issue/{}", app.id, issue.id), Item::Issue(app.id.clone(), issue.id.clone())));
-            }
-            for release in &app.releases {
-                let id = id_text(&release.id);
-                kids.push((format!("{}/release/{id}", app.id), Item::Release(app.id.clone(), id)));
-            }
+            let kids = kids(app);
             let open = self.is_open(&app.id);
             let fold = (!kids.is_empty()).then_some(open);
             rows.push(Row { key: app.id.clone(), item: Item::App(app.id.clone()), depth: 0, guide: "", fold });
@@ -72,6 +61,19 @@ impl App {
             }
         }
         rows
+    }
+
+    /// The keys a row's marker stands for: its own, and those of the rows a folded app hides.
+    pub fn marker_keys(&self, row: &Row) -> Vec<String> {
+        let mut keys = vec![row.key.clone()];
+        if let (Some(false), Some(app)) = (row.fold, self.doc.as_ref().and_then(|d| d.app(row.item.app()))) {
+            keys.extend(kids(app).into_iter().map(|(key, _)| key));
+        }
+        keys
+    }
+
+    pub fn is_marked(&self, row: &Row) -> bool {
+        self.marker_keys(row).iter().any(|key| self.looked.is_marked(key))
     }
 
     pub fn selected_row(&self) -> Option<Row> {
@@ -176,6 +178,23 @@ impl App {
     pub fn acts(&self) -> Vec<(Act, Cmd)> {
         self.selected_row().map(|r| self.acts_for(&r.item)).unwrap_or_default()
     }
+}
+
+/// The rows under an app, each with its key: alerting monitors, new issues, then releases.
+fn kids(app: &data::App) -> Vec<(String, Item)> {
+    let mut kids: Vec<(String, Item)> = Vec::new();
+    for m in app.alerting() {
+        let id = id_text(&m.id);
+        kids.push((format!("{}/monitor/{id}", app.id), Item::Monitor(app.id.clone(), id)));
+    }
+    for issue in app.new_issues() {
+        kids.push((format!("{}/issue/{}", app.id, issue.id), Item::Issue(app.id.clone(), issue.id.clone())));
+    }
+    for release in &app.releases {
+        let id = id_text(&release.id);
+        kids.push((format!("{}/release/{id}", app.id), Item::Release(app.id.clone(), id)));
+    }
+    kids
 }
 
 /// Every release of every app, newest first.

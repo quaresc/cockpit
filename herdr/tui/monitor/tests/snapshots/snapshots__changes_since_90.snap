@@ -1,0 +1,34 @@
+---
+source: monitor/tests/snapshots.rs
+expression: "render(&mut app, 90, 30)"
+---
+   Monitor   3 apps · 3 releases today · updated 17:56
+ ◆ 4 changes since 17:00: ⚠️  api v2026.10.28.1 moved: errors 0.13% → 1.9% · 🔔  [api] Curr
+
+ ▼ ◆  api       v2026.10.28.1  1 h ago by you    12 ok · 1 alert    ▁▁█▃▁▁▁▁▁▁▄ 14 err
+   ├  [api] Current user - API Availability                                        Alert
+   ├  new Req.TransportError: socket closed                            140×  since 16:55
+   ├ ◆ ⚠️  v2026.10.28.1  16:58 you     ENG-412  errors 0.13% → 1.9% · p95 33 → 161 ms · …
+   └ ✅  v2026.10.28    16:34 jonas   errors 0.12% → 0.13% · p95 31 → 33 ms
+ ▼  web       v2026.10.28.3  16 min ago by sam 6 ok · 1 warn      ▁█▁▁▁█▁▁▁▁▁▁█ 1 err
+   ├  [web] Checkout - API Latency                                                  Warn
+   └ ◆ ⏳  v2026.10.28.3  17:38 sam     watching until 17:10
+    billing   v2026.10.20    8 d ago           not watched
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────────────────────────────
+ api  ·  service api in production  ·  pinned
+ Healthy · v2026.10.28.1 deployed 1 h ago by you · 1 commit behind
+ monitors: 12 ok · 0 warn · 1 alert · 3 no data
+ errors 24 h    ▁▁▁▁█▁▃▁▁▁▁▁▁▁▁▁▁▁▃▄ 76 in all, 14 in the last bin
+ p95    24 h    ▂▂▁▁▁▁▁▁▁▁▁▁▂▆▆▅▂▅▆█ 161 ms in the last bin
+ 2 open errors in Error Tracking over the last day, 1 new
+
+   investigate  i     open  o     ArgoCD  A     unpin  p     refresh  R
+ enter main  space fold  w releases  R refresh  q quit                        ▏^p palette

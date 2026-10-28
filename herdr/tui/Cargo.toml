@@ -1,7 +1,7 @@
 # cockpit's apps, the hub they share and the commands the scripts call, all in the one `cockpit` binary, on the core crate.
 [workspace]
 resolver = "3"
-members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings", "monitor", "update", "cli"]
+members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings", "monitor", "palette", "update", "cli"]
 
 [workspace.package]
 version = "0.19.0"

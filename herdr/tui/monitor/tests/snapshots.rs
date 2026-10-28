@@ -1,5 +1,5 @@
-//! The monitor app drawn at 60, 90 and 120 columns on the fixture at a fixed time, both densities and both views, its
-//! sidebar line, and what each row's keys send to the hub.
+//! The monitor app drawn at 60, 90 and 120 columns on the fixture at a fixed time, both densities and both views, what
+//! changed since you last looked, its sidebar line, and what each row's keys send to the hub.
 
 use std::path::PathBuf;
 
@@ -79,6 +79,47 @@ fn timeline_120() {
     let mut app = app(Density::Comfortable);
     press(&mut app, 'w');
     insta::assert_snapshot!(render(&mut app, 120, 24));
+}
+
+/// You last looked at 17:00 (16:00 UTC): a release, a verdict and an alert since, a release of an app not shown, and
+/// an older event.
+fn looked(app: &mut App) {
+    let event = |at: u64, key: &str, title: &str| json!({"at": at, "doc": "monitor", "app": "monitor", "key": key, "title": title});
+    app.feed_events(
+        1_793_203_200_000,
+        vec![
+            event(1_793_206_200_000, "api-production/release/622", "⚠️ api v2026.10.28.1 moved: errors 0.13% → 1.9%"),
+            event(1_793_205_900_000, "api-production", "🔔 [api] Current user - API Availability alert"),
+            event(1_793_205_600_000, "web-production/release/630", "📦 web v2026.10.28.3 released by sam"),
+            event(1_793_205_000_000, "search-production/release/12", "📦 search v2026.10.28 released by maya"),
+            event(1_793_202_600_000, "billing-production", "🐞 New error in billing: Ecto.NoResultsError"),
+        ],
+    );
+}
+
+#[test]
+fn changes_since_you_last_looked() {
+    let mut app = app(Density::Comfortable);
+    looked(&mut app);
+    insta::assert_snapshot!("changes_since_90", render(&mut app, 90, 30));
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Up);
+    let screen = render(&mut app, 90, 30);
+    assert!(screen.contains("3 changes since 17:00") && !screen.contains(" ▼ ● "), "selecting the api row clears its alert:\n{screen}");
+    app.event(Event::FocusLost);
+    let screen = render(&mut app, 90, 30);
+    assert_eq!(screen, render(&mut self::app(Density::Comfortable), 90, 30), "leaving clears every marker and the head line");
+}
+
+#[test]
+fn a_folded_app_shows_the_changes_it_hides() {
+    let mut app = app(Density::Comfortable);
+    looked(&mut app);
+    select(&mut app, "web-production");
+    press(&mut app, ' ');
+    let screen = render(&mut app, 90, 30);
+    let web = screen.lines().find(|l| l.contains("web ")).expect("the web row");
+    assert!(web.contains("▶ ◆ "), "{screen}");
 }
 
 #[test]

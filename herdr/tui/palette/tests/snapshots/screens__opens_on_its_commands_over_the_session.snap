@@ -1,0 +1,22 @@
+---
+source: palette/tests/screens.rs
+expression: "render(&mut app, 80, 18)"
+---
+╭──────────────────────────────────────────────────────────────────────────────╮
+│❯ ▏                                                                           │
+│                                                                              │
+│Go to the inbox space                                                         │
+│  a pinned space                                                              │
+│Go to the actions space                                                       │
+│  a pinned space                                                              │
+│Go to the monitor space                                                       │
+│  a pinned space                                                              │
+│Refresh the inbox                                                             │
+│  PRs, reviews, tickets and CI fetched again now                              │
+│Check cockpit                                                                 │
+│  the doctor's report: every part of cockpit, ok, warn or fail                │
+│Today's brief                                                                 │
+│  the morning brief: meetings, reviews, CI, tickets                           │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ enter go  esc close                                        over Google sign-in
