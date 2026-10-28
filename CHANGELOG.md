@@ -5,6 +5,17 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.19.0 (2026-10-28)
+
+- New opt-in monitor space (`monitor` in `spaces`, `prefix+o`): every production release from the platform connector,
+  judged on Datadog's errors, p95 and new errors before and after, with alerting monitors and a day of numbers per app.
+  From a release or an error: investigate, fix in a draft PR, file a bug or roll back, each in the actions space (#8).
+- The hub is the only writer of the shared data, kept with a week of history in `store.redb` and pushed to the apps;
+  sessions take leases in the hub instead of lock folders, which left stale files behind (#6).
+- `doctor`, `notify`, `focus` and the space loops are `cockpit` commands instead of shell scripts (#6).
+- The same keys in every app: `g`/`G` the ends, `[` `]` the groups, Enter the main action, `x` done, `r` run; the inbox
+  groups on `w`, the runbook marks done on `x` (#7).
+
 ## 0.18.0 (2026-10-28)
 
 - One `cockpit` binary instead of seven, a smaller download. It keeps itself current: the hub installs a new release
