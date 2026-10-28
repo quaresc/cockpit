@@ -18,17 +18,19 @@ type $ = EngineInterface
 const REFRESH_MS = 2 * 60_000
 const DAY_MS = 86_400_000
 const BINS = 20
-const MONITOR_PAGES = 4
+// Claude Code refuses an MCP answer over about 25k tokens: monitors come in pages well under it.
+const MONITOR_PAGES = 8
+const MONITOR_PAGE_TOKENS = 8000
 
 type Moved = Config['monitor']['moved']
 
 // ---------------------------------------------------------------------------
 // Datadog's answers
 
-// The JSON a Datadog tool answers, inside its <JSON_DATA> block or as the whole text.
+// The JSON a Datadog tool answers, inside its <JSON_DATA> block or as the whole text; an empty block (no data) is [].
 export function dataOf(body: string): unknown {
   const inner = body.match(/<JSON_DATA>\s*([\s\S]*?)\s*<\/JSON_DATA>/)?.[1] ?? body
-  return JSON.parse(inner) as unknown
+  return inner.trim() === '' ? [] : (JSON.parse(inner) as unknown)
 }
 
 const unquote = (value: string) => {
@@ -104,7 +106,8 @@ export function verdictOf(phase: string, before: Health | null, after: Health | 
   if (!before || !after || (before.hits === 0 && after.hits === 0)) return { state: 'unknown', summary: parts.join(' · ') || 'no traffic to compare', ...base }
   const hasTraffic = after.hits >= moved.minHits
   const errorsUp = hasTraffic && rate(after) - rate(before) >= moved.errorPoints
-  const slower = hasTraffic && before.p95 !== null && after.p95 !== null && before.p95 > 0 && after.p95 / before.p95 >= moved.p95Ratio
+  const slower =
+    hasTraffic && before.p95 !== null && after.p95 !== null && before.p95 > 0 && after.p95 / before.p95 >= moved.p95Ratio && (after.p95 - before.p95) * 1000 >= moved.p95Ms
   return { state: errorsUp || slower || newIssues.length > 0 ? 'moved' : 'ok', summary: parts.join(' · '), ...base }
 }
 
@@ -139,7 +142,7 @@ async function health($: $, server: string, config: Config['monitor'], service: 
 async function monitorsOf($: $, server: string, service: string, site: string): Promise<Monitors> {
   const found: { id: number; name: string; status: string }[] = []
   for (let page = 0; page < MONITOR_PAGES; page++) {
-    const body = await datadog($, server, 'search_datadog_monitors', { query: `service:${service}`, start_at: found.length, max_tokens: 20_000 })
+    const body = await datadog($, server, 'search_datadog_monitors', { query: `service:${service}`, start_at: found.length, max_tokens: MONITOR_PAGE_TOKENS })
     const batch = list(dataOf(body)) as { id: number; name: string; status: string }[]
     found.push(...batch)
     if (!body.includes('<is_truncated>true</is_truncated>') || batch.length === 0) break
