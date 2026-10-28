@@ -69,8 +69,18 @@ fn app(fixture: &str, width: u16, density: Density, test: &str) -> ShowApp {
     app
 }
 
+/// The screen with its clock masked, and each row of picture cells reduced to a marker: their pixels come from text
+/// rasterized with the machine's fonts, which differ between macOS and the Linux CI, while the rows they hold do not.
 fn screen(app: &mut ShowApp, width: u16) -> String {
-    TIME.replace_all(&cockpit_core::testing::render(app, width, 40), "hh:mm").into_owned()
+    let screen = TIME.replace_all(&cockpit_core::testing::render(app, width, 40), "hh:mm").into_owned();
+    screen
+        .lines()
+        .map(|line| {
+            let blocks = line.chars().filter(|c| matches!(c, '▀' | '▄' | '█')).count();
+            if blocks * 3 >= line.trim().chars().count().max(1) * 2 && blocks > 0 { " [picture row]".to_string() } else { line.to_string() }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn press(app: &mut ShowApp, keys: &[KeyCode]) {
