@@ -130,6 +130,23 @@ connectors, unless a token below lets the hub fetch them too.
 share their keys: `j`/`k` rows, `g`/`G` the ends, `[` `]` the groups, Enter the row's main action, `o` open, `/` filter,
 `v` pick, `R` refresh, ctrl+p everything.
 
+`prefix+space` opens the palette as a popup over any pane, a Claude session included: it searches every app, the week's
+events and your past sessions as you type, jumps to a pinned space, refreshes the inbox, shows the doctor's report or
+today's brief. Enter goes to what it found. Over a Claude session, `ctrl+r` types the found item's reference (a PR's URL,
+a ticket and its URL, a release and its verdict) at the prompt without sending it, `ctrl+a` asks the session about it,
+`ctrl+f` forks the session into the actions space to look into it.
+
+To open it with one Cmd shortcut in Ghostty, have the key type herdr's prefix then a space. With herdr's default prefix,
+ctrl+b (`\x02`), add to `~/.config/ghostty/config`:
+
+```
+keybind = cmd+k=text:\x02\x20
+```
+
+With another `prefix` in herdr's `[keys]`, put its byte in place of `\x02`: ctrl+<letter> is the letter's place in the
+alphabet in hex (ctrl+a `\x01`, ctrl+g `\x07`, ctrl+s `\x13`), F12 the sequence `\x1b[24~`. Cmd+Space is Spotlight's;
+Cmd+K is Ghostty's clear screen, which this replaces.
+
 </details>
 
 ## How it works

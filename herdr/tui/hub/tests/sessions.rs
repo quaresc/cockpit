@@ -52,7 +52,7 @@ fn sessions_come_after_the_apps_entries() {
     let sessions: Vec<String> =
         search_with_sessions(&hub, "sign-in").iter().filter(|e| e["app"] == "session").map(|e| e["target"]["key"].as_str().unwrap().to_string()).collect();
     assert_eq!(sessions, ["s-login", "s-dark"]);
-    assert!(sandbox.home().join(".cache/cockpit/sessions-index/v1/manifest.json").exists());
+    assert!(sandbox.home().join(".cache/cockpit/sessions-index/v2/manifest.json").exists());
 }
 
 #[test]

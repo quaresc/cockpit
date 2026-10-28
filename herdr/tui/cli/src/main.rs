@@ -5,6 +5,7 @@ mod act;
 mod actions;
 mod browse;
 mod doctor;
+mod find;
 mod focus;
 mod proc;
 mod shots;
@@ -27,6 +28,10 @@ const USAGE: &str = "cockpit, the plugin's command.
                                                a space's app (cockpit space adds cockpit-space, which update.sh looks for)
     cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
     cockpit show <name>                        the view a Claude session shows beside itself
+    cockpit palette                            the launcher herdr opens as a popup (prefix+space); PALETTE_PANE is the pane below
+    cockpit search <query>                     what the palette finds, as the hub's JSON: items, the week's events, past sessions
+    cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor]
+                                               what changed in the shared data, newest first, as the hub's JSON (a day by default)
     cockpit hub                                the background process the apps share; the first app that needs it starts it
     cockpit hub ping                           exits 0 when the hub answers within 2 seconds
     cockpit update-apps [herdr folder]         installs the release's binary for the plugin's version
@@ -52,6 +57,9 @@ fn main() {
         "meetings" => app(cockpit_meetings::run()),
         "monitor" => app(cockpit_monitor::run()),
         "show" => app(cockpit_show::run(rest.first().map_or("show", String::as_str))),
+        "palette" => app(cockpit_palette::run()),
+        "search" => find::search(rest),
+        "events" => find::events(rest),
         "hub" if rest.is_empty() => cockpit_hub::run(),
         "hub" if rest == ["ping"] => std::process::exit(if ping(Duration::from_secs(2)) { 0 } else { 1 }),
         "update-apps" => update::main(rest),

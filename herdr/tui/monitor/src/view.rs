@@ -1,8 +1,10 @@
-//! The frame: the header, the apps (or the releases) as a list, the selected row's panel (or, compact, its buttons on
-//! the row itself), the footer, and the dialog, toasts and palette over them.
+//! The frame: the header with what changed since you last looked, the apps (or the releases) as a list, changed rows
+//! marked, the selected row's panel (or, compact, its buttons on the row itself), the footer, and the dialog, toasts
+//! and palette over them.
 
 use cockpit_core::acts::{self, Act};
 use cockpit_core::files::Density;
+use cockpit_core::seen;
 use cockpit_core::text::{fit, width, wrap};
 use cockpit_core::theme::{BLUE, DIM, FG, GREEN, LINE, ORANGE, PANEL, RED, base, bold, dim, fg};
 use cockpit_core::widgets;
@@ -50,7 +52,7 @@ impl App {
         let info = if comfortable { self.info(inner_w) } else { Vec::new() };
         let info_h: usize = info.iter().map(|l| wrap(&plain(l), inner_w).len()).sum();
         let panel_h = if comfortable && info_h > 0 { (1 + info_h + 2 * usize::from(!acts.is_empty())).min(PANEL_MAX) as u16 } else { 0 };
-        let head = self.head_lines();
+        let head = self.head_lines(inner_w);
         let [head_area, list, panel, footer] =
             Layout::vertical([Constraint::Length(head.len() as u16 + 1), Constraint::Min(1), Constraint::Length(panel_h), Constraint::Length(1)]).areas(area);
         frame.render_widget(Paragraph::new(head), inset(head_area));
@@ -68,7 +70,7 @@ impl App {
         }
     }
 
-    fn head_lines(&self) -> Vec<Line<'static>> {
+    fn head_lines(&self, cells: usize) -> Vec<Line<'static>> {
         let mut spans = vec![Span::styled(format!("{ICON}  "), fg(ORANGE)), Span::styled("Monitor", bold(ORANGE))];
         let Some(doc) = &self.doc else {
             spans.push(Span::styled("   waiting for the mod", dim()));
@@ -84,6 +86,8 @@ impl App {
             spans.push(Span::styled("   releases, newest first", fg(ORANGE)));
         }
         let mut lines = vec![Line::from(spans)];
+        let since = |ms: u64| chrono::DateTime::from_timestamp_millis(ms as i64).map(|at| self.clock.hm(at)).unwrap_or_default();
+        lines.extend(self.looked.head(cells, since));
         // One line for what failed to fetch, however much did: the first, and how many more.
         let errors = doc.error_lines();
         if let Some(first) = errors.first() {
@@ -154,6 +158,9 @@ impl App {
             None => "  ",
         };
         let mut spans = vec![Span::styled(if row.depth == 0 { fold.to_string() } else { format!("  {}", row.guide) }, fg(LINE))];
+        if self.is_marked(row) {
+            spans.push(seen::mark());
+        }
         let room = room.saturating_sub(width(&plain(&Line::from(spans.clone()))));
         match &row.item {
             Item::App(_) => spans.extend(self.app_cells(app, room)),

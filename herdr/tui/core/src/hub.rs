@@ -13,6 +13,8 @@
 //!   renew} answered {granted}, and `store.release` {name, holder}.
 //! - `subscribe` {docs}: the connection then carries {doc, value} lines, one per document at once and per new version
 //!   after, and an empty line every half minute.
+//! - `events` {since, app, limit}: {events: [{at, doc, app, key, title}]}, newest first: what changed in the shared
+//!   documents over the last week, each with the app and row key it touched.
 //! - `ping`: {ok: true}.
 
 use std::collections::HashMap;
@@ -128,6 +130,14 @@ pub fn go(target: &Value) {
 /// Details on demand: blocking, so call it from a background thread.
 pub fn fetch(kind: &str, args: Value) -> Result<Value, String> {
     request(&json!({"op": "fetch", "kind": kind, "args": args}), Duration::from_secs(30))
+}
+
+/// What changed for this app since `since_ms` (epoch milliseconds), newest first; empty when the hub is not there.
+pub fn events(app: &str, since_ms: u64) -> Vec<Value> {
+    request(&json!({"op": "events", "app": app, "since": since_ms, "limit": 500}), Duration::from_millis(500))
+        .ok()
+        .and_then(|a| a["events"].as_array().cloned())
+        .unwrap_or_default()
 }
 
 /// A series for a sparkline, oldest first.

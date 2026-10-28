@@ -1,7 +1,7 @@
 //! The plugin's shell scripts that start the binary: app.sh and cockpit.sh find it, fetch-apps.sh installs it from a
 //! release (served here by a small HTTP server) or has a binary do it, update.sh stops the spaces' supervisors, their
-//! apps and the hub, pin-spaces.sh orders the spaces, and browse.sh and shots.sh hand their arguments to the cockpit
-//! command.
+//! apps and the hub, pin-spaces.sh orders the spaces, browse.sh and shots.sh hand their arguments to the cockpit command,
+//! and palette.sh opens the palette popup over the pane in view.
 
 mod common;
 
@@ -115,6 +115,22 @@ fn browse_and_shots_without_the_binary_say_so() {
     let out = sandbox.sh("shots.sh", &["https://x.test", "/out"], &[]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("take these screenshots in Chrome instead"));
+}
+
+// ---------------------------------------------------------------------------
+// palette.sh
+
+#[test]
+fn palette_opens_its_popup_told_of_the_pane_below() {
+    let sandbox = Sandbox::new();
+    sandbox.copy_script("palette.sh");
+    sandbox.herdr(&[("pane current", r#"{"result": {"pane": {"pane_id": "w2:p1", "agent": "claude"}}}"#)]);
+    assert_eq!(sandbox.sh("palette.sh", &[], &[]).status.code(), Some(0));
+    let open = "herdr plugin pane open --plugin cockpit --entrypoint palette --placement popup --env PALETTE_PANE=";
+    assert_eq!(sandbox.calls(), ["herdr pane current".to_string(), format!("{open}w2:p1")]);
+    std::fs::write(sandbox.log(), "").unwrap();
+    sandbox.sh("palette.sh", &[], &[("HERDR_PANE_ID", "w5:p3")]);
+    assert_eq!(sandbox.calls(), [format!("{open}w5:p3")]);
 }
 
 // ---------------------------------------------------------------------------
