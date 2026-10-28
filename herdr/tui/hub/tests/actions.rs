@@ -192,7 +192,7 @@ fn files(root: &Path) -> BTreeMap<String, Value> {
         for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if [".git", "hub.sock", "history", "sessions-index", "herdr", "bin", "calls.log", "herdr.json"].contains(&name.as_str()) {
+            if [".git", "hub.sock", "store.redb", "history", "sessions-index", "herdr", "bin", "calls.log", "herdr.json"].contains(&name.as_str()) {
                 continue;
             }
             if path.is_dir() {
@@ -233,7 +233,9 @@ fn outcome(sandbox: &Sandbox, reply: &Value, before: &BTreeMap<String, Value>) -
         }
     }
     // Linux opens a URL with xdg-open where macOS uses open: the recorded calls say open.
-    let opener = |cmd: &Value| if cmd == "xdg-open" { json!("open") } else { cmd.clone() };
+    let opener = |cmd: &Value| {
+        if cmd == "xdg-open" { json!("open") } else { cmd.clone() }
+    };
     let calls: Vec<Value> =
         sandbox.calls().iter().map(|c| norm(&json!({"cmd": opener(&c["cmd"]), "args": c["args"], "stdin": c.get("stdin")}), root)).collect();
     let mut refreshing: Vec<&String> = reply["refreshing"].as_object().map(|m| m.keys().collect()).unwrap_or_default();

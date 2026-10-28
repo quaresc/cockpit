@@ -1,5 +1,5 @@
 //! The duties of the app running in the meetings space: the next meeting on the space's sidebar row, and the meeting a
-//! notification click asks for (meetings-focus.json, written by focus.sh).
+//! notification click asks for (meetings-focus.json, written by `cockpit focus`).
 
 use std::process::Command;
 use std::time::SystemTime;
@@ -22,7 +22,7 @@ pub fn response_icon(response: &str) -> &'static str {
     }
 }
 
-/// Run by meetings-loop.sh in the meetings space: the sidebar row is this app's then.
+/// Run by `cockpit space meetings` in the meetings space: the sidebar row is this app's then.
 pub fn is_pinned() -> bool {
     std::env::var("COCKPIT_SPACE").is_ok_and(|s| !s.is_empty())
 }

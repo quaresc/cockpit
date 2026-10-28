@@ -11,6 +11,7 @@ use cockpit_core::bridge::Bridge;
 use cockpit_core::dialog::Dialog;
 use cockpit_core::files::{self, Density};
 use cockpit_core::focus;
+use cockpit_core::hub::{self, Docs};
 use cockpit_core::input::Input;
 use cockpit_core::palette::Palette;
 use cockpit_core::term;
@@ -37,8 +38,9 @@ use crate::select::{self, Picked};
 use crate::sessions::Local;
 use crate::tree::{Paint, Tree};
 
-/// The cache files' times at the last rebuild, and the 30 s period it fell in: the ages move every period.
-type Stamp = (Vec<Option<SystemTime>>, u64);
+/// The documents' revision and the muted list's time at the last rebuild, and the 30 s period it fell in: the ages move
+/// every period.
+type Stamp = (u64, Option<SystemTime>, u64);
 
 pub(crate) enum Command {
     Act(String, usize),
@@ -71,6 +73,8 @@ pub struct App {
     /// False for fixtures: no file is read or watched, nothing is fetched.
     live: bool,
     inputs: Inputs,
+    /// The documents the hub pushes; None for fixtures.
+    docs: Option<Docs>,
     seen: Option<Stamp>,
     _watcher: Option<notify::RecommendedWatcher>,
     changes: Option<Receiver<()>>,
@@ -111,6 +115,7 @@ impl App {
             compact,
             live,
             inputs,
+            docs: None,
             seen: None,
             _watcher: None,
             changes: None,
@@ -141,6 +146,7 @@ impl App {
         let mut app = Self::base(Config::load(), Local::default(), compact, true, Inputs::default(), HashMap::new());
         app._watcher = watcher;
         app.changes = Some(changes);
+        app.docs = Some(hub::subscribe(&crate::inputs::DOCS));
         app.reload(true);
         app
     }
@@ -173,9 +179,8 @@ impl App {
     }
 
     fn stamp(&self) -> Stamp {
-        let paths = [files::cache().join("inbox.json"), files::config_dir().join("muted.json"), files::cache().join("ci.json"), files::cache().join("brief.json")];
-        let times = paths.iter().map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok()).collect();
-        (times, period())
+        let muted = std::fs::metadata(files::config_dir().join("muted.json")).and_then(|m| m.modified()).ok();
+        (self.docs.as_ref().map_or(0, |d| d.revision), muted, period())
     }
 
     /// Reads the caches again when they changed or the ages moved; true when it did.
@@ -185,7 +190,8 @@ impl App {
             return false;
         }
         self.seen = Some(seen);
-        self.inputs = Inputs::read();
+        let Some(docs) = &self.docs else { return false };
+        self.inputs = Inputs::read(docs);
         let ids = model::usable(&self.inputs).map(|d| list(d, "tickets").iter().map(|t| s(t, "id").to_string()).collect()).unwrap_or_default();
         self.history.want(ids);
         self.rebuild();
@@ -235,6 +241,7 @@ impl App {
             return changed;
         }
         let files_changed = self.changes.as_ref().is_some_and(|rx| rx.try_iter().count() > 0);
+        let pushed = self.docs.as_mut().is_some_and(Docs::pump);
         if self.settled.elapsed() >= Duration::from_secs(1) {
             self.settled = Instant::now();
             let before = self.requests.count();
@@ -247,7 +254,7 @@ impl App {
             self.focus(&target);
             changed = true;
         }
-        if force || files_changed || self.seen.as_ref().is_none_or(|s| s.1 != period()) {
+        if force || files_changed || pushed || self.seen.as_ref().is_none_or(|s| s.2 != period()) {
             changed |= self.reload(force);
         }
         changed

@@ -1,8 +1,9 @@
 import type { EngineInterface } from 'claude-code'
 
-import { notify, withLock } from './ci'
+import { notify } from './ci'
 import { cacheDir, home } from './config'
 import { isNewer } from './match'
+import { withLease } from './store'
 
 type $ = EngineInterface
 
@@ -43,7 +44,7 @@ export async function checkUpdate($: $) {
   const path = `${await cacheDir($)}/update.json`
   const state = JSON.parse(await $.fs.read(path).catch(() => '{"at":0}')) as UpdateState
   if (Date.now() - state.at < UPDATE_EVERY_MS) return
-  await withLock($, 'update', async () => {
+  await withLease($, 'update', async () => {
     const { exitCode, stdout } = await $.process.run(
       ['gh', 'api', `repos/${REPO}/contents/plugin/.claude-plugin/plugin.json`, '-H', 'Accept: application/vnd.github.raw'],
       { timeoutMs: 20_000 },

@@ -37,8 +37,8 @@ pub(crate) fn newer_binary(dir: &Path) -> Option<std::path::PathBuf> {
     (String::from_utf8_lossy(&said.stdout).trim() == format!("cockpit {version}")).then_some(binary)
 }
 
-/// Stops the space apps run from `dir`'s bin/cockpit (app.sh starts them by its full path); their loops start them
-/// again on the binary now there.
+/// Stops the space apps run from `dir`'s bin/cockpit (`cockpit space` starts them by its full path); their supervisors
+/// start them again on the binary now there.
 pub fn restart_apps(dir: &Path) {
     let Ok(ours) = dir.join("bin/cockpit").canonicalize() else { return };
     let Ok(listed) = Command::new("ps").args(["-axo", "pid=,command="]).stderr(Stdio::null()).output() else { return };

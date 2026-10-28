@@ -1,8 +1,7 @@
 //! The duties of the app running in the runbook space: the sidebar count, notification clicks, the mod's refresh
 //! requests and the notification a finished background refresh sends.
 
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::SystemTime;
 
 use cockpit_core::files;
@@ -12,7 +11,7 @@ use crate::book::Book;
 
 pub const ICON: &str = "\u{f405}";
 
-/// Run by runbook-loop.sh in the runbook space: these duties are this app's then.
+/// Run by `cockpit space runbook` in the runbook space: these duties are this app's then.
 pub fn is_pinned() -> bool {
     std::env::var("COCKPIT_SPACE").is_ok_and(|s| !s.is_empty())
 }
@@ -75,12 +74,6 @@ fn is_in_view() -> bool {
         .is_some_and(|all| all.iter().any(|w| w["focused"].as_bool() == Some(true) && w["label"].as_str().is_some_and(|l| l.ends_with("  runbook"))))
 }
 
-/// One of the plugin's scripts, through the link that follows herdr's updates.
-fn script(name: &str) -> PathBuf {
-    let linked = files::config_dir().join("herdr").join(name);
-    if linked.exists() { linked } else { files::herdr_dir().join(name) }
-}
-
 /// A finished background refresh: a notification whose click opens the runbook and plays its new done steps.
 pub fn announce(book: &Book, newly: Vec<String>, reason: String) {
     let (title, slug, todo) = (if book.title.is_empty() { book.slug.clone() } else { book.title.clone() }, book.slug.clone(), book.todo());
@@ -97,11 +90,6 @@ pub fn announce(book: &Book, newly: Vec<String>, reason: String) {
             body = format!("{reason} · {body}");
         }
         let action = if newly.is_empty() { format!("runbook:{slug}") } else { format!("runbook:{slug}:{}", newly.join(",")) };
-        let _ = Command::new("sh")
-            .arg(script("notify.sh"))
-            .args([format!("📋 {title}"), body, action])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        cockpit_core::notify::post(&format!("📋 {title}"), &body, &action, &[]);
     });
 }

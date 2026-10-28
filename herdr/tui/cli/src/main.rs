@@ -4,8 +4,12 @@
 mod act;
 mod actions;
 mod browse;
+mod doctor;
+mod focus;
 mod proc;
 mod shots;
+mod space;
+mod store;
 mod update;
 
 /// mimalloc hands freed pages back to the system soon after: the system allocator kept the tens of megabytes a show
@@ -19,7 +23,8 @@ use std::time::Duration;
 
 const USAGE: &str = "cockpit, the plugin's command.
 
-    cockpit inbox|runbook|todo|meetings        a space's app (the space loops add cockpit-space, which update.sh looks for)
+    cockpit inbox|runbook|todo|meetings        a space's app (cockpit space adds cockpit-space, which update.sh looks for)
+    cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
     cockpit show <name>                        the view a Claude session shows beside itself
     cockpit hub                                the background process the apps share; the first app that needs it starts it
     cockpit hub ping                           exits 0 when the hub answers within 2 seconds
@@ -27,8 +32,13 @@ const USAGE: &str = "cockpit, the plugin's command.
     cockpit actions tab <cwd> <label> [key]   a tab in the actions space, its pane id printed
     cockpit actions sidebar                    the actions space's sessions listed under its sidebar row
     cockpit act <review|ci|rerun|plan> <ref>   what a notification's button does
+    cockpit notify <title> <body> [action] [<label>=<action> ...]
+                                               a system notification; a click or a button does its action
+    cockpit focus <target>                     what a notification's click does (cockpit focus for more)
+    cockpit doctor                             checks every part of cockpit, one ok, warn or fail line each
     cockpit browse ...                         a page in terminal-browser beside a pane (cockpit browse for more)
-    cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)";
+    cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)
+    cockpit store ...                          the documents the hub keeps and its leases, for the mod (cockpit store for more)";
 
 fn main() {
     cockpit_core::answer_version("cockpit");
@@ -45,13 +55,25 @@ fn main() {
         "update-apps" => update::main(rest),
         "actions" => actions::main(rest),
         "act" => act::main(rest),
+        "notify" => notify(rest),
+        "focus" => focus::main(rest),
+        "doctor" => doctor::main(rest),
+        "space" => space::main(rest),
         "browse" => browse::main(rest),
         "shots" => shots::main(rest),
+        "store" => store::main(rest),
         _ => proc::fail(USAGE),
     }
 }
 
-/// An app's end: an error that stopped it is printed, and the space's loop starts it again.
+/// A system notification with the cockpit icon: a click does the action, each `<label>=<action>` button its own.
+fn notify(args: &[String]) {
+    let [title, body, rest @ ..] = args else { proc::fail("cockpit notify <title> <body> [action] [<label>=<action> ...]") };
+    let action = rest.first().map_or("", String::as_str);
+    cockpit_core::notify::post(title, body, action, rest.get(1..).unwrap_or_default());
+}
+
+/// An app's end: an error that stopped it is printed, and `cockpit space` starts it again.
 fn app(ended: std::io::Result<()>) {
     if let Err(error) = ended {
         proc::fail(&format!("cockpit: {error}"));

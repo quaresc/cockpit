@@ -186,11 +186,11 @@ fn act_failures_come_back_as_a_notification() {
     for (args, message) in cases {
         let out = sandbox.cockpit(&args, &[]);
         assert_eq!((out.status.code(), stderr(&out).trim()), (Some(1), message));
-        assert_eq!(sandbox.calls().last().unwrap(), &format!("notify.sh ⚠️ Cockpit {message} space:inbox"));
+        assert_eq!(sandbox.calls().last().unwrap(), &format!("notify ⚠️ Cockpit {message} space:inbox"));
     }
     let out = sandbox.cockpit(&["act", "dance", "x"], &[]);
     assert_eq!(out.status.code(), Some(1));
-    assert!(std::fs::read_to_string(sandbox.log()).unwrap().contains("notify.sh ⚠️ Cockpit What a notification's button does"));
+    assert!(std::fs::read_to_string(sandbox.log()).unwrap().contains("notify ⚠️ Cockpit What a notification's button does"));
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 
@@ -376,4 +376,246 @@ fn shots_exit_2_without_a_browser_beside_a_pane() {
     assert!(stderr(&out).contains("take these screenshots in Chrome instead"));
     let out = sandbox.cockpit(&["shots", "https://app.test"], &[]);
     assert_eq!(out.status.code(), Some(1));
+}
+
+// store, against a fake hub
+
+#[test]
+fn store_hands_the_mods_file_to_the_hub_and_prints_the_document() {
+    let sandbox = Sandbox::new();
+    let seen = fake_hub(&sandbox, Some(json!({"value": {"version": 1, "previews": []}})));
+    sandbox.write("home/.cache/cockpit/store-inbox-x.json", r#"{"version": 1, "previews": []}"#);
+    let file = sandbox.cache().join("store-inbox-x.json");
+    let out = sandbox.cockpit(&["store", "patch", "inbox", &file.to_string_lossy()], &[]);
+    assert_eq!(stdout(&out), "{\"previews\":[],\"version\":1}\n");
+    assert!(!file.exists(), "the file goes once read");
+    assert_eq!(seen.lock().unwrap().last().unwrap(), &json!({"op": "store.patch", "name": "inbox", "fields": {"version": 1, "previews": []}}));
+}
+
+#[test]
+fn store_leases_print_granted_or_held() {
+    let sandbox = Sandbox::new();
+    let seen = fake_hub(&sandbox, Some(json!({"granted": false})));
+    assert_eq!(stdout(&sandbox.cockpit(&["store", "renew", "inbox", "s1-abc", "90"], &[])), "held\n");
+    assert_eq!(seen.lock().unwrap().last().unwrap(), &json!({"op": "store.lease", "name": "inbox", "holder": "s1-abc", "ttl": 90, "renew": true}));
+    assert_eq!(stdout(&sandbox.cockpit(&["store", "release", "inbox", "s1-abc"], &[])), "released\n");
+    assert_eq!(sandbox.cockpit(&["store", "lease", "inbox"], &[]).status.code(), Some(1));
+}
+
+// ---------------------------------------------------------------------------
+// notify and focus
+
+#[test]
+fn notify_hands_the_notification_over_and_keeps_the_terminal() {
+    let sandbox = Sandbox::new();
+    let args = ["notify", "📥 Inbox", "web#9 Dark mode", "https://x.test/9", "Review=act:review:https://x.test/9"];
+    let out = sandbox.cockpit(&args, &[("__CFBundleIdentifier", "com.mitchellh.ghostty")]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(sandbox.calls(), ["notify 📥 Inbox web#9 Dark mode https://x.test/9 Review=act:review:https://x.test/9"]);
+    let terminal = sandbox.cache().join("terminal-app");
+    assert_eq!(std::fs::read_to_string(&terminal).unwrap(), "com.mitchellh.ghostty\n");
+    // A click handled by the notifier app itself does not make it the terminal.
+    sandbox.cockpit(&["notify", "a", "b"], &[("__CFBundleIdentifier", "dev.cockpit.notifier")]);
+    assert_eq!(std::fs::read_to_string(&terminal).unwrap(), "com.mitchellh.ghostty\n");
+    assert_eq!(sandbox.cockpit(&["notify", "only a title"], &[]).status.code(), Some(1));
+}
+
+#[test]
+fn notify_is_silent_when_notifications_are_off() {
+    let sandbox = Sandbox::new();
+    sandbox.write("home/.config/cockpit/config.json", r#"{"notifications": false}"#);
+    assert_eq!(sandbox.cockpit(&["notify", "a", "b", "space:inbox"], &[]).status.code(), Some(0));
+    assert!(sandbox.calls().is_empty());
+}
+
+#[test]
+fn focus_brings_each_target_into_view() {
+    let sandbox = Sandbox::new();
+    let spaces = r#"{"result": {"workspaces": [{"workspace_id": "w1", "label": "[1] x  inbox"}, {"workspace_id": "w5", "label": "[5] y  runbook"}, {"workspace_id": "w6", "label": "[6] z  meetings"}]}}"#;
+    sandbox.herdr(&[("workspace list", spaces)]);
+    for target in ["space:inbox", "workspace:w9", "tab:t4", "runbook:eng-4:a,b", "meeting:ev1", "space:nowhere", "dance"] {
+        let out = sandbox.cockpit(&["focus", target], &[]);
+        assert_eq!(out.status.code(), Some(0), "{target}: {}", stderr(&out));
+    }
+    let focused: Vec<String> = sandbox.calls().into_iter().filter(|c| !c.ends_with("workspace list")).collect();
+    assert_eq!(focused, ["herdr workspace focus w1", "herdr workspace focus w9", "herdr tab focus t4", "herdr workspace focus w5", "herdr workspace focus w6"]);
+    let runbook: Value = serde_json::from_str(&std::fs::read_to_string(sandbox.cache().join("runbook-focus.json")).unwrap()).unwrap();
+    assert_eq!((&runbook["slug"], &runbook["steps"]), (&json!("eng-4"), &json!(["a", "b"])));
+    assert!(runbook["at"].as_f64().unwrap() > 1e9);
+    let meeting: Value = serde_json::from_str(&std::fs::read_to_string(sandbox.cache().join("meetings-focus.json")).unwrap()).unwrap();
+    assert_eq!(meeting["id"], "ev1");
+    sandbox.cockpit(&["focus", "runbook:eng-5"], &[]);
+    let runbook: Value = serde_json::from_str(&std::fs::read_to_string(sandbox.cache().join("runbook-focus.json")).unwrap()).unwrap();
+    assert_eq!((&runbook["slug"], &runbook["steps"]), (&json!("eng-5"), &json!([])));
+}
+
+#[test]
+fn focus_opens_a_url_and_brings_the_terminal_forward() {
+    let sandbox = Sandbox::new();
+    sandbox.write("home/.cache/cockpit/terminal-app", "com.mitchellh.ghostty\n");
+    sandbox.cockpit(&["focus", "https://x.test/a"], &[]);
+    sandbox.cockpit(&["focus", "tab:t4"], &[]);
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let mut expected = vec![format!("{opener} https://x.test/a"), "herdr tab focus t4".to_string()];
+    if cfg!(target_os = "macos") {
+        expected.push("open -b com.mitchellh.ghostty".into());
+    }
+    assert_eq!(sandbox.calls(), expected);
+}
+
+#[test]
+fn a_notification_button_runs_cockpit_act() {
+    let sandbox = Sandbox::new();
+    with_inbox(&sandbox);
+    let seen = fake_hub(&sandbox, Some(json!({"note": "review queued", "pending": {}, "refreshing": {}, "error": null})));
+    let out = sandbox.cockpit(&["focus", "act:review:https://github.com/acme/api/pull/4"], &[]);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(std::fs::read_to_string(sandbox.cache().join("act.log")).unwrap(), "review queued\n");
+    assert_eq!(seen.lock().unwrap()[0]["action"], "review");
+}
+
+#[test]
+fn focus_update_runs_update_sh_in_the_background() {
+    let sandbox = Sandbox::new();
+    sandbox.write("herdr/update.sh", "echo updating \"$@\"\n");
+    assert_eq!(sandbox.cockpit(&["focus", "update"], &[]).status.code(), Some(0));
+    let log = sandbox.cache().join("update.log");
+    let start = Instant::now();
+    while std::fs::read_to_string(&log).unwrap_or_default() != "updating\n" {
+        assert!(start.elapsed() < Duration::from_secs(5), "update.sh did not run");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// space
+
+/// The sandbox's herdr/bin/cockpit: run as `space <app>` it is the real supervisor, any other way it logs its call.
+fn space_binary(sandbox: &Sandbox) {
+    let script = format!(
+        "#!/bin/sh\n[ \"$1\" = space ] && exec '{}' \"$@\"\nprintf '%s\\n' \"$0 $* [$COCKPIT_SPACE]\" >> '{}'\n",
+        env!("CARGO_BIN_EXE_cockpit"),
+        sandbox.log().display()
+    );
+    common::executable(&sandbox.root.join("herdr/bin/cockpit"), &script);
+}
+
+fn supervisor(sandbox: &Sandbox, app: &str) -> std::process::Child {
+    std::process::Command::new(sandbox.root.join("herdr/bin/cockpit"))
+        .args(["space", app])
+        .env_clear()
+        .envs(sandbox.env())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+fn wait_for_calls(sandbox: &Sandbox, count: usize) -> Vec<String> {
+    let start = Instant::now();
+    loop {
+        let calls = sandbox.calls();
+        if calls.len() >= count {
+            return calls;
+        }
+        assert!(start.elapsed() < Duration::from_secs(15), "{calls:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn space_starts_the_app_again_then_runs_from_a_new_binary() {
+    let sandbox = Sandbox::new();
+    space_binary(&sandbox);
+    let mut child = supervisor(&sandbox, "todo");
+    let app = format!("{} todo cockpit-space [1]", sandbox.root.join("herdr/bin/cockpit").display());
+    // The app ends at once: started again after a second, then two.
+    assert_eq!(wait_for_calls(&sandbox, 2), [app.clone(), app.clone()]);
+    // An update puts a new binary in: the supervisor runs from it.
+    std::fs::remove_file(sandbox.root.join("herdr/bin/cockpit")).unwrap();
+    common::executable(&sandbox.root.join("herdr/bin/cockpit"), &format!("#!/bin/sh\nprintf 'new %s\\n' \"$*\" >> '{}'\n", sandbox.log().display()));
+    assert_eq!(wait_for_calls(&sandbox, 3).last().unwrap(), "new space todo");
+    let status = child.wait().unwrap();
+    assert!(status.success());
+    let mut printed = String::new();
+    std::io::Read::read_to_string(child.stdout.as_mut().unwrap(), &mut printed).unwrap();
+    assert!(printed.starts_with("\x1b[?1003l\x1b[?1006l\x1b[?1000l"), "{printed:?}");
+}
+
+#[test]
+fn space_leaves_on_a_ctrl_c_between_runs() {
+    let sandbox = Sandbox::new();
+    space_binary(&sandbox);
+    let mut child = supervisor(&sandbox, "inbox");
+    let calls = wait_for_calls(&sandbox, 1);
+    assert_eq!(calls, [format!("{} inbox cockpit-space []", sandbox.root.join("herdr/bin/cockpit").display())]);
+    std::thread::sleep(Duration::from_millis(300));
+    // SAFETY: kill only sends SIGINT to the child this test started.
+    unsafe { libc::kill(child.id() as i32, libc::SIGINT) };
+    let start = Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        assert!(start.elapsed() < Duration::from_secs(5), "the supervisor kept going");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(child.wait().unwrap().success());
+    assert_eq!(sandbox.calls().len(), 1);
+}
+
+#[test]
+fn space_wants_one_of_the_space_apps() {
+    let sandbox = Sandbox::new();
+    for args in [&["space"][..], &["space", "show"], &["space", "inbox", "x"]] {
+        assert_eq!(sandbox.cockpit(args, &[]).status.code(), Some(1), "{args:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// doctor
+
+#[test]
+fn doctor_prints_a_line_per_check() {
+    let sandbox = Sandbox::new();
+    let spaces = r#"{"result": {"workspaces": [{"workspace_id": "w1", "label": "[1] x  inbox"}, {"workspace_id": "w2", "label": "[2] eng-4"}]}}"#;
+    let panes = r#"{"result": {"panes": [{"pane_id": "p1", "workspace_id": "w2", "agent": "claude"}]}}"#;
+    sandbox.herdr(&[("--version", "herdr 0.8.1"), ("workspace list", spaces), ("pane list", panes)]);
+    sandbox.write(
+        "home/.config/cockpit/config.json",
+        r#"{"spaces": ["inbox", {"name": "notes"}], "tickets": {"enabled": true, "tools": {"listMine": {"tool": "x"}}}, "ci": {"enabled": false},
+            "platform": {"enabled": true, "server": "Backstage", "tools": {"stop": {"tool": "s"}, "deploy": {"tool": "d"}, "preview": {"tool": ""}}}, "metabase": {"server": "metabase"}}"#,
+    );
+    sandbox.write("home/.config/herdr/config.toml", "[ui.toast]\ndelivery = \"herdr\"\n");
+    sandbox.write("home/.claude/settings.json", r#"{"permissions": {"allow": ["mcp__Backstage", "mcp__metabase"]}}"#);
+    sandbox.write("home/.cache/cockpit/inbox.json", r#"{"at": 1000, "errors": ["GitHub: 401"]}"#);
+    sandbox.write("home/.cache/cockpit/sessions/a.json", r#"{"pane": "p1", "version": "0.1.0", "at": 5}"#);
+    let out = sandbox.cockpit(&["doctor"], &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let printed = stdout(&out);
+    let link = sandbox.home().join(".config/cockpit/herdr");
+    let lines: Vec<&str> = printed.lines().collect();
+    for line in [
+        "fail  herdr 0.8.1: cockpit needs 0.9 or later → herdr update".to_string(),
+        "ok    config.json".into(),
+        "fail  herdr plugin not installed → herdr plugin install quaresc/cockpit/herdr --yes".into(),
+        "ok    session \"eng-4\" on cockpit 0.1.0".into(),
+        "fail  inbox: GitHub: 401".into(),
+        "warn  space inbox is hidden in the sidebar → add { contains = \"  \" } before the hiding rule of ui.sidebar.spaces in ~/.config/herdr/config.toml"
+            .into(),
+        format!("fail  space notes missing → sh {}/ensure-spaces.sh", link.display()),
+        "ok    herdr toasts in-app".into(),
+        "ok    platform tools mapped: stop, deploy".into(),
+        "warn  ticket tools not mapped: get, listStates, setState; cockpit skips what they do → /cockpit:setup maps them".into(),
+        "ok    CI from GitHub checks".into(),
+        "ok    allow rule for Backstage".into(),
+        "fail  no allow rule for claude.ai Linear: background refreshes are refused → add \"mcp__claude_ai_Linear\" to permissions.allow".into(),
+        "warn  no allow rule for mcp__claude_ai_Datadog__get_datadog_metric: its live pane asks or is refused → add it to permissions.allow".into(),
+        "ok    allow rule for mcp__metabase__query".into(),
+    ] {
+        assert!(lines.contains(&line.as_str()), "{line}\n{printed}");
+    }
+    assert!(!printed.contains("CI:"), "{printed}");
+    // Whether a supervisor runs is this machine's business; the line is there either way.
+    let no_app = format!("fail  space inbox has no app running → sh {}/ensure-spaces.sh", link.display());
+    assert!(lines.iter().any(|l| *l == no_app || *l == "ok    space inbox, app running"), "{printed}");
+    // Each line is one check, in its order.
+    let at = |prefix: &str| lines.iter().position(|l| l.contains(prefix)).unwrap();
+    assert!(at("herdr 0.8.1") < at("config.json") && at("config.json") < at("session") && at("session") < at("inbox:") && at("inbox:") < at("platform tools"));
 }

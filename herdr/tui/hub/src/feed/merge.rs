@@ -1,54 +1,14 @@
-//! Where the feed's data lands. inbox.json: the hub writes the GitHub fields (and `tickets` given a Linear token) plus
-//! its own `hub` record, the mod the rest, each through the same lock and an atomic rename; `errors` joins both sides'.
-//! ci.json: whole, marked `by: "hub"`. While the hub's part is under three minutes old the mod leaves it alone.
+//! How each side's part lands in the store's documents. inbox: the hub writes the GitHub fields (and `tickets` given a
+//! Linear token) plus its own `hub` record, the mod the rest; `errors` joins both sides'. ci: whole, marked `by: "hub"`
+//! when the hub's. While the hub's part is under three minutes old the mod leaves it alone.
 
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
-
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::value::list;
 
 /// The shape of inbox.json the apps read, and of ci.json.
 pub const INBOX_VERSION: i64 = 1;
 pub const CI_VERSION: i64 = 3;
-/// The mod's lock is touched every 30 s while held: an older one was left by a dead session.
-const LOCK_STALE: Duration = Duration::from_secs(120);
-
-/// The cross-process lock the mod takes too: a directory, created or not in one step.
-pub struct Lock(PathBuf);
-
-impl Lock {
-    pub fn take(cache: &Path, name: &str) -> Option<Lock> {
-        let path = cache.join(format!("{name}.lock"));
-        let age = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok()).and_then(|t| SystemTime::now().duration_since(t).ok());
-        if age.is_some_and(|age| age > LOCK_STALE) {
-            // Renamed away first, so a single process takes a stale lock over.
-            let stale = cache.join(format!("{name}.lock.stale-hub{}", std::process::id()));
-            if std::fs::rename(&path, &stale).is_ok() {
-                let _ = std::fs::remove_dir(&stale);
-            }
-        }
-        let _ = std::fs::create_dir_all(cache);
-        std::fs::create_dir(&path).ok().map(|_| Lock(path))
-    }
-}
-
-impl Drop for Lock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir(&self.0);
-    }
-}
-
-/// Written beside it, then moved in place, so no reader sees half of it.
-pub fn write(path: &Path, value: &Value) -> std::io::Result<()> {
-    let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
-    let tmp = path.with_file_name(format!("{}.hub{}-{nanos}.tmp", path.file_name().and_then(|n| n.to_str()).unwrap_or("data"), std::process::id()));
-    std::fs::write(&tmp, serde_json::to_string(value)?)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
-    })
-}
 
 /// What one round of the feed brings to inbox.json: the parts it fetched, and its errors (the latest of each source).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -56,13 +16,6 @@ pub struct InboxPart {
     pub github: Option<[Value; 5]>,
     pub tickets: Option<Vec<Value>>,
     pub errors: Vec<String>,
-}
-
-impl InboxPart {
-    /// A part not written yet (the lock was taken) followed by a newer one.
-    pub fn then(self, newer: InboxPart) -> InboxPart {
-        InboxPart { github: newer.github.or(self.github), tickets: newer.tickets.or(self.tickets), errors: newer.errors }
-    }
 }
 
 const GITHUB_FIELDS: [&str; 5] = ["direct", "team", "botRepos", "mine", "merged"];
@@ -119,14 +72,16 @@ pub fn merge_ci(file: &Value, runs: Result<Vec<Value>, String>, now: u64) -> Val
     }
 }
 
-/// Reads, merges and writes a cache file under its lock; None when the lock is held (the caller tries again later).
-pub fn update(cache: &Path, name: &str, merge: impl FnOnce(&Value) -> Value) -> Option<(Value, Value)> {
-    let _lock = Lock::take(cache, name)?;
-    let path = cache.join(format!("{name}.json"));
-    let before = cockpit_core::files::load(&path).unwrap_or(Value::Null);
-    let after = merge(&before);
-    write(&path, &after).ok()?;
-    Some((before, after))
+/// The inbox with the mod's fields set; given errors go first and the hub's after them. A part of another version than
+/// the inbox's starts it over.
+pub fn mod_inbox(doc: &Value, fields: &Map<String, Value>) -> Value {
+    let is_other = fields.get("version").is_some_and(|v| v != &doc["version"]);
+    let mut inbox = crate::store::patch(if is_other { &Value::Null } else { doc }, fields);
+    if fields.contains_key("errors") {
+        let errors: Vec<Value> = list(&fields["errors"]).iter().chain(list(&inbox["hub"]["errors"]).iter()).cloned().collect();
+        inbox["errors"] = json!(errors);
+    }
+    inbox
 }
 
 #[cfg(test)]
@@ -174,9 +129,6 @@ mod tests {
         let inbox = merge_inbox(&Value::Null, &InboxPart { tickets: Some(vec![json!({"id": "ENG-2"})]), ..InboxPart::default() }, 9);
         assert_eq!(inbox["hub"]["tickets"], 9);
         assert!(inbox["hub"].get("github").is_none());
-        let later = InboxPart { github: None, tickets: None, errors: vec!["x".into()] };
-        assert_eq!(part(&[]).then(later.clone()).github, part(&[]).github);
-        assert_eq!(part(&["old"]).then(later).errors, ["x"]);
     }
 
     #[test]
@@ -187,17 +139,17 @@ mod tests {
     }
 
     #[test]
-    fn a_held_lock_waits_and_a_stale_one_is_taken_over() {
-        let dir = tempfile::tempdir().unwrap();
-        let held = Lock::take(dir.path(), "inbox").unwrap();
-        assert!(Lock::take(dir.path(), "inbox").is_none());
-        assert!(update(dir.path(), "inbox", |_| json!({})).is_none());
-        drop(held);
-        let (before, after) = update(dir.path(), "inbox", |v| json!({"was": v})).unwrap();
-        assert_eq!((before, after), (Value::Null, json!({"was": null})));
-        std::fs::create_dir(dir.path().join("ci.lock")).unwrap();
-        let old = SystemTime::now() - Duration::from_secs(300);
-        std::fs::File::open(dir.path().join("ci.lock")).unwrap().set_modified(old).unwrap();
-        assert!(Lock::take(dir.path(), "ci").is_some());
+    fn the_mods_part_keeps_the_hubs_fields_and_errors() {
+        let doc = json!({"version": 1, "direct": [{"url": "d"}], "tickets": [], "errors": ["GitHub: HTTP 502", "Previews failed"],
+            "hub": {"at": 5, "github": 5, "errors": ["GitHub: HTTP 502"]}});
+        let fields = json!({"version": 1, "modAt": 9, "tickets": [{"id": "ENG-1"}], "errors": ["Deploy status failed"]});
+        let inbox = mod_inbox(&doc, fields.as_object().unwrap());
+        assert_eq!((&inbox["direct"], &inbox["hub"], &inbox["modAt"]), (&doc["direct"], &doc["hub"], &json!(9)));
+        assert_eq!(inbox["tickets"][0]["id"], "ENG-1");
+        assert_eq!(inbox["errors"], json!(["Deploy status failed", "GitHub: HTTP 502"]));
+        let other = mod_inbox(&json!({"version": 0, "mine": "old"}), fields.as_object().unwrap());
+        assert!(other.get("mine").is_none(), "another version starts over");
+        let dropped = mod_inbox(&inbox, json!({"tickets": []}).as_object().unwrap());
+        assert_eq!((&dropped["tickets"], &dropped["errors"]), (&json!([]), &inbox["errors"]), "a part without errors keeps them");
     }
 }
