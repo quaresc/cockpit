@@ -1,0 +1,28 @@
+---
+source: monitor/tests/snapshots.rs
+expression: "render(&mut app, 120, 24)"
+---
+   Monitor   3 apps · 3 releases today · updated 17:56   releases, newest first
+
+   ⏳  web       v2026.10.28.3  17:38 sam     watching until 17:10
+   ⚠️  api       v2026.10.28.1  16:58 you     ENG-412  errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error
+   ✅  api       v2026.10.28    16:34 jonas   errors 0.12% → 0.13% · p95 31 → 33 ms
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ⏳  web v2026.10.28.3  by sam
+ Running · since 17:38 · watched until 18:10
+ watching until 17:10
+
+   open  o     investigate  i
+ enter main  space fold  w by app  R refresh  q quit                                                        ▏^p palette

@@ -51,6 +51,9 @@ const TICKET3: &str =
     r#"{"id": "ENG-403", "title": "Password reset", "url": "https://linear.app/acme/issue/ENG-403/reset", "status": "Backlog", "statusType": "backlog"}"#;
 const STEP2: &str = r#"{"n": "2", "step": "Run the migration", "where": "prod", "status": "⬜ to do", "command": "mix ecto.migrate"}"#;
 const NO_ACTIONS: &str = r#"{"workspace list": {"workspaces": [{"workspace_id": "w1", "label": "[1] x  inbox", "focused": false}]}}"#;
+/// The api app as the monitor document has it, with its env: a release of mine that moved, an older one, a new error and
+/// an alerting monitor.
+const MON_API: &str = r#"{"id": "api-production", "name": "api", "service": "api", "repo": "api", "env": "production", "health": "Healthy", "tag": "v2026.10.28.1", "deployedAt": "2026-10-28T15:52:57Z", "argoUrl": "https://argocd.example.com/applications/api-production", "datadogUrl": "https://app.datadoghq.eu/apm/entity/service%3Aapi?env=production", "watched": true, "pinned": true, "monitors": {"ok": 12, "warn": 0, "alert": 1, "nodata": 3, "alerting": [{"id": 17255491, "name": "[api] Current user - API Availability", "status": "Alert", "url": "https://app.datadoghq.eu/monitors/17255491"}]}, "issues": [{"id": "1fcdadd8", "type": "Req.TransportError", "message": "socket closed", "count": 140, "firstSeen": "2026-10-28T15:55:59Z", "firstVersion": "main-v2026.10.28.1", "url": "https://app.datadoghq.eu/error-tracking/issue/1fcdadd8", "isNew": true}], "releases": [{"id": 622, "tag": "v2026.10.28.1", "actor": "me", "isMine": true, "phase": "Succeeded", "startedAt": "2026-10-28T15:50:47Z", "finishedAt": "2026-10-28T15:58:09Z", "tickets": [{"id": "ENG-401", "url": "https://linear.app/acme/issue/ENG-401/sign-in"}], "prs": [{"repo": "api", "number": 4, "url": "https://github.com/acme/api/pull/4"}], "verdict": {"state": "moved", "summary": "errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error", "before": {"errors": 2, "hits": 1512, "p95": 0.033}, "after": {"errors": 31, "hits": 1630, "p95": 0.161}, "newIssues": ["1fcdadd8"], "until": "2026-10-28T16:28:09Z"}}, {"id": 619, "tag": "v2026.10.28", "actor": "jonas", "isMine": false, "phase": "Succeeded", "startedAt": "2026-10-28T15:27:03Z", "finishedAt": "2026-10-28T15:34:29Z", "tickets": [], "prs": [], "verdict": {"state": "ok", "summary": "errors 0.12% → 0.13% · p95 31 → 33 ms", "newIssues": []}}]}"#;
 const AGENT: &str = r#"{"pane get": {"pane": {"pane_id": "w9:p2", "tab_id": "w9:t2", "agent": "claude"}}}"#;
 
 fn cases() -> Vec<Case> {
@@ -150,6 +153,21 @@ fn cases() -> Vec<Case> {
         case("open a meeting", "meetings", "open_url", r#"["https://calendar/ev1"]"#),
         case("open a ticket from the to-do", "todo", "open_link", r#"["eng-401"]"#),
         case("open a URL from the to-do", "todo", "open_link", r#"["https://x.y/z"]"#),
+        case("investigate an app", "monitor", "investigate", format!("[{MON_API}, {{}}]")),
+        case("investigate a release", "monitor", "investigate", format!(r#"[{MON_API}, {{"release": 622}}]"#)),
+        case("investigate an error", "monitor", "investigate", format!(r#"[{MON_API}, {{"issue": "1fcdadd8"}}]"#)),
+        case("investigate a monitor", "monitor", "investigate", format!(r#"[{MON_API}, {{"monitor": "17255491"}}]"#)),
+        case("fix an error", "monitor", "fix", format!(r#"[{MON_API}, "1fcdadd8"]"#)),
+        case("bug for an error", "monitor", "bug", format!(r#"[{MON_API}, {{"issue": "1fcdadd8"}}]"#)),
+        case("bug for a release", "monitor", "bug", format!(r#"[{MON_API}, {{"release": 622}}]"#)),
+        case("roll back asks first", "monitor", "roll_back", format!(r#"[{MON_API}, "622", "v2026.10.28"]"#)),
+        case("roll back", "monitor", "roll_back", format!(r#"[{MON_API}, "622", "v2026.10.28"]"#)).armed("rollback-api-production-v2026.10.28.1"),
+        case("talk about my release", "monitor", "talk", format!(r#"[{MON_API}, "622"]"#)),
+        case("talk about a release with no ticket", "monitor", "talk", format!(r#"[{MON_API}, "619"]"#)),
+        case("pin an app", "monitor", "pin", r#"["web-production", true]"#),
+        case("unpin an app", "monitor", "pin", r#"["api-production", false]"#),
+        case("refresh the monitor", "monitor", "request_refresh", "[]"),
+        case("open from the monitor", "monitor", "open_url", r#"["https://app.datadoghq.eu/monitors/17255491"]"#),
     ]
 }
 

@@ -1,0 +1,76 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "create",
+        "--workspace",
+        "w3",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "bug api 1fcdadd8",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'Draft a Linear bug for the error Req.TransportError: socket closed in api (Datadog service api, env production). The evidence cockpit'\"'\"'s monitor has: new error Req.TransportError: socket closed, 140 events in the last day, first seen 2026-10-28T15:55:59Z in main-v2026.10.28.1 (https://app.datadoghq.eu/error-tracking/issue/1fcdadd8); ArgoCD says Healthy, running v2026.10.28.1 since 2026-10-28T15:52:57Z; monitors: 12 ok, 0 warn, 1 alert, 3 nodata; monitor \"[api] Current user - API Availability\" is Alert (https://app.datadoghq.eu/monitors/17255491); release v2026.10.28.1 by me (Succeeded), 2026-10-28T15:50:47Z → 2026-10-28T15:58:09Z, verdict moved: errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error (before: 2 errors in 1512 requests, p95 0.033 s; after: 31 errors in 1630 requests, p95 0.161 s), shipping https://linear.app/acme/issue/ENG-401/sign-in, https://github.com/acme/api/pull/4; release v2026.10.28 by jonas (Succeeded), 2026-10-28T15:27:03Z → 2026-10-28T15:34:29Z, verdict ok: errors 0.12% → 0.13% · p95 31 → 33 ms. Links: https://app.datadoghq.eu/error-tracking/issue/1fcdadd8, https://app.datadoghq.eu/apm/entity/service%3Aapi?env=production, https://argocd.example.com/applications/api-production. Add what the bug needs from Datadog (load the datadog-conventions skill: the stack trace, sample events, when it started, how many requests or users it hits), then write it following my conventions for Linear issues in CLAUDE.md. Show me the draft and ask before filing it: file nothing until I say so.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "bug api 1fcdadd8": "wT:p1",
+      "plan eng-401": "w9:p2",
+      "review web#9": "w9:p1",
+      "talk eng-403": "w9:p4"
+    }
+  },
+  "note": "started \"bug api 1fcdadd8\" in the actions space",
+  "pending": {},
+  "refreshing": []
+}

@@ -4,13 +4,13 @@ import { cacheDir, home } from './config'
 
 type $ = EngineInterface
 
-// The documents the hub keeps for everyone (inbox, ci, meetings, brief) and its leases, through `cockpit store`. The hub
+// The documents the hub keeps for everyone (inbox, ci, meetings, brief, monitor) and its leases, through `cockpit store`. The hub
 // is their only writer and mirrors each to <name>.json, which the mod reads as before.
 
 const LEASE_TTL_S = 120
 const LEASE_BEAT_MS = 30_000
 
-export type Doc = 'inbox' | 'ci' | 'meetings' | 'brief'
+export type Doc = 'inbox' | 'ci' | 'meetings' | 'brief' | 'monitor'
 
 async function store($: $, args: string[]) {
   const command = `${await home($)}/.config/cockpit/herdr/cockpit.sh`

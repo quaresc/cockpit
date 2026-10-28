@@ -69,7 +69,7 @@ fn claude_line(flags: &[String], prompt: &str) -> String {
 
 /// A one-off Claude session in a tab of the actions space, else in a new space; pressed again while it runs, its tab
 /// comes back into view.
-fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[String]) {
+pub(crate) fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[String]) {
     if let Some(pane) = space::pane_of(label)
         && space::focus(&pane)
     {
@@ -84,7 +84,7 @@ fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[St
     ctx.note(format!("started \"{label}\" in the actions space"));
 }
 
-fn repo_dir(ctx: &Ctx, repo: &str) -> String {
+pub(crate) fn repo_dir(ctx: &Ctx, repo: &str) -> String {
     let path = format!("{}/{repo}", ctx.repos());
     if is_dir(&path) { path } else { ctx.repos() }
 }
@@ -326,11 +326,12 @@ fn ticket_brief(ticket: &Value, prs: &[Value], data: &Value) -> Res<String> {
 /// on it most, else a fresh one.
 pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let (ticket, prs, data) = (arg(args, 0)?, list(arg(args, 1)?), arg(args, 2)?);
-    talk_over(ctx, ticket, prs, data, opt(args, 3).as_str())
+    talk_over(ctx, ticket, prs, data, opt(args, 3).as_str(), "")
 }
 
-pub fn talk_over(ctx: &mut Ctx, ticket: &Value, prs: &[Value], data: &Value, owner: Option<&str>) -> Res {
-    let brief = ticket_brief(ticket, prs, data)?;
+/// The talk about a ticket, `news` added to what the inbox knows of it.
+pub fn talk_over(ctx: &mut Ctx, ticket: &Value, prs: &[Value], data: &Value, owner: Option<&str>, news: &str) -> Res {
+    let brief = ticket_brief(ticket, prs, data)? + news;
     let hands_off = " Change nothing (no edits, commits, pushes or ticket updates) unless I ask.";
     let id = s(ticket, "id")?;
     let owned = owner.filter(|o| !o.is_empty()).and_then(|o| session_cwd(o).map(|cwd| (o.to_string(), cwd)));

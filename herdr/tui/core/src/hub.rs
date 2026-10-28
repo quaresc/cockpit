@@ -9,8 +9,8 @@
 //! - `fetch` {kind, args}: details on demand, cached: `ci_log`, `failed_tests`, `review_threads`, `pr_files`.
 //! - `history` {kind, key}: {values: [...]}, oldest first: `ci_duration` (repo/branch), `ticket_cost` (ticket id).
 //! - `store.get`, `store.put` {value}, `store.patch` {fields}, `store.past` {since} on a shared document by `name`
-//!   (inbox, ci, meetings, brief), each answered {value} or {versions}; `store.lease` {name, holder, ttl, renew}
-//!   answered {granted}, and `store.release` {name, holder}.
+//!   (inbox, ci, meetings, brief, monitor), each answered {value} or {versions}; `store.lease` {name, holder, ttl,
+//!   renew} answered {granted}, and `store.release` {name, holder}.
 //! - `subscribe` {docs}: the connection then carries {doc, value} lines, one per document at once and per new version
 //!   after, and an empty line every half minute.
 //! - `ping`: {ok: true}.
@@ -167,7 +167,7 @@ impl Docs {
     }
 }
 
-/// Follows these documents (inbox, ci, meetings, brief) as long as the returned Docs lives.
+/// Follows these documents (inbox, ci, meetings, brief, monitor) as long as the returned Docs lives.
 pub fn subscribe(names: &[&str]) -> Docs {
     let latest = names.iter().filter_map(|n| Some((n.to_string(), files::load(&files::cache().join(format!("{n}.json")))?))).collect();
     let (tx, rx) = channel();

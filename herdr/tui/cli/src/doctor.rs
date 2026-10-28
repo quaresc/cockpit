@@ -166,7 +166,7 @@ impl Doctor {
             ok(&format!("cockpit binary in {} ({})", dir.display(), runs.strip_prefix("cockpit ").unwrap_or(&runs)));
         }
         // A hub left with a dead socket keeps every action and search waiting.
-        if self.running("cockpit (inbox|todo|runbook|meetings) cockpit-space") {
+        if self.running("cockpit (inbox|todo|runbook|meetings|monitor) cockpit-space") {
             if !self.running("(^|/)cockpit hub$") {
                 ok("hub not started yet: the apps start it at their first action or search");
             } else if self.succeeds(&[&binary.to_string_lossy(), "hub", "ping"]) {
@@ -329,6 +329,10 @@ impl Doctor {
         if self.enabled("calendar") {
             self.check_cache("meetings.json", "meetings", 900, SESSION);
         }
+        // The monitor space is opt-in: its document is checked only when the space is pinned.
+        if pinned_spaces(self.settings.as_ref()).iter().any(|s| s == "monitor") {
+            self.check_cache("monitor.json", "monitor", 900, SESSION);
+        }
     }
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -353,7 +357,7 @@ impl Doctor {
                     "space {space} is hidden in the sidebar → add {{ contains = \"  \" }} before the hiding rule of ui.sidebar.spaces in ~/.config/herdr/config.toml"
                 ));
             }
-            if !["inbox", "to-do", "runbook", "meetings"].contains(&space.as_str()) {
+            if !["inbox", "to-do", "runbook", "meetings", "monitor"].contains(&space.as_str()) {
                 ok(&format!("space {space}"));
                 continue;
             }
@@ -542,8 +546,12 @@ impl Doctor {
                 fail(&format!("no allow rule for {server}: background refreshes are refused → add \"{rule}\" to permissions.allow"));
             }
         }
-        // The read-only tools live show panes call.
-        for (source, tool) in [("datadog", "get_datadog_metric"), ("metabase", "query")] {
+        // The read-only tools live show panes call, and the monitor space's when it is pinned.
+        let mut tools = vec![("datadog", "get_datadog_metric"), ("metabase", "query")];
+        if pinned_spaces(self.settings.as_ref()).iter().any(|s| s == "monitor") {
+            tools.extend([("datadog", "search_datadog_monitors"), ("datadog", "search_datadog_error_tracking_issues")]);
+        }
+        for (source, tool) in tools {
             let server = &set[source]["server"];
             let server = if truthy(server) && !raw(server).is_empty() { raw(server) } else { source.replacen("datadog", "claude.ai Datadog", 1) };
             let rule = format!("mcp__{}__{tool}", rule_name(&server));

@@ -17,6 +17,7 @@ const USAGE: &str = "What a click on a cockpit notification does.
     cockpit focus space:<name>                      a pinned space, e.g. space:inbox
     cockpit focus runbook:<slug>[:<step>,<step>]    the runbook space, that runbook open and its steps played as done
     cockpit focus meeting:<event id>                the meetings space, that meeting's brief open
+    cockpit focus monitor:<app>                     the monitor space, that app (its id or name) selected and unfolded
     cockpit focus update                            cockpit updated, in the background
     cockpit focus act:<review|ci|rerun|plan>:<ref>  a notification button: cockpit act with that action, then the terminal
     cockpit focus http(s)://…                       opened in the browser";
@@ -36,6 +37,9 @@ pub fn main(args: &[String]) {
     if let Some(id) = target.strip_prefix("meeting:") {
         request("meetings-focus.json", &json!({"id": id, "at": now()}));
         space("meetings");
+    } else if let Some(app) = target.strip_prefix("monitor:") {
+        request("monitor-focus.json", &json!({"app": app, "at": now()}));
+        space("monitor");
     } else if let Some(rest) = target.strip_prefix("act:") {
         act(rest);
     } else if let Some(id) = target.strip_prefix("workspace:") {

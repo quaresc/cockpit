@@ -1,0 +1,12 @@
+---
+source: monitor/tests/snapshots.rs
+expression: "render(&mut App::with(Some(clock()), Density::Comfortable, false), 60, 8)"
+---
+   Monitor   waiting for the mod
+
+ A Claude session with the Backstage and Datadog connectors
+ fills this.
+
+
+
+ enter main  space fold  w releases  R refresh  ▏^p palette

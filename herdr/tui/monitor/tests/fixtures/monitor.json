@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "at": 1793206611619,
+  "env": "production",
+  "errors": [],
+  "apps": [
+    {
+      "id": "api-production",
+      "name": "api",
+      "service": "api",
+      "repo": "api",
+      "health": "Healthy",
+      "tag": "v2026.10.28.1",
+      "deployedAt": "2026-10-28T15:52:57Z",
+      "behind": 1,
+      "argoUrl": "https://argocd.example.com/applications/api-production",
+      "datadogUrl": "https://app.datadoghq.eu/apm/entity/service%3Aapi?env=production",
+      "watched": true,
+      "pinned": true,
+      "monitors": {
+        "ok": 12,
+        "warn": 0,
+        "alert": 1,
+        "nodata": 3,
+        "alerting": [
+          {"id": 17255491, "name": "[api] Current user - API Availability", "status": "Alert", "url": "https://app.datadoghq.eu/monitors/17255491"}
+        ]
+      },
+      "series": {
+        "errors": [1, 2, 0, 0, 29, 1, 8, 1, 1, 1, 2, 2, 1, 1, 0, 0, 1, 2, 9, 14],
+        "p95": [0.033, 0.017, 0.001, 0.001, 0.0003, 0.003, 0.0005, 0.0002, 0.0002, 0.0002, 0.0004, 0.001, 0.029, 0.105, 0.106, 0.085, 0.028, 0.083, 0.111, 0.161]
+      },
+      "issues": [
+        {"id": "1fcdadd8", "type": "Req.TransportError", "message": "socket closed", "count": 140, "firstSeen": "2026-10-28T15:55:59Z", "firstVersion": "main-v2026.10.28.1", "url": "https://app.datadoghq.eu/error-tracking/issue/1fcdadd8", "isNew": true},
+        {"id": "a3d948c6", "type": "Ecto.ConstraintError", "message": "constraint error when attempting to insert struct: \"users_email_index\" (unique_constraint)", "count": 28, "firstSeen": "2024-04-12T14:40:40Z", "firstVersion": "main-68c0aaf", "url": "https://app.datadoghq.eu/error-tracking/issue/a3d948c6", "isNew": false}
+      ],
+      "releases": [
+        {
+          "id": 622,
+          "tag": "v2026.10.28.1",
+          "actor": "me",
+          "isMine": true,
+          "phase": "Succeeded",
+          "startedAt": "2026-10-28T15:50:47Z",
+          "finishedAt": "2026-10-28T15:58:09Z",
+          "tickets": [{"id": "ENG-412", "url": "https://linear.app/acme/issue/ENG-412"}],
+          "prs": [{"repo": "api", "number": 2219, "url": "https://github.com/acme/api/pull/2219"}, {"repo": "api", "number": 2223, "url": "https://github.com/acme/api/pull/2223"}],
+          "verdict": {
+            "state": "moved",
+            "summary": "errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error",
+            "before": {"errors": 2, "hits": 1512, "p95": 0.033},
+            "after": {"errors": 31, "hits": 1630, "p95": 0.161},
+            "newIssues": ["1fcdadd8"],
+            "until": "2026-10-28T16:28:09Z"
+          }
+        },
+        {
+          "id": 619,
+          "tag": "v2026.10.28",
+          "actor": "jonas",
+          "isMine": false,
+          "phase": "Succeeded",
+          "startedAt": "2026-10-28T15:27:03Z",
+          "finishedAt": "2026-10-28T15:34:29Z",
+          "tickets": [],
+          "prs": [],
+          "verdict": {
+            "state": "ok",
+            "summary": "errors 0.12% → 0.13% · p95 31 → 33 ms",
+            "before": {"errors": 2, "hits": 1650, "p95": 0.031},
+            "after": {"errors": 2, "hits": 1512, "p95": 0.033},
+            "newIssues": [],
+            "until": "2026-10-28T16:04:29Z"
+          }
+        }
+      ]
+    },
+    {
+      "id": "web-production",
+      "name": "web",
+      "service": "web",
+      "repo": "web",
+      "health": "Progressing",
+      "tag": "v2026.10.28.3",
+      "deployedAt": "2026-10-28T16:40:12Z",
+      "behind": 0,
+      "argoUrl": "https://argocd.example.com/applications/web-production",
+      "datadogUrl": "https://app.datadoghq.eu/apm/entity/service%3Aweb?env=production",
+      "watched": true,
+      "pinned": false,
+      "monitors": {"ok": 6, "warn": 1, "alert": 0, "nodata": 0, "alerting": [{"id": 17255500, "name": "[web] Checkout - API Latency", "status": "Warn", "url": "https://app.datadoghq.eu/monitors/17255500"}]},
+      "series": {"errors": [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], "p95": [0.21, 0.2, 0.22, 0.2, 0.19, 0.2, 0.21, 0.2, 0.2, 0.21, 0.2, 0.22, 0.23, 0.21, 0.2, 0.2, 0.21, 0.22, 0.24, 0.26]},
+      "issues": [],
+      "releases": [
+        {
+          "id": 630,
+          "tag": "v2026.10.28.3",
+          "actor": "sam",
+          "isMine": false,
+          "phase": "Running",
+          "startedAt": "2026-10-28T16:38:02Z",
+          "finishedAt": null,
+          "tickets": [],
+          "prs": [],
+          "verdict": {"state": "watching", "summary": "watching until 17:10", "before": {"errors": 1, "hits": 4210, "p95": 0.21}, "after": null, "newIssues": [], "until": "2026-10-28T17:10:12Z"}
+        }
+      ]
+    },
+    {
+      "id": "billing-production",
+      "name": "billing",
+      "service": "billing",
+      "repo": "billing",
+      "health": "Healthy",
+      "tag": "v2026.10.20",
+      "deployedAt": "2026-10-20T09:56:41Z",
+      "behind": 7,
+      "argoUrl": "https://argocd.example.com/applications/billing-production",
+      "datadogUrl": "https://app.datadoghq.eu/apm/entity/service%3Abilling?env=production",
+      "watched": false,
+      "pinned": false,
+      "monitors": null,
+      "series": null,
+      "issues": [],
+      "releases": []
+    }
+  ]
+}

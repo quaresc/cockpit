@@ -4,6 +4,7 @@
 mod book;
 mod inbox;
 mod meetings;
+mod monitor;
 mod runbook;
 mod show;
 mod space;
@@ -86,6 +87,14 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("meetings", "open_url") => meetings::open_url,
         ("meetings", "join") => meetings::join,
         ("todo", "open_link") => todo::open_link,
+        ("monitor", "investigate") => monitor::investigate,
+        ("monitor", "fix") => monitor::fix,
+        ("monitor", "bug") => monitor::bug,
+        ("monitor", "roll_back") => monitor::roll_back,
+        ("monitor", "talk") => monitor::talk,
+        ("monitor", "pin") => monitor::pin,
+        ("monitor", "request_refresh") => monitor::request_refresh,
+        ("monitor", "open_url") => monitor::open_url,
         _ => return None,
     };
     Some(found)
