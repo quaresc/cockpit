@@ -116,7 +116,7 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
         if hours <= PREVIEW_WARN_HOURS {
             let text = if hours <= 0.0 { format!("preview {preview} has expired") } else { format!("preview {preview} expires in {hours:.1} h") };
             let row = alert(format!("alert:expire:{preview}"), &text, fg(if hours <= 0.0 { RED } else { ORANGE })).status(format!("preview-{preview}"));
-            let extend = RowAct::new("extend 2 days", 'a', call("extend", vec![json!(preview)])).main().confirm(format!("extend-{preview}"));
+            let extend = RowAct::new("extend 2 days", '+', call("extend", vec![json!(preview)])).main().confirm(format!("extend-{preview}"));
             alerts.add(with_url(row, vec![extend]));
         }
         if !matches!(s(bx, "health"), "Healthy" | "Progressing") && hours > 0.0 {
@@ -141,7 +141,7 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
         if flag(bx, "activated") && merged.contains(&(s(bx, "app").into(), s(bx, "branch").into())) {
             let id = s(bx, "id");
             let text = format!("preview {id} runs merged {} {}", s(bx, "app"), s(bx, "branch"));
-            let mut acts = vec![RowAct::new("stop", 'a', call("stop_preview", vec![json!(id)])).main().confirm(format!("stop-{id}"))];
+            let mut acts = vec![RowAct::new("stop", 'S', call("stop_preview", vec![json!(id)])).main().confirm(format!("stop-{id}"))];
             let mut row = alert(format!("alert:merged:{id}"), &text, fg(ORANGE)).status(format!("preview-{id}"));
             if let Some(url) = config.dashboard_url(id) {
                 acts.push(RowAct::new("open", 'o', open(&url)));
@@ -162,7 +162,7 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
         };
         let text = format!("a session still works on {label}");
         let row = Row::text(format!("alert:session:{space}"), Line::styled(format!(" {}  {text}", icon("alert")), dim())).name(format!("session on {label}")).section("Alerts").kind(Kind::Alert);
-        let close = RowAct::new(verb, 'a', call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
+        let close = RowAct::new(verb, 'c', call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
         alerts.add(row.acts(vec![close, RowAct::new("go", 'o', call("run", vec![go]))]));
     }
     if !alerts.children.is_empty()
@@ -175,7 +175,7 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
 
 fn review_row(pr: &Value) -> Row {
     let is_direct = flag(pr, "isDirect");
-    let mut acts = vec![RowAct::new("review", 'a', call("review", vec![pr.clone()])).main(), RowAct::new("open", 'o', open(s(pr, "url")))];
+    let mut acts = vec![RowAct::new("review", 'r', call("review", vec![pr.clone()])).main(), RowAct::new("open", 'o', open(s(pr, "url")))];
     if !is_direct {
         acts.push(RowAct::new("mute repo", 'm', call("set_muted", vec![json!(s(pr, "repo")), json!(true)])));
     }
@@ -239,7 +239,7 @@ fn review(data: &Value, muted: &[String], compact: bool) -> Row {
         let mut repos = muted.to_vec();
         repos.sort();
         for repo in repos {
-            let unmute = RowAct::new("unmute", 'a', call("set_muted", vec![json!(repo), json!(false)])).main();
+            let unmute = RowAct::new("unmute", 'm', call("set_muted", vec![json!(repo), json!(false)])).main();
             group.add(Row::text(format!("muted:{repo}"), Line::styled(repo.clone(), fg(DIM))).acts(vec![unmute]).name(repo).section("Muted").kind(Kind::Muted));
         }
     }

@@ -40,5 +40,5 @@ expression: "screen(&mut app, 90, 40)"
  #10  Check settings page counters match billing
  status ⬜  to do
 
-   run  r     done  d     edit  e
- d mark done  c copy commands  v pick  V all open  esc unpick                 ▏^p palette
+   run  r     done  x     edit  e
+ x mark done  c copy commands  v pick  V all open  esc unpick                 ▏^p palette

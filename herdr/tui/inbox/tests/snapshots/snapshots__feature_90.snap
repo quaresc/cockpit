@@ -26,7 +26,7 @@ expression: "render(&mut app(false), width, HEIGHT)"
  ├─      ranker#9                feat: typo tolerance              Lin                6d
  ├─ ▶ 2 older than 60 days
  └─ ▶  2 muted repos
- ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (g)
+ ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  ├─ ▼ ● Usage limits  4
  │  ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know more… $0.88
  │  │  └─ ▼   web#1866                feat(quota): link the quot…                   22h
@@ -65,4 +65,4 @@ expression: "render(&mut app(false), width, HEIGHT)"
    Today   morning brief, 09:00
 
    dismiss  x
- q quit  / filter  v pick  g group by  R refresh  space fold  enter open       ^p palette
+ q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

@@ -138,7 +138,7 @@ fn batch_done_cascades() {
     let (mut app, root) = open("cascade", Density::Comfortable);
     let before = runbook(&root, "eng-410");
     typed(&mut app, "jjjjvjvjv");
-    typed(&mut app, "d");
+    typed(&mut app, "x");
     insta::assert_snapshot!("cascade_confirm", screen(&mut app, 90, 40));
     let t0 = Instant::now();
     app.clock.freeze(t0);
@@ -262,7 +262,7 @@ fn an_idle_tick_draws_nothing() {
 fn done_by_hand_closes_the_running_handoff() {
     let (mut app, root) = open("done-handoff", Density::Comfortable);
     typed(&mut app, "jjjjjjj");
-    typed(&mut app, "d");
+    typed(&mut app, "x");
     assert!(runbook(&root, "eng-410").contains("| 8 | Backfill dry run | prod | ✅ done 28 Oct |"));
     let handoff: serde_json::Value = serde_json::from_str(&fs::read_to_string(root.join("handoffs/eng-410-8.json")).unwrap()).unwrap();
     assert_eq!((handoff["state"].as_str(), handoff["message"].as_str()), (Some("done"), Some("marked done by hand")));
