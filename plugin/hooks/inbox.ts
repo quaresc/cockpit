@@ -7,7 +7,8 @@ import { announcePreviews, deploysFor, notify, previewsFor, shortError, startDep
 import { cacheDir, home, loadConfig, writeAtomic } from './config'
 import { requestRunbookRefresh } from './handoffs'
 import { deployLinksFor } from './links'
-import { changes, deployChanges } from './match'
+import { hubErrors, hubOwns, modFetchedAt, modInbox } from './feed'
+import { deployChanges, prChanges, ticketChanges } from './match'
 import type { News } from './match'
 import { reportDashboard } from './sidebar'
 import { myTickets } from './tickets'
@@ -17,7 +18,8 @@ type $ = EngineInterface
 const inbox = atom({ plugin: 'cockpit', key: 'inbox' } as const, null)
 const muted = atom({ plugin: 'cockpit', key: 'muted' } as const, [])
 
-// The inbox: GitHub + tickets, cached on disk so every session shares one fetch; the herdr inbox app draws it.
+// The inbox: GitHub + tickets, cached on disk so every session shares one fetch; the herdr inbox app draws it. The hub
+// fetches GitHub (and tickets, given a Linear token) itself: while its part is fresh, the mod fetches only the rest.
 
 const STALE_MS = 5 * 60_000
 const DAY_MS = 86_400_000
@@ -132,9 +134,18 @@ async function loadMuted($: $) {
   }
 }
 
+async function readInbox($: $) {
+  try {
+    return JSON.parse(await $.fs.read(`${await cacheDir($)}/inbox.json`)) as Inbox
+  } catch {
+    return null
+  }
+}
+
 async function loadCached($: $) {
   try {
-    const cached = JSON.parse(await $.fs.read(`${await cacheDir($)}/inbox.json`)) as Inbox
+    const cached = await readInbox($)
+    if (!cached) return null
     const current = await read($, inbox)
     if (current?.at !== cached.at) await update($, inbox, () => cached)
     return cached
@@ -153,8 +164,8 @@ export function refresh($: $, isForced: boolean) {
       const isCurrent = cached?.version === INBOX_VERSION
       // The herdr inbox app asks for a refresh by touching this file.
       const asked = await $.fs.stat(`${await cacheDir($)}/refresh-request`).then(s => s.mtimeMs, () => 0)
-      const isAsked = cached !== null && asked > cached.at
-      if (!isForced && !isAsked && isCurrent && Date.now() - cached.at < STALE_MS) return
+      const isAsked = cached !== null && asked > modFetchedAt(cached)
+      if (!isForced && !isAsked && isCurrent && Date.now() - modFetchedAt(cached) < STALE_MS) return
       // A cache from another version is not compared against, so its shape never turns into notifications.
       await withLock($, 'inbox', () => fetchInbox($, isCurrent ? cached : null))
     } finally {
@@ -168,26 +179,19 @@ export function refresh($: $, isForced: boolean) {
 async function fetchInbox($: $, cached: Inbox | null) {
   const errors: string[] = []
   const [gh, tickets] = await Promise.all([
-    fetchGithub($).catch((err: Error) => (errors.push(err.message), null)),
-    myTickets($).catch(async (err: Error) => {
+    hubOwns(cached, 'github') ? null : fetchGithub($).catch((err: Error) => (errors.push(err.message), null)),
+    hubOwns(cached, 'tickets') ? null : myTickets($).catch(async (err: Error) => {
       const { name } = (await loadConfig($)).tickets
       const isConnecting = err.message.includes('no connected MCP tool')
       errors.push(isConnecting ? `${name} connector still connecting, retrying in a minute` : `${name} ${shortError(err)}`)
       return null
     }),
   ])
+  // The hub's fields as it last wrote them: read again under the lock, which it takes to write as well.
+  const latest = await readInbox($)
+  const kept = latest?.version === INBOX_VERSION ? latest : cached
   // A failed source is retried on the next minute tick instead of waiting out the cache.
-  const next: Inbox = {
-    version: INBOX_VERSION,
-    at: errors.length > 0 ? Date.now() - STALE_MS + 60_000 : Date.now(),
-    direct: gh?.direct ?? cached?.direct ?? [],
-    team: gh?.team ?? cached?.team ?? [],
-    botRepos: gh?.botRepos ?? cached?.botRepos ?? [],
-    mine: gh?.mine ?? cached?.mine ?? [],
-    tickets: tickets ?? cached?.tickets ?? [],
-    errors,
-    merged: gh?.merged ?? cached?.merged ?? [],
-  }
+  const next = { ...modInbox(kept, gh, tickets, errors.length > 0, STALE_MS), version: INBOX_VERSION }
   next.deploys = await deploysFor($, next.tickets, next.merged ?? []).catch((err: Error) => {
     errors.push(`Deploy status ${shortError(err)}`)
     return cached?.deploys ?? {}
@@ -198,6 +202,7 @@ async function fetchInbox($: $, cached: Inbox | null) {
     errors.push(`Previews ${shortError(err)}`)
     return cached?.previews ?? []
   })
+  next.errors = [...errors, ...hubErrors(kept)]
   await writeAtomic($, `${await cacheDir($)}/inbox.json`, JSON.stringify(next))
   await update($, inbox, () => next)
   await announcePreviews($, next.previews ?? []).catch(() => undefined)
@@ -209,7 +214,8 @@ async function fetchInbox($: $, cached: Inbox | null) {
     if (await requestRunbookRefresh($, id, '🚀 live in production')) continue
     live.push({ text, action: await ticketAction($, id, next.tickets.find(t => t.id === id)?.url) })
   }
-  const news = cached && gh ? [...changes({ ...cached, tickets: tickets ? cached.tickets : [] }, next), ...live] : []
+  // Each side announces the changes in what it fetched: the hub its own.
+  const news = cached ? [...(gh ? prChanges(cached, next) : []), ...(tickets ? ticketChanges(cached, next) : []), ...live] : []
   if (news.length > 3) await notify($, `📥 ${news.length} updates`, news.slice(0, 3).map(n => n.text).join('\n') + '\n…', 'space:inbox')
   else for (const n of news) await notify($, '📥 Inbox', n.text, n.action, n.buttons)
 }

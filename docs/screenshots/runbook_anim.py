@@ -13,7 +13,7 @@ HOLD_BEFORE, HOLD_AFTER = 1.2, 2.8
 pid, fd = pty.fork()
 if pid == 0:
     os.chdir(os.path.join(HERE, "..", "..", "herdr"))
-    argv = ["tui/target/release/cockpit-runbook"]
+    argv = ["tui/target/release/cockpit", "runbook"]
     os.execvpe(argv[0], argv, {**os.environ, "HOME": HOME, "HERDR_BIN_PATH": "/usr/bin/true", "TERM": "xterm-256color",
                                "COCKPIT_HERDR_DIR": os.getcwd(), "COCKPIT_HUB_IDLE_SECS": "20"})
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))

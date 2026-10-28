@@ -46,8 +46,8 @@ export function isNewer(latest: string, current: string) {
 
 export type News = { text: string; action: string; buttons?: [string, string][] }
 
-// What changed since the previous fetch, worth a notification, each with where its click leads.
-export function changes(prev: Inbox, next: Inbox) {
+// What changed in my PRs and review requests since the previous fetch, worth a notification, each with where its click leads.
+export function prChanges(prev: Inbox, next: Inbox) {
   const out: News[] = []
   const before = new Map(prev.mine.map(pr => [pr.url, pr]))
   const known = new Set(prev.direct.map(pr => pr.url))
@@ -63,12 +63,17 @@ export function changes(prev: Inbox, next: Inbox) {
     if (pr.review !== was.review && pr.review === 'APPROVED') out.push({ text: `✅ Approved: ${pr.repo}#${pr.number}`, action: pr.url })
     if (pr.review !== was.review && pr.review === 'CHANGES_REQUESTED') out.push({ text: `❌ Changes requested: ${pr.repo}#${pr.number}`, action: `${pr.url}/files` })
   }
-  if (prev.tickets.length > 0) {
-    const ids = new Set(prev.tickets.map(t => t.id))
-    for (const t of next.tickets) if (!ids.has(t.id)) out.push({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url, buttons: [['Plan', `act:plan:${t.id}`]] })
-  }
   return out
 }
+
+// Tickets newly assigned to me, once there was a list to compare with.
+export function ticketChanges(prev: Inbox, next: Inbox) {
+  if (prev.tickets.length === 0) return []
+  const ids = new Set(prev.tickets.map(t => t.id))
+  return next.tickets.filter(t => !ids.has(t.id)).map((t): News => ({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url, buttons: [['Plan', `act:plan:${t.id}`]] }))
+}
+
+export const changes = (prev: Inbox, next: Inbox) => [...prChanges(prev, next), ...ticketChanges(prev, next)]
 
 // A finished run's notification, its click opening the checks of the branch's PR.
 export function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {

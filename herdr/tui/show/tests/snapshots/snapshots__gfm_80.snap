@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  gfm   view · hh:mm
+
+ GFM
+                                 Release notes
+
+ ▌  Note
+ ▌ Quotas reset at midnight UTC, see https://example.com/quotas.
+
+ ▌  Tip
+ ▌ Press s to see the diff side by side.
+
+ ▌  Important
+ ▌ The API counts each export against the organisation.
+
+ ▌  Warning
+ ▌ A plan change takes effect the next day.
+
+ ▌  Caution
+ ▌ Deleting an organisation drops its history.
+
+ Footnotes work too[1], and so does a second one[2].
+
+ ☑ old quota removed
+ ☐ www.example.org autolinked
+
+ ──────────────────────────────────────────────────────────────────────────────
+
+ [1] Counted per organisation, not per teammate.
+ [2] Second note with code.
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

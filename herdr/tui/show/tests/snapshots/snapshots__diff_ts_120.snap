@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  diff_ts   view · hh:mm
+
+ TypeScript change
+ 1 file  +3 −2   unified · s side by side
+
+  ▼ src/quota.ts   +3 −2
+  @@ -1,6 +1,7 @@
+    1   1   /** The daily quota of a plan. */
+    2   2   export function quota(plan: string): number | null {
+    3     -   const limits = { free: 10, pro: 100 };
+        3 +   const limits: Record<string, number> = { free: 10, pro: 200 };
+        4 +   // Enterprise has none.
+    4   5     return limits[plan] ?? null;
+    5   6   }
+    6     - export const RESET = "hh:mm";
+        7 + export const RESET = `hh:mm ${"UTC"}`;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

@@ -15,22 +15,21 @@ enabled() { [ "$(jq -r ".$1.enabled // false" "$SETTINGS" 2>/dev/null)" = true ]
 v=$("$H" --version 2>/dev/null | awk '{print $2}')
 case "$v" in 0.[0-8].*|"") fail "herdr ${v:-missing}: cockpit needs 0.9 or later → herdr update" ;; *) ok "herdr $v" ;; esac
 gh auth status >/dev/null 2>&1 && ok "gh signed in" || fail "gh not signed in → gh auth login"
-# The release's binaries, else a dev build; each must be there, since the apps start the hub beside their own.
+# The release's binary, else a dev build: it runs every app and the hub.
 dir=$ROOT/bin
-[ -x "$dir/cockpit-inbox" ] || [ ! -x "$ROOT/tui/target/release/cockpit-inbox" ] || dir=$ROOT/tui/target/release
-missing=$(for app in cockpit hub inbox runbook show todo meetings; do b=$app; [ "$app" = cockpit ] || b=cockpit-$app; [ -x "$dir/$b" ] || printf '%s ' "$b"; done)
+[ -x "$dir/cockpit" ] || [ ! -x "$ROOT/tui/target/release/cockpit" ] || dir=$ROOT/tui/target/release
 want=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/herdr-plugin.toml")
 have=$(cat "$dir/.version" 2>/dev/null)
-runs=$("$dir/cockpit-inbox" --version 2>/dev/null)
-if [ -n "$missing" ]; then fail "apps missing (${missing% }), the spaces stay empty → sh $ROOT/fetch-apps.sh, or cargo build --release in $ROOT/tui"
-elif [ "$dir" = "$ROOT/bin" ] && [ "$have" != "$want" ]; then warn "apps are from ${have:-an unknown version}, cockpit is on $want → sh $ROOT/fetch-apps.sh"
-elif [ -z "$runs" ]; then fail "apps in $dir do not run on this machine → rm -rf $ROOT/bin && sh $ROOT/fetch-apps.sh"
-else ok "apps in $dir (${runs#cockpit-inbox })"; fi
+runs=$("$dir/cockpit" --version 2>/dev/null)
+if [ ! -x "$dir/cockpit" ]; then fail "cockpit binary missing, the spaces stay empty → sh $ROOT/fetch-apps.sh, or cargo build --release in $ROOT/tui"
+elif [ "$dir" = "$ROOT/bin" ] && [ "$have" != "$want" ]; then warn "cockpit binary from ${have:-an unknown version}, the plugin is on $want: the hub installs it once the release has it → sh $ROOT/fetch-apps.sh"
+elif [ -z "$runs" ]; then fail "cockpit binary in $dir does not run on this machine → rm -rf $ROOT/bin && sh $ROOT/fetch-apps.sh"
+else ok "cockpit binary in $dir (${runs#cockpit })"; fi
 # A hub left with a dead socket keeps every action and search waiting.
-if pgrep -f "cockpit-(inbox|todo|runbook|meetings) cockpit-space" >/dev/null; then
-  if ! pgrep -x cockpit-hub >/dev/null; then ok "hub not started yet: the apps start it at their first action or search"
+if pgrep -f "cockpit (inbox|todo|runbook|meetings) cockpit-space" >/dev/null; then
+  if ! pgrep -f "(^|/)cockpit hub$" >/dev/null; then ok "hub not started yet: the apps start it at their first action or search"
   elif "$dir/cockpit" hub ping >/dev/null 2>&1; then ok "hub answers"
-  else fail "hub not answering → pkill -x cockpit-hub; the apps start a new one"; fi
+  else fail "hub not answering → pkill -f '(^|/)cockpit hub\$'; the apps start a new one"; fi
 fi
 if [ ! -f "$CONFIG" ]; then fail "no ~/.config/cockpit/config.json → /cockpit:setup"
 elif jq empty "$CONFIG" 2>/dev/null; then ok "config.json"
@@ -69,19 +68,31 @@ while read -r pane ws; do
   else ok "session \"$label\" on cockpit $version"; fi
 done
 
-# Shared caches: fresh, and without errors
+# Shared caches: fresh, and without errors. The hub fetches GitHub (and Linear or CircleCI given a token) while an app
+# runs; the rest comes from a Claude session.
 check_cache() {
-  file=$1 name=$2 limit=$3
-  if [ ! -f "$file" ]; then warn "$name: no data yet → start a Claude session in herdr; it fills within a minute"; return; fi
+  file=$1 name=$2 limit=$3 by=$4
+  if [ ! -f "$file" ]; then warn "$name: no data yet → open the inbox space or start a Claude session in herdr; it fills within a minute"; return; fi
   a=$(( now - $(jq -r '(.at // 0) / 1000 | floor' "$file") ))
   errors=$(jq -r '[.errors[]?, .error // empty] | join("; ")' "$file")
   if [ -n "$errors" ]; then fail "$name: $errors"
-  elif [ "$a" -gt "$limit" ]; then warn "$name: last refresh $((a / 60)) min ago → no Claude session with cockpit is running"
+  elif [ "$a" -gt "$limit" ]; then warn "$name: last refresh $((a / 60)) min ago → $by"
   else ok "$name: refreshed $((a / 60)) min ago"; fi
 }
-check_cache "$CACHE/inbox.json" inbox 900
-[ "$(jq -r '.ci.enabled != false' "$SETTINGS" 2>/dev/null)" = true ] && check_cache "$CACHE/ci.json" CI 600
-enabled calendar && check_cache "$CACHE/meetings.json" meetings 900
+has_token() { [ "$(jq -r ".$1.token // \"\" | length > 0" "$HOME/.config/cockpit/config.json" 2>/dev/null)" = true ]; }
+SESSION="no Claude session with cockpit is running"
+check_cache "$CACHE/inbox.json" inbox 900 "neither a cockpit app (its hub) nor a Claude session with cockpit is running"
+# Tickets come from the ticket connector, in a Claude session, unless tickets.token lets the hub fetch them.
+if enabled tickets && ! has_token tickets && [ -f "$CACHE/inbox.json" ]; then
+  t=$(( now - $(jq -r '(.modAt // (if .hub then 0 else .at end) // 0) / 1000 | floor' "$CACHE/inbox.json") ))
+  [ "$t" -gt 900 ] && warn "tickets: last fetched $((t / 60)) min ago → $SESSION (tickets.token lets the hub fetch Linear without one)"
+fi
+if [ "$(jq -r '.ci.enabled != false' "$SETTINGS" 2>/dev/null)" = true ]; then
+  if [ -z "$(jq -r '.ci.server // ""' "$SETTINGS" 2>/dev/null)" ] || has_token ci; then by="neither a cockpit app (its hub) nor a Claude session with cockpit is running"
+  else by="$SESSION (ci.token lets the hub fetch CircleCI without one)"; fi
+  check_cache "$CACHE/ci.json" CI 600 "$by"
+fi
+enabled calendar && check_cache "$CACHE/meetings.json" meetings 900 "$SESSION"
 
 # Pinned spaces and their apps
 spaces=$("$H" workspace list 2>/dev/null | jq -r '.result.workspaces[].label')

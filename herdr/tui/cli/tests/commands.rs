@@ -46,7 +46,7 @@ fn no_tab_without_the_actions_space() {
 #[test]
 fn wrong_arguments_print_the_usage() {
     let sandbox = Sandbox::new();
-    for args in [&["actions"][..], &["actions", "tab", "/repos"], &["actions", "tab", "a", "b", "c", "d"], &[], &["dance"], &["hub"]] {
+    for args in [&["actions"][..], &["actions", "tab", "/repos"], &["actions", "tab", "a", "b", "c", "d"], &[], &["dance"], &["hub", "dance"]] {
         let out = sandbox.cockpit(args, &[]);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
         assert!(stderr(&out).contains("cockpit"), "{args:?}");
@@ -211,6 +211,23 @@ fn hub_ping_gives_up_after_two_seconds() {
     let start = Instant::now();
     assert_eq!(sandbox.cockpit(&["hub", "ping"], &[]).status.code(), Some(1));
     assert!(start.elapsed() < Duration::from_secs(4));
+}
+
+#[test]
+fn the_binary_says_its_version_and_serves_as_the_hub() {
+    let sandbox = Sandbox::new();
+    let version = format!("cockpit {}\n", env!("CARGO_PKG_VERSION"));
+    assert_eq!(stdout(&sandbox.cockpit(&["--version"], &[])), version);
+    assert_eq!(stdout(&sandbox.cockpit(&["inbox", "--version"], &[])), version);
+    let mut hub = std::process::Command::new(env!("CARGO_BIN_EXE_cockpit")).arg("hub").env_clear().envs(sandbox.env()).spawn().unwrap();
+    let start = Instant::now();
+    while !socket(&sandbox).exists() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let answered = sandbox.cockpit(&["hub", "ping"], &[]).status.code();
+    let _ = hub.kill();
+    let _ = hub.wait();
+    assert_eq!(answered, Some(0));
 }
 
 // ---------------------------------------------------------------------------

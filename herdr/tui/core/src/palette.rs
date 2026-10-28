@@ -37,6 +37,7 @@ pub struct Palette {
     entries: Vec<Entry>,
     shown: Vec<usize>,
     elsewhere: Vec<crate::hub::Found>,
+    asked: Option<(String, std::sync::mpsc::Receiver<Vec<crate::hub::Found>>)>,
     state: ListState,
 }
 
@@ -48,12 +49,39 @@ impl Palette {
         self.filter();
     }
 
+    /// Asks the hub in the background, so typing never waits on it; the answer shows when it lands (see `arrived`).
+    fn ask_hub(&mut self) {
+        if self.query.chars().count() < 2 {
+            self.elsewhere.clear();
+            self.asked = None;
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let query = self.query.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::hub::search(&query));
+            crate::term::redraw();
+        });
+        self.asked = Some((self.query.clone(), rx));
+    }
+
+    /// The hub's answer for the query typed now, once it is there; an answer to an older query is dropped.
+    fn arrived(&mut self) {
+        let Some((query, rx)) = &self.asked else { return };
+        let Ok(found) = rx.try_recv() else { return };
+        if *query == self.query {
+            // The hub lists past sessions after the apps' entries: they stay, whatever the apps found.
+            let (sessions, apps): (Vec<_>, Vec<_>) = found.into_iter().filter(|f| f.app != self.app).partition(|f| f.app == "session");
+            self.elsewhere = apps.into_iter().take(30).chain(sessions).collect();
+            if self.state.selected().is_none() && !self.elsewhere.is_empty() {
+                self.state.select(Some(0));
+            }
+        }
+        self.asked = None;
+    }
+
     fn filter(&mut self) {
-        self.elsewhere = if self.query.chars().count() >= 2 {
-            crate::hub::search(&self.query).into_iter().filter(|f| f.app != self.app).take(30).collect()
-        } else {
-            Vec::new()
-        };
+        self.ask_hub();
         if self.query.is_empty() {
             self.shown = (0..self.entries.len()).filter(|&i| self.entries[i].featured).collect();
         } else {
@@ -114,6 +142,7 @@ impl Palette {
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        self.arrived();
         let width = area.width.saturating_sub(4).min(90);
         // Each entry takes two lines: its text and its help.
         let height = ((self.shown.len() + self.elsewhere.len()) as u16 * 2 + 4).min(area.height.saturating_sub(2)).max(6);
@@ -134,9 +163,11 @@ impl Palette {
             })
             .collect();
         items.extend(self.elsewhere.iter().map(|f| {
+            // A kind that only repeats the app's name (a past session) is said once: "session · <title>".
+            let (app, help) = if f.kind == f.app { (format!("{} · ", f.app), f.help.clone()) } else { (format!("{} ", f.app), format!("{} · {}", f.kind, f.help)) };
             ListItem::new(vec![
-                Line::from(vec![Span::styled(format!("{} ", f.app), Style::new().fg(ORANGE)), Span::styled(f.title.clone(), Style::new().fg(FG))]),
-                Line::from(Span::styled(format!("  {} · {}", f.kind, f.help), Style::new().fg(DIM))),
+                Line::from(vec![Span::styled(app, Style::new().fg(ORANGE)), Span::styled(f.title.clone(), Style::new().fg(FG))]),
+                Line::from(Span::styled(format!("  {help}"), Style::new().fg(DIM))),
             ])
         }));
         let list_widget = List::new(items).highlight_style(Style::new().bg(PANEL).add_modifier(Modifier::BOLD)).style(Style::new().bg(SURFACE));

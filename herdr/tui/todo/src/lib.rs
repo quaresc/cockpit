@@ -8,6 +8,11 @@ pub mod links;
 pub mod pinned;
 mod view;
 
+/// `cockpit todo`: the to-do list in the terminal until it quits.
+pub fn run() -> std::io::Result<()> {
+    cockpit_core::term::run(&mut app::App::start())
+}
+
 use std::time::Duration;
 
 use crossterm::event::Event;

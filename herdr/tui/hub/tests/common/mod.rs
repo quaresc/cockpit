@@ -105,6 +105,8 @@ impl Sandbox {
                 ("HERDR_BIN_PATH".into(), self.root.join("bin/herdr").to_string_lossy().into_owned()),
                 ("COCKPIT_TEST_DIR".into(), self.root.to_string_lossy().into_owned()),
                 ("COCKPIT_HERDR_DIR".into(), self.root.join("herdr").to_string_lossy().into_owned()),
+                // The feed reaches GitHub on its own: only the feed's tests turn it on, against a fake GitHub.
+                ("COCKPIT_HUB_FEED".into(), "off".into()),
             ])
             .collect()
     }
@@ -131,6 +133,25 @@ impl Sandbox {
     }
 }
 
+/// Set on the test binary run again as a hub.
+const HUB_PROCESS: &str = "COCKPIT_TEST_HUB_PROCESS";
+
+/// The hub as a process of its own: this test binary run again on `hub_process` alone, on the sandbox's environment.
+pub fn hub_command(sandbox: &Sandbox) -> Command {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command.args(["common::hub_process", "--exact", "--test-threads", "1"]).env_clear().envs(sandbox.env()).env(HUB_PROCESS, "1");
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+}
+
+/// The hub, when this binary runs as one; nothing in the test run itself.
+#[test]
+fn hub_process() {
+    if std::env::var_os(HUB_PROCESS).is_some() {
+        cockpit_hub::run();
+    }
+}
+
 pub struct Hub {
     child: Child,
     socket: PathBuf,
@@ -138,15 +159,7 @@ pub struct Hub {
 
 impl Hub {
     pub fn start(sandbox: &Sandbox, extra: &[(&str, &str)]) -> Hub {
-        let child = Command::new(env!("CARGO_BIN_EXE_cockpit-hub"))
-            .env_clear()
-            .envs(sandbox.env())
-            .envs(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = hub_command(sandbox).envs(extra.iter().map(|(k, v)| (k.to_string(), v.to_string()))).spawn().unwrap();
         let socket = sandbox.socket();
         let start = Instant::now();
         while UnixStream::connect(&socket).is_err() {

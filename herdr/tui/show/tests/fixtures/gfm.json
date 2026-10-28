@@ -1,0 +1,12 @@
+{
+ "title": "gfm",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "markdown",
+   "title": "GFM",
+   "text": "# Release notes\n\n> [!NOTE]\n> Quotas reset at **midnight UTC**, see https://example.com/quotas.\n\n> [!TIP]\n> Press `s` to see the diff side by side.\n\n> [!IMPORTANT]\n> The API counts each export against the organisation.\n\n> [!WARNING]\n> A plan change takes effect the next day.\n\n> [!CAUTION]\n> Deleting an organisation drops its history.\n\nFootnotes work too[^quota], and so does a second one[^2].\n\n- [x] ~~old quota~~ removed\n- [ ] www.example.org autolinked\n\n[^quota]: Counted per organisation, not per teammate.\n[^2]: Second note with `code`.\n"
+  }
+ ],
+ "placement": "right"
+}

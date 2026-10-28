@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true
+cockpit-show = { path = "../show" }
 chrono.workspace = true
 crossterm.workspace = true
 notify.workspace = true
