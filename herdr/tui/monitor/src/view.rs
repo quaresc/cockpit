@@ -17,7 +17,9 @@ use crate::data::{self, State, count, duration, id_text};
 use crate::pinned::ICON;
 use crate::rows::{Item, Row};
 
-const NAME: usize = 10;
+/// The name column: as wide as the longest name, within these bounds.
+const NAME_MIN: usize = 10;
+const NAME_MAX: usize = 24;
 const TAG: usize = 15;
 const WHEN: usize = 18;
 const MONITORS: usize = 17;
@@ -82,8 +84,19 @@ impl App {
             spans.push(Span::styled("   releases, newest first", fg(ORANGE)));
         }
         let mut lines = vec![Line::from(spans)];
-        lines.extend(doc.error_lines().into_iter().map(|e| Line::styled(e, fg(RED))));
+        // One line for what failed to fetch, however much did: the first, and how many more.
+        let errors = doc.error_lines();
+        if let Some(first) = errors.first() {
+            let more = if errors.len() > 1 { format!("  (+{} more)", errors.len() - 1) } else { String::new() };
+            lines.push(Line::styled(format!("{first}{more}"), fg(RED)));
+        }
         lines
+    }
+
+    /// The name column's width: the longest app name, within bounds.
+    fn name_w(&self) -> usize {
+        let longest = self.doc.as_ref().map(|d| d.apps.iter().map(|a| width(&a.name)).max().unwrap_or(0)).unwrap_or(0);
+        (longest + 1).clamp(NAME_MIN, NAME_MAX)
     }
 
     fn draw_list(&mut self, frame: &mut Frame, area: Rect, acts: &[(Act, Cmd)]) {
@@ -172,12 +185,13 @@ impl App {
     /// An app's cells: its glyph, name, tag and when, then as room allows its monitor counts and sparklines.
     fn app_cells(&self, app: &data::App, room: usize) -> Vec<Span<'static>> {
         let (glyph, color) = app_glyph(app);
-        let fixed = 2 + NAME + TAG;
+        let name_w = self.name_w();
+        let fixed = 2 + name_w + TAG;
         let monitors = if room >= fixed + MONITORS + 8 { MONITORS } else { 0 };
         let when_w = WHEN.min(room.saturating_sub(fixed + monitors));
         let mut spans = vec![
             Span::styled(format!("{glyph} "), fg(color)),
-            Span::styled(cell(&app.name, NAME), bold(FG)),
+            Span::styled(cell(&app.name, name_w), bold(FG)),
             Span::styled(cell(&app.tag, TAG), fg(FG)),
             Span::styled(cell(&self.when(app), when_w), dim()),
         ];
@@ -193,6 +207,7 @@ impl App {
                         dim()
                     },
                 ),
+                _ if app.watched => ("monitors ?".into(), dim()),
                 _ => ("not watched".into(), dim()),
             };
             spans.push(Span::styled(cell(&text, monitors), style));
@@ -209,7 +224,7 @@ impl App {
         let last = |v: &[f64]| v.last().copied().unwrap_or_default();
         spans.extend(spark(&series.errors, spark_w, &format!("{} err", count(last(&series.errors))), Some(VALUE), errors_color));
         if sparks == 2 {
-            spans.extend(spark(&series.p95, spark_w, &duration(last(&series.p95)), Some(VALUE), BLUE));
+            spans.extend(spark(&series.p95, spark_w, &duration(latest(&series.p95)), Some(VALUE), BLUE));
         }
         spans
     }
@@ -230,8 +245,9 @@ impl App {
         let mut spans = vec![Span::raw(format!("{} ", state.icon()))];
         let mut used = 3;
         if self.timeline {
-            spans.push(Span::styled(cell(&app.name, NAME), bold(FG)));
-            used += NAME;
+            let name_w = self.name_w();
+            spans.push(Span::styled(cell(&app.name, name_w), bold(FG)));
+            used += name_w;
         }
         let time =
             r.at().map(|t| if self.clock.is_today(t) { self.clock.hm(t) } else { self.clock.local(t).format("%a %H:%M").to_string() }).unwrap_or_default();
@@ -309,7 +325,7 @@ impl App {
             ));
             lines.push(Line::from(errors));
             let mut p95 = vec![Span::styled("p95    24 h  ", dim())];
-            p95.extend(spark(&series.p95, w, &format!("{} in the last bin", duration(series.p95.last().copied().unwrap_or_default())), None, BLUE));
+            p95.extend(spark(&series.p95, w, &format!("{} lately", duration(latest(&series.p95))), None, BLUE));
             lines.push(Line::from(p95));
         }
         let new = app.new_issues().count();
@@ -480,4 +496,9 @@ fn button_hits(acts: &[(Act, Cmd)], bar: Rect) -> Vec<(Rect, Cmd)> {
             (rect, cmd.clone())
         })
         .collect()
+}
+
+/// A gauge's latest value: its last bin with data, a bin without any being 0.
+fn latest(values: &[f64]) -> f64 {
+    values.iter().rev().copied().find(|v| *v > 0.0).unwrap_or_default()
 }

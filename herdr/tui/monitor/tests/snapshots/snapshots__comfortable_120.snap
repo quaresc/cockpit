@@ -27,7 +27,7 @@ expression: "render(&mut app(Density::Comfortable), 120, 30)"
  Healthy · v2026.10.28.1 deployed 1 h ago by you · 1 commit behind
  monitors: 12 ok · 0 warn · 1 alert · 3 no data
  errors 24 h    ▁▁▁▁█▁▃▁▁▁▁▁▁▁▁▁▁▁▃▄ 76 in all, 14 in the last bin
- p95    24 h    ▂▂▁▁▁▁▁▁▁▁▁▁▂▆▆▅▂▅▆█ 161 ms in the last bin
+ p95    24 h    ▂▂▁▁▁▁▁▁▁▁▁▁▂▆▆▅▂▅▆█ 161 ms lately
  2 open errors in Error Tracking over the last day, 1 new
 
    investigate  i     open  o     ArgoCD  A     unpin  p     refresh  R
