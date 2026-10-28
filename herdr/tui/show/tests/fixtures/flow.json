@@ -1,0 +1,47 @@
+{
+ "title": "Flow",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "flow",
+   "title": "Preview",
+   "nodes": [
+    {
+     "id": "a",
+     "label": "Admin opens a report",
+     "kind": "round"
+    },
+    {
+     "id": "b",
+     "label": "Quota left?",
+     "kind": "decision"
+    },
+    {
+     "id": "c",
+     "label": "Show a file"
+    },
+    {
+     "id": "d",
+     "label": "Upsell"
+    }
+   ],
+   "edges": [
+    {
+     "from": "a",
+     "to": "b"
+    },
+    {
+     "from": "b",
+     "to": "c",
+     "label": "yes"
+    },
+    {
+     "from": "b",
+     "to": "d",
+     "label": "no"
+    }
+   ]
+  }
+ ],
+ "placement": "right"
+}

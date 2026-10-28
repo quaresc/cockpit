@@ -1,0 +1,18 @@
+[package]
+name = "cockpit-hub"
+description = "The background process the space apps share: actions, search across apps, details on demand, history."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+chrono.workspace = true
+notify.workspace = true
+nucleo-matcher.workspace = true
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,13 @@
+{
+ "title": "Confirm",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "confirm",
+   "summary": "Deploy **api** to the preview?",
+   "consequence": "The preview restarts.",
+   "confirm_label": "Deploy"
+  }
+ ],
+ "placement": "right"
+}

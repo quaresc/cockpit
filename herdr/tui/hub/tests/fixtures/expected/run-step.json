@@ -1,0 +1,28 @@
+{
+  "calls": [
+    {
+      "args": [
+        "w5:p3",
+        "s-main",
+        "Run step 2 of the ENG-401 runbook (<BOX>/home/.config/cockpit/runbooks/eng-401.md): Run the migration, on prod, command `mix ecto.migrate`. Check its preconditions first. For anything that touches production, show me exactly what it will do and wait for my go before running it. Handoff eng-401-2: report how it went with the mcp__cockpit__report_step tool, done, failed or blocked once it has run, or waiting while it needs my go. It sets the step's status in the runbook; without that tool, set the status yourself."
+      ],
+      "cmd": "ask-session.sh",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/handoffs/eng-401-2.json": {
+      "id": "eng-401-2",
+      "path": "<BOX>/home/.config/cockpit/runbooks/eng-401.md",
+      "sentAt": 0,
+      "slug": "eng-401",
+      "state": "sent",
+      "step": "2",
+      "title": "Run the migration"
+    }
+  },
+  "note": "step 2 sent to its session (resuming it)",
+  "pending": {},
+  "refreshing": []
+}

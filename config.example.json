@@ -42,5 +42,6 @@
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "runbookTools": [],
-  "worktrees": false
+  "worktrees": false,
+  "density": "comfortable"
 }

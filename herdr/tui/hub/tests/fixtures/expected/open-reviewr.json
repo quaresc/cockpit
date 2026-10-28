@@ -1,0 +1,27 @@
+{
+  "calls": [
+    {
+      "args": [
+        "plugin",
+        "pane",
+        "open",
+        "--plugin",
+        "persiyanov.reviewr",
+        "--entrypoint",
+        "pane",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--placement",
+        "zoomed",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "opened reviewr; q there comes back",
+  "pending": {},
+  "refreshing": []
+}

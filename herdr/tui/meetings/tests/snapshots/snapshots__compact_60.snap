@@ -1,0 +1,28 @@
+---
+source: meetings/tests/snapshots.rs
+expression: "render(&mut app, 60, 24)"
+---
+   Meetings   updated 09:57
+ Calendar: list_events: Resource has been exhausted (e.g. c
+
+   now  Pairing on quotas   until 10:30        󰕧 join  m
+
+  Today                                                   █
+   09:45–10:00   15 min  Team Daily                 9   █
+   10:00–10:30   30 min  Pairing on qu… 2      join  m  █
+   10:10–10:25   15 min  Quick sync                 3   █
+   11:15–11:30   15 min  Ledger Move Daily          4   █
+   11:45–12:00   15 min  Accounts Daily             9   █
+                                                          █
+  Tomorrow                                                ▕
+   09:45–10:00   15 min  Team Daily                 10  ▕
+   10:00–11:00   60 min  Backend Chapter            16  ▕
+   11:15–11:30   15 min  Ledger Move Daily          4   ▕
+   11:45–12:00   15 min  Accounts Daily             9   ▕
+   14:30–15:00   30 min  Claude Code Office Hours   5   ▕
+   15:30–15:55   25 min  Weekly Sync Search operat… 3   ▕
+   16:00–17:00   60 min  Accounts - Tech Refinement 10  ▕
+   17:00–17:45   45 min  Hiring calibration         4   ▕
+   18:00–21:00   3.0 h   Monthly Apéro                   ▕
+                                                          ▕
+ o open  m join  b brief  p prepare  w week     ▏^p palette

@@ -27,10 +27,11 @@ const SETTINGS: Setting[] = [
   { key: 'recap', path: ['recap', 'enabled'], label: 'Recap when back in a space', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'deploys', path: ['deployWatch', 'enabled'], label: 'Check errors after a deploy', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'meetings', path: ['meetingBrief', 'enabled'], label: 'Meeting briefs', values: [true, false], names: { true: 'on', false: 'off' } },
+  { key: 'density', path: ['density'], label: 'Density', values: ['comfortable', 'compact'], names: { comfortable: 'comfortable: a row\'s actions in a panel under the list', compact: 'compact: dense rows, their buttons on the row' } },
 ]
 
 const ALIASES: Record<string, string | boolean | number> = {
-  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0,
+  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0, comfortable: 'comfortable', compact: 'compact',
 }
 
 function valueOf(config: Config, setting: Setting) {
@@ -50,6 +51,8 @@ async function write($: $, setting: Setting, value: string | boolean | number) {
   node[setting.path.at(-1)!] = value
   await $.fs.write(path, `${JSON.stringify(raw, null, 2)}\n`)
   forgetConfig()
+  // The space apps stop, and their loops start them again in the new density; an open show pane keeps its own until it reopens.
+  if (setting.key === 'density') await $.process.run(['pkill', '-f', 'cockpit-(inbox|todo|runbook|meetings) cockpit-space']).catch(() => undefined)
   await update($, shown, () => Date.now())
 }
 
@@ -64,7 +67,15 @@ async function terminalBrowserVersion($: $) {
   return done?.exitCode === 0 ? done.stdout.trim().split(/\s+/).at(-1) : undefined
 }
 
+// Whether the apps are there: the release's in bin/, or a dev build.
+async function hasApps($: $) {
+  const root = (await loadConfig($)).herdrPluginRoot
+  for (const dir of ['bin', 'tui/target/release']) if (await $.fs.exists(`${root}/${dir}/cockpit-inbox`)) return true
+  return false
+}
+
 let version: string | null | undefined
+let installed = true
 
 // Called from the mod's session.start: one hook per event and matcher.
 export async function registerSettingsCommand($: $) {
@@ -76,6 +87,7 @@ export function registerSettings(on: On) {
     const [name, word] = e.args.trim().toLowerCase().split(/\s+/)
     if (!name) {
       version = (await terminalBrowserVersion($)) ?? null
+      installed = await hasApps($)
       await $.ui.open({ id: PANE, title: 'Cockpit' })
       return { text: 'Cockpit settings opened.' }
     }
@@ -115,6 +127,7 @@ export function registerSettings(on: On) {
             ? 'terminal-browser is not installed: E2E tests run in Claude in Chrome.'
             : `terminal-browser ${version ?? ''} · press a value to change it · /cockpit <setting> <value> from any session`}
         </Text>
+        {installed ? null : <Text color="yellow">{`The space apps are not installed for this machine yet: sh ${config.herdrPluginRoot}/fetch-apps.sh`}</Text>}
       </Box>
     )
   })

@@ -1,0 +1,39 @@
+{
+  "calls": [
+    {
+      "args": [
+        "-p",
+        "Update the runbook at <BOX>/home/.config/cockpit/runbooks/notes.md: read it first, keep its step order and numbering, refresh every status from live facts, add the steps that appeared and mark the ones finished.\nGather the facts, never from memory alone: every PR across repos (gh: state, review, CI), whether merged ones are live in production (from the deploy tooling the connected tools reach, then gh compare of the merge commit against the deployed ref), the ticket status, and deploy order, migrations and post-deploy commands from the PRs, the memory notes and the code.\nKeep the file's format: `# <TICKET> · <feature>`, `updated: <YYYY-MM-DD HH:MM>`, one `| # | Step | Where | Status | Command |` table, statuses from ✅ done, 🚀 live, 🟡 in progress, ⏳ waiting, ⬜ to do, ❌ blocked, optional `## Notes` of three bullets.\nDo not run any production command or deploy. Write the file, nothing else.\nIt is now <MINUTE> local time: use it for `updated:` and any \"as of\" in a status.",
+        "--model",
+        "sonnet",
+        "--permission-mode",
+        "acceptEdits",
+        "--add-dir",
+        "<BOX>/home/.config/cockpit/runbooks",
+        "--allowedTools",
+        "Bash(gh:*)",
+        "Bash(git:*)",
+        "Bash(jq:*)",
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "mcp__claude_ai_Linear",
+        "mcp__circleci"
+      ],
+      "cmd": "claude",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/runbook-refresh-notes.exit": 0,
+    "home/.cache/cockpit/runbook-refresh-notes.log": ""
+  },
+  "note": "refreshing notes in the background",
+  "pending": {},
+  "refreshing": [
+    "notes"
+  ]
+}

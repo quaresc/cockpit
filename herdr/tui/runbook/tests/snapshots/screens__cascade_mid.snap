@@ -1,0 +1,44 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, 90, 40)"
+---
+   Runbooks   3 · 22 steps left
+ ENG-410 10  ENG-420 12  ENG-398 ✓
+╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-410 · Daily quotas: usage counters (exports + previews) for the settings page   upda
+ ━━━━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━  41%
+
+ #   status                     step                           where                    ▐
+                                                                                        ▐
+ 1   ✅  done, v0.3.0 cut        Release usage 0.3.0 schema     event-schemas-registry#  ▐
+                                                               57                       ▐
+                                                                                        ▐
+ 2   ✅  done, applied           Grant billing the usage vhost  infra#811                ▐
+                                                                                        ▐
+ 3   ✅  done, applied           Grant billing configure on     infra#814                ▐
+                                reply exchange                  merged                 ▐
+
+ 4   ✅  done, expired           Preview e2e (backfill, limits, pv-quotas-7f3a
+                                banner)
+
+ 5   ✅  done 28 Oct ✦           Merge and deploy api (consumer api#2198
+                                + limits)
+
+ 6   ◓ done 28 Oct              Merge and deploy web (banner   web#1836
+                                on settings page)
+
+ 7   ◐ done 28 Oct              Merge and deploy billing PR 3  billing#379
+                                (store + broadcast)
+
+ 8   ⬜  to do                   Backfill dry run               prod
+
+ • Deploy order is consumer first: api, then web, then billing PR 3; PR 4 only once
+   charts#402 is on the charts' production branch.
+ • billing#380 targets PR 3's branch: merge #379 first, then retarget #380 to main.
+ • The backfill only counts accounts whose plan sets a daily quota on its exports.
+──────────────────────────────────────────────────────────────────────────────────────────
+ #7  Merge and deploy billing PR 3 (store + broadcast)
+ status ✅  done 28 Oct                   │ ENG-410: steps 5, 6, 7 done
+
+   open billing#379  o     edit  e
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette

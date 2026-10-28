@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(&mut app, 120)"
+---
+ ◆  Diff   view · hh:mm
+
+ Quota change
+ 2 files  +6 −2   side by side · s unified
+   ▸ src/quota.rs  +3 −2
+     lib/quota.py  +3 −0
+
+  ▼ src/quota.rs   +3 −2
+  @@ -1,7 +1,8 @@
+    1   /// The daily quota of a plan.                     │   1   /// The daily quota of a plan.
+    2   pub fn quota(plan: &str) -> Option<u32> {          │   2   pub fn quota(plan: &str) -> Option<u32> {
+ ▌  3 -     match plan { "free" => Some(10), "pro" => Some(│   3 +     match plan { "free" => Some(10), "pro" => Some(
+        100), _ => None }                                  │       200), _ => None }
+     ✓ 200 is the new pro quota
+    4   }                                                  │   4   }
+    5                                                      │   5
+    6 - const RESET: &str = "hh:mm";                       │   6 + const RESET: &str = "hh:mm UTC";
+                                                           │   7 + const WINDOW_SECONDS: u64 = 86_400; // a long comme
+                                                           │       nt that goes on and on so that the line is wider th
+                                                           │       an the pane is and must wrap
+    7   fn main() {}                                       │   8   fn main() {}
+
+  ▼ lib/quota.py   +3 −0
+  @@ -0,0 +1,3 @@
+                                                           │   1 + def quota(plan):
+                                                           │   2 +     """The daily quota."""
+                                                           │   3 +     return {"free": 10, "pro": 200}.get(plan)
+
+
+
+
+
+
+
+
+                                                                       │ comment on src/quota.rs:3 sent to the
+                                                                       │ session
+
+
+ q hide  ^p palette  tab focus  j/k line  [ ] file  c comment  s split  enter fold  esc leave

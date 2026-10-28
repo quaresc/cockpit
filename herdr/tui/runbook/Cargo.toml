@@ -1,0 +1,20 @@
+[package]
+name = "cockpit-runbook"
+description = "The runbook space: a tab per runbook, its steps and their actions."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde_json.workspace = true
+tachyonfx.workspace = true
+regex.workspace = true
+notify.workspace = true
+nucleo-matcher.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest = "1"

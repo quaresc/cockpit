@@ -1,0 +1,84 @@
+{
+  "calls": [
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "create",
+        "--workspace",
+        "w3",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "talk eng-403",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude --resume s-main --fork-session 'This is a fork of your session on ENG-403, opened to talk it over. Per the inbox now: ENG-403 \"Password reset\" (https://linear.app/acme/issue/ENG-403/reset) is Backlog. Catch up on what changed since (the ticket'\"'\"'s comments, the PRs'\"'\"' reviews and CI), sum it up in a few lines, then wait for my questions. Change nothing (no edits, commits, pushes or ticket updates) unless I ask.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "plan eng-401": "w9:p2",
+      "review web#9": "w9:p1",
+      "talk eng-403": "wT:p1"
+    }
+  },
+  "note": "started \"talk eng-403\" in the actions space",
+  "pending": {},
+  "refreshing": []
+}

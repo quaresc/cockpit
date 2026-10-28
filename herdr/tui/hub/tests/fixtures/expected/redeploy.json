@@ -1,0 +1,22 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/requests/<MS>-redeploy.json": {
+      "app": "api",
+      "label": "redeploy api on pv-eng-401",
+      "preview": "pv-eng-401",
+      "type": "redeploy"
+    }
+  },
+  "note": "",
+  "pending": {
+    "https://github.com/acme/api/pull/4": {
+      "at": 0,
+      "file": "<MS>-redeploy.json",
+      "label": "redeploy api on pv-eng-401",
+      "working": "redeploying…"
+    }
+  },
+  "refreshing": []
+}

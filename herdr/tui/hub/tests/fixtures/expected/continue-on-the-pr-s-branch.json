@@ -1,0 +1,65 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "create",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "eng-401",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'Continue ENG-401 (https://linear.app/acme/issue/ENG-401/sign-in). Its PR is https://github.com/acme/api/pull/4 on branch me/eng-401-login in api: read the PR'\"'\"'s state, review comments and CI, and summarize where it stands before changing anything. The branch me/eng-401-login is checked out here, in <BOX>/repos/api: work in it.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "started \"eng-401\" in a new space",
+  "pending": {},
+  "refreshing": []
+}

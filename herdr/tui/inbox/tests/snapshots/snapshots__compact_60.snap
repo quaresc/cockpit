@@ -1,0 +1,68 @@
+---
+source: inbox/tests/snapshots.rs
+expression: "render(&mut app, 60, HEIGHT)"
+---
+   Inbox   updated 10:00
+ Previews: the preview connector is not connected
+ ▼   Today   morning brief, 09:00
+ ├     3 meetings, first at 09:45: Daily
+ ├     2 reviews for you: billing#381, accounts#742
+ ├     1 PR of yours failing CI: web#1866
+ └     5 PRs ready to merge
+ ▼   Alerts   4
+ ├      preview preview-quota expires in 1.5 h
+ ├      ci failed on accounts-web main · vulnerabilities_y
+ ├      ci failed on ui main · vulnerabilities_yarn
+ └      ci failed on web dev/eng-414-quota-banner-know-mor
+ ▼   Review   2 for you · 7 team · 18 bots · 2 muted
+ ├      billing#381   chore(ci): ad… Maya              19h
+ ├      accounts#742  feat(accounts… Jonas             16h
+ ├      playbooks#61  feat(conventi… Sam               15h
+ ├      ui#640        feat(button):… Sam               17h
+ ├      billing#384   fix: round ta… Noor               2d
+ ├      api#2231      chore: bump t… Theo               2d
+ ├      mobile#521    feat: offline… Ravi               4d
+ ├ ▶  2 more team requests
+ ├ ▶ 2 older than 60 days
+ └ ▶  2 muted repos
+ ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature
+ ├ ▼ ● Usage limits  4
+ │ ├ ▼    ENG-414   t… [Frontend] -… $0.88
+ │ │ └ ▼   web#1866    feat(quota)…          fix ci  a
+ │ │   ├    test · 2 failing: QuotaBanner links to the hel
+ │ │   └    translations
+ │ ├ ▼    ENG-413   t… [Frontend] -… $23.91
+ │ │ └ ▼   web#1864    feat(settin…  preview         22h
+ │ │   └ ▼   web#1866   feat(quota…                   22h
+ │ │     ├    test · 2 failing: QuotaBanner links to the h
+ │ │     └    translations
+ │ ├ ▼    ENG-415   t… [Backend] - … ▁▃▅█ $11.58
+ │ │ └ ▼   api#2224    feat: ask a…  image           18h
+ │ │   └     api#2223   feat: remo…  image           18h
+ │ └ ▼    ENG-412   t… [Backend] - … ▁▂▅▇█ $17.29
+ │   ├     api#2223    feat: remov…  image           18h
+ │   └ ▼   api#2219    feat: count…  image           19h
+ │     └ ▼   api#2224   feat: ask …  image           18h
+ │       └     api#2223  feat: rem…  image           18h
+ ├ ▼ Maintenance  1
+ │ └      ENG-405   i… Re-import th…
+ ├ ▼ Bugs  2
+ │ └ ▼    ENG-420   t… Delete the l… $38.53
+ │   └ ▼    ENG-421   … Legacy filt… $2.22
+ │     ├     api#2207   chore: dro…  image           24h
+ │     ├     search#897 chore: dro…  image           25h
+ │     └     scrubber#… chore: rem…                   25h
+ └ ▼ Refinements  1
+   └      OPS-125   b… Detect the l…
+ ▼   Other PRs   6 without an assigned ticket
+ ├ ▼ needs you  1
+ │ └     cli#312      feat: admin …                   29d
+ ├ ▼ waiting for review  1
+ │ └     gateway#47   revert to th…                    9d
+ └ ▶ stale, no update in 30 days  4
+
+
+
+
+
+ q quit  / filter  v pick  g group by            ^p palette

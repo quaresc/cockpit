@@ -15,7 +15,22 @@ enabled() { [ "$(jq -r ".$1.enabled // false" "$SETTINGS" 2>/dev/null)" = true ]
 v=$("$H" --version 2>/dev/null | awk '{print $2}')
 case "$v" in 0.[0-8].*|"") fail "herdr ${v:-missing}: cockpit needs 0.9 or later → herdr update" ;; *) ok "herdr $v" ;; esac
 gh auth status >/dev/null 2>&1 && ok "gh signed in" || fail "gh not signed in → gh auth login"
-command -v python3 >/dev/null && ok "python3" || fail "python3 missing"
+# The release's binaries, else a dev build; each must be there, since the apps start the hub beside their own.
+dir=$ROOT/bin
+[ -x "$dir/cockpit-inbox" ] || [ ! -x "$ROOT/tui/target/release/cockpit-inbox" ] || dir=$ROOT/tui/target/release
+missing=$(for app in cockpit hub inbox runbook show todo meetings; do b=$app; [ "$app" = cockpit ] || b=cockpit-$app; [ -x "$dir/$b" ] || printf '%s ' "$b"; done)
+want=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/herdr-plugin.toml")
+have=$(cat "$dir/.version" 2>/dev/null)
+runs=$("$dir/cockpit-inbox" --version 2>/dev/null)
+if [ -n "$missing" ]; then fail "apps missing (${missing% }), the spaces stay empty → sh $ROOT/fetch-apps.sh, or cargo build --release in $ROOT/tui"
+elif [ "$dir" = "$ROOT/bin" ] && [ "$have" != "$want" ]; then warn "apps are from ${have:-an unknown version}, cockpit is on $want → sh $ROOT/fetch-apps.sh"
+elif [ -z "$runs" ]; then fail "apps in $dir do not run on this machine → rm -rf $ROOT/bin && sh $ROOT/fetch-apps.sh"
+else ok "apps in $dir (${runs#cockpit-inbox })"; fi
+# A hub left with a dead socket keeps every action and search waiting.
+if pgrep -f "cockpit-(inbox|todo|runbook|meetings) cockpit-space" >/dev/null; then
+  if "$dir/cockpit" hub ping >/dev/null 2>&1; then ok "hub answers"
+  else fail "hub not answering → pkill -x cockpit-hub; the apps start a new one"; fi
+fi
 if [ ! -f "$CONFIG" ]; then fail "no ~/.config/cockpit/config.json → /cockpit:setup"
 elif jq empty "$CONFIG" 2>/dev/null; then ok "config.json"
 else fail "config.json is not valid JSON → fix it or rerun /cockpit:setup"; fi

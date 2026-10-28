@@ -12,6 +12,9 @@ for pid in $(pgrep -f "herdr/(inbox|todo|runbook|meetings)-loop\.sh"); do
   pkill -P "$pid"
   kill "$pid"
 done
+# The apps go too, and the hub, detached from them, which serves the old folder: the first app that needs it starts it again.
+pkill -f "cockpit-(inbox|todo|runbook|meetings) cockpit-space"
+pkill -x cockpit-hub
 sleep 1
 sh "$root/ensure-spaces.sh"
 sh "$root/pin-spaces.sh"

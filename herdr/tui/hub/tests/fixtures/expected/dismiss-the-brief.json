@@ -1,0 +1,20 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/brief.json": {
+      "at": 0,
+      "date": "2026-10-28",
+      "dismissed": true,
+      "lines": [
+        {
+          "icon": "pr",
+          "text": "two PRs wait"
+        }
+      ]
+    }
+  },
+  "note": "brief dismissed until tomorrow",
+  "pending": {},
+  "refreshing": []
+}

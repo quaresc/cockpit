@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "focus",
+        "w7"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "me/eng-401-login is already open in \"api login\": focused it",
+  "pending": {},
+  "refreshing": []
+}

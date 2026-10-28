@@ -143,7 +143,7 @@ export async function settleTurn($: $) {
 export async function requestRunbookRefresh($: $, id: string, reason: string) {
   const slug = id.toLowerCase()
   const hasBook = await $.fs.exists(`${await home($)}/.config/cockpit/runbooks/${slug}.md`)
-  const isRunning = (await $.process.run(['pgrep', '-f', 'runbook\\.py cockpit-space'])).exitCode === 0
+  const isRunning = (await $.process.run(['pgrep', '-f', 'cockpit-runbook cockpit-space'])).exitCode === 0
   if (!hasBook || !isRunning) return false
   const dir = `${await cacheDir($)}/runbook-refresh`
   await $.process.run(['mkdir', '-p', dir])

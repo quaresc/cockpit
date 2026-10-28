@@ -1,0 +1,48 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "create",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "ci api#4",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'CI is failing on https://github.com/acme/api/pull/4. The failing job is test, step \"mix test\": read its logs with circleci get_job_logs. Failing GitHub checks: lint (gh pr checks, gh run view --log-failed). The fix goes on this PR'\"'\"'s branch. Explain the cause and propose a fix. Do not push. The branch me/eng-401-login is checked out here, in <BOX>/repos/api: work in it.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "started \"ci api#4\" in a new space",
+  "pending": {},
+  "refreshing": []
+}

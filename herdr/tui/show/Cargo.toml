@@ -1,0 +1,31 @@
+[package]
+name = "cockpit-show"
+description = "The view a Claude session shows beside itself: charts, tables, diagrams, pictures, diffs, logs and questions."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-width.workspace = true
+textwrap.workspace = true
+chrono.workspace = true
+ratatui-image.workspace = true
+image = { workspace = true, features = ["gif"] }
+resvg.workspace = true
+regex.workspace = true
+tachyonfx.workspace = true
+notify.workspace = true
+signal-hook = "0.3.18"
+mimalloc = { version = "0.1.52", default-features = false }
+libmimalloc-sys = { version = "0.1.49", default-features = false, features = ["extended"] }
+pulldown-cmark = { version = "0.13.5", default-features = false }
+syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
+similar = { version = "3.2.1", features = ["unicode"] }
+
+[dev-dependencies]
+insta.workspace = true
+proptest = "1.12.0"

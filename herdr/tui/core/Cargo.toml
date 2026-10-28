@@ -1,0 +1,15 @@
+[package]
+name = "cockpit-core"
+description = "What the Rust space apps share: theme, terminal, file watching, the bridge that runs actions through the hub, palette, dialogs and toasts."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+crossterm.workspace = true
+notify.workspace = true
+nucleo-matcher.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-width.workspace = true
+tachyonfx.workspace = true

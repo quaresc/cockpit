@@ -1,0 +1,36 @@
+{
+  "calls": [
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "move",
+        "w9:p2",
+        "--new-workspace",
+        "--label",
+        "eng-401",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "review web#9": "w9:p1",
+      "talk eng-403": "w9:p4"
+    }
+  },
+  "note": "moved the plan of ENG-401 to a space of its own",
+  "pending": {},
+  "refreshing": []
+}

@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "args": [],
+      "cmd": "pbcopy",
+      "stdin": "mix ecto.migrate"
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "copied: mix ecto.migrate",
+  "pending": {},
+  "refreshing": []
+}

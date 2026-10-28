@@ -1,0 +1,26 @@
+---
+source: todo/tests/snapshots.rs
+expression: "render(&mut app, 100, 22)"
+---
+   To-do   4 open · 2 marked
+
+ / re   5 matches   esc clears
+     add a to-do
+
+     Thursday follow up on archive/restore, especially the front part with Lin
+     review ENG-398 admin export https://github.com/acme/billing/pull/376
+     ask to get assigned on PR reviews, especially the front ones, by adding Maya's team
+
+    2 done
+     remove admin access on superadmin for sam (done 2026-10-27)
+ ▍   release billing & billing-web (done 2026-10-27)
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ 2 marked: x toggles them, D deletes them, esc unmarks
+
+   toggle 2  x     delete 2  D     unmark all
+ a add  x done  e edit  / filter  v mark  u undo  D delete  q quit                      ▏^p palette
