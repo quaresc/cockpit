@@ -252,9 +252,9 @@ impl App {
     /// The keys on the left, as many as fit, and the palette's on the right; the batch's keys while steps are picked.
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let keys: &[(&str, &str)] = if self.picked.is_empty() {
-            &[("q", "quit"), ("/", "filter"), ("v", "pick"), ("e", "edit"), ("a", "add"), ("R", "refresh"), ("t", "talk"), ("p", "prev runbook"), ("n", "next runbook")]
+            &[("q", "quit"), ("/", "filter"), ("v", "pick"), ("e", "edit"), ("a", "add"), ("R", "refresh"), ("t", "talk"), ("[ ]", "runbooks")]
         } else {
-            &[("d", "mark done"), ("c", "copy commands"), ("v", "pick"), ("V", "all open"), ("esc", "unpick")]
+            &[("x", "mark done"), ("c", "copy commands"), ("v", "pick"), ("V", "all open"), ("esc", "unpick")]
         };
         let mut spans = Vec::new();
         for (key, what) in keys {

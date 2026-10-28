@@ -13,7 +13,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use crate::tree::pill_width;
 
 const MAX_PANEL: u16 = 24;
-const KEYS: [(&str, &str); 7] = [("q", "quit"), ("/", "filter"), ("v", "pick"), ("g", "group by"), ("R", "refresh"), ("space", "fold"), ("enter", "open")];
+const KEYS: [(&str, &str); 7] = [("q", "quit"), ("/", "filter"), ("v", "pick"), ("w", "group by"), ("R", "refresh"), ("space", "fold"), ("enter", "main")];
 const PICKING: [(&str, &str); 3] = [("v", "pick"), ("V", "all alike"), ("esc", "drop picks")];
 
 fn plain(line: &Line) -> String {

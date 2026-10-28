@@ -41,4 +41,4 @@ expression: "screen(&mut app, 90, 40)"
  status ✅  done 28 Oct                   │ ENG-410: steps 5, 6, 7 done
 
    open billing#379  o     edit  e
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

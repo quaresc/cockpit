@@ -1,6 +1,6 @@
 //! What the Rust space apps share: the Vesper theme, the terminal loop, file watching, the hub client that runs actions
-//! and searches across apps, system notifications, and the palette, dialogs, toasts, text field, widgets, animations and
-//! screen snapshots.
+//! and searches across apps, system notifications, and the palette, dialogs, toasts, text field, shared keys, widgets,
+//! animations and screen snapshots.
 
 pub mod actions;
 pub mod acts;
@@ -11,6 +11,7 @@ pub mod files;
 pub mod focus;
 pub mod hub;
 pub mod input;
+pub mod keys;
 pub mod notify;
 pub mod palette;
 pub mod term;

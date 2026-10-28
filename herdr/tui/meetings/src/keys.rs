@@ -1,6 +1,7 @@
 //! Keys and clicks: rows (or the week view's blocks), the selected meeting's actions, and the palette over all of them.
 
 use cockpit_core::acts::Act;
+use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
@@ -80,7 +81,7 @@ impl App {
 
     fn key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        if ctrl && matches!(key.code, KeyCode::Char('c' | 'q')) {
+        if ctrl && keys::is_quit(&key) {
             return true;
         }
         if self.palette.is_open {
@@ -103,19 +104,26 @@ impl App {
         if ctrl || key.modifiers.contains(KeyModifiers::ALT) {
             return false;
         }
+        if keys::is_quit(&key) {
+            return true;
+        }
+        if let Some(to) = keys::movement(&key) {
+            match to {
+                Move::By(n) => self.move_sel(n),
+                Move::Pages(n) => self.move_sel(10 * n),
+                Move::Top => self.select_edge(false),
+                Move::Bottom => self.select_edge(true),
+                Move::Group(_) => {}
+            }
+            return false;
+        }
         match key.code {
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('j') | KeyCode::Down => self.move_sel(1),
-            KeyCode::Char('k') | KeyCode::Up => self.move_sel(-1),
-            KeyCode::PageDown => self.move_sel(10),
-            KeyCode::PageUp => self.move_sel(-10),
-            KeyCode::Home | KeyCode::Char('g') => self.select_edge(false),
-            KeyCode::End | KeyCode::Char('G') => self.select_edge(true),
             KeyCode::Char('w') => self.run(Cmd::Week),
             KeyCode::Esc if self.week_view => self.week_view = false,
             KeyCode::Enter => {
-                if let Some((_, cmd)) = self.acts().into_iter().next() {
-                    self.run(cmd);
+                let acts = self.acts();
+                if let Some((_, cmd)) = acts.iter().find(|(a, _)| a.main).or(acts.first()) {
+                    self.run(cmd.clone());
                 }
             }
             KeyCode::Char(c) => {

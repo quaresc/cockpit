@@ -30,5 +30,5 @@ expression: "screen(&mut app, 90, 30)"
  status ⬜  to do
  $ DELETE api_listings_expanded_production-<older ts>
 
-   run  r     done  d     copy command  c     edit  e
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+   run  r     done  x     copy command  c     edit  e
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

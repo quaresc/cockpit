@@ -18,7 +18,7 @@ expression: "screen(&mut app, width, 40)"
  5   ⬜  to do, approved green             Merge and deploy api (consumer + limits)             api#2198
  6   ⬜  to do, approved green             Merge and deploy web (banner on settings page)       web#1836
  7   ⬜  to do, approved green             Merge and deploy billing PR 3 (store + broadcast)    billing#379
- 8   ⬜  to do                             Backfill dry run    session  s     done  d     copy command  c     edit  e
+ 8   ⬜  to do                             Backfill dry run    session  s     done  x     copy command  c     edit  e
                                           $ ./bin/backfill_daily_quota_usage --dry-run
                                           ↳ running in its session…
  9   ⬜  to do                             Backfill real run                                    prod
@@ -41,4 +41,4 @@ expression: "screen(&mut app, width, 40)"
    production branch.
  • billing#380 targets PR 3's branch: merge #379 first, then retarget #380 to main.
  • The backfill only counts accounts whose plan sets a daily quota on its exports.
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook  n next runbook                 ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks                                   ▏^p palette

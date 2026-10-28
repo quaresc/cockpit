@@ -41,4 +41,4 @@ expression: "screen(&mut app, width, 40)"
  status ✅  done, v0.3.0 cut
 
    open event-schemas-registry#57  o     edit  e
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook  n next runbook                 ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks                                   ▏^p palette

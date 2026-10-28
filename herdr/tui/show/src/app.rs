@@ -427,16 +427,17 @@ impl ShowApp {
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let page = self.height().saturating_sub(1).max(1) as isize;
+        if cockpit_core::keys::is_quit(&key) {
+            return true;
+        }
         match key.code {
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('c') if ctrl => return true,
             KeyCode::Char('p') if ctrl => self.open_palette(),
             KeyCode::Char('j') | KeyCode::Down => self.scroll_by(1),
             KeyCode::Char('k') | KeyCode::Up => self.scroll_by(-1),
             KeyCode::Char(' ') | KeyCode::Char('f') | KeyCode::PageDown => self.scroll_by(page),
             KeyCode::Char('b') | KeyCode::PageUp => self.scroll_by(-page),
-            KeyCode::Char('d') => self.scroll_by(page / 2),
-            KeyCode::Char('u') => self.scroll_by(-page / 2),
+            KeyCode::Char('d') if ctrl => self.scroll_by(page / 2),
+            KeyCode::Char('u') if ctrl => self.scroll_by(-page / 2),
             KeyCode::Char('g') | KeyCode::Home => self.scroll = 0,
             KeyCode::Char('G') | KeyCode::End => self.scroll = usize::MAX,
             KeyCode::Tab => self.move_focus(true),

@@ -23,7 +23,7 @@ expression: "screen(&mut app, width, 40)"
                       billing PR
                       3 (store +
                       broadcast)
- 8   ⬜  to do         Backfil   session  s     done  d
+ 8   ⬜  to do         Backfil   session  s     done  x
                       dry run
                       $
                       ./bin/back

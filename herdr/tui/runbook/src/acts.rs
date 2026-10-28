@@ -29,7 +29,7 @@ pub fn step_acts(book: &Book, step: &Step, handoffs: &HashMap<String, Value>) ->
         } else {
             acts.push(Act::new("run", 'r', "run").main().confirm(&format!("run-{}-{}", book.slug, step.n)));
         }
-        acts.push(Act::new("done", 'd', "done"));
+        acts.push(Act::new("done", 'x', "done"));
     }
     if pr_ref(step).is_some() {
         let act = Act::new(&format!("open {}", step.where_), 'o', "open");

@@ -403,6 +403,7 @@ dependencies = [
  "notify",
  "nucleo-matcher",
  "ratatui",
+ "regex",
  "serde",
  "serde_json",
  "tachyonfx",
