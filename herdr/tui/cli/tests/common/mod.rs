@@ -1,5 +1,6 @@
 //! A sandbox for the CLI's and the scripts' tests: a fake HOME, a herdr folder holding copies of the plugin's scripts,
-//! and fake herdr, terminal-browser, open and notify.sh that log each call, one line of arguments each, to calls.log.
+//! and fake herdr, terminal-browser, open and a notification receiver that log each call, one line of arguments each,
+//! to calls.log.
 
 #![allow(dead_code)]
 
@@ -54,7 +55,7 @@ impl Sandbox {
         for tool in ["open", "xdg-open"] {
             executable(&sandbox.root.join("bin").join(tool), &fake(tool, &log, &[]));
         }
-        executable(&sandbox.root.join("herdr/notify.sh"), &fake("notify.sh", &log, &[]));
+        executable(&sandbox.root.join("bin/notify"), &fake("notify", &log, &[]));
         sandbox.herdr(&[]);
         sandbox
     }
@@ -91,9 +92,11 @@ impl Sandbox {
         std::fs::write(path, content).unwrap();
     }
 
-    /// The test's environment without what ties it to a herdr pane or cockpit settings, then the sandbox's own.
+    /// The test's environment without what ties it to a herdr pane, cockpit settings or the terminal app, then the
+    /// sandbox's own.
     pub fn env(&self) -> Vec<(String, String)> {
-        let inherited = std::env::vars().filter(|(k, _)| !["HERDR_", "COCKPIT_", "CLAUDE", "PATH", "HOME"].iter().any(|p| k.starts_with(p)));
+        let inherited =
+            std::env::vars().filter(|(k, _)| !["HERDR_", "COCKPIT_", "CLAUDE", "PATH", "HOME", "__CFBundleIdentifier"].iter().any(|p| k.starts_with(p)));
         // jq's own folder too, which the scripts need, without the rest of the folders where real herdr lives.
         let jq = std::env::var("PATH").unwrap_or_default().split(':').find(|d| Path::new(d).join("jq").is_file()).unwrap_or("/usr/bin").to_string();
         let path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin:{jq}", self.root.join("bin").display());
@@ -104,6 +107,8 @@ impl Sandbox {
                 ("HERDR_BIN_PATH".into(), self.root.join("bin/herdr").to_string_lossy().into_owned()),
                 ("COCKPIT_HERDR_DIR".into(), self.root.join("herdr").to_string_lossy().into_owned()),
                 ("COCKPIT_TERMINAL_BROWSER".into(), self.root.join("bin/terminal-browser").to_string_lossy().into_owned()),
+                // Notifications reach the fake receiver instead of the screen.
+                ("COCKPIT_NOTIFY_PROGRAM".into(), self.root.join("bin/notify").to_string_lossy().into_owned()),
             ])
             .collect()
     }

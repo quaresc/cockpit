@@ -18,6 +18,9 @@ libc = "0.2"
 ureq = { version = "3.5.0", default-features = false, features = ["rustls", "gzip"] }
 # The index of past Claude sessions the palette searches.
 tantivy = { version = "0.27.0", default-features = false, features = ["mmap", "lz4-compression", "stemmer"] }
+# The shared documents and their past versions, one file the hub alone writes.
+redb = "4.4.0"
+lz4_flex = "0.14.0"
 
 [dev-dependencies]
 tempfile = "3"

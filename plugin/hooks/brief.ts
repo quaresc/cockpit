@@ -2,8 +2,9 @@ import type { EngineInterface } from 'claude-code'
 
 import type { CiState, Inbox, MeetingsState } from '../types'
 
-import { notify, withLock } from './ci'
+import { notify } from './ci'
 import { cacheDir, loadConfig } from './config'
+import { withLease, writeDoc } from './store'
 
 type $ = EngineInterface
 
@@ -132,13 +133,13 @@ export async function maybeBrief($: $) {
   const meetings = calendar.enabled ? await readJson<MeetingsState>($, `${dir}/meetings.json`) : null
   if (!inbox || inbox.at < start.getTime() || (calendar.enabled && (meetings?.at ?? 0) < start.getTime())) return
 
-  await withLock($, 'brief', async () => {
+  await withLease($, 'brief', async () => {
     const again = await readJson<Brief>($, `${dir}/brief.json`)
     if (again?.date === today) return
     const ci = await readJson<CiState>($, `${dir}/ci.json`)
     const { lines, tickets, live } = compose(inbox, ci, meetings, previous, today, github.org)
     const next: Brief = { date: today, at: Date.now(), lines, tickets, live }
-    await $.fs.write(`${dir}/brief.json`, JSON.stringify(next))
+    await writeDoc($, 'brief', next)
     const body = lines.length > 0 ? lines.slice(0, 4).map(l => l.text).join('\n') : 'Nothing waiting on you.'
     await notify($, '☀️ Morning brief', body, 'space:inbox')
   })

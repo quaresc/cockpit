@@ -8,28 +8,27 @@ import { hubOwnsCi } from './feed'
 import { ciChanges, hasTicket } from './match'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
+import { withLease, writeDoc } from './store'
 import { completeTicket } from './tickets'
 
 type $ = EngineInterface
 
 const CI_STALE_MS = 55_000
 const CI_VERSION = 3
-const LOCK_STALE_MS = 2 * 60_000
-const LOCK_BEAT_MS = 30_000
 const REQUEST_TTL_MS = 10 * 60_000
 const RESULTS_TTL_MS = 86_400_000
 
 // ---------------------------------------------------------------------------
 // Shared plumbing
 
-// A system notification; a click opens `action`, a URL or a focus.sh target such as space:inbox or runbook:<slug>,
-// and each button, [label, action], runs its own.
+// A system notification; a click opens `action`, a URL or a `cockpit focus` target such as space:inbox or
+// runbook:<slug>, and each button, [label, action], runs its own.
 export async function notify($: $, title: string, body: string, action = '', buttons: [string, string][] = []) {
   if (!(await loadConfig($)).notifications) return
-  const script = `${await home($)}/.config/cockpit/herdr/notify.sh`
+  const script = `${await home($)}/.config/cockpit/herdr/cockpit.sh`
   const isLinked = await $.fs.stat(script).then(() => true, () => false)
   const command = isLinked
-    ? ['sh', script, title, body, action, ...buttons.map(([label, target]) => `${label}=${target}`)]
+    ? ['sh', script, 'notify', title, body, action, ...buttons.map(([label, target]) => `${label}=${target}`)]
     : ['herdr', 'notification', 'show', title, '--body', body, '--sound', 'request']
   await $.process.run(command, { timeoutMs: 30_000 })
 }
@@ -45,28 +44,6 @@ export async function ticketAction($: $, id: string, url: string | undefined, st
 export function shortError(err: Error) {
   const tool = err.message.match(/no verdict for (mcp__\S+?):/)?.[1]
   return tool ? `blocked by auto mode: allow ${tool}` : err.message.slice(0, 200)
-}
-
-// A cross-session lock, so one Claude session fetches and notifies for all of them. The holder touches it while it works,
-// so only a lock left by a dead session goes stale; renaming it away first means a single session takes it over.
-export async function withLock<T>($: $, name: string, fn: () => Promise<T>): Promise<T | undefined> {
-  const lock = `${await cacheDir($)}/${name}.lock`
-  try {
-    const age = Date.now() - (await $.fs.stat(lock)).mtimeMs
-    const stale = `${lock}.stale-${Math.random().toString(36).slice(2)}`
-    if (age > LOCK_STALE_MS && (await $.process.run(['mv', lock, stale])).exitCode === 0) await $.process.run(['rmdir', stale])
-  } catch {
-    // No lock yet.
-  }
-  if ((await $.process.run(['mkdir', '-p', await cacheDir($)])).exitCode !== 0) return undefined
-  if ((await $.process.run(['mkdir', lock])).exitCode !== 0) return undefined
-  const beat = $.clock.every(LOCK_BEAT_MS, () => void $.process.run(['touch', lock]).catch(() => undefined))
-  try {
-    return await fn()
-  } finally {
-    beat.cancel()
-    await $.process.run(['rmdir', lock])
-  }
 }
 
 async function readJson<T>($: $, path: string): Promise<T | null> {
@@ -309,7 +286,7 @@ export function refreshCi($: $, isForced = false) {
       if (hubOwnsCi(stored)) return
       const prev = stored?.version === CI_VERSION ? stored : null
       if (!isForced && prev && Date.now() - prev.at < CI_STALE_MS) return
-      await withLock($, 'ci', async () => {
+      await withLease($, 'ci', async () => {
         const runs = await (ci.server ? connectorRuns($, ci, prev) : githubRuns($, prev)).catch(async (err: Error) => {
           // A session started before the CI connector was added has no such server: leave it to the others.
           if (err.message.includes('no connected MCP tool')) {
@@ -317,12 +294,12 @@ export function refreshCi($: $, isForced = false) {
             return null
           }
           const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}` }
-          await writeAtomic($, `${await cacheDir($)}/ci.json`, JSON.stringify(failed))
+          await writeDoc($, 'ci', failed)
           return null
         })
         if (!runs) return
         const state: CiState = { at: Date.now(), runs, version: CI_VERSION }
-        await writeAtomic($, `${await cacheDir($)}/ci.json`, JSON.stringify(state))
+        await writeDoc($, 'ci', state)
         const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
         if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, `🔁 ${ci.name}`, change.text, change.action, change.buttons)
       })
@@ -402,10 +379,9 @@ export async function previewsFor($: $): Promise<Preview[]> {
 
 // A ticket moved to a completed state leaves the inbox at once, without waiting for the next fetch.
 async function dropTicket($: $, id: string) {
-  const path = `${await cacheDir($)}/inbox.json`
-  const inbox = await readJson<Inbox>($, path)
+  const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
   if (!inbox) return
-  await writeAtomic($, path, JSON.stringify({ ...inbox, tickets: inbox.tickets.filter(t => t.id !== id) }))
+  await writeDoc($, 'inbox', { version: inbox.version, tickets: inbox.tickets.filter(t => t.id !== id) }, 'patch')
 }
 
 // Previews created from the inbox, one file each in pending-previews/, announced once the platform reports them healthy.

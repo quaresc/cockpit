@@ -7,11 +7,9 @@ claude plugin update cockpit@cockpit
 "$H" plugin update cockpit --yes
 root=$(jq -r '.[] | select(.plugin_id == "cockpit") | .plugin_root' "$HOME/.config/herdr/plugins.json")
 
-# The loops and their apps stop, then ensure-spaces (from the new folder) moves the link, prunes old folders and starts them again.
-for pid in $(pgrep -f "herdr/(inbox|todo|runbook|meetings)-loop\.sh"); do
-  pkill -P "$pid"
-  kill "$pid"
-done
+# The spaces' supervisors and their apps stop, then ensure-spaces (from the new folder) moves the link, prunes old folders
+# and starts them again.
+pkill -f "(^|/)cockpit space (inbox|todo|runbook|meetings)$"
 # The apps go too, and the hub, detached from them, which serves the old folder: the first app that needs it starts it again.
 pkill -f "cockpit (inbox|todo|runbook|meetings) cockpit-space"
 pkill -f "(^|/)cockpit hub$"
@@ -24,4 +22,4 @@ sh "$root/pin-spaces.sh"
   while read -r pane; do "$H" agent prompt "$pane" "/reload-plugins" >/dev/null 2>&1; done
 
 version=$(jq -r .version "$(dirname "$root")/plugin/.claude-plugin/plugin.json" 2>/dev/null)
-sh "$root/notify.sh" "Cockpit updated" "Now on ${version:-the latest version}; idle sessions reloaded the mod." "space:inbox"
+sh "$root/cockpit.sh" notify "Cockpit updated" "Now on ${version:-the latest version}; idle sessions reloaded the mod." "space:inbox"

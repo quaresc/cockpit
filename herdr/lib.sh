@@ -4,7 +4,7 @@
 H="${HERDR_BIN_PATH:-herdr}"
 ROOT=$(cd "$(dirname "$0")" && pwd -P)
 OS=$(uname)
-# herdr installs each update in a new folder: keys and space loops go through this link, kept on the current one.
+# herdr installs each update in a new folder: keys and space apps go through this link, kept on the current one.
 # Only the folder herdr's registry names moves it, so a script left in an older folder cannot pull it back.
 LINK="$HOME/.config/cockpit/herdr"
 REGISTERED=$(jq -r '.[] | select(.plugin_id == "cockpit") | .plugin_root' "$HOME/.config/herdr/plugins.json" 2>/dev/null)

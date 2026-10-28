@@ -34,7 +34,7 @@ summary=$(printf '%s' "$out" | jq -r '.summary // empty' 2>/dev/null)
 url=$(printf '%s' "$out" | jq -r '.url // empty' 2>/dev/null)
 if [ -f "$book" ]; then action="runbook:$slug"; elif [ -n "$url" ]; then action=$url; else action="space:inbox"; fi
 case "$ok" in
-  true) sh "$ROOT/notify.sh" "✅ $ticket after deploy" "${summary:-no change in errors or latency}" "$action" ;;
-  false) sh "$ROOT/notify.sh" "⚠️ $ticket after deploy" "${summary:-errors or latency moved, have a look}" "$action" ;;
-  *) sh "$ROOT/notify.sh" "❔ $ticket after deploy" "The check did not conclude; see ~/.cache/cockpit/watch-$slug.log" "$action" ;;
+  true) sh "$ROOT/cockpit.sh" notify "✅ $ticket after deploy" "${summary:-no change in errors or latency}" "$action" ;;
+  false) sh "$ROOT/cockpit.sh" notify "⚠️ $ticket after deploy" "${summary:-errors or latency moved, have a look}" "$action" ;;
+  *) sh "$ROOT/cockpit.sh" notify "❔ $ticket after deploy" "The check did not conclude; see ~/.cache/cockpit/watch-$slug.log" "$action" ;;
 esac

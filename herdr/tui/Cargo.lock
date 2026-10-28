@@ -389,7 +389,9 @@ dependencies = [
  "libc",
  "mimalloc",
  "regex",
+ "serde",
  "serde_json",
+ "signal-hook",
  "tempfile",
 ]
 
@@ -415,8 +417,10 @@ dependencies = [
  "cockpit-core",
  "cockpit-update",
  "libc",
+ "lz4_flex",
  "notify",
  "nucleo-matcher",
+ "redb",
  "regex",
  "serde",
  "serde_json",
@@ -1654,6 +1658,9 @@ name = "lz4_flex"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
+dependencies = [
+ "twox-hash",
+]
 
 [[package]]
 name = "mac_address"
@@ -2590,6 +2597,15 @@ dependencies = [
  "bytemuck",
  "font-types",
  "once_cell",
+]
+
+[[package]]
+name = "redb"
+version = "4.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39178e0a867f9e3eaa6292a4ab1dd3613f2519c5b564341e1e7b29b270736cc4"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -3810,6 +3826,12 @@ dependencies = [
  "cc",
  "tree-sitter-language",
 ]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
 
 [[package]]
 name = "typed-arena"

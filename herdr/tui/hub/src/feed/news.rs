@@ -2,12 +2,10 @@
 //! mod's, so whichever of the two fetched a field announces its changes, once.
 
 use std::collections::HashSet;
-use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::config::{self, Config};
-use crate::proc;
+use crate::config::Config;
 use crate::value::list;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -132,15 +130,13 @@ pub fn announce_ci(config: &Config, news: &[News]) {
     }
 }
 
-/// One system notification through the plugin's notify.sh, unless notifications are off.
+/// One system notification, unless notifications are off.
 fn notify(config: &Config, title: &str, body: &str, action: &str, buttons: &[(String, String)]) {
     if config.0["notifications"] == false {
         return;
     }
-    let script = config::script("notify.sh").to_string_lossy().into_owned();
-    let mut argv = vec!["sh".to_string(), script, title.into(), body.into(), action.into()];
-    argv.extend(buttons.iter().map(|(label, target)| format!("{label}={target}")));
-    proc::run(&argv, Duration::from_secs(30), None);
+    let buttons: Vec<String> = buttons.iter().map(|(label, target)| format!("{label}={target}")).collect();
+    cockpit_core::notify::post(title, body, action, &buttons);
 }
 
 #[cfg(test)]

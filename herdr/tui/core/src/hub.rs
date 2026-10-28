@@ -8,11 +8,18 @@
 //! - `go` {target}: focuses the target's space and asks its app to bring it into view (see `focus`).
 //! - `fetch` {kind, args}: details on demand, cached: `ci_log`, `failed_tests`, `review_threads`, `pr_files`.
 //! - `history` {kind, key}: {values: [...]}, oldest first: `ci_duration` (repo/branch), `ticket_cost` (ticket id).
+//! - `store.get`, `store.put` {value}, `store.patch` {fields}, `store.past` {since} on a shared document by `name`
+//!   (inbox, ci, meetings, brief), each answered {value} or {versions}; `store.lease` {name, holder, ttl, renew}
+//!   answered {granted}, and `store.release` {name, holder}.
+//! - `subscribe` {docs}: the connection then carries {doc, value} lines, one per document at once and per new version
+//!   after, and an empty line every half minute.
 //! - `ping`: {ok: true}.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -129,4 +136,63 @@ pub fn history(kind: &str, key: &str) -> Vec<f64> {
         .ok()
         .and_then(|a| a["values"].as_array().map(|v| v.iter().filter_map(Value::as_f64).collect()))
         .unwrap_or_default()
+}
+
+/// The shared documents an app follows, pushed by the hub: each read from its file at first, then kept as the hub sends
+/// it, over a connection made again whenever the hub restarts.
+pub struct Docs {
+    latest: HashMap<String, Value>,
+    rx: Receiver<(String, Value)>,
+    /// Counts the versions taken in, so a rebuild can tell it saw them all.
+    pub revision: u64,
+}
+
+impl Docs {
+    /// Takes in what the hub sent since; true when anything came.
+    pub fn pump(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok((name, value)) = self.rx.try_recv() {
+            if self.latest.get(&name) != Some(&value) {
+                self.latest.insert(name, value);
+                self.revision += 1;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// The document, None before anyone wrote it.
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        self.latest.get(name).filter(|v| !v.is_null())
+    }
+}
+
+/// Follows these documents (inbox, ci, meetings, brief) as long as the returned Docs lives.
+pub fn subscribe(names: &[&str]) -> Docs {
+    let latest = names.iter().filter_map(|n| Some((n.to_string(), files::load(&files::cache().join(format!("{n}.json")))?))).collect();
+    let (tx, rx) = channel();
+    let request = json!({"op": "subscribe", "docs": names});
+    std::thread::spawn(move || {
+        loop {
+            if let Some(mut stream) = connect(Duration::from_secs(3))
+                && writeln!(stream, "{request}").is_ok()
+            {
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { break };
+                    let Ok(message) = serde_json::from_str::<Value>(&line) else {
+                        continue;
+                    };
+                    let Some(name) = message["doc"].as_str() else {
+                        continue;
+                    };
+                    if tx.send((name.to_string(), message["value"].clone())).is_err() {
+                        return;
+                    }
+                    crate::term::wake();
+                }
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
+    Docs { latest, rx, revision: 0 }
 }

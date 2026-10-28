@@ -129,7 +129,7 @@ fn github_and_linear_land_in_the_caches_beside_the_mods_fields() {
     assert_eq!(ci["runs"][0]["dockerTag"], "succeeded");
 
     let calls = sandbox.calls();
-    let notified: Vec<&str> = calls.iter().filter(|c| c["cmd"] == "notify.sh").filter_map(|c| c["args"][1].as_str()).collect();
+    let notified: Vec<&str> = calls.iter().filter(|c| c["cmd"] == "notify").filter_map(|c| c["args"][1].as_str()).collect();
     assert!(notified.contains(&"👀 Review requested: web#9 Dark mode"), "{notified:?}");
     assert!(notified.contains(&"🔴 CI failed: api me/eng-401-login · lint"), "{notified:?}");
     assert!(notified.contains(&"🎫 Assigned: ENG-405 Deploy SSO"), "{notified:?}");
