@@ -2,7 +2,21 @@
 
 Each version is tagged `v<version>` and has a GitHub release with these notes, both made by the release workflow once
 `plugin/.claude-plugin/plugin.json` reaches main with a new version. Both halves, the Claude Code plugin and the herdr
-plugin, share the version, and the section for it must be here first.
+plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
+must be here first.
+
+## 0.17.0 (2026-10-28)
+
+- The space and show apps are rewritten in Rust: about 11 MB each, idle CPU about 0, nothing that cockpit runs needs
+  Python any more. Each release carries them built for macOS and Linux, and setup and updates install them (#4).
+- A background hub runs every action, and ctrl+p in any app searches all of them: a ticket, its runbook, its PRs, a view.
+- Inbox: `/` filters, several rows picked share their actions, review threads and failing CI show beside a PR, and a row
+  flashes when its CI turns or an agent finishes; ticket costs get a sparkline.
+- Runbook: filter, pick several steps, edit a step's command or status and add steps in place.
+- Show: CommonMark with syntax colours, charts with values on hover and zoom, diffs with word highlights, side by side and
+  line comments sent to the session, before/after compares in the pane, animated GIFs, a log that scrolls and follows.
+- To-do edits in place with undo; meetings draw the week as a picture.
+- `/cockpit` gets a Density setting: compact puts a row's buttons on the row itself.
 
 ## 0.16.3 (2026-10-27)
 
