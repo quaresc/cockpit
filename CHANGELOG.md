@@ -5,6 +5,15 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.20.0 (2026-10-28)
+
+- `prefix+space` opens the palette as a popup over any pane: search everything, jump to a space, check cockpit, read
+  the brief; over a Claude session, put a reference in its prompt, ask it about an item or fork it (#10).
+- ctrl+p searches a week of what changed (reviews, CI, tickets, merges, deploys, releases, alerts, errors) and finds
+  past sessions by meaning as well as words, each with the passage that matched (#10).
+- The inbox and the monitor mark the rows that changed since you last left them, with a line saying what (#10).
+- `cockpit search`, `cockpit events` and the cockpit_search and cockpit_changes tools let Claude ask the same (#10).
+
 ## 0.19.1 (2026-10-28)
 
 - Monitor: Datadog's empty answers no longer show as "JSON Parse error", services with many monitors load in pages

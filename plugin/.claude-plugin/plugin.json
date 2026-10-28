@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "One space with everything, for Claude Code users who switch context all day: agents, tickets, PRs, CI, inbox and meetings side by side in herdr",
   "author": {
     "name": "quaresc"
