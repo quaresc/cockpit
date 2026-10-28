@@ -1,5 +1,5 @@
-//! The socket protocol, the hub started on a sandbox HOME: one instance, a stale socket taken over, the idle exit, and
-//! each op's answer.
+//! The socket protocol, the hub started on a sandbox HOME: one instance, a stale socket taken over, the idle exit, each
+//! op's answer, and the shared documents written, pushed and leased.
 
 mod common;
 
@@ -241,4 +241,39 @@ fn meetings_join_and_brief_toggle() {
     let pending = json!({"id": "ev2/odd id", "title": "Planning"});
     let toggled = hub.request(&json!({"op": "act", "app": "meetings", "action": "toggle_brief", "args": [pending], "armed": null}));
     assert_eq!(toggled["note"], "");
+}
+
+#[test]
+fn the_documents_are_written_mirrored_and_pushed() {
+    use std::io::{BufRead, BufReader, Write};
+    let sandbox = sandbox();
+    let hub = Hub::start(&sandbox, &[]);
+    let cache = sandbox.home().join(".cache/cockpit");
+    let mut stream = std::os::unix::net::UnixStream::connect(sandbox.socket()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    writeln!(stream, "{}", json!({"op": "subscribe", "docs": ["ci", "nope"]})).unwrap();
+    let mut pushed = BufReader::new(stream).lines().map(|l| serde_json::from_str::<Value>(&l.unwrap()).unwrap());
+    let boxed: Value = serde_json::from_str(&std::fs::read_to_string(cache.join("ci.json")).unwrap()).unwrap();
+    assert_eq!(pushed.next().unwrap(), json!({"doc": "ci", "value": boxed}), "the document at once, an unknown one left out");
+
+    let put = hub.request(&json!({"op": "store.put", "name": "ci", "value": {"at": 1, "runs": []}}));
+    assert_eq!(put, json!({"value": {"at": 1, "runs": []}}));
+    assert_eq!(pushed.next().unwrap(), json!({"doc": "ci", "value": {"at": 1, "runs": []}}));
+    assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(cache.join("ci.json")).unwrap()).unwrap(), put["value"]);
+
+    // The mod's part of the inbox keeps the fields the box's inbox.json holds, and puts its errors before the hub's.
+    let patched = hub.request(&json!({"op": "store.patch", "name": "inbox", "fields": {"version": 1, "previews": [], "errors": ["Previews failed"]}}));
+    assert_eq!(patched["value"]["previews"], json!([]));
+    assert!(patched["value"]["tickets"].as_array().is_some_and(|t| !t.is_empty()), "{patched}");
+    assert_eq!(patched["value"]["errors"], json!(["Previews failed"]));
+    assert_eq!(hub.request(&json!({"op": "store.get", "name": "inbox"})), patched);
+    assert_eq!(hub.request(&json!({"op": "store.past", "name": "inbox", "since": 0}))["versions"].as_array().unwrap().len(), 1);
+    assert!(hub.request(&json!({"op": "store.put", "name": "../config", "value": {}}))["error"].as_str().unwrap().starts_with("no document"));
+    assert!(!cache.join("../config.json").exists());
+
+    let lease =
+        |holder: &str, renew: bool| hub.request(&json!({"op": "store.lease", "name": "inbox", "holder": holder, "ttl": 60, "renew": renew}))["granted"].clone();
+    assert_eq!((lease("a", false), lease("b", false), lease("a", true)), (json!(true), json!(false), json!(true)));
+    hub.request(&json!({"op": "store.release", "name": "inbox", "holder": "a"}));
+    assert_eq!((lease("a", true), lease("b", false)), (json!(false), json!(true)));
 }

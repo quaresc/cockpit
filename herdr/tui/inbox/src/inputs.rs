@@ -1,10 +1,11 @@
-//! What one rebuild reads: the caches, the muted repos and Claude's spend per ticket, read once and handed to the
-//! model, so the model itself never touches a file and tests can feed it fixtures.
+//! What one rebuild reads: the documents the hub pushes, the muted repos and Claude's spend per ticket, read once and
+//! handed to the model, so the model itself never touches a file and tests can feed it fixtures.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use cockpit_core::files;
+use cockpit_core::hub::Docs;
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Default)]
@@ -18,13 +19,15 @@ pub struct Inputs {
     pub costs: HashMap<String, f64>,
 }
 
+/// The documents the inbox follows through the hub.
+pub const DOCS: [&str; 3] = ["inbox", "ci", "brief"];
+
 impl Inputs {
-    pub fn read() -> Self {
-        let cache = |name: &str| files::load(&files::cache().join(name));
+    pub fn read(docs: &Docs) -> Self {
         Self {
-            data: cache("inbox.json"),
-            ci: cache("ci.json").unwrap_or_else(|| json!({"runs": []})),
-            brief: cache("brief.json"),
+            data: docs.get("inbox").cloned(),
+            ci: docs.get("ci").cloned().unwrap_or_else(|| json!({"runs": []})),
+            brief: docs.get("brief").cloned(),
             muted: muted(),
             costs: ticket_costs(),
         }

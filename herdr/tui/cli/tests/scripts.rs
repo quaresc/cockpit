@@ -1,6 +1,7 @@
 //! The plugin's shell scripts that start the binary: app.sh and cockpit.sh find it, fetch-apps.sh installs it from a
-//! release (served here by a small HTTP server) or has a binary do it, update.sh stops the apps and the hub,
-//! pin-spaces.sh orders the spaces, and browse.sh, shots.sh and focus.sh hand their arguments to the cockpit command.
+//! release (served here by a small HTTP server) or has a binary do it, update.sh stops the spaces' supervisors, their
+//! apps and the hub, pin-spaces.sh orders the spaces, and browse.sh and shots.sh hand their arguments to the cockpit
+//! command.
 
 mod common;
 
@@ -82,7 +83,7 @@ fn cockpit_sh_without_a_binary_exits_quietly() {
 }
 
 // ---------------------------------------------------------------------------
-// browse.sh, shots.sh and focus.sh
+// browse.sh and shots.sh
 
 /// The sandbox's herdr folder with these scripts and a cockpit that prints its arguments.
 fn with_cockpit(names: &[&str]) -> Sandbox {
@@ -116,14 +117,6 @@ fn browse_and_shots_without_the_binary_say_so() {
     assert!(stderr(&out).contains("take these screenshots in Chrome instead"));
 }
 
-#[test]
-fn a_notification_button_runs_cockpit_act() {
-    let sandbox = with_cockpit(&["focus.sh", "lib.sh", "cockpit.sh"]);
-    sandbox.sh("focus.sh", &["act:review:https://github.com/acme/api/pull/4"], &[]);
-    assert_eq!(sandbox.calls(), ["cockpit act review https://github.com/acme/api/pull/4"]);
-    assert_eq!(std::fs::read_to_string(sandbox.cache().join("act.log")).unwrap(), "ran\n");
-}
-
 // ---------------------------------------------------------------------------
 // update.sh
 
@@ -140,8 +133,20 @@ fn update_stops_every_space_app_and_nothing_else() {
     for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit runbook cockpit-space", "/x/herdr/tui/target/release/cockpit meetings cockpit-space", "cockpit todo cockpit-space"] {
         assert!(apps.is_match(line), "{line}");
     }
-    for line in ["/x/herdr/bin/cockpit show demo", "/x/herdr/bin/cockpit hub", "/x/herdr/bin/cockpit actions sidebar", "sh /x/herdr/inbox-loop.sh"] {
+    for line in ["/x/herdr/bin/cockpit show demo", "/x/herdr/bin/cockpit hub", "/x/herdr/bin/cockpit actions sidebar", "/x/herdr/bin/cockpit space inbox"] {
         assert!(!apps.is_match(line), "{line}");
+    }
+}
+
+#[test]
+fn update_stops_every_spaces_supervisor_and_nothing_else() {
+    let supervisors = killed("cockpit space");
+    for line in ["/x/herdr/bin/cockpit space inbox", "/x/herdr/tui/target/release/cockpit space meetings", "cockpit space todo", "/x/cockpit space runbook"] {
+        assert!(supervisors.is_match(line), "{line}");
+    }
+    for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit space inbox extra", "/x/herdr/bin/cockpit hub", "/x/notcockpit space inbox"]
+    {
+        assert!(!supervisors.is_match(line), "{line}");
     }
 }
 
@@ -270,7 +275,6 @@ fn sha256(path: &Path) -> String {
 fn plugin() -> Sandbox {
     let sandbox = Sandbox::new();
     sandbox.copy_script("fetch-apps.sh");
-    std::fs::remove_file(sandbox.root.join("herdr/notify.sh")).unwrap();
     sandbox.write("herdr/herdr-plugin.toml", "id = \"cockpit\"\nversion = \"9.9.9\"\n");
     sandbox
 }

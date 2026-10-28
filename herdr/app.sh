@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs one cockpit app as `cockpit <app> [args]`: the release's binary in bin/, else a dev build in tui/target/release/.
 # When neither is there it fetches the release's binary first, and otherwise says so and waits (COCKPIT_APP_WAIT seconds,
-# 30 by default), so the space's loop does not spin.
+# 30 by default) before it fails.
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 cd "$(dirname "$0")" || exit 1
 name=$1

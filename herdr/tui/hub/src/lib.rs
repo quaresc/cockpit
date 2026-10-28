@@ -1,5 +1,6 @@
-//! `cockpit hub`: answers the apps on ~/.cache/cockpit/hub.sock (see cockpit_core::hub for the protocol). One runs at a
-//! time, detached from the app that started it, and exits after 30 minutes with no request.
+//! `cockpit hub`: answers the apps on ~/.cache/cockpit/hub.sock (see cockpit_core::hub for the protocol) and is the
+//! only writer of the documents they share (see store). One runs at a time, detached from the app that started it, and
+//! exits after 30 minutes with no request and no subscriber.
 
 mod act;
 mod config;
@@ -11,6 +12,7 @@ mod history;
 mod proc;
 mod search;
 mod server;
+mod store;
 mod value;
 
 use std::os::unix::fs::MetadataExt;
@@ -51,6 +53,8 @@ pub fn run() {
         return;
     };
     let inode = std::fs::metadata(&socket).map(|m| m.ino()).unwrap_or_default();
+    // The store opens before the first request, waiting out a hub that hands over to this one.
+    drop(store::global());
     let last = Arc::new(AtomicU64::new(server::now_secs()));
     std::thread::spawn({
         let (last, socket) = (last.clone(), socket.clone());
@@ -74,6 +78,7 @@ fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
     if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
         let _ = std::fs::remove_file(socket);
     }
+    store::global().close();
     let _ = std::process::Command::new(binary).arg("hub").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
     cockpit_update::restart_apps(dir);
     std::process::exit(0);
@@ -92,7 +97,8 @@ fn exit_when_idle(socket: &Path, inode: u64, last: &AtomicU64) {
     let limit = idle_limit();
     loop {
         std::thread::sleep(Duration::from_secs((limit / 10).clamp(1, 30)));
-        if server::now_secs().saturating_sub(last.load(Ordering::SeqCst)) >= limit && !space_apps_running() {
+        let is_idle = server::now_secs().saturating_sub(last.load(Ordering::SeqCst)) >= limit;
+        if is_idle && !store::global().has_subscribers() && !space_apps_running() {
             // Only our own socket goes: a newer hub may have taken the path.
             if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
                 let _ = std::fs::remove_file(socket);

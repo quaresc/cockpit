@@ -1,5 +1,6 @@
-//! The app's state and what changes it: the cache and the briefs read again when they change, the minute ticking the
-//! "in N min" texts, focus requests, the actions sent through the bridge, and the pulse of a meeting about to start.
+//! The app's state and what changes it: the week the hub pushes and the briefs read again when they change, the minute
+//! ticking the "in N min" texts, focus requests, the actions sent through the bridge, and the pulse of a meeting about to
+//! start.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime};
@@ -7,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 use cockpit_core::anim::{Effects, Kind};
 use cockpit_core::bridge::Bridge;
 use cockpit_core::files::{self, Density};
+use cockpit_core::hub::{self, Docs};
 use cockpit_core::palette::Palette;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
@@ -21,6 +23,13 @@ use crate::week::{self, Clock, Meeting, Week};
 /// A meeting about to start beats in the accent colour, every few seconds until it does.
 const PULSE: Kind = Kind::Pulse(Color::Rgb(96, 66, 44), 2, 1.4);
 const PULSE_EVERY: Duration = Duration::from_secs(4);
+
+/// Where the week came from at the last read, to tell when it changed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Stamp {
+    Pushed(u64),
+    File(Option<SystemTime>),
+}
 
 /// What a palette entry or a button runs.
 #[derive(Clone, Debug)]
@@ -48,7 +57,7 @@ pub struct App {
     pub week: Option<Week>,
     /// Bumped on every read, for the week view to know it must draw again.
     pub version: u64,
-    seen: (Option<SystemTime>, Option<SystemTime>),
+    seen: (Stamp, Option<SystemTime>),
     pub briefs: HashMap<String, Vec<String>>,
     pub preparing: HashSet<String>,
     pub clock: Clock,
@@ -78,6 +87,8 @@ pub struct App {
     pub follow: bool,
     /// A meeting to bring near the top on the next frame: a notification or palette jump.
     pub reveal: Option<String>,
+    /// The week as the hub pushes it; None reads the cache file.
+    docs: Option<Docs>,
 }
 
 impl App {
@@ -85,6 +96,7 @@ impl App {
     pub fn start(picker: Picker) -> Self {
         let config = files::config();
         let mut app = Self::with(None, &config, files::density(), picker, pinned::is_pinned());
+        app.docs = Some(hub::subscribe(&["meetings"]));
         app.reload();
         app
     }
@@ -96,7 +108,7 @@ impl App {
         Self {
             week: None,
             version: 0,
-            seen: (None, None),
+            seen: (Stamp::File(None), None),
             briefs: HashMap::new(),
             preparing: HashSet::new(),
             clock: clock.unwrap_or_else(Clock::system),
@@ -125,6 +137,7 @@ impl App {
             scroll: 0,
             follow: true,
             reveal: None,
+            docs: None,
         }
     }
 
@@ -179,19 +192,31 @@ impl App {
     // -----------------------------------------------------------------------------------------------------------------
     // Reading again
 
-    fn stamps() -> (Option<SystemTime>, Option<SystemTime>) {
+    /// The week's revision as pushed (else its file's time), and the briefs folder's time.
+    fn stamps(&mut self) -> (Stamp, Option<SystemTime>) {
         let at = |p: std::path::PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        (at(week::cache_path()), at(week::briefs_dir()))
+        let week = match &mut self.docs {
+            Some(docs) => {
+                docs.pump();
+                Stamp::Pushed(docs.revision)
+            }
+            None => Stamp::File(at(week::cache_path())),
+        };
+        (week, at(week::briefs_dir()))
     }
 
-    /// The cache and the briefs read again when either changed; true when they were.
+    /// The week and the briefs read again when either changed; true when they were.
     fn reload(&mut self) -> bool {
-        let now = Self::stamps();
+        let now = self.stamps();
         if now == self.seen && self.version > 0 {
             return false;
         }
         self.seen = now;
-        self.week = files::load(&week::cache_path()).map(|data| Week::parse(&data));
+        let data = match &self.docs {
+            Some(docs) => docs.get("meetings").cloned(),
+            None => files::load(&week::cache_path()),
+        };
+        self.week = data.map(|data| Week::parse(&data));
         self.version += 1;
         self.briefs.clear();
         self.preparing.clear();

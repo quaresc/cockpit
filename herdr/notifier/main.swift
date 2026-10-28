@@ -1,4 +1,4 @@
-// Cockpit's macOS notifications: the cockpit logo, a click that opens a URL or runs focus.sh with the action, and
+// Cockpit's macOS notifications: the cockpit logo, a click that opens a URL or runs `cockpit focus` with the action, and
 // buttons that do the same with their own action.
 //   cockpit-notify post <title> <body> [action] [<label>=<action> ...]
 //   cockpit-notify status    prints whether macOS lets Cockpit notify
@@ -80,7 +80,7 @@ final class Notifier: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
         } else {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/sh")
-            task.arguments = [NSHomeDirectory() + "/.config/cockpit/herdr/focus.sh", action]
+            task.arguments = [NSHomeDirectory() + "/.config/cockpit/herdr/cockpit.sh", "focus", action]
             try? task.run()
             task.waitUntilExit()
         }

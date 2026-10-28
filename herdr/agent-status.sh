@@ -25,4 +25,4 @@ mkdir -p "$(dirname "$stamp")"
 [ -n "$(find "$stamp" -mmin -1 2>/dev/null)" ] && exit 0
 touch "$stamp"
 agent=$(printf '%s' "$event" | jq -r '.display_agent // .agent // "The agent"')
-sh "$ROOT/notify.sh" "⏸ $label" "$agent is waiting for you" "$target"
+sh "$ROOT/cockpit.sh" notify "⏸ $label" "$agent is waiting for you" "$target"

@@ -10,7 +10,7 @@ pub const ICON_EDIT: &str = "\u{f040}";
 pub const ICON_FOLD: &str = "\u{f44a}";
 pub const ICON_UNFOLD: &str = "\u{f47c}";
 
-/// Run by todo-loop.sh in the to-do space: the sidebar count is this app's then.
+/// Run by `cockpit space todo` in the to-do space: the sidebar count is this app's then.
 pub fn is_pinned() -> bool {
     std::env::var("COCKPIT_SPACE").is_ok_and(|s| !s.is_empty())
 }

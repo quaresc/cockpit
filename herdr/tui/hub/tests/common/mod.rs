@@ -1,5 +1,6 @@
 //! A sandbox for the hub's tests: a fake HOME copied from tests/fixtures/box, a herdr folder whose scripts only log
-//! their calls, fake herdr, claude, open, pbcopy and gh that log every call to calls.log, and the hub started on it.
+//! their calls, fake herdr, claude, open, pbcopy, gh and notification receiver that log every call to calls.log, and the
+//! hub started on it.
 
 #![allow(dead_code)]
 
@@ -61,12 +62,12 @@ impl Sandbox {
         std::fs::create_dir_all(&bin).unwrap();
         executable(&bin.join("herdr"), &std::fs::read_to_string(fixtures().join("herdr.sh")).unwrap());
         let logcall = std::fs::read_to_string(fixtures().join("logcall.sh")).unwrap();
-        for tool in ["claude", "open", "xdg-open", "pbcopy", "gh"] {
+        for tool in ["claude", "open", "xdg-open", "pbcopy", "gh", "notify"] {
             executable(&bin.join(tool), &logcall);
         }
         let herdr_dir = root.join("herdr");
         std::fs::create_dir_all(&herdr_dir).unwrap();
-        for name in ["ask-session.sh", "notify.sh", "meeting-brief.sh"] {
+        for name in ["ask-session.sh", "meeting-brief.sh"] {
             executable(&herdr_dir.join(name), &logcall);
         }
         let api = root.join("repos/api");
@@ -93,11 +94,11 @@ impl Sandbox {
         self.home().join(".cache/cockpit/hub.sock")
     }
 
-    /// The test's environment without what ties it to a herdr pane, a Claude session or cockpit settings, then the
-    /// sandbox's own.
+    /// The test's environment without what ties it to a herdr pane, a Claude session, cockpit settings or the terminal
+    /// app, then the sandbox's own.
     pub fn env(&self) -> Vec<(String, String)> {
         let path = format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap_or_default());
-        let inherited = std::env::vars().filter(|(k, _)| !["HERDR_", "COCKPIT_", "CLAUDE"].iter().any(|p| k.starts_with(p)));
+        let inherited = std::env::vars().filter(|(k, _)| !["HERDR_", "COCKPIT_", "CLAUDE", "__CFBundleIdentifier"].iter().any(|p| k.starts_with(p)));
         inherited
             .chain([
                 ("HOME".into(), self.home().to_string_lossy().into_owned()),
@@ -105,6 +106,8 @@ impl Sandbox {
                 ("HERDR_BIN_PATH".into(), self.root.join("bin/herdr").to_string_lossy().into_owned()),
                 ("COCKPIT_TEST_DIR".into(), self.root.to_string_lossy().into_owned()),
                 ("COCKPIT_HERDR_DIR".into(), self.root.join("herdr").to_string_lossy().into_owned()),
+                // Notifications reach the fake receiver instead of the screen.
+                ("COCKPIT_NOTIFY_PROGRAM".into(), self.root.join("bin/notify").to_string_lossy().into_owned()),
                 // The feed reaches GitHub on its own: only the feed's tests turn it on, against a fake GitHub.
                 ("COCKPIT_HUB_FEED".into(), "off".into()),
             ])

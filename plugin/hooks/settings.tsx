@@ -51,7 +51,7 @@ async function write($: $, setting: Setting, value: string | boolean | number) {
   node[setting.path.at(-1)!] = value
   await $.fs.write(path, `${JSON.stringify(raw, null, 2)}\n`)
   forgetConfig()
-  // The space apps stop, and their loops start them again in the new density; an open show pane keeps its own until it reopens.
+  // The space apps stop, and `cockpit space` starts them again in the new density; an open show pane keeps its own until it reopens.
   if (setting.key === 'density') await $.process.run(['pkill', '-f', 'cockpit (inbox|todo|runbook|meetings) cockpit-space']).catch(() => undefined)
   await update($, shown, () => Date.now())
 }

@@ -431,10 +431,8 @@ pub fn set_muted(ctx: &mut Ctx, args: &[Value]) -> Res {
 
 /// Hides today's brief; tomorrow's shows again.
 pub fn dismiss_brief(ctx: &mut Ctx, _: &[Value]) -> Res {
-    let path = files::cache().join("brief.json");
-    let mut brief = files::load(&path).filter(Value::is_object).unwrap_or_else(|| json!({}));
-    brief["dismissed"] = json!(true);
-    files::write(&path, &brief).map_err(|e| e.to_string())?;
+    let fields = serde_json::Map::from_iter([("dismissed".to_string(), json!(true))]);
+    crate::store::global().update("brief", |brief| crate::store::patch(brief, &fields));
     ctx.note("brief dismissed until tomorrow");
     Ok(())
 }

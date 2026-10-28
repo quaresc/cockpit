@@ -9,9 +9,9 @@ mod github;
 mod github_ci;
 mod http;
 mod linear;
+pub mod merge;
 mod news;
 mod schedule;
-mod store;
 
 use std::path::Path;
 use std::sync::Once;
@@ -22,8 +22,8 @@ use serde_json::Value;
 
 use crate::config::{self, Config};
 use http::{Failure, Fetched};
+use merge::InboxPart;
 use schedule::Schedule;
-use store::InboxPart;
 
 const TICK: Duration = Duration::from_secs(2);
 
@@ -84,9 +84,6 @@ struct Feed {
     circle: circleci::CircleCi,
     /// The latest error of each source, until it fetches again.
     errors: Vec<(&'static str, String)>,
-    /// Parts not written yet because the mod held the lock.
-    inbox: Option<InboxPart>,
-    ci: Option<Result<Vec<Value>, String>>,
     asked: u64,
 }
 
@@ -119,14 +116,14 @@ impl Feed {
             });
             let error = self.github.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
             self.note("GitHub", error.clone());
-            let prev_ci = files::load(&cache.join("ci.json")).unwrap_or(Value::Null);
+            let prev_ci = crate::store::global().get("ci");
             let image_job = plan.config.0["ci"]["imageJob"].as_str().unwrap_or_default().to_string();
             match fetched {
                 Ok((token, data)) => {
                     if plan.github_ci {
                         runs = Some(Ok(github_ci::runs(&data.mine_nodes, &prev_ci, &image_job, &mut |slug, job| github::failed_step(&token, slug, job))));
                     }
-                    part = Some(InboxPart { github: Some(store::github_fields(&data)), ..InboxPart::default() });
+                    part = Some(InboxPart { github: Some(merge::github_fields(&data)), ..InboxPart::default() });
                 }
                 Err(_) => {
                     if plan.github_ci {
@@ -154,15 +151,11 @@ impl Feed {
         }
         if let Some(mut part) = part {
             part.errors = self.errors.iter().map(|(_, e)| e.clone()).collect();
-            self.inbox = Some(match self.inbox.take() {
-                Some(pending) => pending.then(part),
-                None => part,
-            });
+            write_inbox(&plan.config, &part);
         }
-        if runs.is_some() {
-            self.ci = runs;
+        if let Some(runs) = runs {
+            write_ci(&plan.config, runs);
         }
-        self.write(cache, &plan.config);
     }
 
     fn note(&mut self, source: &'static str, error: Option<String>) {
@@ -183,34 +176,25 @@ impl Feed {
         let org = config.0["github"]["org"].as_str().unwrap_or_default();
         self.circle.runs(&mut get, org, ci["imageJob"].as_str().unwrap_or_default(), &logs)
     }
+}
 
-    /// Writes what is pending under each file's lock, then announces what changed; a held lock leaves it for next round.
-    fn write(&mut self, cache: &Path, config: &Config) {
-        if let Some(part) = self.inbox.take() {
-            match store::update(cache, "inbox", |file| store::merge_inbox(file, &part, now_ms())) {
-                Some((before, after)) => {
-                    let mut changes = Vec::new();
-                    if part.github.is_some() && store::has_github(&before) {
-                        changes.extend(news::pr_changes(&before, &after));
-                    }
-                    if part.tickets.is_some() && before["version"].as_i64() == Some(store::INBOX_VERSION) {
-                        changes.extend(news::ticket_changes(&before, &after));
-                    }
-                    news::announce_inbox(config, &changes);
-                }
-                None => self.inbox = Some(part),
-            }
-        }
-        if let Some(runs) = self.ci.take() {
-            match store::update(cache, "ci", |file| store::merge_ci(file, runs.clone(), now_ms())) {
-                Some((before, after)) => {
-                    if before["version"].as_i64() == Some(store::CI_VERSION) && after["error"].is_null() {
-                        let inbox = files::load(&cache.join("inbox.json")).unwrap_or(Value::Null);
-                        news::announce_ci(config, &news::ci_changes(&before, &after, &inbox));
-                    }
-                }
-                None => self.ci = Some(runs),
-            }
-        }
+/// The feed's part of the inbox into the store, then what changed announced.
+fn write_inbox(config: &Config, part: &InboxPart) {
+    let (before, after) = crate::store::global().update("inbox", |doc| merge::merge_inbox(doc, part, now_ms()));
+    let mut changes = Vec::new();
+    if part.github.is_some() && merge::has_github(&before) {
+        changes.extend(news::pr_changes(&before, &after));
+    }
+    if part.tickets.is_some() && before["version"].as_i64() == Some(merge::INBOX_VERSION) {
+        changes.extend(news::ticket_changes(&before, &after));
+    }
+    news::announce_inbox(config, &changes);
+}
+
+fn write_ci(config: &Config, runs: Result<Vec<Value>, String>) {
+    let (before, after) = crate::store::global().update("ci", |doc| merge::merge_ci(doc, runs, now_ms()));
+    if before["version"].as_i64() == Some(merge::CI_VERSION) && after["error"].is_null() {
+        let inbox = crate::store::global().get("inbox");
+        news::announce_ci(config, &news::ci_changes(&before, &after, &inbox));
     }
 }
