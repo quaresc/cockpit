@@ -1,4 +1,4 @@
-//! A unified diff read into files and lines (`git_diff`, `new_file` and `parse_patch` are show.py's), then painted: each
+//! A unified diff read into files and lines (`git_diff`, `new_file` and `parse_patch`), then painted: each
 //! line in its file type's syntax colours, the words a changed line changed marked against the line it replaced.
 
 use std::io::Read;
@@ -281,6 +281,32 @@ mod tests {
         assert_eq!((marked(&files[0].lines[2]), marked(&files[0].lines[3])), ("1".to_string(), "2".to_string()));
         let text = |l: &Line| l.paint.iter().map(|p| p.0.clone()).collect::<String>();
         assert_eq!(text(&files[0].lines[3]), "    let x = 2;");
+    }
+
+    /// A parsed line by kind, numbers and text.
+    type Seen = (Kind, Option<usize>, Option<usize>, String);
+
+    /// Path, counts and lines, the parts of a parsed file git's own diff must agree on.
+    fn summary(files: &[File]) -> Vec<(String, usize, usize, Vec<Seen>)> {
+        files.iter().map(|f| (f.path.clone(), f.added, f.removed, f.lines.iter().map(|l| (l.kind, l.old, l.new, l.text.clone())).collect())).collect()
+    }
+
+    #[test]
+    fn a_new_file_reads_like_git_shows_it() {
+        let dir = std::env::temp_dir().join(format!("cockpit-show-new-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.to_string_lossy().into_owned();
+        assert!(Command::new("git").args(["init", "-q", &repo]).status().unwrap().success());
+        let files: [(&str, &[u8]); 4] = [("lines.txt", b"a\nb\n"), ("no-newline.txt", b"a"), ("binary.bin", b"\0\x01"), ("empty.txt", b"")];
+        for (name, body) in files {
+            std::fs::write(dir.join(name), body).unwrap();
+        }
+        for (name, _) in files {
+            let git = Command::new("git").args(["-C", &repo, "diff", "--no-index", "--", "/dev/null", name]).output().unwrap();
+            let git = String::from_utf8_lossy(&git.stdout).into_owned();
+            assert_eq!(summary(&parse_patch(&new_file(&repo, name))), summary(&parse_patch(&git)), "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     proptest! {

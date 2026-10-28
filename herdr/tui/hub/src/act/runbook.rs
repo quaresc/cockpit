@@ -1,4 +1,4 @@
-//! runbook.py's actions: a step handed to the runbook's own Claude session, marked done by hand, a background refresh
+//! The runbook's actions: a step handed to the runbook's own Claude session, marked done by hand, a background refresh
 //! by a headless Claude, a talk about its ticket, and the notification a finished refresh sends.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use super::{Ctx, arg, inbox, opt};
 use crate::config;
 use crate::herdr;
 use crate::proc;
-use crate::py::{Res, get, key, list, now, now_ms, s, text, truthy};
+use crate::value::{Res, get, key, list, now, now_ms, s, text, truthy};
 
 const REPORT_TOOL: &str = "mcp__cockpit__report_step";
 /// A handoff no session took after this many seconds no longer counts as in flight.
@@ -26,7 +26,7 @@ static REFRESHING: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 
 fn owner_of(book: &Value) -> Res<(String, String)> {
     let owner = files::load(&files::cache().join("runbook-owners").join(format!("{}.json", s(book, "slug")?))).unwrap_or(Value::Null);
-    // A null owner field reads as None in Python: empty here, never "-".
+    // A null owner field reads as empty, a missing one as "-".
     let field = |name: &str| owner.get(name).map(|v| if v.is_null() { String::new() } else { text(v) }).unwrap_or_else(|| "-".into());
     Ok((field("pane"), field("session")))
 }

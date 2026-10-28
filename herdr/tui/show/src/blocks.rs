@@ -1,5 +1,5 @@
 //! One block of the view, whatever its type: its rows at a width, its focus stops, its keys, clicks and hovers, and the
-//! background work (diff reads, log runs, picture draws and show.py renders) whose results come back as messages.
+//! background work (diff reads, log runs, picture draws and text drawings) whose results come back as messages.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -25,7 +25,7 @@ use crate::table::Table;
 
 pub enum Payload {
     Picture(Result<Drawn, String>),
-    Legacy(usize, crate::legacy::Drawn),
+    TextDrawing(usize, crate::text_drawing::Drawn),
     /// A diff read: its patch's hash, its files when they changed, or the error that stopped it.
     Diff(u64, Option<Vec<File>>, Option<String>),
     Log(String, i32),
@@ -79,7 +79,7 @@ enum Body {
     Choice(Choice),
     Confirm(Confirm),
     /// A block drawn as text, at the width it was last asked for.
-    Legacy(Option<usize>, Option<crate::legacy::Drawn>),
+    TextDrawing(Option<usize>, Option<crate::text_drawing::Drawn>),
     Unknown(String),
     Note(String),
 }
@@ -137,7 +137,7 @@ fn body_for(spec: &Value) -> Body {
         "log" => Body::Log(Log::new(spec, 5.0)),
         "choice" => Body::Choice(Choice::new(spec)),
         "confirm" => Body::Confirm(Confirm::new(spec)),
-        "sequence" | "mermaid" | "ci" => Body::Legacy(None, None),
+        "sequence" | "mermaid" | "ci" => Body::TextDrawing(None, None),
         other => Body::Unknown(other.to_string()),
     }
 }
@@ -211,15 +211,15 @@ impl View {
             Body::Log(log) => log.rows(cols, focus.is_some()),
             Body::Choice(choice) => choice.rows(cols, focus),
             Body::Confirm(confirm) => confirm.rows(cols, focus),
-            Body::Legacy(asked, lines) => {
+            Body::TextDrawing(asked, lines) => {
                 if *asked != Some(cols) {
                     *asked = Some(cols);
                     let spec = self.spec.clone();
-                    ctx.spawn(uid, move || Payload::Legacy(cols, crate::legacy::render(&spec, cols)));
+                    ctx.spawn(uid, move || Payload::TextDrawing(cols, crate::text_drawing::render(&spec, cols)));
                 }
                 lines.iter().flatten().flat_map(|line| fitted(line, cols)).collect()
             }
-            Body::Unknown(kind) => vec![Row::text(format!("{kind}: not ported"), dim())],
+            Body::Unknown(kind) => vec![Row::text(format!("{kind}: unknown block type"), dim())],
             Body::Note(text) => wrapped(text, cols, dim()),
         }
     }
@@ -250,12 +250,12 @@ impl View {
             });
         }
         match &mut self.body {
-            Body::Legacy(Some(cols), _) if !self.seen.is_empty() => {
+            Body::TextDrawing(Some(cols), _) if !self.seen.is_empty() => {
                 let now = ci_caches();
                 if now != self.seen {
                     self.seen = now;
                     let (spec, cols) = (self.spec.clone(), *cols);
-                    ctx.spawn(uid, move || Payload::Legacy(cols, crate::legacy::render(&spec, cols)));
+                    ctx.spawn(uid, move || Payload::TextDrawing(cols, crate::text_drawing::render(&spec, cols)));
                 }
             }
             Body::Picture(picture) => {
@@ -344,7 +344,7 @@ impl View {
         }
         match (&mut self.body, payload) {
             (Body::Picture(picture), Payload::Picture(drawn)) => picture.arrived(drawn),
-            (Body::Legacy(asked, lines), Payload::Legacy(cols, drawn)) if *asked == Some(cols) => {
+            (Body::TextDrawing(asked, lines), Payload::TextDrawing(cols, drawn)) if *asked == Some(cols) => {
                 *lines = Some(drawn);
                 true
             }

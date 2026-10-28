@@ -349,6 +349,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cockpit-cli"
+version = "0.16.3"
+dependencies = [
+ "cockpit-core",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cockpit-core"
 version = "0.16.3"
 dependencies = [

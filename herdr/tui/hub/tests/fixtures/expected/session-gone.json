@@ -1,0 +1,29 @@
+{
+  "calls": [
+    {
+      "args": [
+        "pane",
+        "get",
+        "w5:p3"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/handoffs/eng-401-2.json": {
+      "id": "eng-401-2",
+      "pane": "w5:p3",
+      "path": "<BOX>/home/.config/cockpit/runbooks/eng-401.md",
+      "sentAt": 0,
+      "slug": "eng-401",
+      "state": "unreported",
+      "step": "2",
+      "title": "Run the migration"
+    }
+  },
+  "note": "its session's pane is gone: run the step again",
+  "pending": {},
+  "refreshing": []
+}

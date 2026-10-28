@@ -1,4 +1,4 @@
-//! cockpit_config.py: the config with its defaults, the plugin's scripts, and the URLs and names derived from it.
+//! The cockpit config with its defaults, the plugin's scripts, and the URLs and names derived from it.
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -8,7 +8,7 @@ use cockpit_core::files;
 use serde_json::{Value, json};
 
 use crate::proc;
-use crate::py::{text, truthy};
+use crate::value::{text, truthy};
 
 fn defaults() -> Value {
     json!({
@@ -60,7 +60,7 @@ impl Config {
     }
 
     pub fn space_names(&self) -> Vec<String> {
-        crate::py::list(&self.0["spaces"]).iter().map(|s| if s.is_object() { text(&s["name"]) } else { text(s) }).collect()
+        crate::value::list(&self.0["spaces"]).iter().map(|s| if s.is_object() { text(&s["name"]) } else { text(s) }).collect()
     }
 }
 
@@ -124,7 +124,7 @@ pub fn ticket_url(id: &str, config: &Config, inbox: Option<&Value>) -> Option<St
             &read
         }
     };
-    for ticket in crate::py::list(&inbox["tickets"]) {
+    for ticket in crate::value::list(&inbox["tickets"]) {
         let (url, known) = (ticket["url"].as_str().unwrap_or_default(), ticket["id"].as_str().unwrap_or_default());
         let needle = format!("/{known}");
         if !known.is_empty()
@@ -152,7 +152,7 @@ pub fn has_ticket(branch: &str, id: &str) -> bool {
 /// A PR's URL from the inbox cache, else from the configured GitHub organization.
 pub fn pr_url(repo: &str, number: &Value, config: &Config, inbox: &Value) -> Option<String> {
     for field in ["mine", "direct", "team", "merged"] {
-        for pr in crate::py::list(&inbox[field]) {
+        for pr in crate::value::list(&inbox[field]) {
             if pr["repo"].as_str() == Some(repo) && text(&pr["number"]) == text(number) && truthy(&pr["url"]) {
                 return Some(text(&pr["url"]));
             }

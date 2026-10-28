@@ -10,7 +10,7 @@ pub struct Act {
     pub label: String,
     pub key: Option<char>,
     pub main: bool,
-    /// The key the text app's `confirmed` checks: a dialog asks first, then the call goes out armed.
+    /// The key the action's confirmation checks: a dialog asks first, then the call goes out armed.
     pub confirm: Option<String>,
     /// Labels to pick from in a dialog before the action runs, the picked index passed to it.
     pub choices: Vec<String>,

@@ -8,7 +8,7 @@ use regex::Regex;
 static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^- \[( |x)\] (.*)$").unwrap());
 static DONE_ON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\(done \d{4}-\d{2}-\d{2}\)$").unwrap());
 
-/// What a new file starts with, as todo.py writes it.
+/// What a new file starts with.
 pub const NEW_FILE: &str = "# To-do\n\n";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,7 +25,7 @@ pub struct Doc {
     lines: Vec<String>,
 }
 
-/// The item a line holds, read as todo.py reads it: around its spaces.
+/// The item a line holds, the line read without the spaces around it.
 fn item_of(raw: &str) -> Option<(bool, String)> {
     let found = ITEM.captures(raw.trim())?;
     Some((&found[1] == "x", found[2].to_string()))

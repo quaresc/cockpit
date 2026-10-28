@@ -1,0 +1,40 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "create",
+        "--cwd",
+        "<BOX>/repos/web",
+        "--label",
+        "ci web#12",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'CI is failing on https://github.com/acme/web/pull/12. Failing GitHub checks: e2e (gh pr checks, gh run view --log-failed). The fix goes on this PR'\"'\"'s branch. Explain the cause and propose a fix. Do not push. Check the branch me/eng-401-form out first.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "started \"ci web#12\" in a new space",
+  "pending": {},
+  "refreshing": []
+}

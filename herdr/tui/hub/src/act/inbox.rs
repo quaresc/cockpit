@@ -1,4 +1,4 @@
-//! inbox.py's actions: Claude sessions in new spaces, tabs of the actions space or worktrees, mutes, the brief, and the
+//! The inbox's actions: Claude sessions in new spaces, tabs of the actions space or worktrees, mutes, the brief, and the
 //! requests (rerun, redeploy, preview, release) the mod carries out.
 
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use super::{Ctx, arg, opt, space};
 use crate::config;
 use crate::herdr;
 use crate::proc;
-use crate::py::{Res, cut, get, join, key, list, now, now_ms, or, quote, s, text, truthy};
+use crate::value::{Res, cut, get, join, key, list, now, now_ms, or, quote, s, text, truthy};
 
 fn requests_dir() -> PathBuf {
     files::cache().join("requests")

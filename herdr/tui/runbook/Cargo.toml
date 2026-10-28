@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-runbook"
-description = "runbook.py in Rust, for the config's apps: \"rust\"."
+description = "The runbook space: a tab per runbook, its steps and their actions."
 version.workspace = true
 edition.workspace = true
 

@@ -1,4 +1,4 @@
-//! meetings.py's actions: a meeting's brief written in the background by meeting-brief.sh, and its links opened.
+//! The meetings' actions: a meeting's brief written in the background by meeting-brief.sh, and its links opened.
 
 use std::path::PathBuf;
 
@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::{Ctx, arg, inbox};
 use crate::config;
 use crate::proc;
-use crate::py::{Res, s};
+use crate::value::{Res, s};
 
 fn brief_path(id: &str, suffix: &str) -> PathBuf {
     let name: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();

@@ -1,0 +1,27 @@
+{
+  "calls": [
+    {
+      "args": [
+        "pane",
+        "get",
+        "w5:p3"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "focus",
+        "wT:t1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "",
+  "pending": {},
+  "refreshing": []
+}

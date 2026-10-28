@@ -1,4 +1,4 @@
-//! todo.py in Rust: the Markdown checkbox list in ~/.config/cockpit/todo.md, open items first and done ones folded,
+//! The to-do space: the Markdown checkbox list in ~/.config/cockpit/todo.md, open items first and done ones folded,
 //! added and edited in place, filtered, marked several at a time, and read again whenever another process writes it.
 
 pub mod app;

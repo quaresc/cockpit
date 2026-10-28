@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::config::{self, Config};
 use crate::proc;
-use crate::py::{list, text};
+use crate::value::{list, text};
 
 const KEPT: Duration = Duration::from_secs(180);
 const GH_TIMEOUT: Duration = Duration::from_secs(25);

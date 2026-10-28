@@ -1,4 +1,4 @@
-//! inbox.py's Nerd Font glyphs (FiraCode Nerd Font 3.0), the CI's own mark among them.
+//! The inbox's Nerd Font glyphs (FiraCode Nerd Font 3.0), the CI's own mark among them.
 
 use std::sync::OnceLock;
 

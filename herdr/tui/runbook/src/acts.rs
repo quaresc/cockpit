@@ -1,4 +1,4 @@
-//! A step's and a runbook's actions, as runbook.py's rows offer them, each with its key.
+//! A step's and a runbook's actions, each with its key.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;

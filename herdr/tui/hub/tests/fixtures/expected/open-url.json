@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "args": [
+        "https://example.com/a b"
+      ],
+      "cmd": "open",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "opened https://example.com/a b",
+  "pending": {},
+  "refreshing": []
+}

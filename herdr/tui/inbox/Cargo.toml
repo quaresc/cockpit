@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-inbox"
-description = "inbox.py in Rust, for the config's apps: \"rust\"."
+description = "The inbox space: PRs, tickets, CI runs and previews as one tree, with their actions."
 version.workspace = true
 edition.workspace = true
 

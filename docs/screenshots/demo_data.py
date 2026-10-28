@@ -67,7 +67,7 @@ meetings = {"at": int(now.timestamp() * 1000), "notified": [], "meetings": [
         ("Team daily", 2, 9, 30, 9, 45, "accepted", 8), ("Sprint review", 2, 15, 0, 16, 0, "needsAction", 14)])]}
 
 os.makedirs(os.path.join(cache, "activity"), exist_ok=True)
-with open(os.path.join(cache, "activity", "w7.jsonl"), "w") as f:
+with open(os.path.join(cache, "activity", "t7.jsonl"), "w") as f:
     for mins, kind, text in [(48, "edit", "src/settings/QuotaBanner.tsx"), (46, "edit", "src/settings/SearchForm.tsx"),
                              (44, "command", "yarn test src/settings"), (41, "edit", "src/settings/QuotaBanner.test.tsx"),
                              (38, "command", "yarn test src/settings"), (35, "turn", "The banner reads dailyLimit and usedToday and disables New search at the limit."),

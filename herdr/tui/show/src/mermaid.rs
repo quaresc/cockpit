@@ -1,4 +1,4 @@
-//! mermaid.py in Rust: `graph`/`flowchart` text becomes a flow block, `sequenceDiagram` text a sequence block. Styling,
+//! Mermaid text read into blocks: `graph`/`flowchart` text becomes a flow block, `sequenceDiagram` text a sequence block. Styling,
 //! classes, subgraphs and sequence boxes (loop, alt, rect) are read past, since a terminal draws none of them.
 
 use std::sync::LazyLock;

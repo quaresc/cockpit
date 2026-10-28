@@ -1,4 +1,4 @@
-//! meetings.py in Rust: the week from ~/.cache/cockpit/meetings.json grouped by day, the running meeting highlighted and
+//! The meetings space: the week from ~/.cache/cockpit/meetings.json grouped by day, the running meeting highlighted and
 //! the next one about to start pulsing, briefs prepared and folded open, and the same week drawn as a picture.
 
 pub mod app;

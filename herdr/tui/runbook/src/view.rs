@@ -20,7 +20,7 @@ use crate::steps::button_hits;
 
 const BAR: usize = 32;
 const NOTES_MAX: usize = 6;
-/// Behind a note's `code`, the tint Textual's Markdown gives it.
+/// Behind a note's `code`, a warm dark tint.
 const CODE_BG: ratatui::style::Color = ratatui::style::Color::Rgb(35, 30, 26);
 
 impl App {
@@ -121,7 +121,7 @@ impl App {
         let any = !self.books.is_empty();
         for dx in 0..area.width {
             let lit = any && dx >= from && dx < to;
-            // Half cells on either side of the highlight, as Textual's tabs end it.
+            // Half cells on either side of the highlight end it.
             let symbol = if any && dx + 1 == from {
                 "╸"
             } else if any && dx == to {
@@ -272,7 +272,7 @@ impl App {
     }
 }
 
-/// A note wrapped to `cells`, its `code` without the backticks and on a tint, as the Markdown of the Textual app shows it.
+/// A note wrapped to `cells`, its `code` without the backticks and on a tint.
 fn note_lines(note: &str, cells: usize) -> Vec<Vec<Span<'static>>> {
     let mut chars = Vec::new();
     let ticks = note.matches('`').count();
@@ -308,7 +308,7 @@ fn note_lines(note: &str, cells: usize) -> Vec<Vec<Span<'static>>> {
         .collect()
 }
 
-/// A bar of BAR cells, half cells included and rounded down as Textual's bar is, then the percentage.
+/// A bar of BAR cells, half cells included and rounded down, then the percentage.
 fn gauge_line(progress: f32) -> Line<'static> {
     let halves = (progress.clamp(0.0, 1.0) * (BAR * 2) as f32 + 1e-3) as usize;
     let (full, half) = (halves / 2, halves % 2 == 1);

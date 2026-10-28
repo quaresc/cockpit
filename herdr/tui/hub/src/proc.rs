@@ -1,5 +1,5 @@
-//! Child processes: one run to its end with a timeout, like subprocess.run, or one left running in its own process
-//! group, like Popen with start_new_session, reaped by a thread so it never lingers as a zombie.
+//! Child processes: one run to its end with a timeout, or one left running in its own process group, reaped by a thread
+//! so it never lingers as a zombie.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -9,7 +9,7 @@ use std::time::Duration;
 use std::os::unix::process::CommandExt;
 
 pub struct Out {
-    /// False when it could not start or ran out of time, Python's OSError or TimeoutExpired.
+    /// False when it could not start or ran out of time.
     pub started: bool,
     pub code: i32,
     pub stdout: String,

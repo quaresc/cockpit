@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-todo"
-description = "todo.py in Rust, for the config's apps: \"rust\"."
+description = "The to-do space: the Markdown checkbox list in ~/.config/cockpit/todo.md."
 version.workspace = true
 edition.workspace = true
 

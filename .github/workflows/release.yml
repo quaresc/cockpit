@@ -93,7 +93,7 @@ jobs:
         run: |
           name="cockpit-apps-$VERSION-$TARGET.tar.gz"
           tar -C "herdr/tui/target/$TARGET/release" -czf "$name" \
-            cockpit-hub cockpit-inbox cockpit-runbook cockpit-show cockpit-todo cockpit-meetings
+            cockpit cockpit-hub cockpit-inbox cockpit-runbook cockpit-show cockpit-todo cockpit-meetings
           if command -v sha256sum >/dev/null; then sha256sum "$name"; else shasum -a 256 "$name"; fi > "$name.sha256"
           cat "$name.sha256"
           gh release upload "v$VERSION" "$name" "$name.sha256" --clobber

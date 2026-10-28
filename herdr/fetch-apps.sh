@@ -1,6 +1,6 @@
 #!/bin/sh
-# Installs the Rust apps built for this version and machine from its GitHub release into bin/, once per version.
-# A version released without them, or a checkout that builds its own, leaves the apps to run full or light.
+# Installs the apps built for this version and machine from its GitHub release into bin/, once per version.
+# A checkout that builds its own (tui/target/release) needs none.
 PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 cd "$(dirname "$0")" || exit 1
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' herdr-plugin.toml)
@@ -25,7 +25,7 @@ trap 'exit 1' INT TERM HUP
 base=${COCKPIT_RELEASES_URL:-https://github.com/quaresc/cockpit/releases/download}
 file=cockpit-apps-$version-$target.tar.gz
 fail() {
-  echo "cockpit: the Rust apps $version could not be installed ($1); the apps run full or light until then → sh $(pwd)/fetch-apps.sh" >&2
+  echo "cockpit: the apps $version could not be installed ($1); the spaces stay empty until then → sh $(pwd)/fetch-apps.sh" >&2
   exit 1
 }
 get() {
@@ -42,6 +42,6 @@ got=$({ sha256sum "$tmp/$file" 2>/dev/null || shasum -a 256 "$tmp/$file"; } | cu
 [ -n "$want" ] && [ "$want" = "$got" ] || fail "checksum mismatch"
 mkdir "$tmp/bin" && tar -xzf "$tmp/$file" -C "$tmp/bin" 2>/dev/null || fail "unreadable archive"
 ls "$tmp"/bin/cockpit-* >/dev/null 2>&1 || fail "no app in the archive"
-chmod +x "$tmp"/bin/cockpit-*
+chmod +x "$tmp"/bin/cockpit*
 printf '%s\n' "$version" > "$tmp/bin/.version"
 rm -rf bin && mv "$tmp/bin" bin

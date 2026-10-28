@@ -1,4 +1,4 @@
-//! A table like Textual's DataTable: every column at its full width, scrolled sideways when the pane is narrow, numbers
+//! A table: every column at its full width, scrolled sideways when the pane is narrow, numbers
 //! right-aligned, zebra rows, a row cursor, and a header click (or 1-9) sorting by that column.
 
 use std::cmp::Ordering;
@@ -13,7 +13,7 @@ use cockpit_core::theme::{BG, DIM, FG, LINE, ORANGE, PANEL, SURFACE, fg};
 use crate::row::{Act, Row, Target, slice};
 use crate::value::{at, cell, csv, number, rows, text};
 
-/// Textual's `max-height: 18`, the header included.
+/// The rows in view at once, so the table and its header stand at most eighteen rows tall.
 const SHOWN: usize = 17;
 const CURSOR_BLURRED: Color = Color::Rgb(70, 56, 44);
 

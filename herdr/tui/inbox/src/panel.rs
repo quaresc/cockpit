@@ -106,7 +106,7 @@ pub fn picked_footer(frame: &mut Frame, area: Rect, summary: &str, acts: &[Act])
     places(acts, area.x + width(&lead) as u16, area.y)
 }
 
-/// The area less one cell each side, Textual's `padding: 0 1`.
+/// The area less one cell each side.
 pub fn inset(area: Rect) -> Rect {
     Rect { x: area.x + 1, width: area.width.saturating_sub(2), ..area }
 }

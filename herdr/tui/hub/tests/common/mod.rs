@@ -1,6 +1,5 @@
-//! A sandbox for the hub's tests: a fake HOME copied from tests/fixtures/box, a herdr folder with the text apps' Python
-//! and logging stand-ins for its scripts, fake herdr, claude, open, pbcopy and gh that log every call to calls.log, and
-//! the hub started on it.
+//! A sandbox for the hub's tests: a fake HOME copied from tests/fixtures/box, a herdr folder whose scripts only log
+//! their calls, fake herdr, claude, open, pbcopy and gh that log every call to calls.log, and the hub started on it.
 
 #![allow(dead_code)]
 
@@ -10,31 +9,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
-
-/// The plugin's herdr folder, where the Python originals live.
-pub fn herdr_src() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// The python3 interpreter itself, not a version manager's shim that would look for its version in the fake HOME.
-pub fn python() -> Option<String> {
-    static FOUND: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    FOUND
-        .get_or_init(|| {
-            let out = Command::new("python3").args(["-c", "import sys; print(sys.executable)"]).output().ok()?;
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            (out.status.success() && !path.is_empty()).then_some(path)
-        })
-        .clone()
-}
-
-pub fn has_python() -> bool {
-    python().is_some()
 }
 
 pub struct Sandbox {
@@ -81,23 +59,15 @@ impl Sandbox {
         copy_tree(&fixtures().join("box"), &root, &|t| t.replace("@BOX@", &box_).replace("@NOW_MS@", &now_ms));
         let bin = root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        let python = python().unwrap_or_else(|| "python3".into());
-        let shebang = |text: String| text.replacen("#!/usr/bin/env python3", &format!("#!{python}"), 1);
-        executable(&bin.join("herdr"), &shebang(std::fs::read_to_string(fixtures().join("herdr.py")).unwrap()));
-        let logcall = shebang(std::fs::read_to_string(fixtures().join("logcall.py")).unwrap());
-        for tool in ["logcall", "claude", "open", "xdg-open", "pbcopy", "gh"] {
+        executable(&bin.join("herdr"), &std::fs::read_to_string(fixtures().join("herdr.sh")).unwrap());
+        let logcall = std::fs::read_to_string(fixtures().join("logcall.sh")).unwrap();
+        for tool in ["claude", "open", "xdg-open", "pbcopy", "gh"] {
             executable(&bin.join(tool), &logcall);
         }
         let herdr_dir = root.join("herdr");
         std::fs::create_dir_all(&herdr_dir).unwrap();
-        for entry in std::fs::read_dir(herdr_src()).unwrap().flatten() {
-            if entry.path().extension().is_some_and(|x| x == "py") {
-                std::fs::copy(entry.path(), herdr_dir.join(entry.file_name())).unwrap();
-            }
-        }
-        let script = std::fs::read_to_string(fixtures().join("script.sh")).unwrap().replace("exec python3", &format!("exec {python}"));
         for name in ["ask-session.sh", "notify.sh", "meeting-brief.sh"] {
-            executable(&herdr_dir.join(name), &script);
+            executable(&herdr_dir.join(name), &logcall);
         }
         let api = root.join("repos/api");
         std::fs::create_dir_all(&api).unwrap();
@@ -142,24 +112,6 @@ impl Sandbox {
     /// Fills @BOX@ in a JSON template with this sandbox's root.
     pub fn fill(&self, template: &str) -> Value {
         serde_json::from_str(&template.replace("@BOX@", &self.root.to_string_lossy())).unwrap()
-    }
-
-    /// Runs one action through the Python bridge.
-    pub fn python(&self, app: &str, action: &str, args: &Value, armed: Option<&str>) -> Value {
-        let mut child = Command::new(python().expect("python3"))
-            .arg(self.root.join("herdr/bridge.py"))
-            .current_dir(self.root.join("herdr"))
-            .env_clear()
-            .envs(self.env())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let request = json!({"module": app, "function": action, "args": args, "armed": armed});
-        child.stdin.take().unwrap().write_all(request.to_string().as_bytes()).unwrap();
-        let out = child.wait_with_output().unwrap();
-        serde_json::from_slice(&out.stdout).unwrap_or_else(|_| panic!("bridge.py: {}", String::from_utf8_lossy(&out.stderr)))
     }
 
     /// The calls logged so far, once no new one has come for half a second (the actions' background processes).

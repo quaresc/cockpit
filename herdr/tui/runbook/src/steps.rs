@@ -17,7 +17,7 @@ use crate::app::{App, Cmd, key};
 use crate::book::Book;
 use crate::rows::{self, Marks, Widths};
 
-/// The columns a long list gives up on its right: the bar and a gap, as wide as Textual's, for the same column widths.
+/// The columns a long list gives up on its right: the scrollbar and a gap.
 const SCROLLBAR: u16 = 2;
 /// Behind a picked step's row.
 const PICKED: Color = Color::Rgb(38, 32, 26);

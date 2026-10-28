@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn done_writes_the_status_like_python() {
+    fn done_writes_the_status_with_the_date() {
         let (out, found) = mark_done(TABLE, &["1".into(), "9".into()], "28 Oct");
         assert_eq!(found, ["1"]);
         assert!(out.contains("| 1 | a | x | ✅ done 28 Oct | |"));

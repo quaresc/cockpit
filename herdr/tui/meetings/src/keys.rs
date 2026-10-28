@@ -10,7 +10,7 @@ use crate::timeline::Layout;
 use crate::week::{Meeting, day_label};
 
 impl App {
-    /// A meeting's actions in meetings.py's order: its brief, join, open, then prepare or redo.
+    /// A meeting's actions in order: its brief, join, open, then prepare or redo.
     pub fn acts_for(&self, m: &Meeting) -> Vec<(Act, Cmd)> {
         let id = m.id.clone();
         let has_brief = self.briefs.contains_key(&id);

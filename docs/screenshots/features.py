@@ -16,7 +16,7 @@ def text_of(screen, y):
 
 # Recap: what the quota-banner agent did in the 52 minutes since its space was left.
 since = int(time.time()) - 52 * 60
-text = run(["sh", "recap.sh"], 84, 28, {**env, "HERDR_BIN_PATH": os.path.join(HERE, "fake-herdr.sh"), "RECAP_SPACE": "w7",
+text = run(["sh", "recap.sh"], 84, 28, {**env, "HERDR_BIN_PATH": os.path.join(HERE, "fake-herdr.sh"), "RECAP_TAB": "t7",
                                         "RECAP_SINCE": str(since)}, wait=2.0, cwd=APPS)
 screen = screen_of(text, 84, 28)
 used = [y for y in range(28) if text_of(screen, y).strip()]

@@ -15,7 +15,7 @@ pub fn is_pinned() -> bool {
     std::env::var("COCKPIT_SPACE").is_ok_and(|s| !s.is_empty())
 }
 
-/// The sidebar text for this many open items, as todo.py words it.
+/// The sidebar text for this many open items.
 pub fn count_text(open: usize) -> String {
     if open > 0 { format!("{ICON_OPEN}  {open} open") } else { format!("{ICON_DONE}  all done") }
 }

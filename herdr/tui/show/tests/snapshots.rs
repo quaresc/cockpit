@@ -31,7 +31,7 @@ fn gradient(w: u32, h: u32, warm: bool) -> RgbaImage {
     })
 }
 
-/// A sandbox HOME with the CI caches, the pictures the specs point at, and show.py's renderers found in the repo.
+/// A sandbox HOME with the CI caches and the pictures the specs point at.
 fn setup() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {

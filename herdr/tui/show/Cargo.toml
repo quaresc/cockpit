@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-show"
-description = "show.py in Rust, for the config's apps: \"rust\"."
+description = "The view a Claude session shows beside itself: charts, tables, diagrams, pictures, diffs, logs and questions."
 version.workspace = true
 edition.workspace = true
 

@@ -15,7 +15,7 @@ use crate::handoff;
 use crate::table::{self, Column};
 
 impl App {
-    /// The runbook as the bridge resolves it: by its slug, or whole when the app reads another folder than runbook.py's.
+    /// The runbook as the hub resolves it: by its slug, or whole when the app reads another folder than the hub's.
     fn book_arg(&self, book: &Book) -> Value {
         if std::env::var("COCKPIT_RUNBOOKS_DIR").is_ok() { book.json() } else { json!({"$book": book.slug}) }
     }

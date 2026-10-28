@@ -1,4 +1,4 @@
-//! The runbook files, read as runbook.py's `parse` reads them: a title, an `updated:` line, a step table and notes; a
+//! The runbook files: a title, an `updated:` line, a step table and notes; a
 //! `\|` in a cell is a pipe of its text, not a column's end.
 
 use std::path::{Path, PathBuf};

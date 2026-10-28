@@ -1,8 +1,7 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
-back, drawn by the real show.py from fictional data. --full draws show_tx.py, the Textual version, with its charts as images,
-into show-full.svg (run it with the venv's python, which has Textual); --rust draws the Rust app, built in herdr/tui, into
-show-rust.svg, its charts laid over from the pictures it saves to COCKPIT_SHOT_DIR."""
-import base64, json, os, shutil, subprocess, sys, time
+back, drawn by the Rust app (built in herdr/tui) from fictional data, its charts laid over from the pictures it saves to
+COCKPIT_SHOT_DIR."""
+import base64, json, os, shutil, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import BAR, CW, LH, PAD, animate, run, screen_of
 
@@ -13,27 +12,19 @@ OUT = os.path.join(HERE, "..")
 COLS, ROWS, LEFT = 150, 30, 76
 PANE = COLS - LEFT - 1
 ORANGE, DIMC, INK, QUIET, WHITE, LINE = "FFC799", "707070", "101010", "2C2C30", "D2D2D2", "2C2C30"
-env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true"}
-FULL = "--full" in sys.argv
-RUST = "--rust" in sys.argv
-PICTURES = os.path.join(HOME, "show-pictures.json")
+env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true", "COCKPIT_HERDR_DIR": APPS,
+       "COCKPIT_HUB_IDLE_SECS": "20"}
 SHOTS = os.path.join(HOME, "show-shots")
 
 
 def pane(name, spec, cols, rows, keys=(), wait=2.0):
-    """The show.py screen for this spec, at this size; with --full, show_tx.py's, its pictures recorded in PICTURES."""
+    """The show screen for this spec, at this size, its pictures saved to SHOTS."""
     os.makedirs(os.path.join(HOME, ".cache", "cockpit", "show"), exist_ok=True)
     json.dump({**spec, "at": int(time.time() * 1000)}, open(os.path.join(HOME, ".cache", "cockpit", "show", f"{name}.json"), "w"))
-    if RUST:
-        shutil.rmtree(SHOTS, ignore_errors=True)
-        os.makedirs(SHOTS)
-        argv, wait = [os.path.join(APPS, "tui", "target", "release", "cockpit-show"), name], wait + 3
-        env.update(COCKPIT_SHOT_DIR=SHOTS, COCKPIT_HERDR_DIR=APPS)
-    elif FULL:
-        argv, wait = [sys.executable, os.path.join(HERE, "show_tx_shot.py"), name], wait + 3
-        env["SHOT_PICTURES"] = PICTURES
-    else:
-        argv = ["python3", "show.py", name]
+    shutil.rmtree(SHOTS, ignore_errors=True)
+    os.makedirs(SHOTS)
+    argv, wait = [os.path.join(APPS, "tui", "target", "release", "cockpit-show"), name], wait + 3
+    env["COCKPIT_SHOT_DIR"] = SHOTS
     return screen_of(run(argv, cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
 
 
@@ -106,12 +97,8 @@ frames = [  # (seconds on screen, screen)
     (3.4, beside(session(LEFT, 4, "open"), chart_pane)),
 ]
 
-
-
 def placed():
-    """Each picture with the cells it holds in the pane: from show_tx_shot.py's file, or the Rust app's shot folder."""
-    if FULL:
-        return json.load(open(PICTURES))
+    """Each picture with the cells it holds in the pane, from the app's shot folder."""
     out = []
     for at in sorted(f for f in os.listdir(SHOTS) if f.endswith(".at")):
         png = os.path.join(SHOTS, at[:-3] + ".png")
@@ -123,7 +110,7 @@ def placed():
 
 def pictures(i):
     """The charts as images over the pane's half blocks, in the frames that show the pane."""
-    if not (FULL or RUST) or i not in (2, 4):
+    if i not in (2, 4):
         return ""
     loop = sum(d for d, _ in frames)
     begin = sum(d for d, _ in frames[:i])
@@ -134,6 +121,5 @@ def pictures(i):
     return f'<style>{style}</style><g style="visibility:hidden;animation:c{i} {loop:.2f}s step-end infinite">{images}</g>'
 
 
-name = "show-rust.svg" if RUST else "show-full.svg" if FULL else "show.svg"
-open(os.path.join(OUT, name), "w").write(animate(frames, "herdr · show", pictures if FULL or RUST else None))
+open(os.path.join(OUT, "show.svg"), "w").write(animate(frames, "herdr · show", pictures))
 print(len(frames), "frames")

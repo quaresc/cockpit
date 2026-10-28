@@ -3,7 +3,7 @@
 use cockpit_core::{files, focus};
 use serde_json::{Value, json};
 
-use crate::py::list;
+use crate::value::list;
 
 /// The pinned space an app runs in; show views live beside their session, in no space of their own.
 fn space_of(app: &str) -> Option<&'static str> {

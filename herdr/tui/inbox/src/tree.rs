@@ -303,7 +303,7 @@ impl Tree {
             let mut spans = vec![Span::styled(s.guide.clone(), Style::new().fg(GUIDE)), Span::styled(prefix, Style::new().fg(FG))];
             let hits = self.hits.get(&s.node).map(Vec::as_slice).unwrap_or(&[]);
             let mut label = node.row.line(room, paint.requests, hits);
-            // The compact layout's buttons cover the row's end, as the light app's do, so its cells stay in line.
+            // The compact layout's buttons cover the row's end, so its cells stay in line.
             if !buttons.is_empty() {
                 label.spans = cut(label.spans, room.saturating_sub(buttons_width + 1));
             }
@@ -399,7 +399,7 @@ fn fitting(acts: &[Act], room: usize) -> Vec<Act> {
         .collect()
 }
 
-/// Textual's scrollbar: a thumb as tall as the share of rows in view, on a dark track.
+/// A scrollbar: a thumb as tall as the share of rows in view, on a dark track.
 fn scrollbar(frame: &mut Frame, area: Rect, offset: usize, total: usize) {
     let height = area.height as usize;
     let thumb = (height * height / total).max(1);

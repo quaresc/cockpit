@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "create",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "review api#4",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "herdr workspace create failed: herdr is down",
+  "pending": {},
+  "refreshing": []
+}

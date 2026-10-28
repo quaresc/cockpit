@@ -274,7 +274,7 @@ impl App {
     }
 
     pub(crate) fn call(&mut self, call: Call, armed: Option<String>) {
-        // inbox.py's run takes no state, which the bridge passes first: its argv runs here, off the keys' thread.
+        // A `run` call is a plain command: its argv runs here, off the keys' thread, without the hub.
         if call.function == "run" {
             let argv: Vec<String> = call.args.first().and_then(|a| a.as_array()).into_iter().flatten().filter_map(|a| a.as_str().map(str::to_string)).collect();
             if let Some((program, args)) = argv.split_first() {

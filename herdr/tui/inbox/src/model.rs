@@ -1,4 +1,4 @@
-//! inbox.py's build as rows of a tree: the header and its error lines, then Today, Alerts, Review, Work and Other PRs.
+//! The inbox's caches as rows of a tree: the header and its error lines, then Today, Alerts, Review, Work and Other PRs.
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,7 +14,7 @@ use crate::row::{Cells, Kind, Row, RowAct, call, open};
 use crate::sessions::Local;
 use crate::work;
 
-/// Team requests the compact layout shows before folding the rest away, as the light app does.
+/// Team requests the compact layout shows before folding the rest away.
 const TEAM_SHOWN: usize = 5;
 
 /// How a rebuild lays the rows out, beside what it reads.
