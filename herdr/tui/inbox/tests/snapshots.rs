@@ -19,7 +19,7 @@ fn by_feature_at_three_widths() {
 #[test]
 fn by_status() {
     let mut app = app(false);
-    typed(&mut app, "g");
+    typed(&mut app, "w");
     insta::assert_snapshot!(render(&mut app, 90, HEIGHT));
 }
 

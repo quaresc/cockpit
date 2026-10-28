@@ -29,6 +29,6 @@ expression: "screen(&mut app, 90, 30)"
  status ⬜  to do
  $ ./bin/backfill_daily_quota_usage --dry-run
 
-   session  s     done  d     copy command  c     edit  e
+   session  s     done  x     copy command  c     edit  e
  / dry    2 matches   / every runbook · enter keeps
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

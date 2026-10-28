@@ -31,4 +31,4 @@ expression: "screen(&mut app, 90, 30)"
  │ command  kubectl get pods                                                            │
  │ tab or enter next field · enter on the last saves · esc cancels                      │
  ╰──────────────────────────────────────────────────────────────────────────────────────╯
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

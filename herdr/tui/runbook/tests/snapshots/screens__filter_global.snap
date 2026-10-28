@@ -25,4 +25,4 @@ expression: "screen(&mut app, 90, 24)"
 
    copy command  c     edit  e
  / sweep    2 matches   in every runbook · / this one only
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

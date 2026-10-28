@@ -145,14 +145,14 @@ impl<'a> Build<'a> {
         if is_failing(pr) {
             let here = call("fix_ci", vec![pr.clone(), run_arg.clone(), json!("here")]);
             let new = call("fix_ci", vec![pr.clone(), run_arg.clone(), json!("new")]);
-            acts.push(RowAct::pick("fix ci", 'a', vec![("on this PR's branch", here), ("on a new PR off main", new)]).main());
+            acts.push(RowAct::pick("fix ci", 'f', vec![("on this PR's branch", here), ("on a new PR off main", new)]).main());
         }
         if let Some(r) = run
             && s(r, "outcome") == "failed"
             && !s(r, "workflowId").is_empty()
             && running.is_none()
         {
-            acts.push(RowAct::new("rerun", 'u', call("rerun", vec![pr.clone(), r.clone()])).confirm(format!("rerun-{}", s(r, "workflowId"))));
+            acts.push(RowAct::new("rerun", 'r', call("rerun", vec![pr.clone(), r.clone()])).confirm(format!("rerun-{}", s(r, "workflowId"))));
         }
         if let Some(bx) = bx
             && image_ready
@@ -276,12 +276,12 @@ impl<'a> Build<'a> {
         let mut acts = Vec::new();
         if deploying {
             if !deployed.is_empty() && deployed.iter().all(|d| flag(d, "isLive")) {
-                acts.push(RowAct::new("done", 'a', call("mark_done", vec![ticket.clone()])).main().confirm(format!("done-{id}")));
+                acts.push(RowAct::new("done", 'x', call("mark_done", vec![ticket.clone()])).main().confirm(format!("done-{id}")));
             }
         } else if started {
-            acts.push(RowAct::new("continue", 'a', call("continue_ticket", vec![ticket.clone(), json!(prs)])).main());
+            acts.push(RowAct::new("continue", 'p', call("continue_ticket", vec![ticket.clone(), json!(prs)])).main());
         } else {
-            acts.push(RowAct::new("plan", 'a', call("plan", vec![ticket.clone()])).main());
+            acts.push(RowAct::new("plan", 'p', call("plan", vec![ticket.clone()])).main());
         }
         if deploying && let Some(first) = deployed.first() {
             let links = self.links(s(first, "repo"));
@@ -348,7 +348,7 @@ impl<'a> Build<'a> {
         let roots: Vec<&Value> = tickets.iter().copied().filter(|t| !ids.contains(s(t, "parentId"))).collect();
         let in_progress = tickets.iter().filter(|t| s(t, "statusType") == "started" && !is_deploying(t)).count();
         let mode = if by_status { "status" } else { "feature" };
-        let extra = format!("{} tickets · {in_progress} in progress · {claimed} PRs · by {mode} (g)", tickets.len());
+        let extra = format!("{} tickets · {in_progress} in progress · {claimed} PRs · by {mode} (w)", tickets.len());
         let mut work = Row::text("work", heading("work", "Work", &extra));
         let order = |roots: &[&'a Value]| roots.iter().map(|r| self.tree_order(r)).min().unwrap_or((1, 8, String::new()));
         let mut groups: Vec<(String, Vec<&Value>)> = Vec::new();

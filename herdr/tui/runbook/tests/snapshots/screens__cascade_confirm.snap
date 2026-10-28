@@ -40,5 +40,5 @@ expression: "screen(&mut app, 90, 40)"
  #7  Merge and deploy billing PR 3 (store + broadcast)
  status ⬜  to do, approved green
 
-   run  r     done  d     open billing#379  o     edit  e
- d mark done  c copy commands  v pick  V all open  esc unpick                 ▏^p palette
+   run  r     done  x     open billing#379  o     edit  e
+ x mark done  c copy commands  v pick  V all open  esc unpick                 ▏^p palette

@@ -31,4 +31,4 @@ expression: "screen(&mut app, 90, 30)"
  │ $ ./bin/backfill_daily_quota_usage --dry-run --limit 10 | tee out.log                │
  │ enter saves to the runbook · esc cancels                                             │
  ╰──────────────────────────────────────────────────────────────────────────────────────╯
- q quit  / filter  v pick  e edit  a add  R refresh  t talk  p prev runbook   ▏^p palette
+ q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

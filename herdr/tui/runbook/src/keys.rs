@@ -4,6 +4,7 @@
 use cockpit_core::acts::Act;
 use cockpit_core::dialog::Answer;
 use cockpit_core::input::Edit;
+use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
@@ -106,23 +107,26 @@ impl App {
             self.filter_key(key);
             return false;
         }
+        if keys::is_quit(&key) {
+            return true;
+        }
+        if let Some(to) = keys::movement(&key) {
+            self.go(to);
+            return false;
+        }
         match key.code {
-            KeyCode::Char('c' | 'q') if ctrl => return true,
             KeyCode::Char('p') if ctrl => {
                 let entries = self.palette_entries();
                 self.palette.open(entries);
             }
             // ctrl+d or alt+r is not d or r: an action runs on its own key only.
             KeyCode::Char(_) if ctrl || key.modifiers.contains(KeyModifiers::ALT) => {}
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('j') | KeyCode::Down => self.move_row(1),
-            KeyCode::Char('k') | KeyCode::Up => self.move_row(-1),
             KeyCode::Esc if !self.picked.is_empty() => self.picked.clear(),
             KeyCode::Esc if self.filter.is_on() => self.clear_filter(),
             KeyCode::Char('/') => self.open_filter(false),
             KeyCode::Char('v') => self.pick(),
             KeyCode::Char('V') => self.pick_open(),
-            KeyCode::Char('d') if !self.picked.is_empty() => self.ask_done(),
+            KeyCode::Char('x') if !self.picked.is_empty() => self.ask_done(),
             KeyCode::Char('c') if !self.picked.is_empty() => self.copy_picked(),
             KeyCode::Char('e') => self.edit_selected(Column::Command),
             KeyCode::Char('E') => self.edit_selected(Column::Status),
@@ -132,8 +136,6 @@ impl App {
                     self.act(cmd);
                 }
             }
-            KeyCode::Char('n') => self.next_tab(1),
-            KeyCode::Char('p') => self.next_tab(-1),
             KeyCode::Char(c) => {
                 let step = self.step_cmds().into_iter().find(|cmd| matches!(cmd, Cmd::Act { act, .. } if act.key == Some(c)));
                 let book = || self.book().and_then(|b| book_acts(b).into_iter().find(|a| a.key == Some(c)).map(|a| book_cmd(&b.slug, a)));
@@ -216,6 +218,18 @@ impl App {
         } else if let Some(&(_, i)) = self.hits.rows.iter().find(|(r, _)| r.contains(at)) {
             self.selected = i;
             self.reveal = Some((i, i));
+        }
+    }
+
+    /// A shared move: rows, pages, the ends of the runbook, or the next runbook.
+    fn go(&mut self, to: Move) {
+        let page = self.hits.list.height.max(2) as isize - 1;
+        match to {
+            Move::By(n) => self.move_row(n),
+            Move::Pages(n) => self.move_row(n * page),
+            Move::Top => self.move_row(isize::MIN / 2),
+            Move::Bottom => self.move_row(isize::MAX / 2),
+            Move::Group(n) => self.next_tab(n),
         }
     }
 
