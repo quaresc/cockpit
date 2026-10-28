@@ -114,7 +114,7 @@ connectors, unless a token below lets the hub fetch them too.
 | `calendar` | Calendar connector: Google Calendar, or another and its mapping. |
 | `platform` | Deploy and preview connector, and its mapping. |
 | `metabase`, `datadog` | Connectors for live panes; Datadog's also feeds the monitor space. |
-| `monitor` | The monitor space: `env`, the Datadog `queries` of a service (`errors`, `hits`, `p95`, with `{service}` and `{env}`), when a release counts as moved (`moved`: `errorPoints`, `p95Ratio`, `minHits`) and whose releases notify (`notify`: `mine`, `all` or `none`). |
+| `monitor` | The monitor space: `env`, the Datadog `queries` of a service (`errors`, `hits`, `p95`, with `{service}` and `{env}`), when a release counts as moved (`moved`: `errorPoints`, `p95Ratio` and `p95Ms`, `minHits`) and whose releases notify (`notify`: `mine`, `all` or `none`). |
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When briefs, recaps and deploy checks run, and the tools they may use. |
 | `e2eBrowser` | Where agents run E2E tests: `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
 | `spaces` | Pinned spaces, in sidebar order: the built-in `inbox`, `terminal`, `actions` (a tab per review, plan or talk the inbox and runbook start), `to-do`, `runbook`, `meetings`, the opt-in `monitor`, and your own as a name, or as `{ "name": "notes", "cwd": "~/notes", "icon": "\uf413", "key": "prefix+n" }`. A space you already opened under that name becomes the pinned one. |
