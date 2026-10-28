@@ -1,0 +1,1 @@
+{"mine": [{"repo": "api", "number": 2207, "ci": "SUCCESS", "review": "APPROVED"}, {"repo": "search", "number": 897, "ci": "FAILURE", "review": "APPROVED"}, {"repo": "scrubber", "number": 88, "ci": "SUCCESS", "review": "REVIEW_REQUIRED"}], "merged": [{"repo": "billing", "number": 376}, {"repo": "infra", "number": 814}]}

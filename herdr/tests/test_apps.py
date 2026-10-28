@@ -1,10 +1,16 @@
 """Rules of the herdr apps that need no terminal: python3 -m unittest discover -s herdr/tests"""
 
+import hashlib
+import http.server
+import io
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import time
 import unittest
 
@@ -184,10 +190,14 @@ class NewFile(unittest.TestCase):
                 self.assertEqual(show.parse_patch(show.new_file(repo, name)), show.parse_patch(git), name)
 
 
-class AppMode(unittest.TestCase):
-    """app.sh runs the Textual version when apps is full or unset and it starts; anything else gets the text one."""
+HAS_UV = bool(shutil.which("uv") or os.path.exists("/opt/homebrew/bin/uv"))
 
-    def run_app(self, mode, textual=None, rust=None):
+
+class AppMode(unittest.TestCase):
+    """app.sh runs the Rust binary when apps is rust or unset, from bin/ before a dev build; one missing or failing at once
+    gives way to the Textual version (with uv), then the text one."""
+
+    def run_app(self, mode, textual=None, rust=None, dev=None):
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as apps:
             os.makedirs(os.path.join(home, ".config", "cockpit"))
             with open(os.path.join(home, ".config", "cockpit", "config.json"), "w", encoding="utf-8") as handle:
@@ -198,33 +208,149 @@ class AppMode(unittest.TestCase):
             if textual is not None:
                 with open(os.path.join(apps, "demo_tx.py"), "w", encoding="utf-8") as handle:
                     handle.write(textual)
-            if rust is not None:
-                os.makedirs(os.path.join(apps, "tui", "target", "release"))
-                binary = os.path.join(apps, "tui", "target", "release", "cockpit-demo")
+            for folder, body in (("bin", rust), (os.path.join("tui", "target", "release"), dev)):
+                if body is None:
+                    continue
+                os.makedirs(os.path.join(apps, folder))
+                binary = os.path.join(apps, folder, "cockpit-demo")
                 with open(binary, "w", encoding="utf-8") as handle:
-                    handle.write(rust)
+                    handle.write(body)
                 os.chmod(binary, 0o755)
             done = subprocess.run(["sh", os.path.join(apps, "app.sh"), "demo", "cockpit-space"], capture_output=True, text=True,
                                   env={**os.environ, "HOME": home}, timeout=120)
             return done.stdout.split()
 
-    def test_light_runs_the_text_app(self):
-        self.assertEqual(self.run_app("light", "print('textual')"), ["text", "cockpit-space"])
+    def test_rust_is_the_default(self):
+        self.assertEqual(self.run_app(None, rust="#!/bin/sh\necho rust \"$@\"\n"), ["rust", "cockpit-space"])
 
-    def test_rust_runs_the_binary_and_falls_back_when_it_fails_at_once(self):
-        self.assertEqual(self.run_app("rust", rust="#!/bin/sh\necho rust \"$@\"\n"), ["rust", "cockpit-space"])
+    def test_the_release_binary_comes_before_a_dev_build(self):
+        self.assertEqual(self.run_app("rust", rust="#!/bin/sh\necho rust\n", dev="#!/bin/sh\necho dev\n"), ["rust"])
+        self.assertEqual(self.run_app("rust", dev="#!/bin/sh\necho dev \"$@\"\n"), ["dev", "cockpit-space"])
+
+    def test_the_binary_knows_its_herdr_folder(self):
+        self.assertEqual(len(self.run_app("rust", rust="#!/bin/sh\necho \"$COCKPIT_HERDR_DIR\"\n")), 1)
+
+    def test_rust_missing_or_failing_at_once_falls_back_to_text(self):
+        self.assertEqual(self.run_app("rust"), ["text", "cockpit-space"])
         self.assertEqual(self.run_app("rust", rust="#!/bin/sh\necho rust\nexit 1\n"), ["rust", "text", "cockpit-space"])
-        self.assertEqual(self.run_app("light", rust="#!/bin/sh\necho rust\n"), ["text", "cockpit-space"])
 
-    def test_full_without_a_textual_version_runs_the_text_app(self):
-        self.assertEqual(self.run_app("full"), ["text", "cockpit-space"])
-        self.assertEqual(self.run_app(None), ["text", "cockpit-space"])
+    def test_light_and_full_leave_the_binary_alone(self):
+        self.assertEqual(self.run_app("light", "print('textual')", rust="#!/bin/sh\necho rust\n"), ["text", "cockpit-space"])
+        self.assertEqual(self.run_app("full", rust="#!/bin/sh\necho rust\n"), ["text", "cockpit-space"])
 
-    @unittest.skipUnless(shutil.which("uv") or os.path.exists("/opt/homebrew/bin/uv"), "uv is not installed")
+    @unittest.skipUnless(HAS_UV, "uv is not installed")
+    def test_rust_missing_or_failing_at_once_falls_back_to_textual(self):
+        textual = "import sys\nprint('textual', *sys.argv[1:])\n"
+        self.assertEqual(self.run_app("rust", textual), ["textual", "cockpit-space"])
+        self.assertEqual(self.run_app(None, textual, rust="#!/bin/sh\necho rust\nexit 1\n"), ["rust", "textual", "cockpit-space"])
+
+    @unittest.skipUnless(HAS_UV, "uv is not installed")
     def test_full_runs_the_textual_app_and_falls_back_when_it_fails_at_once(self):
         self.assertEqual(self.run_app("full", "import sys\nprint('textual', *sys.argv[1:])\n"), ["textual", "cockpit-space"])
-        self.assertEqual(self.run_app(None, "import sys\nprint('textual', *sys.argv[1:])\n"), ["textual", "cockpit-space"])
         self.assertEqual(self.run_app("full", "print('textual')\nraise SystemExit(1)\n"), ["textual", "text", "cockpit-space"])
+
+
+class UpdateStopsTheApps(unittest.TestCase):
+    """update.sh stops every space app by the argument that marks it, whichever version runs it."""
+
+    def test_the_pattern_catches_every_version(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "update.sh"), encoding="utf-8") as handle:
+            pattern = re.search(r'pkill -f "(.*cockpit-space)"', handle.read()).group(1)
+        for line in ("python3 inbox.py cockpit-space", "uv run --quiet --script todo_tx.py cockpit-space",
+                     "/x/herdr/bin/cockpit-runbook cockpit-space", "/x/herdr/tui/target/release/cockpit-meetings cockpit-space"):
+            self.assertRegex(line, pattern)
+        self.assertNotRegex("/x/herdr/bin/cockpit-show demo", pattern)
+
+
+TARGETS = {("Darwin", "arm64"): "aarch64-apple-darwin", ("Darwin", "x86_64"): "x86_64-apple-darwin",
+           ("Linux", "x86_64"): "x86_64-unknown-linux-gnu", ("Linux", "aarch64"): "aarch64-unknown-linux-gnu"}
+
+
+@unittest.skipUnless(shutil.which("curl") and (os.uname().sysname, os.uname().machine) in TARGETS, "no curl or no build for this machine")
+class FetchApps(unittest.TestCase):
+    """fetch-apps.sh installs the release's binaries for this version and machine, against a fake release served locally."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        root = self.folder.name
+        self.herdr, self.release = os.path.join(root, "herdr"), os.path.join(root, "release")
+        os.makedirs(self.herdr)
+        os.makedirs(os.path.join(self.release, "v9.9.9"))
+        shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fetch-apps.sh"), self.herdr)
+        with open(os.path.join(self.herdr, "herdr-plugin.toml"), "w", encoding="utf-8") as handle:
+            handle.write('id = "cockpit"\nversion = "9.9.9"\n')
+        self.asset = os.path.join(self.release, "v9.9.9", f"cockpit-apps-9.9.9-{TARGETS[(os.uname().sysname, os.uname().machine)]}.tar.gz")
+        self.requests = []
+        requests, release = self.requests, self.release
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=release, **kwargs)
+
+            def log_message(self, *args):
+                requests.append(self.path)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.folder.cleanup()
+
+    def publish(self, checksum=None):
+        with tarfile.open(self.asset, "w:gz") as archive:
+            for app in ("hub", "inbox"):
+                body = f"#!/bin/sh\necho {app}\n".encode()
+                info = tarfile.TarInfo(f"cockpit-{app}")
+                info.size, info.mode = len(body), 0o644
+                archive.addfile(info, io.BytesIO(body))
+        with open(self.asset, "rb") as handle:
+            digest = checksum or hashlib.sha256(handle.read()).hexdigest()
+        with open(f"{self.asset}.sha256", "w", encoding="utf-8") as handle:
+            handle.write(f"{digest}  {os.path.basename(self.asset)}\n")
+
+    def fetch(self):
+        url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        return subprocess.run(["sh", os.path.join(self.herdr, "fetch-apps.sh")], capture_output=True, text=True,
+                              env={**os.environ, "COCKPIT_RELEASES_URL": url}, timeout=60)
+
+    def bin(self, *names):
+        return os.path.join(self.herdr, "bin", *names)
+
+    def test_installs_the_binaries_once_per_version(self):
+        self.publish()
+        done = self.fetch()
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+        self.assertTrue(os.access(self.bin("cockpit-inbox"), os.X_OK))
+        self.assertEqual(subprocess.run([self.bin("cockpit-hub")], capture_output=True, text=True).stdout, "hub\n")
+        with open(self.bin(".version"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "9.9.9\n")
+        seen = len(self.requests)
+        self.assertEqual(self.fetch().returncode, 0)
+        self.assertEqual(len(self.requests), seen)
+        self.assertEqual(sorted(os.listdir(self.herdr)), ["bin", "fetch-apps.sh", "herdr-plugin.toml"])
+
+    def test_a_release_without_the_apps_changes_nothing(self):
+        done = self.fetch()
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertFalse(os.path.exists(self.bin()))
+
+    def test_a_wrong_checksum_installs_nothing_and_says_so(self):
+        self.publish(checksum="0" * 64)
+        done = self.fetch()
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("checksum mismatch", done.stderr)
+        self.assertEqual(sorted(os.listdir(self.herdr)), ["fetch-apps.sh", "herdr-plugin.toml"])
+
+    def test_a_checkout_with_its_own_build_fetches_nothing(self):
+        self.publish()
+        os.makedirs(os.path.join(self.herdr, "tui", "target", "release"))
+        hub = os.path.join(self.herdr, "tui", "target", "release", "cockpit-hub")
+        open(hub, "w").close()
+        os.chmod(hub, 0o755)
+        self.assertEqual(self.fetch().returncode, 0)
+        self.assertEqual(self.requests, [])
 
 
 if __name__ == "__main__":

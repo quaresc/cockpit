@@ -9,9 +9,10 @@ cockpit-core.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 serde_json.workspace = true
-notify.workspace = true
 chrono.workspace = true
-regex.workspace = true
+ratatui-image.workspace = true
+image.workspace = true
+resvg.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

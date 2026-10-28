@@ -1,0 +1,44 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, 90, 40)"
+---
+   Runbooks   3 · 25 steps left   ● 3 picked
+ ENG-410 13  ENG-420 12  ENG-398 ✓
+╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-410 · Daily quotas: usage counters (exports + previews) for the settings page   upda
+ ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━  24%
+
+ #   status                     step                           where                    ▐
+                                                                                        ▐
+ 1   ✅  done, v0.3.0 cut        Release usage 0.3.0 schema     event-schemas-registry#  ▐
+                                                               57                       ▐
+                                                                                        ▐
+ 2   ✅  done, applied           Grant billing the usage vhost  infra#811                ▐
+                                                                                        ▐
+ 3   ✅  done, applied           Grant billing configure on     infra#814                ▐
+                                reply exchange                  merged                 ▐
+
+ 4   ✅  done,╭──────────────────────────────────────────────────────────────╮
+             │                                                              │
+             │  Mark 3 steps done: ENG-410 5, 6, 7?                         │
+ ●5  ⬜  to do│                                                              │
+             │   No  n    Yes  y                                            │
+             │                                                              │
+ ●6  ⬜  to do╰──────────────────────────────────────────────────────────────╯
+                                on settings page)
+
+ ●7  ⬜  to do, approved green   Merge and deploy billing PR 3  billing#379
+                                (store + broadcast)
+
+ 8   ⬜  to do                   Backfill dry run               prod
+
+ • Deploy order is consumer first: api, then web, then billing PR 3; PR 4 only once
+   charts#402 is on the charts' production branch.
+ • billing#380 targets PR 3's branch: merge #379 first, then retarget #380 to main.
+ • The backfill only counts accounts whose plan sets a daily quota on its exports.
+──────────────────────────────────────────────────────────────────────────────────────────
+ #7  Merge and deploy billing PR 3 (store + broadcast)
+ status ⬜  to do, approved green
+
+   run  r     done  d     open billing#379  o     edit  e
+ d mark done  c copy commands  v pick  V all open  esc unpick                 ▏^p palette

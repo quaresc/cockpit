@@ -2,7 +2,8 @@
 //! changed something (so an idle app costs nothing), everything restored on the way out, a panic included.
 
 use std::io::stdout;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
@@ -19,6 +20,27 @@ pub trait App {
     fn timeout(&self) -> Duration;
 }
 
+static WOKEN: AtomicBool = AtomicBool::new(false);
+
+/// Makes the loop tick now rather than at its timeout: a watched file changed, a background reply came.
+pub fn wake() {
+    WOKEN.store(true, Ordering::Relaxed);
+}
+
+/// Waits for an event up to `timeout`, in short slices so a `wake` is seen within 50 ms; true when an event is there.
+fn wait(timeout: Duration) -> std::io::Result<bool> {
+    let end = Instant::now() + timeout;
+    loop {
+        let left = end.saturating_duration_since(Instant::now());
+        if event::poll(left.min(Duration::from_millis(50)))? {
+            return Ok(true);
+        }
+        if WOKEN.swap(false, Ordering::Relaxed) || left.is_zero() {
+            return Ok(false);
+        }
+    }
+}
+
 pub fn run(app: &mut impl App) -> std::io::Result<()> {
     let mut terminal: DefaultTerminal = ratatui::init();
     let _ = execute!(stdout(), EnableMouseCapture);
@@ -28,7 +50,7 @@ pub fn run(app: &mut impl App) -> std::io::Result<()> {
             if redraw {
                 terminal.draw(|frame| app.draw(frame))?;
             }
-            redraw = if event::poll(app.timeout())? {
+            redraw = if wait(app.timeout())? {
                 if app.event(event::read()?) {
                     return Ok(());
                 }

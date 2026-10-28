@@ -1,24 +1,25 @@
-//! The frame: the header, a tab per runbook with its progress, steps and notes, the selected step's panel, the footer.
+//! The frame: the header, a tab per runbook with its progress (or its matches while filtering every runbook), the steps
+//! and notes, the selected step's panel unless compact, the filter bar, the footer, and the editor over them.
 
 use cockpit_core::acts;
+use cockpit_core::anim::Glide;
+use cockpit_core::files::Density;
 use cockpit_core::text::{width, wrap};
-use cockpit_core::theme::{BG, DIM, FG, GREEN, LINE, ORANGE, PANEL, base, bold, dim, fg};
+use cockpit_core::theme::{DIM, FG, GREEN, LINE, ORANGE, PANEL, base, bold, dim, fg};
+use cockpit_core::widgets::filter_line;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap};
+use ratatui::widgets::{Block, Paragraph, Wrap};
 use tachyonfx::ColorSpace;
 
-use crate::anim::{Glide, Phase};
 use crate::app::{App, Cmd};
 use crate::pinned::ICON;
-use crate::rows::{self, Widths};
+use crate::steps::button_hits;
 
 const BAR: usize = 32;
 const NOTES_MAX: usize = 6;
-/// The columns a long list gives up on its right: the bar and a gap, as wide as Textual's, for the same column widths.
-const SCROLLBAR: u16 = 2;
 /// Behind a note's `code`, the tint Textual's Markdown gives it.
 const CODE_BG: ratatui::style::Color = ratatui::style::Color::Rgb(35, 30, 26);
 
@@ -28,15 +29,27 @@ impl App {
         let area = frame.area();
         frame.render_widget(Block::new().style(base()), area);
         self.hits = Default::default();
-        let (info, cmds) = self.panel(area.width.saturating_sub(2) as usize);
-        let panel_h = (1 + info.len() + if cmds.is_empty() { 1 } else { 2 }).min(12) as u16;
-        let [head, tabs, pane, panel, footer] =
-            Layout::vertical([Constraint::Length(1), Constraint::Length(2), Constraint::Min(3), Constraint::Length(panel_h), Constraint::Length(1)]).areas(area);
+        let (info, cmds) = if self.density == Density::Compact { (Vec::new(), Vec::new()) } else { self.panel(area.width.saturating_sub(2) as usize) };
+        let panel_h = if self.density == Density::Compact { 0 } else { (1 + info.len() + if cmds.is_empty() { 1 } else { 2 }).min(12) as u16 };
+        let bar_h = u16::from(self.filter.is_on());
+        let [head, tabs, pane, panel, bar, footer] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(panel_h),
+            Constraint::Length(bar_h),
+            Constraint::Length(1),
+        ])
+        .areas(area);
         self.draw_head(frame, head);
         self.draw_tabs(frame, tabs);
         self.draw_pane(frame, pane.inner(ratatui::layout::Margin::new(1, 0)));
         self.draw_panel(frame, panel, info, &cmds);
-        draw_footer(frame, footer);
+        self.draw_filter(frame, bar);
+        self.draw_footer(frame, footer);
+        if let Some(editor) = &self.editor {
+            editor.render(frame, Rect { height: area.height.saturating_sub(1), ..area });
+        }
         self.toasts.render(frame, Rect { height: area.height.saturating_sub(1), ..area });
         if self.palette.is_open {
             self.palette.render(frame, area);
@@ -48,12 +61,15 @@ impl App {
 
     fn draw_head(&self, frame: &mut Frame, area: Rect) {
         let left: usize = self.books.iter().map(|b| b.todo()).sum();
-        let line = Line::from(vec![
+        let mut spans = vec![
             Span::styled(format!(" {ICON}  "), fg(ORANGE)),
             Span::styled("Runbooks", bold(ORANGE)),
             Span::styled(format!("   {} · {left} steps left", self.books.len()), dim()),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
+        ];
+        if !self.picked.is_empty() {
+            spans.push(Span::styled(format!("   ● {} picked", self.picked.len()), bold(ORANGE)));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// The tab labels, scrolled so the active one shows, and under them a track whose highlight glides to it.
@@ -64,11 +80,19 @@ impl App {
         let mut x = 0;
         let mut spans = Vec::new();
         let mut tabs = Vec::new();
+        let matches = self.found.as_ref().filter(|_| self.filter.global);
         for (i, book) in self.books.iter().enumerate() {
             let todo = book.todo();
-            let count = if todo > 0 { Span::styled(format!(" {todo}"), fg(ORANGE)) } else { Span::styled(" ✓", fg(GREEN)) };
+            // While every runbook is filtered, each tab counts its matches instead of its steps to do.
+            let found = matches.map(|m| m.get(&book.slug).map_or(0, |h| h.len()));
+            let count = match found {
+                Some(0) => Span::styled(" /0", dim()),
+                Some(found) => Span::styled(format!(" /{found}"), bold(ORANGE)),
+                None if todo > 0 => Span::styled(format!(" {todo}"), fg(ORANGE)),
+                None => Span::styled(" ✓", fg(GREEN)),
+            };
             let name = book.slug.to_uppercase();
-            let label = if i == self.active { bold(FG) } else { dim() };
+            let label = if i == self.active { bold(FG) } else if found == Some(0) { Style::new().fg(LINE) } else { dim() };
             let w = width(&name) + width(&count.content) + 2;
             spans.extend([Span::raw(" "), Span::styled(name, label), count, Span::raw(" ")]);
             tabs.push((x, w));
@@ -151,74 +175,9 @@ impl App {
         }
     }
 
-    /// The steps, scrolled; the selected row on the panel colour, the rows turning done painted by their animation.
-    fn draw_steps(&mut self, frame: &mut Frame, area: Rect, book: &crate::book::Book) {
-        self.hits.list = area;
-        let build = |app: &App, w: usize| {
-            let widths = Widths::new(book, w);
-            let mut lines = vec![rows::header(&widths), Line::raw("")];
-            let mut spans = Vec::new();
-            for step in &book.steps {
-                let phase = app.fx.get(&(book.slug.clone(), step.n.clone())).map_or(Phase::Still, |fx| fx.phase());
-                let row = rows::row(book, step, &widths, phase, &app.handoffs, &app.inbox);
-                spans.push((lines.len(), row.len() + 1));
-                lines.extend(row);
-                lines.push(Line::raw(""));
-            }
-            (lines, spans)
-        };
-        let (mut lines, mut spans) = build(self, area.width as usize);
-        let overflow = lines.len() > area.height as usize;
-        if overflow {
-            (lines, spans) = build(self, area.width.saturating_sub(SCROLLBAR) as usize);
-        }
-        let (total, height) = (lines.len() as f32, area.height as f32);
-        let scroll = self.scroll.entry(book.slug.clone()).or_insert_with(|| Glide::new(0.0, 0.25));
-        let reveal = self.reveal.take().and_then(|(first, last)| Some((*spans.get(first)?, *spans.get(last)?)));
-        if let Some(((top, _), (last, last_h))) = reveal {
-            let (top, h, now) = (top as f32, (last + last_h).saturating_sub(top) as f32, scroll.target());
-            if top < now || h > height {
-                scroll.go(top);
-            } else if top + h > now + height {
-                scroll.go(top + h - height);
-            }
-        }
-        let most = (total - height).max(0.0);
-        if scroll.target() > most || scroll.target() < 0.0 {
-            scroll.go(scroll.target().clamp(0.0, most));
-        }
-        let offset = scroll.now().round().clamp(0.0, most) as usize;
-        let content = Rect { width: if overflow { area.width.saturating_sub(SCROLLBAR) } else { area.width }, ..area };
-        frame.render_widget(Paragraph::new(lines).scroll((offset as u16, 0)), content);
-        let buf = frame.buffer_mut();
-        for (i, &(top, h)) in spans.iter().enumerate() {
-            let rect = visible(content, top, h, offset);
-            if let Some(rect) = rect {
-                self.hits.rows.push((rect, i));
-                if i == self.selected {
-                    buf.set_style(rect, Style::new().bg(PANEL));
-                }
-            }
-            if let Some(fx) = self.fx.get_mut(&(book.slug.clone(), book.steps[i].n.clone())) {
-                fx.paint(buf, rect.unwrap_or_default());
-            }
-        }
-        if overflow {
-            let mut state = ScrollbarState::new(lines_len(total, height)).position(offset).viewport_content_length(area.height as usize);
-            let bar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some(" "))
-                .thumb_symbol("▐")
-                .track_style(Style::new().bg(BG))
-                .thumb_style(fg(LINE));
-            frame.render_stateful_widget(bar, area, &mut state);
-        }
-    }
-
     /// The selected step's lines and its actions; when there is none, a word on how to get one.
     fn panel(&self, cells: usize) -> (Vec<Line<'static>>, Vec<Cmd>) {
-        let Some(step) = self.book().and_then(|b| b.steps.get(self.selected)) else {
+        let Some(step) = self.book().and_then(|b| b.steps.get(self.selected)).filter(|_| self.shown().contains(&self.selected)) else {
             let text = if self.books.is_empty() { "No runbook yet: run /runbook in a Claude session working on a ticket." } else { "" };
             return (vec![Line::styled(text, dim())], Vec::new());
         };
@@ -266,25 +225,51 @@ impl App {
         }
         let row = Rect { y: inner.y + info_h + 1, height: 1, ..inner };
         frame.render_widget(Paragraph::new(acts::buttons(&acts)), row);
-        let mut x = row.x;
-        for (i, act) in acts.iter().enumerate() {
-            let key = act.key.map(|k| format!("  {k}")).unwrap_or_default();
-            let w = width(&format!(" {}{key} ", act.label)) as u16;
-            self.hits.buttons.push((Rect { x, y: row.y, width: w, height: 1 }, i));
-            x += w + 1;
-        }
+        self.hits.buttons = button_hits(&acts, row);
     }
-}
 
-fn lines_len(total: f32, height: f32) -> usize {
-    (total - height).max(0.0) as usize + 1
-}
+    /// The filter bar: what is typed, how many steps match, and whether every runbook is searched.
+    fn draw_filter(&self, frame: &mut Frame, area: Rect) {
+        if area.height == 0 {
+            return;
+        }
+        let count = |slug: &str| self.found.as_ref().and_then(|f| f.get(slug)).map_or(0, |h| h.len());
+        let matched = match (&self.found, self.filter.global) {
+            (None, _) => self.book().map_or(0, |b| b.steps.len()),
+            (Some(found), true) => found.values().map(|h| h.len()).sum(),
+            (Some(_), false) => self.book().map_or(0, |b| count(&b.slug)),
+        };
+        let mut line = filter_line(&self.filter.input, self.filter.editing, matched);
+        line.spans.push(match (self.filter.global, self.filter.editing) {
+            (true, true) => Span::styled("   in every runbook · / this one only", fg(ORANGE)),
+            (true, false) => Span::styled("   in every runbook", fg(ORANGE)),
+            (false, true) => Span::styled("   / every runbook · enter keeps", dim()),
+            (false, false) => Span::raw(""),
+        });
+        frame.render_widget(Paragraph::new(line), Rect { x: area.x + 1, width: area.width.saturating_sub(1), ..area });
+    }
 
-/// The part of a row, `top` lines into the list, that shows with the list scrolled by `offset`.
-fn visible(area: Rect, top: usize, height: usize, offset: usize) -> Option<Rect> {
-    let start = top.max(offset);
-    let end = (top + height).min(offset + area.height as usize);
-    (start < end).then(|| Rect { x: area.x, y: area.y + (start - offset) as u16, width: area.width, height: (end - start) as u16 })
+    /// The keys on the left, as many as fit, and the palette's on the right; the batch's keys while steps are picked.
+    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+        let keys: &[(&str, &str)] = if self.picked.is_empty() {
+            &[("q", "quit"), ("/", "filter"), ("v", "pick"), ("e", "edit"), ("a", "add"), ("R", "refresh"), ("t", "talk"), ("p", "prev runbook"), ("n", "next runbook")]
+        } else {
+            &[("d", "mark done"), ("c", "copy commands"), ("v", "pick"), ("V", "all open"), ("esc", "unpick")]
+        };
+        let mut spans = Vec::new();
+        for (key, what) in keys {
+            spans.push(Span::styled(format!(" {key}"), bold(ORANGE)));
+            spans.push(Span::styled(format!(" {what} "), fg(FG)));
+        }
+        let palette = vec![Span::styled("▏", fg(LINE)), Span::styled("^p", bold(ORANGE)), Span::styled(" palette ", fg(FG))];
+        let used = |spans: &[Span]| -> usize { spans.iter().chain(&palette).map(|s| width(&s.content)).sum() };
+        while !spans.is_empty() && used(&spans) > area.width as usize {
+            spans.truncate(spans.len() - 2);
+        }
+        spans.push(Span::raw(" ".repeat((area.width as usize).saturating_sub(used(&spans)))));
+        spans.extend(palette);
+        frame.render_widget(Paragraph::new(Line::from(spans)).style(Style::new().bg(PANEL)), area);
+    }
 }
 
 /// A note wrapped to `cells`, its `code` without the backticks and on a tint, as the Markdown of the Textual app shows it.
@@ -349,22 +334,3 @@ fn throbber(t: f32) -> Vec<Span<'static>> {
     }
     spans
 }
-
-/// The keys on the left, as many as fit, and the palette's on the right.
-fn draw_footer(frame: &mut Frame, area: Rect) {
-    let keys = [("q", "quit"), ("R", "refresh"), ("t", "talk"), ("p", "prev runbook"), ("n", "next runbook")];
-    let mut spans = Vec::new();
-    for (key, what) in keys {
-        spans.push(Span::styled(format!(" {key}"), bold(ORANGE)));
-        spans.push(Span::styled(format!(" {what} "), fg(FG)));
-    }
-    let palette = vec![Span::styled("▏", fg(LINE)), Span::styled("^p", bold(ORANGE)), Span::styled(" palette ", fg(FG))];
-    let used = |spans: &[Span]| -> usize { spans.iter().chain(&palette).map(|s| width(&s.content)).sum() };
-    while !spans.is_empty() && used(&spans) > area.width as usize {
-        spans.truncate(spans.len() - 2);
-    }
-    spans.push(Span::raw(" ".repeat((area.width as usize).saturating_sub(used(&spans)))));
-    spans.extend(palette);
-    frame.render_widget(Paragraph::new(Line::from(spans)).style(Style::new().bg(PANEL)), area);
-}
-

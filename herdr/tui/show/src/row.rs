@@ -1,5 +1,5 @@
-//! One row of the scrolling body: its styled text, what a click on part of it does, the focus stop it belongs to, and
-//! the image it is a slice of.
+//! One row of the scrolling body: its styled text, what a click on part of it does, the focus stop it belongs to, the
+//! image it is a slice of, and whether the block's own cursor sits on it.
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -13,22 +13,29 @@ pub enum Act {
     Open(String),
     Sort(usize),
     Cursor(usize),
-    Fold(String),
+    Fold(usize),
     Pick(usize),
     Answer(bool),
+    /// A diff's line cursor to this file and line (None: the file's header).
+    Line(usize, Option<usize>),
+    /// A diff's file list entry: the cursor to that file.
+    Jump(usize),
 }
 
 /// A place the keyboard can sit in a block, cycled with tab like Textual's focus chain.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
     Table,
-    File(String),
+    Diff,
+    Log,
+    Chart,
+    Compare,
     Options,
     Input,
     Button(bool),
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Row {
     pub line: Line<'static>,
     pub clicks: Vec<(usize, usize, Act)>,
@@ -36,6 +43,8 @@ pub struct Row {
     /// Which row of its block's image this row shows.
     pub image: Option<u16>,
     pub block: usize,
+    /// The block's cursor (a diff line, a comment field) is on this row: focus scrolls to it rather than the whole block.
+    pub here: bool,
 }
 
 impl Row {
@@ -63,6 +72,11 @@ impl Row {
 
     pub fn target(mut self, target: Target) -> Self {
         self.target = Some(target);
+        self
+    }
+
+    pub fn here(mut self, here: bool) -> Self {
+        self.here = here;
         self
     }
 

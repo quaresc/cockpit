@@ -11,3 +11,8 @@ serde_json.workspace = true
 regex.workspace = true
 chrono.workspace = true
 notify.workspace = true
+nucleo-matcher.workspace = true
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -344,6 +344,13 @@ def image(block, cols, line, rows):
         line().add("  " + block["caption"], DIM)
 
 
+def compare(block, cols, line, rows):
+    """A before/after pair: each picture under its label, half the pane's height each."""
+    for key in ("before", "after"):
+        line().add(f"  {key}", BOLD + DIM)
+        image({"path": block[key]}, cols, line, max(10, rows // 2))
+
+
 # ---------------------------------------------------------------------------
 # Live blocks: a command run every few seconds, its output as a log or as JSON rows; a CI run from cockpit's cache
 
@@ -662,6 +669,8 @@ def build(state, cols):
             mermaid_chart(block, cols, line)
         elif kind == "image":
             image(block, cols, line, rows)
+        elif kind == "compare":
+            compare(block, cols, line, rows)
         elif kind == "log":
             log(block, cols, line, state["commands"][n])
         elif kind == "ci":

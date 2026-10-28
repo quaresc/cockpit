@@ -1,4 +1,5 @@
-//! The steps table: `#`, status, step and where columns whose cells wrap instead of being cut.
+//! The steps table: `#`, status, step and where columns whose cells wrap instead of being cut, the characters a filter
+//! matched underlined in the accent colour and a picked step marked by its number.
 
 use std::collections::HashMap;
 
@@ -11,6 +12,7 @@ use serde_json::Value;
 use crate::acts::{handoff_id, pr_ref};
 use crate::anim::Phase;
 use crate::book::{Book, Step};
+use crate::filter::Hit;
 use crate::handoff;
 
 /// Each column's width, its one cell of right padding included.
@@ -35,11 +37,46 @@ impl Widths {
 
 type Cell = Vec<Vec<Span<'static>>>;
 
-/// Text wrapped to the cell, each paragraph of it on lines of its own.
-fn text(cell: &mut Cell, value: &str, style: Style, cells: usize) {
+/// How the filter's matched characters stand out, over whatever style their cell has.
+const MATCHED: Style = Style::new().fg(ORANGE).add_modifier(Modifier::BOLD.union(Modifier::UNDERLINED));
+
+/// What a row shows beyond its step: where its done animation is, whether it is picked, what the filter matched.
+pub struct Marks<'a> {
+    pub phase: Phase,
+    pub picked: bool,
+    pub hit: Option<&'a Hit>,
+}
+
+/// Text wrapped to the cell, each paragraph of it on lines of its own; the characters at `matched` (char indexes into
+/// `value`) drawn as matches.
+fn text(cell: &mut Cell, value: &str, style: Style, cells: usize, matched: &[usize]) {
+    let chars: Vec<char> = value.chars().collect();
+    let mut at = 0;
     for line in wrap(value, cells.max(1)) {
-        cell.push(vec![Span::styled(line, style)]);
+        if matched.is_empty() {
+            cell.push(vec![Span::styled(line, style)]);
+            continue;
+        }
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for c in line.chars() {
+            // wrap only drops the spaces where it breaks a line.
+            while chars.get(at).is_some_and(|&p| p != c && p == ' ') {
+                at += 1;
+            }
+            let style = if matched.contains(&at) { style.patch(MATCHED) } else { style };
+            at += 1;
+            match spans.last_mut() {
+                Some(last) if last.style == style => last.content.to_mut().push(c),
+                _ => spans.push(Span::styled(c.to_string(), style)),
+            }
+        }
+        cell.push(spans);
     }
+}
+
+/// Match indexes moved by what is drawn before the value.
+fn shifted(matched: &[usize], by: usize) -> Vec<usize> {
+    matched.iter().map(|i| i + by).collect()
 }
 
 /// The cells side by side, each line padded to its column.
@@ -64,34 +101,41 @@ pub fn header(widths: &Widths) -> Line<'static> {
     join(cells, widths.all()).remove(0)
 }
 
-pub fn row(book: &Book, step: &Step, widths: &Widths, phase: Phase, handoffs: &HashMap<String, Value>, inbox: &Value) -> Vec<Line<'static>> {
+pub fn row(book: &Book, step: &Step, widths: &Widths, marks: Marks, handoffs: &HashMap<String, Value>, inbox: &Value) -> Vec<Line<'static>> {
     let is_done = !step.is_open();
     let plain = if is_done { dim() } else { fg(FG) };
+    let none = Hit::default();
+    let hit = marks.hit.unwrap_or(&none);
     let mut n = Cell::new();
-    text(&mut n, &step.n, dim(), widths.n.saturating_sub(1));
+    if marks.picked {
+        text(&mut n, &format!("●{}", step.n), bold(ORANGE), widths.n.saturating_sub(1), &shifted(&hit.fields[0], 1));
+    } else {
+        text(&mut n, &step.n, dim(), widths.n.saturating_sub(1), &hit.fields[0]);
+    }
     let mut status = Cell::new();
     let rest = step.status.split_once(' ').map_or(step.status.as_str(), |(_, r)| r);
-    match phase {
-        Phase::Spin(frame) => text(&mut status, &format!("{frame} {rest}"), fg(ORANGE), widths.status.saturating_sub(1)),
-        Phase::Spark => text(&mut status, &format!("{} ✦", step.status), bold(GREEN), widths.status.saturating_sub(1)),
-        Phase::Still => text(&mut status, &step.status, plain, widths.status.saturating_sub(1)),
+    match marks.phase {
+        Phase::Waiting => text(&mut status, &format!("{} {rest}", crate::anim::SPINNER[0]), dim(), widths.status.saturating_sub(1), &[]),
+        Phase::Spin(frame) => text(&mut status, &format!("{frame} {rest}"), fg(ORANGE), widths.status.saturating_sub(1), &[]),
+        Phase::Spark => text(&mut status, &format!("{} ✦", step.status), bold(GREEN), widths.status.saturating_sub(1), &[]),
+        Phase::Still => text(&mut status, &step.status, plain, widths.status.saturating_sub(1), &hit.fields[3]),
     }
     let mut what = Cell::new();
-    text(&mut what, &step.step, plain, widths.what.saturating_sub(1));
+    text(&mut what, &step.step, plain, widths.what.saturating_sub(1), &hit.fields[1]);
     if !step.command.is_empty() {
-        text(&mut what, &format!("$ {}", step.command), if is_done { dim() } else { fg(ORANGE) }, widths.what.saturating_sub(1));
+        text(&mut what, &format!("$ {}", step.command), if is_done { dim() } else { fg(ORANGE) }, widths.what.saturating_sub(1), &shifted(&hit.fields[4], 2));
     }
     if let Some((said, style)) = handoffs.get(&handoff_id(book, step)).and_then(handoff::line) {
-        text(&mut what, &said, style, widths.what.saturating_sub(1));
+        text(&mut what, &said, style, widths.what.saturating_sub(1), &[]);
     }
     let mut where_ = Cell::new();
     if let Some((repo, number)) = pr_ref(step) {
-        text(&mut where_, &step.where_, Style::new().fg(DIM).add_modifier(Modifier::UNDERLINED), widths.where_.saturating_sub(1));
+        text(&mut where_, &step.where_, Style::new().fg(DIM).add_modifier(Modifier::UNDERLINED), widths.where_.saturating_sub(1), &hit.fields[2]);
         if let Some((badge, style)) = handoff::live_badge(&repo, number, inbox) {
-            text(&mut where_, &badge, style, widths.where_.saturating_sub(1));
+            text(&mut where_, &badge, style, widths.where_.saturating_sub(1), &[]);
         }
     } else {
-        text(&mut where_, &step.where_, dim(), widths.where_.saturating_sub(1));
+        text(&mut where_, &step.where_, dim(), widths.where_.saturating_sub(1), &hit.fields[2]);
     }
     join([n, status, what, where_], widths.all())
 }

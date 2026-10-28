@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  Mermaid   view · hh:mm
+
+ Flowchart
+                    ▄▄▄▄▄▄▄
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▀▀▀▀▀▀▀
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▄▄▄▄▄▄▄
+                    ▀▀▀▀▀▀▀
+
+ Sequence
+   ┌─────────┐   ┌─────┐   ┌──────┐
+   │ Session │   │ Mod │   │ Pane │
+   └─────────┘   └─────┘   └──────┘
+        │           │          │
+        │ show      │          │
+        ├──────────▶│          │
+        │           │          │
+        │           │ spec     │
+        │           ├─────────▶│
+        │           │          │
+        │           │ answer   │
+        │           │◀╌╌╌╌╌╌╌╌╌┤
+        │           │          │
+        │           │          │
+   ┌─────────┐   ┌─────┐   ┌──────┐
+   │ Session │   │ Mod │   │ Pane │
+   └─────────┘   └─────┘   └──────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom

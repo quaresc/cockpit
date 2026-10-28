@@ -1,7 +1,8 @@
 """The show tool, animated: an agent opens a chart beside the conversation, q hides it to a footer chip, the chip brings it
 back, drawn by the real show.py from fictional data. --full draws show_tx.py, the Textual version, with its charts as images,
-into show-full.svg; run it with the venv's python, which has Textual."""
-import json, os, shutil, subprocess, sys, time
+into show-full.svg (run it with the venv's python, which has Textual); --rust draws the Rust app, built in herdr/tui, into
+show-rust.svg, its charts laid over from the pictures it saves to COCKPIT_SHOT_DIR."""
+import base64, json, os, shutil, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import BAR, CW, LH, PAD, animate, run, screen_of
 
@@ -14,14 +15,21 @@ PANE = COLS - LEFT - 1
 ORANGE, DIMC, INK, QUIET, WHITE, LINE = "FFC799", "707070", "101010", "2C2C30", "D2D2D2", "2C2C30"
 env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true"}
 FULL = "--full" in sys.argv
+RUST = "--rust" in sys.argv
 PICTURES = os.path.join(HOME, "show-pictures.json")
+SHOTS = os.path.join(HOME, "show-shots")
 
 
 def pane(name, spec, cols, rows, keys=(), wait=2.0):
     """The show.py screen for this spec, at this size; with --full, show_tx.py's, its pictures recorded in PICTURES."""
     os.makedirs(os.path.join(HOME, ".cache", "cockpit", "show"), exist_ok=True)
     json.dump({**spec, "at": int(time.time() * 1000)}, open(os.path.join(HOME, ".cache", "cockpit", "show", f"{name}.json"), "w"))
-    if FULL:
+    if RUST:
+        shutil.rmtree(SHOTS, ignore_errors=True)
+        os.makedirs(SHOTS)
+        argv, wait = [os.path.join(APPS, "tui", "target", "release", "cockpit-show"), name], wait + 3
+        env.update(COCKPIT_SHOT_DIR=SHOTS, COCKPIT_HERDR_DIR=APPS)
+    elif FULL:
         argv, wait = [sys.executable, os.path.join(HERE, "show_tx_shot.py"), name], wait + 3
         env["SHOT_PICTURES"] = PICTURES
     else:
@@ -100,19 +108,32 @@ frames = [  # (seconds on screen, screen)
 
 
 
+def placed():
+    """Each picture with the cells it holds in the pane: from show_tx_shot.py's file, or the Rust app's shot folder."""
+    if FULL:
+        return json.load(open(PICTURES))
+    out = []
+    for at in sorted(f for f in os.listdir(SHOTS) if f.endswith(".at")):
+        png = os.path.join(SHOTS, at[:-3] + ".png")
+        if os.path.exists(png):
+            x, y, w, h = json.load(open(os.path.join(SHOTS, at)))
+            out.append({"x": x, "y": y, "w": w, "h": h, "png": base64.b64encode(open(png, "rb").read()).decode()})
+    return out
+
+
 def pictures(i):
     """The charts as images over the pane's half blocks, in the frames that show the pane."""
-    if not FULL or i not in (2, 4):
+    if not (FULL or RUST) or i not in (2, 4):
         return ""
     loop = sum(d for d, _ in frames)
     begin = sum(d for d, _ in frames[:i])
     a, b = 100 * begin / loop, 100 * (begin + frames[i][0]) / loop
     style = f"@keyframes c{i}{{0%,{a:.2f}%{{visibility:hidden}}{a:.2f}%,{b:.2f}%{{visibility:visible}}{b:.2f}%,100%{{visibility:hidden}}}}"
     images = "".join(f'<image href="data:image/png;base64,{p["png"]}" x="{PAD + (LEFT + 1 + p["x"]) * CW:.1f}" y="{BAR + PAD + p["y"] * LH:.1f}" '
-                     f'width="{p["w"] * CW:.1f}" height="{p["h"] * LH:.1f}" preserveAspectRatio="none"/>' for p in json.load(open(PICTURES)))
+                     f'width="{p["w"] * CW:.1f}" height="{p["h"] * LH:.1f}" preserveAspectRatio="none"/>' for p in placed())
     return f'<style>{style}</style><g style="visibility:hidden;animation:c{i} {loop:.2f}s step-end infinite">{images}</g>'
 
 
-open(os.path.join(OUT, "show-full.svg" if FULL else "show.svg"), "w").write(animate(frames, "herdr · show" + (" · full" if FULL else ""),
-                                                                                     pictures if FULL else None))
+name = "show-rust.svg" if RUST else "show-full.svg" if FULL else "show.svg"
+open(os.path.join(OUT, name), "w").write(animate(frames, "herdr · show", pictures if FULL or RUST else None))
 print(len(frames), "frames")

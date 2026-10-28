@@ -1,122 +1,82 @@
-//! What moves: a step turning done (a spinner, then a teal flash fading out through tachyonfx, a spark for the first
-//! second), and values that glide to their new place, the progress gauge, the scroll and the tab underline.
+//! A step turning done: a spinner in its status cell, then a spark beside it while core's teal flash fades the row; each
+//! step starting CASCADE after the previous. Time comes from a clock tests can stop.
 
 use std::time::{Duration, Instant};
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use ratatui::style::Color;
-use tachyonfx::{ColorSpace, Effect, EffectTimer, Interpolation, fx};
-
-/// Each done step starts CASCADE after the previous; it spins for SPIN, then sparks until SPARK and fades until FLASH.
+/// Each done step starts CASCADE after the previous; it spins for SPIN, then sparks until SPARK.
 pub const CASCADE: f32 = 0.3;
 const SPIN: f32 = 0.5;
 const SPIN_FRAME: f32 = 0.07;
 const SPARK: f32 = 1.5;
-const FLASH: f32 = 2.6;
-const SPINNER: [char; 4] = ['◐', '◓', '◑', '◒'];
-const FLASH_FROM: Color = Color::Rgb(40, 100, 80);
+pub const SPINNER: [char; 4] = ['◐', '◓', '◑', '◒'];
+
+/// The time the animations read, and the day a step is marked done on; both can be fixed for a snapshot.
+#[derive(Clone, Debug, Default)]
+pub struct Clock {
+    frozen: Option<Instant>,
+    day: Option<String>,
+}
+
+impl Clock {
+    pub fn now(&self) -> Instant {
+        self.frozen.unwrap_or_else(Instant::now)
+    }
+
+    /// Stops time at this instant, for a test to look at one frame of an animation.
+    pub fn freeze(&mut self, at: Instant) {
+        self.frozen = Some(at);
+    }
+
+    /// The day as `runbook.mark_done` writes it, "28 Oct".
+    pub fn today(&self) -> String {
+        self.day.clone().unwrap_or_else(|| chrono::Local::now().format("%d %b").to_string())
+    }
+
+    pub fn set_today(&mut self, day: &str) {
+        self.day = Some(day.into());
+    }
+}
 
 pub enum Phase {
-    /// Not started yet, or over: the row as it is.
+    /// Over, or not playing: the row as it is.
     Still,
+    /// Its turn in the cascade not come yet.
+    Waiting,
     Spin(char),
     Spark,
 }
 
-/// One row playing its done animation.
+/// One row's place in its done animation.
 pub struct RowFx {
     start: Instant,
-    flash: Option<(Effect, Instant)>,
+    /// Whether core's flash was started on the row, once its spin ended.
+    pub flashed: bool,
 }
 
 impl RowFx {
-    pub fn new(delay: f32) -> Self {
-        Self { start: Instant::now() + Duration::from_secs_f32(delay), flash: None }
+    pub fn new(now: Instant, delay: f32) -> Self {
+        Self { start: now + Duration::from_secs_f32(delay), flashed: false }
     }
 
-    fn t(&self) -> f32 {
-        let now = Instant::now();
+    fn t(&self, now: Instant) -> f32 {
         if now < self.start { -(self.start - now).as_secs_f32() } else { (now - self.start).as_secs_f32() }
     }
 
-    pub fn phase(&self) -> Phase {
-        match self.t() {
+    pub fn phase(&self, now: Instant) -> Phase {
+        match self.t(now) {
+            t if t < 0.0 => Phase::Waiting,
             t if (0.0..SPIN).contains(&t) => Phase::Spin(SPINNER[(t / SPIN_FRAME) as usize % SPINNER.len()]),
             t if (SPIN..SPARK).contains(&t) => Phase::Spark,
             _ => Phase::Still,
         }
     }
 
-    pub fn is_over(&self) -> bool {
-        self.t() >= FLASH
+    /// True once the spin is over and the flash not started yet.
+    pub fn wants_flash(&self, now: Instant) -> bool {
+        !self.flashed && self.t(now) >= SPIN
     }
 
-    /// Tints the row's cells, drawn already, from teal back to their own background with an ease-out.
-    pub fn paint(&mut self, buf: &mut Buffer, area: Rect) {
-        if self.t() < SPIN {
-            return;
-        }
-        let now = Instant::now();
-        let (effect, last) = self.flash.get_or_insert_with(|| {
-            let timer = EffectTimer::from_ms(((FLASH - SPIN) * 1000.0) as u32, Interpolation::CubicOut);
-            let fade = fx::effect_fn((), timer, |_, ctx, cells| {
-                let alpha = ctx.alpha();
-                for (_, cell) in cells {
-                    let to = cell.bg;
-                    cell.set_bg(ColorSpace::Rgb.lerp(&FLASH_FROM, &to, alpha));
-                }
-            });
-            (fade, now)
-        });
-        let step = tachyonfx::Duration::from_millis((now - *last).as_millis() as u32);
-        *last = now;
-        effect.process(step, buf, area.intersection(buf.area));
-    }
-}
-
-pub fn out_cubic(t: f32) -> f32 {
-    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
-}
-
-/// A number that eases from where it was to where it is going.
-#[derive(Clone, Copy)]
-pub struct Glide {
-    from: f32,
-    to: f32,
-    at: Instant,
-    secs: f32,
-}
-
-impl Glide {
-    pub fn new(value: f32, secs: f32) -> Self {
-        Self { from: value, to: value, at: Instant::now(), secs }
-    }
-
-    pub fn now(&self) -> f32 {
-        let t = self.at.elapsed().as_secs_f32() / self.secs;
-        self.from + (self.to - self.from) * out_cubic(t)
-    }
-
-    pub fn target(&self) -> f32 {
-        self.to
-    }
-
-    pub fn go(&mut self, to: f32) {
-        if (to - self.to).abs() > f32::EPSILON {
-            self.from = self.now();
-            self.to = to;
-            self.at = Instant::now();
-        }
-    }
-
-    /// Straight there, no easing: a jump the eye should not follow.
-    pub fn set(&mut self, to: f32) {
-        self.from = to;
-        self.to = to;
-    }
-
-    pub fn is_moving(&self) -> bool {
-        self.at.elapsed().as_secs_f32() < self.secs && (self.to - self.from).abs() > f32::EPSILON
+    pub fn is_over(&self, now: Instant) -> bool {
+        self.t(now) >= SPARK
     }
 }

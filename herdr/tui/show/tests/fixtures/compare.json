@@ -1,0 +1,13 @@
+{
+ "title": "Compare",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "compare",
+   "title": "Header",
+   "before": "{fixtures}/before.png",
+   "after": "{fixtures}/after.png"
+  }
+ ],
+ "placement": "right"
+}

@@ -1,8 +1,7 @@
 //! inbox.py's build as rows of a tree: the header and its error lines, then Today, Alerts, Review, Work and Other PRs.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use cockpit_core::files;
 use cockpit_core::theme::{DIM, GREEN, ORANGE, RED, bold, dim, fg};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -10,9 +9,22 @@ use serde_json::{Value, json};
 
 use crate::facts::{self, Config, OLD_REVIEW_DAYS, PREVIEW_WARN_HOURS, RED_ALERT_HOURS, age_days, ago, first_name, flag, list, reference, s};
 use crate::icons::icon;
-use crate::row::{Cells, Row, RowAct, call, open};
+use crate::inputs::Inputs;
+use crate::row::{Cells, Kind, Row, RowAct, call, open};
 use crate::sessions::Local;
 use crate::work;
+
+/// Team requests the compact layout shows before folding the rest away, as the light app does.
+const TEAM_SHOWN: usize = 5;
+
+/// How a rebuild lays the rows out, beside what it reads.
+pub struct Ctx<'a> {
+    pub config: &'a Config,
+    pub by_status: bool,
+    pub compact: bool,
+    /// Each ticket's cost history, oldest first, for its sparkline.
+    pub series: &'a HashMap<String, Vec<f64>>,
+}
 
 pub const INBOX_VERSION: i64 = 1;
 
@@ -24,51 +36,47 @@ pub fn strong() -> Style {
     Style::new().add_modifier(Modifier::BOLD)
 }
 
-fn load(name: &str) -> Option<Value> {
-    files::load(&files::cache().join(name))
+/// The inbox cache when it is there and of this version.
+pub fn usable(inputs: &Inputs) -> Option<&Value> {
+    inputs.data.as_ref().filter(|d| d["version"].as_i64() == Some(INBOX_VERSION))
 }
 
-pub fn muted() -> Vec<String> {
-    files::load(&files::config_dir().join("muted.json")).and_then(|v| v.as_array().map(|a| a.iter().filter_map(|r| r.as_str().map(str::to_string)).collect())).unwrap_or_default()
-}
-
-/// The header with its error lines, and the tree's top rows, from the caches.
-pub fn model(by_status: bool, config: &Config, local: &mut Local) -> (Vec<Line<'static>>, Vec<Row>) {
-    let Some(data) = load("inbox.json") else {
+/// The header with its error lines, and the tree's top rows.
+pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static>>, Vec<Row>) {
+    let Some(data) = &inputs.data else {
         return (vec![Line::styled("No data yet: the cockpit mod in a Claude session fills ~/.cache/cockpit/inbox.json.", dim())], Vec::new());
     };
-    if data["version"].as_i64() != Some(INBOX_VERSION) {
+    if usable(inputs).is_none() {
         return (vec![Line::styled("Refreshing: the inbox cache comes from another cockpit version.", dim())], Vec::new());
     }
-    let ci = load("ci.json").unwrap_or_else(|| json!({"runs": []}));
+    let ci = if inputs.ci.is_object() { inputs.ci.clone() } else { json!({"runs": []}) };
     let mut head = vec![heading("inbox", "Inbox", &format!("updated {}", facts::clock(&data["at"])))];
-    let errors = list(&data, "errors").iter().chain(std::iter::once(&ci["error"]).filter(|e| e.is_string()));
+    let errors = list(data, "errors").iter().chain(std::iter::once(&ci["error"])).filter(|e| e.is_string());
     head.extend(errors.map(|e| Line::styled(e.as_str().unwrap_or_default().to_string(), fg(RED))));
 
     let mut top = Vec::new();
-    if let Some(today) = today() {
+    if let Some(today) = inputs.brief.as_ref().and_then(today) {
         top.push(today);
     }
-    let alerts = alerts(&data, &ci, config, local);
+    let alerts = alerts(data, &ci, ctx.config, local);
     if !alerts.children.is_empty() {
         top.push(alerts);
     }
-    top.push(review(&data));
-    let (work, other) = work::rows(&data, &ci, config, by_status);
+    top.push(review(data, &inputs.muted, ctx.compact));
+    let (work, other) = work::rows(data, &ci, ctx, &inputs.costs);
     top.push(work);
     top.push(other);
     (head, top)
 }
 
 /// The morning brief, when it is today's and not dismissed.
-fn today() -> Option<Row> {
-    let brief = load("brief.json")?;
-    if s(&brief, "date") != facts::today() || flag(&brief, "dismissed") || list(&brief, "lines").is_empty() {
+fn today(brief: &Value) -> Option<Row> {
+    if s(brief, "date") != facts::today() || flag(brief, "dismissed") || list(brief, "lines").is_empty() {
         return None;
     }
     let written = facts::clock(&brief["at"]);
     let mut today = Row::text("today", heading("today", "Today", &format!("morning brief, {written}"))).acts(vec![RowAct::new("dismiss", 'x', call("dismiss_brief", vec![])).main()]);
-    for (n, entry) in list(&brief, "lines").iter().enumerate() {
+    for (n, entry) in list(brief, "lines").iter().enumerate() {
         let style = match s(entry, "tone") {
             "bad" => fg(RED),
             "warn" => fg(ORANGE),
@@ -78,7 +86,7 @@ fn today() -> Option<Row> {
         let glyph_style = if style == Style::new() { dim() } else { style };
         let text = s(entry, "text").to_string();
         let line = Line::from(vec![Span::styled(format!("{}  ", icon(s(entry, "icon"))), glyph_style), Span::styled(text.clone(), style)]);
-        let mut row = Row::text(format!("brief:{n}"), line).info(vec![Line::styled(text.clone(), style)]).name(text).section("Today");
+        let mut row = Row::text(format!("brief:{n}"), line).info(vec![Line::styled(text.clone(), style)]).name(text).section("Today").kind(Kind::Brief);
         if !s(entry, "url").is_empty() {
             row = row.acts(vec![RowAct::new("open", 'o', open(s(entry, "url"))).main()]).primary(open(s(entry, "url")));
         }
@@ -88,7 +96,7 @@ fn today() -> Option<Row> {
 }
 
 fn alert(key: String, text: &str, style: Style) -> Row {
-    Row::text(key, Line::styled(format!(" {}  {text}", icon("alert")), style)).name(text).section("Alerts")
+    Row::text(key, Line::styled(format!(" {}  {text}", icon("alert")), style)).name(text).section("Alerts").kind(Kind::Alert)
 }
 
 /// Previews expiring, unhealthy or running a merged branch, red CI of the last hours, sessions left on merged branches.
@@ -153,7 +161,7 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
             None => json!([herdr, "workspace", "focus", space]),
         };
         let text = format!("a session still works on {label}");
-        let row = Row::text(format!("alert:session:{space}"), Line::styled(format!(" {}  {text}", icon("alert")), dim())).name(format!("session on {label}")).section("Alerts");
+        let row = Row::text(format!("alert:session:{space}"), Line::styled(format!(" {}  {text}", icon("alert")), dim())).name(format!("session on {label}")).section("Alerts").kind(Kind::Alert);
         let close = RowAct::new(verb, 'a', call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
         alerts.add(row.acts(vec![close, RowAct::new("go", 'o', call("run", vec![go]))]));
     }
@@ -191,11 +199,13 @@ fn review_row(pr: &Value) -> Row {
         .info(info)
         .status(s(pr, "url"))
         .section("Review")
+        .kind(Kind::Review)
+        .item(pr)
 }
 
-/// Review requests: direct ones first, then team ones; old ones and muted repos folded away.
-fn review(data: &Value) -> Row {
-    let muted = muted();
+/// Review requests: direct ones first, then team ones; old ones and muted repos folded away, and in the compact layout
+/// the team requests past the first few.
+fn review(data: &Value, muted: &[String], compact: bool) -> Row {
     let is_muted = |repo: &str| muted.iter().any(|m| m == repo);
     let is_old = |pr: &&Value| age_days(s(pr, "updatedAt")).unwrap_or(0.0) > OLD_REVIEW_DAYS;
     let shown: Vec<&Value> = list(data, "team").iter().filter(|pr| !is_muted(s(pr, "repo"))).collect();
@@ -204,11 +214,19 @@ fn review(data: &Value) -> Row {
     let old: Vec<&Value> = list(data, "direct").iter().chain(shown.iter().copied()).filter(is_old).collect();
     let bot_repos = list(data, "botRepos");
     let bots = bot_repos.iter().filter(|r| !is_muted(r.as_str().unwrap_or(""))).count();
-    let hidden = list(data, "team").len() - shown.len() + bot_repos.len() - bots;
+    let hidden = (list(data, "team").len() + bot_repos.len()).saturating_sub(shown.len() + bots);
     let extra = format!("{} for you · {} team · {bots} bots", direct.len(), team.len()) + &if hidden > 0 { format!(" · {hidden} muted") } else { String::new() };
     let mut reviews = Row::text("review", heading("review", "Review", &extra));
-    for pr in direct.iter().chain(&team) {
+    let cap = if compact { TEAM_SHOWN } else { usize::MAX };
+    for pr in direct.iter().chain(team.iter().take(cap)) {
         reviews.add(review_row(pr));
+    }
+    if team.len() > cap {
+        let more = Row::text("review:more", Line::styled(format!("{} {} more team requests", icon("fold"), team.len() - cap), dim())).folded();
+        let group = reviews.add(more);
+        for pr in &team[cap..] {
+            group.add(review_row(pr));
+        }
     }
     if !old.is_empty() {
         let group = reviews.add(Row::text("review:old", Line::styled(format!("{} older than {OLD_REVIEW_DAYS} days", old.len()), dim())).folded());
@@ -218,11 +236,11 @@ fn review(data: &Value) -> Row {
     }
     if !muted.is_empty() {
         let group = reviews.add(Row::text("review:muted", Line::styled(format!("{} {} muted repos", icon("mute"), muted.len()), dim())).folded());
-        let mut repos = muted.clone();
+        let mut repos = muted.to_vec();
         repos.sort();
         for repo in repos {
             let unmute = RowAct::new("unmute", 'a', call("set_muted", vec![json!(repo), json!(false)])).main();
-            group.add(Row::text(format!("muted:{repo}"), Line::styled(repo.clone(), fg(DIM))).acts(vec![unmute]).name(repo).section("Muted"));
+            group.add(Row::text(format!("muted:{repo}"), Line::styled(repo.clone(), fg(DIM))).acts(vec![unmute]).name(repo).section("Muted").kind(Kind::Muted));
         }
     }
     reviews

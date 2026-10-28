@@ -9,9 +9,11 @@ cockpit-core.workspace = true
 chrono.workspace = true
 crossterm.workspace = true
 notify.workspace = true
+nucleo-matcher.workspace = true
 ratatui.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+proptest = "1.5"

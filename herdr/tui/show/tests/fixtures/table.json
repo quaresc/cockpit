@@ -1,0 +1,48 @@
+{
+ "title": "Table",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "table",
+   "title": "Orgs",
+   "columns": [
+    "org",
+    "plan",
+    "previews",
+    "seats",
+    "active"
+   ],
+   "rows": [
+    [
+     "Initech",
+     "pro",
+     1234,
+     12,
+     true
+    ],
+    [
+     "Hooli Inc",
+     "free",
+     9,
+     1,
+     false
+    ],
+    [
+     "Acme",
+     null,
+     45.5,
+     3,
+     true
+    ],
+    [
+     "Globex",
+     "enterprise",
+     120000,
+     250,
+     true
+    ]
+   ]
+  }
+ ],
+ "placement": "right"
+}

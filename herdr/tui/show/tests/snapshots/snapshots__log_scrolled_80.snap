@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(&mut app, 80)"
+---
+ ◆  Log   view · hh:mm
+
+ Counter
+ 8                                                                            │
+ 9                                                                            │
+ 10                                                                           │
+ 11                                                                           │
+ 12                                                                           ┃
+ 13                                                                           ┃
+ 14                                                                           ┃
+ 15                                                                           ┃
+ 16                                                                           ┃
+ 17                                                                           ┃
+ 18                                                                           ┃
+ 19                                                                           ┃
+ 20                                                                           ┃
+ 21                                                                           ┃
+ 22                                                                           ┃
+ 23                                                                           ┃
+ 24                                                                           ┃
+ 25                                                                           │
+ 26                                                                           │
+ 27                                                                           │
+
+ ✓ · every 600s · hh:mm   lines 8–27 of 30 · G follows
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  g/G top/follow  esc leave

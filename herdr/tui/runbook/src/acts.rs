@@ -39,6 +39,7 @@ pub fn step_acts(book: &Book, step: &Step, handoffs: &HashMap<String, Value>) ->
         let act = Act::new("copy command", 'c', "copy");
         acts.push(if acts.is_empty() { act.main() } else { act });
     }
+    acts.push(Act::new("edit", 'e', "edit"));
     acts
 }
 

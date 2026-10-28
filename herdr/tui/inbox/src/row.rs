@@ -4,7 +4,7 @@
 use cockpit_core::acts::Act;
 use cockpit_core::text::{fit, width};
 use cockpit_core::theme::{DIM, GREEN, ORANGE, RED, fg};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use serde_json::Value;
 
@@ -63,6 +63,63 @@ impl RowAct {
     }
 }
 
+/// What a row stands for: rows of one kind can be selected together and share their actions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Kind {
+    /// Headings, groups and detail lines: never selected.
+    Plain,
+    Pr,
+    Review,
+    Ticket,
+    Alert,
+    Brief,
+    Muted,
+}
+
+impl Kind {
+    /// How a count of these reads: "1 PR", "4 PRs".
+    pub fn count(self, n: usize) -> String {
+        let (one, many) = match self {
+            Kind::Pr => ("PR", "PRs"),
+            Kind::Review => ("review request", "review requests"),
+            Kind::Ticket => ("ticket", "tickets"),
+            Kind::Alert => ("alert", "alerts"),
+            Kind::Brief => ("brief line", "brief lines"),
+            Kind::Muted => ("muted repo", "muted repos"),
+            Kind::Plain => ("row", "rows"),
+        };
+        format!("{n} {}", if n == 1 { one } else { many })
+    }
+}
+
+/// How a filter's matched characters show: underlined and bold, which survives the cursor's colours.
+fn hit_style() -> Style {
+    Style::new().fg(ORANGE).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+}
+
+/// Text split into spans so the characters at `hits` (counted from `from` in the row's haystack) stand out.
+fn marked(text: &str, original: &str, from: usize, hits: &[usize], style: Style) -> Vec<Span<'static>> {
+    if hits.is_empty() {
+        return vec![Span::styled(text.to_string(), style)];
+    }
+    let original: Vec<char> = original.chars().collect();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut run = String::new();
+    let mut run_hit = false;
+    for (i, c) in text.chars().enumerate() {
+        let hit = original.get(i) == Some(&c) && hits.binary_search(&(from + i)).is_ok();
+        if hit != run_hit && !run.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut run), if run_hit { style.patch(hit_style()) } else { style }));
+        }
+        run_hit = hit;
+        run.push(c);
+    }
+    if !run.is_empty() {
+        spans.push(Span::styled(run, if run_hit { style.patch(hit_style()) } else { style }));
+    }
+    spans
+}
+
 pub struct Cells {
     pub lead: Vec<(String, Style)>,
     pub reference: (String, Style),
@@ -87,6 +144,9 @@ pub struct Row {
     pub expand: bool,
     pub name: String,
     pub section: String,
+    pub kind: Kind,
+    /// The PR a PR or review request row stands for, for its details on demand.
+    pub item: Option<Value>,
     pub children: Vec<Row>,
 }
 
@@ -101,7 +161,7 @@ impl Row {
     }
 
     fn with(key: String, body: Body, name: String) -> Self {
-        Self { key, body, acts: Vec::new(), primary: None, info: Vec::new(), status: None, expand: true, name, section: String::new(), children: Vec::new() }
+        Self { key, body, acts: Vec::new(), primary: None, info: Vec::new(), status: None, expand: true, name, section: String::new(), kind: Kind::Plain, item: None, children: Vec::new() }
     }
 
     pub fn acts(mut self, acts: Vec<RowAct>) -> Self {
@@ -144,6 +204,16 @@ impl Row {
         self
     }
 
+    pub fn kind(mut self, kind: Kind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub fn item(mut self, item: &Value) -> Self {
+        self.item = Some(item.clone());
+        self
+    }
+
     pub fn add(&mut self, row: Row) -> &mut Row {
         self.children.push(row);
         self.children.last_mut().expect("just pushed")
@@ -158,17 +228,31 @@ impl Row {
         }
     }
 
+    /// What a filter matches against: the text a row shows, its cells joined by single spaces.
+    pub fn haystack(&self) -> String {
+        match &self.body {
+            Body::Text(line) => line.spans.iter().map(|s| s.content.as_ref()).collect(),
+            Body::Cells(cells) => format!("{} {} {}", cells.reference.0, cells.title.0, cells.notes.0),
+        }
+    }
+
     /// The row in `room` cells: narrow panes and deep rows give up ref cells first, so the title keeps some room and
-    /// the age stays in view; a request in flight, or its outcome, takes the notes' place.
-    pub fn line(&self, room: usize, requests: &Requests) -> Line<'static> {
+    /// the age stays in view; a request in flight, or its outcome, takes the notes' place. `hits` are the haystack's
+    /// characters a filter matched, sorted.
+    pub fn line(&self, room: usize, requests: &Requests, hits: &[usize]) -> Line<'static> {
         let cells = match &self.body {
             Body::Text(line) => {
-                // An alert's extend or stop has no notes cell: its progress follows the text.
-                let mut line = line.clone();
-                if let Some((text, style)) = self.progress(requests) {
-                    line.spans.push(Span::styled(format!("   {text}"), style));
+                let mut spans = Vec::new();
+                let mut at = 0;
+                for span in &line.spans {
+                    spans.extend(marked(&span.content, &span.content, at, hits, span.style));
+                    at += span.content.chars().count();
                 }
-                return line;
+                // An alert's extend or stop has no notes cell: its progress follows the text.
+                if let Some((text, style)) = self.progress(requests) {
+                    spans.push(Span::styled(format!("   {text}"), style));
+                }
+                return Line::from(spans).style(line.style);
             }
             Body::Cells(cells) => cells,
         };
@@ -177,14 +261,19 @@ impl Row {
         spans.push(Span::raw(" ".repeat(LEAD.saturating_sub(lead))));
         let avail = room as i64 - (LEAD + NOTES + AGE + 1) as i64;
         let ref_room = (REF as i64).min(10.max(avail.div_euclid(2))) as usize;
-        spans.push(Span::styled(format!("{} ", fit(&cells.reference.0, ref_room - 1)), cells.reference.1));
+        let (reference, title) = (&cells.reference.0, &cells.title.0);
+        let title_at = reference.chars().count() + 1;
+        spans.extend(marked(&format!("{} ", fit(reference, ref_room - 1)), reference, 0, hits, cells.reference.1));
         let (mut notes, mut age) = (cells.notes.clone(), cells.age.clone());
+        let mut notes_hits = hits;
         if let Some(progress) = self.progress(requests) {
-            (notes, age) = (progress, String::new());
+            (notes, age, notes_hits) = (progress, String::new(), &[]);
         }
         let title_room = 4.max(avail - ref_room as i64) as usize;
-        spans.push(Span::styled(format!("{} ", fit(&cells.title.0, title_room)), cells.title.1));
-        spans.push(Span::styled(fit(&notes.0, NOTES + if age.is_empty() { AGE } else { 0 }), notes.1));
+        spans.extend(marked(&format!("{} ", fit(title, title_room)), title, title_at, hits, cells.title.1));
+        let notes_at = title_at + title.chars().count() + 1;
+        let notes_text = fit(&notes.0, NOTES + if age.is_empty() { AGE } else { 0 });
+        spans.extend(marked(&notes_text, &notes.0, notes_at, notes_hits, notes.1));
         if !age.is_empty() {
             spans.push(Span::styled(fit(&format!("{age:>AGE$}"), AGE), fg(DIM)));
         }

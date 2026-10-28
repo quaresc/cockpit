@@ -1,0 +1,44 @@
+---
+source: runbook/tests/screens.rs
+expression: "screen(&mut app, width, 40)"
+---
+   Runbooks   3 · 25 steps left
+ ENG-410 13  ENG-420 12  ENG-398 ✓
+╸━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ENG-410 · Daily quotas: usage counters (exports + previews
+ ━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━  24%
+
+ #   status           step       where                    ▐
+                                                          ▐
+ 1   ✅  done, v0.3.0  Release    event-schemas-registry#  ▐
+     cut              usage      57                       ▐
+                      0.3.0
+                      schema
+
+ 2   ✅  done, applied Grant      infra#811
+                      billing
+                      the usage
+                      vhost
+
+ 3   ✅  done, applied Grant      infra#814
+                      billing     merged
+                      configure
+                      on reply
+                      exchange
+
+ 4   ✅  done, expired Preview    pv-quotas-7f3a
+                      e2e
+                      (backfill,
+
+ • Deploy order is consumer first: api, then web, then
+   billing PR 3; PR 4 only once charts#402 is on the
+   charts' production branch.
+ • billing#380 targets PR 3's branch: merge #379 first,
+   then retarget #380 to main.
+ • The backfill only counts accounts whose plan sets a
+────────────────────────────────────────────────────────────
+ #1  Release usage 0.3.0 schema
+ status ✅  done, v0.3.0 cut
+
+   open event-schemas-registry#57  o     edit  e
+ q quit  / filter  v pick  e edit  a add        ▏^p palette

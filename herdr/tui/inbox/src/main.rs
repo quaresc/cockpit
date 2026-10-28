@@ -1,17 +1,6 @@
-//! inbox.py in Rust, for the config's `apps: "rust"`: the same caches as one tree, every action run by inbox.py
-//! itself through bridge.py.
-
-mod app;
-mod facts;
-mod icons;
-mod model;
-mod panel;
-mod requests;
-mod row;
-mod sessions;
-mod tree;
-mod work;
+//! The inbox space's app; everything lives in the library, which the snapshot tests drive too.
 
 fn main() -> std::io::Result<()> {
-    cockpit_core::term::run(&mut app::App::new())
+    cockpit_core::answer_version("cockpit-inbox");
+    cockpit_core::term::run(&mut cockpit_inbox::app::App::start())
 }

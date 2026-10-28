@@ -19,8 +19,17 @@ use serde_json::{Value, json};
 
 use crate::files;
 
+/// ~/.cache/cockpit/hub.sock, or a name in the temp folder when that path is longer than a unix socket allows
+/// (104 bytes on macOS), keyed by the cache folder so two homes never share a hub.
 pub fn socket() -> PathBuf {
-    files::cache().join("hub.sock")
+    let path = files::cache().join("hub.sock");
+    if path.as_os_str().len() < 100 {
+        return path;
+    }
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    files::cache().hash(&mut hasher);
+    std::env::temp_dir().join(format!("cockpit-hub-{:016x}.sock", hasher.finish()))
 }
 
 /// The hub binary, beside the app's own.

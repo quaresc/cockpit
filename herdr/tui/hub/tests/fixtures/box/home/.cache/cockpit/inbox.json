@@ -1,0 +1,20 @@
+{"version": 1, "at": 1793114742042, "errors": [], "botRepos": [],
+ "mine": [
+  {"repo": "api", "number": 4, "title": "Google sign-in", "url": "https://github.com/acme/api/pull/4", "author": "me", "authorName": "Me Too", "updatedAt": "2026-10-27T15:53:26Z", "isDraft": false, "isDirect": false, "review": "CHANGES_REQUESTED", "ci": "FAILURE", "branch": "me/eng-401-login", "base": "main", "failedChecks": ["lint", "test"]},
+  {"repo": "web", "number": 12, "title": "Login form", "url": "https://github.com/acme/web/pull/12", "author": "me", "authorName": "Me Too", "updatedAt": "2026-10-26T10:00:00Z", "isDraft": true, "isDirect": false, "review": "APPROVED", "ci": "SUCCESS", "branch": "me/eng-401-form", "base": "main", "failedChecks": []},
+  {"repo": "api", "number": 7, "title": "Other work", "url": "https://github.com/acme/api/pull/7", "author": "me", "authorName": "Me Too", "updatedAt": "2026-10-20T10:00:00Z", "isDraft": false, "isDirect": false, "review": null, "ci": null, "branch": "me/other", "base": "main", "failedChecks": []}
+ ],
+ "direct": [{"repo": "web", "number": 9, "title": "Dark mode", "url": "https://github.com/acme/web/pull/9", "author": "maya", "authorName": "Maya Haddad", "updatedAt": "2026-10-27T14:06:50Z", "isDraft": false, "isDirect": true, "review": "REVIEW_REQUIRED", "ci": "PENDING", "branch": "maya/dark", "base": "main", "failedChecks": []}],
+ "team": [{"repo": "docs", "number": 3, "title": "Typo", "url": "https://github.com/acme/docs/pull/3", "author": "jonas", "authorName": "", "updatedAt": "2026-10-27T18:23:28Z", "isDraft": false, "isDirect": false, "review": "REVIEW_REQUIRED", "ci": "SUCCESS", "branch": "jonas/typo", "base": "main", "failedChecks": []}],
+ "tickets": [
+  {"id": "ENG-401", "title": "Sign in with Google", "url": "https://linear.app/acme/issue/ENG-401/sign-in", "status": "In Progress", "statusType": "started", "parentId": null, "project": "Auth"},
+  {"id": "ENG-402", "title": "Ship the sign-in", "url": "https://linear.app/acme/issue/ENG-402/ship", "status": "Deploying", "statusType": "started", "parentId": null, "project": "Auth"},
+  {"id": "ENG-403", "title": "Password reset", "url": "https://linear.app/acme/issue/ENG-403/reset", "status": "Backlog", "statusType": "backlog", "parentId": null, "project": null}
+ ],
+ "merged": [{"repo": "api", "number": 2, "url": "https://github.com/acme/api/pull/2", "branch": "me/eng-402-ship", "mergedAt": "2026-10-27T11:07:09Z"}],
+ "previews": [
+  {"id": "pv-eng-401", "app": "api", "branch": "me/eng-401-login", "health": "Healthy", "expiresAt": "2026-10-29T10:02:47.907Z", "activated": true},
+  {"id": "pv-web", "app": "web", "branch": "me/eng-401-form", "health": "Healthy", "expiresAt": "2026-10-29T10:02:47.907Z", "activated": false}
+ ],
+ "deploys": {"ENG-401": [{"repo": "api", "number": 2, "isLive": true, "tag": "v1.2"}, {"repo": "web", "number": 5, "isLive": false, "tag": "v9.0"}]},
+ "deployLinks": {}}

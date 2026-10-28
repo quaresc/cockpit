@@ -1,5 +1,6 @@
 //! The show app: the view's blocks one after the other in a scrolling body under a header, redrawn when the spec file
-//! changes; a new call fades its blocks in one after the other, a refresh of the same call redraws in place.
+//! changes; a new call fades its new blocks in one after the other, a refresh of the same call redraws in place and its
+//! charts glide to their new values. Idle, it draws nothing.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
@@ -13,23 +14,29 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
+use ratatui_image::FontSize;
 use ratatui_image::picker::Picker;
 use ratatui_image::sliced::{SignedPosition, SlicedImage};
 use serde_json::{Value, json};
 use tachyonfx::{Effect, Interpolation, fx};
 
 use cockpit_core::bridge::Bridge;
+use cockpit_core::files::Density;
 use cockpit_core::palette::{Entry, Outcome, Palette};
 use cockpit_core::theme::{BG, DIM, FG, LINE, ORANGE, PANEL, base, bold, dim, fg};
 use cockpit_core::toast::{Kind, Toasts};
-use cockpit_core::{files, term};
+use cockpit_core::{files, focus, hub, term};
 
+use crate::answers::Outbox;
 use crate::blocks::{Ctx, Msg, View};
+use crate::picture::FRAME;
 use crate::question::Key;
 use crate::row::{Act, Row, Target};
 
 /// herdr-reviewr, when installed, takes over a repo diff for line comments sent back to the agent.
 const REVIEWR: &str = "persiyanov.reviewr";
+/// The longest wait between ticks: background results, file changes and bridge replies wake the loop sooner.
+const IDLE: Duration = Duration::from_millis(250);
 
 enum Command {
     GoTo(usize),
@@ -48,6 +55,7 @@ pub struct ShowApp {
     views: Vec<View>,
     next_uid: u64,
     ctx: Ctx,
+    font: FontSize,
     results: Receiver<Msg>,
     _watcher: Option<RecommendedWatcher>,
     changes: Receiver<()>,
@@ -59,16 +67,20 @@ pub struct ShowApp {
     body: Rect,
     focus: Option<(usize, Target)>,
     reveal: bool,
+    /// A block to scroll to once the rows are laid out: a palette jump from another app.
+    go_to: Option<usize>,
+    focus_seen: SystemTime,
     fades: Vec<Option<Effect>>,
     last_frame: Instant,
     palette: Palette,
     commands: Vec<Command>,
     toasts: Toasts,
+    toasting: bool,
     bridge: Bridge,
-}
-
-fn same_place(a: &Target, b: &Target) -> bool {
-    matches!((a, b), (Target::Button(_), Target::Button(_))) || a == b
+    outbox: Outbox,
+    /// The block whose picture the mouse is over, and the one whose split it drags.
+    hovered: Option<usize>,
+    dragging: Option<usize>,
 }
 
 fn has_reviewr() -> bool {
@@ -81,6 +93,8 @@ impl ShowApp {
     pub fn new(name: String, dir: PathBuf, picker: Picker) -> Self {
         let (tx, results) = channel();
         let (watcher, changes) = files::watch(std::slice::from_ref(&dir));
+        let font = picker.font_size();
+        let compact = files::density() == Density::Compact;
         let mut app = Self {
             spec_path: dir.join(format!("{name}.json")),
             name,
@@ -91,7 +105,8 @@ impl ShowApp {
             shown_at: None,
             views: Vec::new(),
             next_uid: 0,
-            ctx: Ctx { tx, picker, cwd: files::home() },
+            ctx: Ctx { tx, picker, cwd: files::home(), compact, running: Default::default() },
+            font,
             results,
             _watcher: watcher,
             changes,
@@ -103,23 +118,39 @@ impl ShowApp {
             body: Rect::default(),
             focus: None,
             reveal: false,
+            go_to: None,
+            focus_seen: SystemTime::now(),
             fades: Vec::new(),
             last_frame: Instant::now(),
             palette: Palette::default(),
             commands: Vec::new(),
             toasts: Toasts::default(),
+            toasting: false,
             bridge: Bridge::default(),
+            outbox: Outbox::default(),
+            hovered: None,
+            dragging: None,
         };
+        app.palette.app = "show".into();
         app.reload();
         app
     }
 
-    /// Reads the spec again when the file changed. A new call (its `at` changed) builds every block afresh and fades
-    /// them in; a refresh keeps the blocks whose spec did not change, and the scroll.
-    fn reload(&mut self) {
+    /// The density, for tests that draw both.
+    pub fn with_density(mut self, density: Density) -> Self {
+        self.ctx.compact = density == Density::Compact;
+        self.dirty = true;
+        self
+    }
+
+    /// Reads the spec again when the file changed; true when it did. A new call (its `at` changed) builds every block
+    /// afresh and fades in those that are new; a refresh keeps the blocks whose spec did not change, and the scroll. A
+    /// rebuilt block keeps what the one before it at that place showed (a chart's image, a log's output) until it
+    /// draws its own.
+    fn reload(&mut self) -> bool {
         let stamp = std::fs::metadata(&self.spec_path).ok().map(|m| (m.modified().ok(), m.len()));
         if self.loaded && stamp == self.stamp {
-            return;
+            return false;
         }
         (self.loaded, self.stamp) = (true, stamp);
         let spec = files::load(&self.spec_path);
@@ -128,61 +159,107 @@ impl ShowApp {
         self.shown_at = at;
         let blocks: Vec<Value> = spec.as_ref().and_then(|s| s["blocks"].as_array().cloned()).unwrap_or_default();
         let mut old: Vec<Option<View>> = std::mem::take(&mut self.views).into_iter().map(Some).collect();
+        let mut fresh = Vec::new();
         for (n, block) in blocks.into_iter().enumerate() {
-            let kept = if is_new { None } else { old.get_mut(n).filter(|v| v.as_ref().is_some_and(|v| v.spec == block)).and_then(Option::take) };
-            let view = kept.unwrap_or_else(|| {
-                self.next_uid += 1;
-                View::new(block, self.next_uid)
-            });
+            let before = old.get_mut(n).and_then(Option::take);
+            let view = match before {
+                Some(view) if !is_new && view.spec == block => view,
+                before => {
+                    self.next_uid += 1;
+                    let mut view = View::new(block, self.next_uid);
+                    // A new call that redraws the same block in the same place updates it rather than fading it in.
+                    let same = before.as_ref().is_some_and(|b| b.spec["type"] == view.spec["type"] && b.spec["title"] == view.spec["title"] && b.spec["kind"] == view.spec["kind"]);
+                    fresh.push(is_new && !same);
+                    if let Some(before) = before.filter(|_| !is_new || same) {
+                        view.inherit(before);
+                    }
+                    self.views.push(view);
+                    continue;
+                }
+            };
+            fresh.push(false);
             self.views.push(view);
         }
         self.ctx.cwd = spec.as_ref().and_then(|s| s["cwd"].as_str()).map_or_else(files::home, PathBuf::from);
         if is_new {
             self.scroll = 0;
             self.focus = None;
-            self.fades = (0..self.views.len())
-                .map(|n| Some(fx::prolong_start(n as u32 * 60, fx::fade_from(BG, BG, (400, Interpolation::CubicOut)))))
+            let mut k = 0;
+            self.fades = fresh
+                .iter()
+                .map(|&fresh| {
+                    k += u32::from(fresh);
+                    fresh.then(|| fx::prolong_start((k - 1) * 60, fx::fade_from(BG, BG, (400, Interpolation::CubicOut))))
+                })
                 .collect();
             self.last_frame = Instant::now();
         } else {
             self.fades.resize_with(self.views.len(), || None);
             self.focus = self.focus.take().filter(|(n, t)| self.views.get(*n).is_some_and(|v| v.targets().contains(t)));
         }
+        self.hovered = self.hovered.filter(|n| *n < self.views.len());
         self.spec = spec;
         self.dirty = true;
+        true
     }
 
-    /// Takes in what came back from the background: block results, spec changes, bridge replies.
-    fn pump(&mut self) {
+    /// Takes in what came back from the background: block results, spec changes, bridge replies; true when the
+    /// screen changed.
+    fn pump(&mut self) -> bool {
+        let mut changed = false;
         while let Ok(msg) = self.results.try_recv() {
-            if let Some(view) = self.views.iter_mut().find(|v| v.uid == msg.uid) {
-                self.dirty |= view.arrived(msg.payload);
+            self.ctx.running.set(self.ctx.running.get().saturating_sub(1));
+            if let Some(view) = self.views.iter_mut().find(|v| v.uid == msg.uid)
+                && view.arrived(msg.payload)
+            {
+                (self.dirty, changed) = (true, true);
             }
         }
         if self.changes.try_iter().count() > 0 {
-            self.reload();
+            changed |= self.reload();
         }
         while let Ok(reply) = self.bridge.replies.try_recv() {
             match reply.error {
                 Some(error) => self.toasts.push(error, Kind::Bad),
                 None => self.toasts.push(reply.note, Kind::Note),
             }
+            changed = true;
         }
+        for error in self.outbox.flush() {
+            self.toasts.push(error, Kind::Bad);
+            changed = true;
+        }
+        changed
     }
 
     fn layout(&mut self) {
         self.rows.clear();
         self.starts.clear();
+        let compact = self.ctx.compact;
         for (n, view) in self.views.iter_mut().enumerate() {
             self.starts.push(self.rows.len());
-            let mut rows = vec![Row::new()];
-            if let Some(title) = view.spec["title"].as_str().filter(|t| !t.is_empty()) {
-                let mut row = Row::text(title.to_string(), bold(FG));
-                // A block the session refreshes from a source says when it last did.
-                if let Some(at) = view.spec["refreshed_at"].as_f64().and_then(|ms| chrono::Local.timestamp_millis_opt(ms as i64).single()) {
-                    row = row.add(format!("   refreshed {}", at.format("%H:%M")), dim());
+            let mut rows = Vec::new();
+            let title = view.spec["title"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
+            // A block the session refreshes from a source says when it last did.
+            let refreshed = view.spec["refreshed_at"]
+                .as_f64()
+                .and_then(|ms| chrono::Local.timestamp_millis_opt(ms as i64).single())
+                .map(|at| format!("refreshed {}", at.format("%H:%M")));
+            if compact {
+                // The title inline in a rule, in place of a blank line and a title row.
+                if let Some(title) = title {
+                    let mut row = Row::text("── ", fg(LINE)).add(title, bold(FG));
+                    if let Some(refreshed) = refreshed {
+                        row = row.add(format!("  {refreshed}"), dim());
+                    }
+                    let used = row.line.width();
+                    rows.push(row.add(format!(" {}", "─".repeat(self.width.saturating_sub(used + 1))), fg(LINE)));
                 }
-                rows.push(row);
+            } else {
+                rows.push(Row::new());
+                if let Some(title) = title {
+                    rows.push(Row::text(title, bold(FG)).add(refreshed.map(|r| format!("   {r}")).unwrap_or_default(), dim()));
+                }
             }
             if let Some(error) = view.spec["error"].as_str().filter(|e| !e.is_empty()) {
                 rows.extend(crate::blocks::error_rows(error, self.width));
@@ -205,10 +282,12 @@ impl ShowApp {
         self.scroll = self.scroll.saturating_add_signed(rows).min(self.rows.len().saturating_sub(self.height()));
     }
 
-    /// Scrolls the focused place into view.
+    /// Scrolls the focused place into view: the block's cursor row when it has one, else all of its focus stop.
     fn show_focus(&mut self) {
         let Some((n, target)) = &self.focus else { return };
-        let mine: Vec<usize> = (0..self.rows.len()).filter(|&i| self.rows[i].block == *n && self.rows[i].target.as_ref().is_some_and(|t| same_place(t, target))).collect();
+        let in_block = |i: &usize| self.rows[*i].block == *n;
+        let here: Vec<usize> = (0..self.rows.len()).filter(|i| in_block(i) && self.rows[*i].here).collect();
+        let mine: Vec<usize> = if here.is_empty() { (0..self.rows.len()).filter(|i| in_block(i) && self.rows[*i].target.as_ref() == Some(target)).collect() } else { here };
         let (Some(&first), Some(&last)) = (mine.first(), mine.last()) else { return };
         if last >= self.scroll + self.height() {
             self.scroll = (last + 1).saturating_sub(self.height());
@@ -232,25 +311,52 @@ impl ShowApp {
         self.reveal = true;
     }
 
-    fn answer(&mut self, n: usize, value: Value, label: String) {
-        let view = &self.views[n];
+    /// An answer for the mod to hand to the session; a question's closes it, a comment keeps the diff focused.
+    fn answer(&mut self, n: usize, kind: &str, value: Value, label: String) {
         let at = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-        let answer = json!({"block": n, "id": view.spec.get("id").cloned().unwrap_or(Value::Null), "type": view.kind(), "value": value, "label": label, "at": at});
-        if let Err(err) = files::write(&self.dir.join(format!("{}.{n}.answer", self.name)), &answer) {
-            self.toasts.push(format!("the answer was not written: {err}"), Kind::Bad);
+        let mut answer = json!({"block": n, "type": kind, "value": value, "label": label, "at": at});
+        if kind != "comment" {
+            answer["id"] = self.views[n].spec.get("id").cloned().unwrap_or(Value::Null);
+            self.focus = None;
         }
-        self.focus = None;
+        self.outbox.send(self.dir.join(format!("{}.{n}.answer", self.name)), answer);
+        for error in self.outbox.flush() {
+            self.toasts.push(error, Kind::Bad);
+        }
     }
 
+    /// What a block made of a key or a click: true when it used it.
     fn handle(&mut self, n: usize, key: Key) -> bool {
         match key {
-            Key::Unused => false,
-            Key::Used => true,
+            Key::Unused => return false,
+            Key::Used => {}
             Key::Answer(value, label) => {
-                self.answer(n, value, label);
-                true
+                let kind = self.views[n].kind().to_string();
+                self.answer(n, &kind, value, label);
+            }
+            Key::Comment(value, label) => {
+                self.answer(n, "comment", value, label.clone());
+                self.toasts.push(format!("comment on {label} sent to the session"), Kind::Good);
             }
         }
+        self.reveal = true;
+        true
+    }
+
+    /// A request from the palette of another app: `name` or `name#block`, the block by its index, id or title.
+    fn focus_request(&mut self, target: &Value) -> bool {
+        let Some(key) = target["key"].as_str().or(target.as_str()) else { return false };
+        let (name, block) = key.split_once('#').map_or((key, None), |(name, block)| (name, Some(block)));
+        if name != self.name {
+            return false;
+        }
+        let n = block
+            .and_then(|b| b.parse::<usize>().ok().or_else(|| self.views.iter().position(|v| v.spec["id"].as_str() == Some(b) || v.title() == b)))
+            .unwrap_or(0)
+            .min(self.views.len().saturating_sub(1));
+        self.focus = self.views.get(n).and_then(|v| v.targets().into_iter().next()).map(|t| (n, t));
+        (self.go_to, self.dirty) = (Some(n), true);
+        true
     }
 
     fn browser(&mut self) {
@@ -289,7 +395,7 @@ impl ShowApp {
 
     fn run_command(&mut self, id: usize) {
         match self.commands.get(id) {
-            Some(Command::GoTo(n)) => self.scroll = self.starts.get(*n).map_or(0, |s| s + 1),
+            Some(Command::GoTo(n)) => self.go_to = Some(*n),
             Some(Command::Copy(n)) => {
                 let (title, csv) = (self.views[*n].title(), self.views[*n].table().map(|t| t.csv()).unwrap_or_default());
                 if files::copy(&csv) {
@@ -304,9 +410,12 @@ impl ShowApp {
     }
 
     fn key(&mut self, key: KeyEvent) -> bool {
+        self.dirty = true;
         if self.palette.is_open {
-            if let Outcome::Chosen(id) = self.palette.key(key) {
-                self.run_command(id);
+            match self.palette.key(key) {
+                Outcome::Chosen(id) => self.run_command(id),
+                Outcome::Elsewhere(target) => hub::go(&target),
+                Outcome::Open | Outcome::Closed => {}
             }
             return false;
         }
@@ -340,20 +449,51 @@ impl ShowApp {
         false
     }
 
-    fn mouse(&mut self, mouse: MouseEvent) {
+    /// The row under a screen cell, and the column in it.
+    fn under(&self, x: u16, y: u16) -> Option<(usize, usize)> {
+        if y < self.body.y || y >= self.body.bottom() || x <= self.body.x {
+            return None;
+        }
+        let i = self.scroll + (y - self.body.y) as usize;
+        (i < self.rows.len()).then(|| (i, (x - self.body.x - 1) as usize))
+    }
+
+    /// The mouse moved: the picture under it hears where, the one it left that it left; true when either changed.
+    fn hover(&mut self, x: u16, y: u16) -> bool {
+        let over = self.under(x, y).and_then(|(i, col)| self.rows[i].image.map(|k| (self.rows[i].block, col, k)));
+        let mut changed = false;
+        if let Some(left) = self.hovered.filter(|n| over.is_none_or(|(b, _, _)| b != *n)) {
+            changed |= self.views[left].hover(None, self.font);
+        }
+        self.hovered = over.map(|(n, _, _)| n);
+        if let Some((n, col, k)) = over {
+            changed |= self.views[n].hover(Some((col, k)), self.font);
+        }
+        changed
+    }
+
+    /// Returns true when the mouse changed what the view shows.
+    fn mouse(&mut self, mouse: MouseEvent) -> bool {
+        let (x, y) = (mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::ScrollDown => self.scroll_by(3),
             MouseEventKind::ScrollUp => self.scroll_by(-3),
+            MouseEventKind::Moved => return self.hover(x, y),
+            MouseEventKind::Drag(MouseButton::Left) => {
+                let col = x.saturating_sub(self.body.x + 1) as usize;
+                return self.dragging.is_some_and(|n| self.views[n].drag(col));
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.dragging = None,
             MouseEventKind::Down(MouseButton::Left) if !self.palette.is_open => {
-                let (x, y) = (mouse.column, mouse.row);
-                if y < self.body.y || y >= self.body.bottom() || x <= self.body.x {
-                    return;
-                }
-                let i = self.scroll + (y - self.body.y) as usize;
-                let Some(row) = self.rows.get(i) else { return };
-                let (n, act) = (row.block, row.act_at((x - self.body.x - 1) as usize).cloned());
+                let Some((i, col)) = self.under(x, y) else { return false };
+                let row = &self.rows[i];
+                let (n, act) = (row.block, row.act_at(col).cloned());
                 if let Some(target) = row.target.clone() {
                     self.focus = Some((n, target));
+                }
+                if row.image.is_some() && self.views[n].drag(col) {
+                    self.dragging = Some(n);
+                    self.focus = self.views[n].targets().into_iter().next().map(|t| (n, t));
                 }
                 match act {
                     Some(Act::Open(url)) => files::open_url(&url),
@@ -363,9 +503,11 @@ impl ShowApp {
                     }
                     None => {}
                 }
+                self.dirty = true;
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
     fn header(&self) -> Line<'static> {
@@ -377,17 +519,24 @@ impl ShowApp {
 
     fn footer(&self) -> Line<'static> {
         let url = self.spec.as_ref().is_some_and(|s| s["url"].is_string());
-        let mut keys = vec![("q", "hide")];
-        if url {
+        let typing = self.focus.as_ref().is_some_and(|(n, _)| self.views[*n].is_typing());
+        let mut keys = if typing { vec![] } else { vec![("q", "hide")] };
+        if url && !typing {
             keys.push(("o", "browser"));
         }
-        if self.views.iter().any(|v| v.repo().is_some()) {
+        if self.views.iter().any(|v| v.repo().is_some()) && !typing {
             keys.push(("r", "reviewr"));
         }
-        keys.extend([("^p", "palette"), ("tab", "focus")]);
+        if !typing {
+            keys.extend([("^p", "palette"), ("tab", "focus")]);
+        }
         match self.focus.as_ref().map(|(_, t)| t) {
+            _ if typing => keys.extend([("enter", "send the comment"), ("esc", "cancel")]),
             Some(Target::Table) => keys.extend([("←→", "scroll"), ("↑↓", "rows"), ("1-9", "sort"), ("esc", "leave")]),
-            Some(Target::File(_)) => keys.extend([("enter", "fold"), ("esc", "leave")]),
+            Some(Target::Diff) => keys.extend([("j/k", "line"), ("[ ]", "file"), ("c", "comment"), ("s", "split"), ("enter", "fold"), ("esc", "leave")]),
+            Some(Target::Log) => keys.extend([("j/k", "scroll"), ("g/G", "top/follow"), ("esc", "leave")]),
+            Some(Target::Chart) => keys.extend([("←→", "point"), ("+/-", "zoom"), ("0", "all"), ("esc", "leave")]),
+            Some(Target::Compare) => keys.extend([("h/l", "split"), ("s", "side by side"), ("esc", "leave")]),
             Some(Target::Options) => keys.extend([("↑↓", "move"), ("enter", "pick"), ("esc", "leave")]),
             Some(Target::Input) => keys.extend([("enter", "send"), ("esc", "leave")]),
             Some(Target::Button(_)) => keys.extend([("enter", "press"), ("esc", "leave")]),
@@ -431,15 +580,39 @@ impl ShowApp {
                 self.fades[n] = None;
             }
         }
-        for (n, view) in self.views.iter().enumerate() {
-            let (Some(image), None) = (view.image(), &self.fades[n]) else { continue };
-            let Some(top) = (self.starts[n]..self.starts[n + 1]).find(|&i| self.rows[i].image == Some(0)) else { continue };
-            let y = top as i64 - self.scroll as i64;
-            if y + i64::from(image.size().height) <= 0 || y >= self.height() as i64 {
+        for (n, view) in self.views.iter_mut().enumerate() {
+            let top = (self.starts[n]..self.starts[n + 1]).find(|&i| self.rows[i].image == Some(0));
+            let (Some(top), Some(image)) = (top, view.image()) else {
+                view.set_visible(false);
                 continue;
+            };
+            let y = top as i64 - self.scroll as i64;
+            let visible = y + i64::from(image.size().height) > 0 && y < height as i64;
+            if visible && self.fades[n].is_none() {
+                frame.render_widget(SlicedImage::new(image, SignedPosition { x: 0, y: y as i16 }), inner);
+                if let Ok(dir) = std::env::var("COCKPIT_SHOT_DIR") {
+                    let size = image.size();
+                    let place = serde_json::json!([inner.x, i64::from(inner.y) + y, size.width, size.height]);
+                    let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{}.at", crate::picture::shot_key(&view.spec))), place.to_string());
+                }
             }
-            frame.render_widget(SlicedImage::new(image, SignedPosition { x: 0, y: y as i16 }), inner);
+            view.set_visible(visible);
         }
+    }
+
+    /// Waits until every background draw, read and run has come back, drawing as a frame would; for tests.
+    pub fn settle(&mut self, width: u16, height: u16) {
+        let started = Instant::now();
+        loop {
+            let _ = cockpit_core::testing::render(self, width, height);
+            term::App::tick(self);
+            let busy = self.ctx.running.get() > 0 || self.views.iter().any(View::pending);
+            if !busy || started.elapsed() > Duration::from_secs(20) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.fades.iter_mut().for_each(|f| *f = None);
     }
 }
 
@@ -456,6 +629,12 @@ impl term::App for ShowApp {
             self.width = width;
             self.layout();
             self.dirty = false;
+            // A layout can paint code, whose grammars it has just let go.
+            crate::raster::give_back();
+        }
+        if let Some(n) = self.go_to.take() {
+            let start = self.starts.get(n).copied().unwrap_or(0);
+            self.scroll = (start..self.starts.get(n + 1).copied().unwrap_or(start)).find(|&i| self.rows[i].line.width() > 0).unwrap_or(start);
         }
         if std::mem::take(&mut self.reveal) {
             self.show_focus();
@@ -470,11 +649,10 @@ impl term::App for ShowApp {
     }
 
     fn event(&mut self, event: Event) -> bool {
-        self.dirty = true;
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => self.key(key),
             Event::Mouse(mouse) => {
-                self.mouse(mouse);
+                self.dirty |= self.mouse(mouse);
                 false
             }
             _ => false,
@@ -482,15 +660,25 @@ impl term::App for ShowApp {
     }
 
     fn tick(&mut self) -> bool {
-        self.pump();
-        self.reload();
-        for view in &mut self.views {
-            view.tick(&self.ctx);
+        let mut changed = self.pump();
+        changed |= self.reload();
+        if let Some(target) = focus::take("show", &mut self.focus_seen) {
+            changed |= self.focus_request(&target);
         }
-        true
+        for view in &mut self.views {
+            changed |= view.tick(&self.ctx);
+        }
+        let toasting = self.toasts.any();
+        changed |= toasting != self.toasting || self.fades.iter().any(Option::is_some);
+        self.toasting = toasting;
+        changed
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_millis(if self.fades.iter().any(Option::is_some) { 16 } else { 250 })
+        if self.fades.iter().any(Option::is_some) {
+            return Duration::from_millis(16);
+        }
+        let wait = if self.views.iter().any(View::moving) { FRAME } else { IDLE };
+        self.views.iter().filter_map(View::next_due).fold(wait, Duration::min).max(Duration::from_millis(5))
     }
 }

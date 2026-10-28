@@ -1,0 +1,30 @@
+{
+ "title": "Bar chart",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "chart",
+   "kind": "bar",
+   "title": "By plan",
+   "columns": [
+    "plan",
+    "orgs"
+   ],
+   "rows": [
+    [
+     "free",
+     412
+    ],
+    [
+     "pro",
+     120
+    ],
+    [
+     "enterprise",
+     33
+    ]
+   ]
+  }
+ ],
+ "placement": "right"
+}

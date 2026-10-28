@@ -1,0 +1,12 @@
+---
+source: meetings/tests/snapshots.rs
+expression: "render(&mut app, 60, 8)"
+---
+   Meetings   waiting for a Claude session with the Google
+
+
+
+
+
+
+ o open  m join  b brief  p prepare  w week     ▏^p palette

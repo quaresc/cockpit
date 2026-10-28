@@ -8,11 +8,12 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use serde_json::{Value, json};
 
+use cockpit_core::widgets::sparkline;
+
 use crate::facts::{self, Config, STALE_PR_DAYS, age_days, ago, ci_glyph, dashboard_name, flag, has_ticket, is_deploying, is_failing, list, needs_me, reference, review_glyph, s, text};
 use crate::icons::icon;
-use crate::model::{heading, strong};
-use crate::row::{Cells, Row, RowAct, call, open};
-use crate::sessions::ticket_costs;
+use crate::model::{Ctx, heading, strong};
+use crate::row::{Cells, Kind, Row, RowAct, call, open};
 
 type Key = (String, String);
 
@@ -39,17 +40,23 @@ struct Build<'a> {
     data: &'a Value,
     config: &'a Config,
     mine: &'a [Value],
+    tickets: Vec<&'a Value>,
     runs: HashMap<Key, &'a Value>,
     pr_children: HashMap<Key, Vec<&'a Value>>,
     pr_parent: HashMap<Key, Key>,
     t_children: HashMap<String, Vec<&'a Value>>,
     /// Each ticket's PRs, matched once: sorting and grouping ask again and again.
     linked: HashMap<String, Vec<&'a Value>>,
-    costs: HashMap<String, f64>,
+    costs: &'a HashMap<String, f64>,
+    series: &'a HashMap<String, Vec<f64>>,
 }
 
+/// Cells a ticket's cost sparkline takes in its notes, and the points it needs before it shows.
+const SPARK: usize = 8;
+const SPARK_MIN: usize = 3;
+
 impl<'a> Build<'a> {
-    fn new(data: &'a Value, ci: &'a Value, config: &'a Config) -> Self {
+    fn new(data: &'a Value, ci: &'a Value, config: &'a Config, costs: &'a HashMap<String, f64>, series: &'a HashMap<String, Vec<f64>>) -> Self {
         let mine = list(data, "mine");
         let by_key: HashSet<Key> = mine.iter().map(pr_key).collect();
         let mut pr_children: HashMap<Key, Vec<&Value>> = HashMap::new();
@@ -60,17 +67,19 @@ impl<'a> Build<'a> {
             }
         }
         let pr_parent = pr_children.iter().flat_map(|(parent, kids)| kids.iter().map(|kid| (pr_key(kid), parent.clone()))).collect();
-        let tickets = list(data, "tickets");
+        // One ticket per id: a repeated id could make a ticket its own descendant.
+        let mut seen = HashSet::new();
+        let tickets: Vec<&Value> = list(data, "tickets").iter().filter(|t| seen.insert(s(t, "id"))).collect();
         let ids: HashSet<&str> = tickets.iter().map(|t| s(t, "id")).collect();
         let mut t_children: HashMap<String, Vec<&Value>> = HashMap::new();
-        for t in tickets {
+        for &t in &tickets {
             if ids.contains(s(t, "parentId")) {
                 t_children.entry(s(t, "parentId").to_string()).or_default().push(t);
             }
         }
         let runs = list(ci, "runs").iter().map(|r| (pr_key(r), r)).collect();
         let linked = tickets.iter().map(|t| (s(t, "id").to_string(), mine.iter().filter(|pr| has_ticket(s(pr, "branch"), s(t, "id"))).collect())).collect();
-        Self { data, config, mine, runs, pr_children, pr_parent, t_children, linked, costs: ticket_costs() }
+        Self { data, config, mine, tickets, runs, pr_children, pr_parent, t_children, linked, costs, series }
     }
 
     fn kids(&self, pr: &Value) -> &[&'a Value] {
@@ -210,7 +219,9 @@ impl<'a> Build<'a> {
             .primary(call("details", vec![pr.clone()]))
             .info(info)
             .status(s(pr, "url"))
-            .section(section);
+            .section(section)
+            .kind(Kind::Pr)
+            .item(pr);
         row.children = kids;
         let path: Vec<Key> = above.iter().cloned().chain([pr_key(pr)]).collect();
         for kid in self.kids(pr).iter().filter(|kid| !path.contains(&pr_key(kid))) {
@@ -302,7 +313,7 @@ impl<'a> Build<'a> {
             lead: vec![(glyph.into(), style)],
             reference: (format!("{id:<10}{}", facts::short_status(ticket)), dim()),
             title: (s(ticket, "title").into(), Style::new()),
-            notes: (usd.map(|u| format!("${u:.2}")).unwrap_or_default(), dim()),
+            notes: (self.notes(id, usd), dim()),
             age: String::new(),
         };
         let mut row = Row::cells(id, cells, format!("{id} {}", s(ticket, "title")))
@@ -310,7 +321,8 @@ impl<'a> Build<'a> {
             .primary(open(s(ticket, "url")))
             .info(info)
             .status(id)
-            .section(section);
+            .section(section)
+            .kind(Kind::Ticket);
         row.children = kids;
         for kid in self.t_children.get(id).into_iter().flatten() {
             row.add(self.ticket_row(kid, section));
@@ -321,10 +333,19 @@ impl<'a> Build<'a> {
         row
     }
 
+    /// A ticket's notes: its cost, after the sparkline of how it grew once there are enough points.
+    fn notes(&self, id: &str, usd: Option<f64>) -> String {
+        let cost = usd.map(|u| format!("${u:.2}")).unwrap_or_default();
+        match self.series.get(id).filter(|v| v.len() >= SPARK_MIN) {
+            Some(values) => format!("{} {cost}", sparkline(values, SPARK)),
+            None => cost,
+        }
+    }
+
     fn work(&self, by_status: bool, claimed: usize) -> Row {
-        let tickets = list(self.data, "tickets");
+        let tickets = &self.tickets;
         let ids: HashSet<&str> = tickets.iter().map(|t| s(t, "id")).collect();
-        let roots: Vec<&Value> = tickets.iter().filter(|t| !ids.contains(s(t, "parentId"))).collect();
+        let roots: Vec<&Value> = tickets.iter().copied().filter(|t| !ids.contains(s(t, "parentId"))).collect();
         let in_progress = tickets.iter().filter(|t| s(t, "statusType") == "started" && !is_deploying(t)).count();
         let mode = if by_status { "status" } else { "feature" };
         let extra = format!("{} tickets · {in_progress} in progress · {claimed} PRs · by {mode} (g)", tickets.len());
@@ -371,7 +392,7 @@ impl<'a> Build<'a> {
 
     fn claimed(&self) -> HashSet<Key> {
         let mut claimed = HashSet::new();
-        for t in list(self.data, "tickets") {
+        for t in &self.tickets {
             for root in self.linked_roots(t) {
                 claimed.extend(self.pr_subtree(root).iter().map(|pr| pr_key(pr)));
             }
@@ -418,8 +439,8 @@ fn join(values: &[Value]) -> String {
 }
 
 /// The Work section and the Other PRs section.
-pub fn rows(data: &Value, ci: &Value, config: &Config, by_status: bool) -> (Row, Row) {
-    let build = Build::new(data, ci, config);
+pub fn rows(data: &Value, ci: &Value, ctx: &Ctx, costs: &HashMap<String, f64>) -> (Row, Row) {
+    let build = Build::new(data, ci, ctx.config, costs, ctx.series);
     let claimed = build.claimed();
-    (build.work(by_status, claimed.len()), build.other(&claimed))
+    (build.work(ctx.by_status, claimed.len()), build.other(&claimed))
 }

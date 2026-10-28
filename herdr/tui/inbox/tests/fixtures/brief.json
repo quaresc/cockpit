@@ -1,0 +1,29 @@
+{
+ "date": "2026-10-28",
+ "at": 1793178000000,
+ "lines": [
+  {
+   "icon": "calendar",
+   "text": "3 meetings, first at 09:45: Daily",
+   "url": "https://meet.example.com/daily"
+  },
+  {
+   "icon": "review",
+   "text": "2 reviews for you: billing#381, accounts#742",
+   "url": "https://github.com/pulls",
+   "tone": "warn"
+  },
+  {
+   "icon": "fail",
+   "text": "1 PR of yours failing CI: web#1866",
+   "url": "https://github.com/acme/web/pull/1866/checks",
+   "tone": "bad"
+  },
+  {
+   "icon": "approved",
+   "text": "5 PRs ready to merge",
+   "url": "https://github.com/pulls",
+   "tone": "good"
+  }
+ ]
+}
