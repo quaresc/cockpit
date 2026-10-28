@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.19.1 (2026-10-28)
+
+- Monitor: Datadog's empty answers no longer show as "JSON Parse error", services with many monitors load in pages
+  under Claude Code's answer limit, and p95 only flags a release when it grows by 100 ms as well as 1.5x (#9).
+- Monitor app: full app names, fetch errors on one line, "monitors ?" when a watched app's monitors failed (#9).
+
 ## 0.19.0 (2026-10-28)
 
 - New opt-in monitor space (`monitor` in `spaces`, `prefix+o`): every production release from the platform connector,
