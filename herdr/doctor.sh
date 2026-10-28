@@ -28,7 +28,8 @@ elif [ -z "$runs" ]; then fail "apps in $dir do not run on this machine → rm -
 else ok "apps in $dir (${runs#cockpit-inbox })"; fi
 # A hub left with a dead socket keeps every action and search waiting.
 if pgrep -f "cockpit-(inbox|todo|runbook|meetings) cockpit-space" >/dev/null; then
-  if "$dir/cockpit" hub ping >/dev/null 2>&1; then ok "hub answers"
+  if ! pgrep -x cockpit-hub >/dev/null; then ok "hub not started yet: the apps start it at their first action or search"
+  elif "$dir/cockpit" hub ping >/dev/null 2>&1; then ok "hub answers"
   else fail "hub not answering → pkill -x cockpit-hub; the apps start a new one"; fi
 fi
 if [ ! -f "$CONFIG" ]; then fail "no ~/.config/cockpit/config.json → /cockpit:setup"
