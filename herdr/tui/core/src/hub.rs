@@ -1,4 +1,4 @@
-//! The hub: one background process (`cockpit-hub`) every app talks to over a unix socket. It runs the actions, searches
+//! The hub: one background process (`cockpit hub`) every app talks to over a unix socket. It runs the actions, searches
 //! across the apps, brings a found item into view, fetches details on demand and keeps history for sparklines; the first
 //! app that needs it starts it.
 //!
@@ -32,9 +32,9 @@ pub fn socket() -> PathBuf {
     std::env::temp_dir().join(format!("cockpit-hub-{:016x}.sock", hasher.finish()))
 }
 
-/// The hub binary, beside the app's own.
+/// The `cockpit` binary beside the app's own (the app itself, outside tests), which serves as the hub with `hub`.
 fn binary() -> PathBuf {
-    std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("cockpit-hub"))).unwrap_or_else(|| "cockpit-hub".into())
+    std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("cockpit"))).unwrap_or_else(|| "cockpit".into())
 }
 
 fn connect(timeout: Duration) -> Option<UnixStream> {
@@ -51,6 +51,7 @@ fn connect(timeout: Duration) -> Option<UnixStream> {
         *started = Some(Instant::now());
     }
     let _ = std::process::Command::new(binary())
+        .arg("hub")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

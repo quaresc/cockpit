@@ -5,7 +5,7 @@ of the fake app in `webapp/`.
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install pyte fonttools pillow
-(cd ../../herdr/tui && cargo build --release)  # the Rust apps the screenshots run
+(cd ../../herdr/tui && cargo build --release)  # the cockpit binary whose apps the screenshots run
 python3 demo_data.py home          # a fake HOME with caches, to-dos and runbooks; run it again before each script
 .venv/bin/python apps_anim.py      # inbox, to-do and meetings: the cursor stepping, the inbox's filter and palette
 .venv/bin/python runbook_anim.py   # a refresh landing in the runbook

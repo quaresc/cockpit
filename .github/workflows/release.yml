@@ -1,7 +1,7 @@
 name: release
 
 # A new version in plugin.json on main gets its tag and GitHub release, with its CHANGELOG.md section as notes, then the
-# Rust apps built for each machine as release assets, which herdr/fetch-apps.sh installs. A manual run rebuilds them.
+# `cockpit` binary built for each machine as release assets, which herdr/fetch-apps.sh installs. A manual run rebuilds them.
 on:
   push:
     branches: [main]
@@ -83,17 +83,16 @@ jobs:
         with:
           workspaces: herdr/tui
           key: ${{ matrix.target }}
-      - name: Build the apps
+      - name: Build the binary
         working-directory: herdr/tui
         run: cargo build --release --locked --target "$TARGET"
-      - name: Pack and upload them to the release
+      - name: Pack and upload it to the release
         env:
           GH_TOKEN: ${{ github.token }}
           COPYFILE_DISABLE: "1"
         run: |
           name="cockpit-apps-$VERSION-$TARGET.tar.gz"
-          tar -C "herdr/tui/target/$TARGET/release" -czf "$name" \
-            cockpit cockpit-hub cockpit-inbox cockpit-runbook cockpit-show cockpit-todo cockpit-meetings
+          tar -C "herdr/tui/target/$TARGET/release" -czf "$name" cockpit
           if command -v sha256sum >/dev/null; then sha256sum "$name"; else shasum -a 256 "$name"; fi > "$name.sha256"
           cat "$name.sha256"
           gh release upload "v$VERSION" "$name" "$name.sha256" --clobber

@@ -56,6 +56,7 @@ off. Updates arrive as a notification.
 <tr><td colspan="2" align="center"><img src="docs/meetings.svg" width="539" alt="Meetings space"></td></tr>
 <tr><td width="24%"><b>⚙️ Settings</b></td><td><code>/cockpit</code> flips what you change day to day. In every app, ctrl+p searches all of them: a ticket, its runbook, its PRs, a view.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/settings.svg" width="546" alt="The /cockpit settings pane"></td></tr>
+<tr><td width="24%"><b>🕰️ Past sessions</b></td><td>ctrl+p also finds your past Claude sessions by what was said in them, from an index the hub keeps on its own; choosing one opens a fork of it in the actions space that sums up where it stood.</td></tr>
 </table>
 
 ## Supported tools
@@ -94,6 +95,10 @@ writes which tool does what, so it works as far as the connector's tools go.
 `~/.config/cockpit/config.json`, written by `/cockpit:setup` and re-read every 30 seconds. See
 [`config.example.json`](config.example.json).
 
+While a cockpit app runs, its hub fetches GitHub every minute with `gh`'s token (or `GH_TOKEN`), so PRs, reviews and
+GitHub checks stay fresh without a Claude session; tickets, deploys, previews and other CIs come from a Claude session's
+connectors, unless a token below lets the hub fetch them too.
+
 <details>
 <summary><b>Keys</b></summary>
 
@@ -103,6 +108,8 @@ writes which tool does what, so it works as far as the connector's tools go.
 | `github.org` | Only list your PRs from this org. |
 | `tickets` | Ticket connector: `server`, `keys` (ticket key prefixes such as `ENG`), `urlTemplate`, and for anything but Linear the mapping setup writes. |
 | `ci` | CI: GitHub checks when `server` is empty, else a CI connector and its mapping. `imageJob`: the job that builds a preview's image. |
+| `tickets.token` | Optional, for Linear: a personal API key (Linear → Settings → Security & access). The hub then fetches your tickets itself, fresh without a Claude session. Stays in this file only. |
+| `ci.token` | Optional, for CircleCI: a personal API token (CircleCI → User settings → Personal API tokens). The hub then fetches your runs itself, fresh without a Claude session. Stays in this file only. |
 | `calendar` | Calendar connector: Google Calendar, or another and its mapping. |
 | `platform` | Deploy and preview connector, and its mapping. |
 | `metabase`, `datadog` | Connectors for live panes. |

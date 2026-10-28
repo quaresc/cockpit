@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use cockpit_core::files;
 use serde_json::{Value, json};
 
-use crate::{act, fetch, go, history, search};
+use crate::{act, feed, fetch, go, history, search};
 
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -17,6 +17,8 @@ pub fn now_secs() -> u64 {
 
 /// Answers the connection's requests until it closes, noting each one's time for the idle exit.
 pub fn serve(stream: UnixStream, last: Arc<AtomicU64>) {
+    // The feed runs while the hub does, from its first request on.
+    feed::start();
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };

@@ -1,0 +1,2 @@
+{"type":"assistant","cwd":"@BOX@/repos/api","sessionId":"s-empty","timestamp":"2026-10-20T10:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"Nobody asked anything about the sign-in."}]}}
+{"type":"user","cwd":"@BOX@/repos/api","sessionId":"s-empty","timestamp":"2026-10-20T10:00:05Z","message":{"role":"user","content":[{"tool_use_id":"t9","type":"tool_result","content":"sign-in"}]}}

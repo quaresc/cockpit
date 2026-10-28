@@ -18,6 +18,7 @@ mod raster;
 
 pub use raster::use_only_font;
 mod row;
+mod run;
 mod sequence;
 mod svg;
 mod table;
@@ -25,4 +26,6 @@ mod text_drawing;
 mod value;
 
 pub use app::ShowApp;
+pub use markdown::{inline as markdown_inline, lines as markdown_lines};
 pub use raster::{release_freed_pages, warm_up};
+pub use run::run;

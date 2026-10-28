@@ -192,7 +192,7 @@ fn files(root: &Path) -> BTreeMap<String, Value> {
         for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if [".git", "hub.sock", "history", "herdr", "bin", "calls.log", "herdr.json"].contains(&name.as_str()) {
+            if [".git", "hub.sock", "history", "sessions-index", "herdr", "bin", "calls.log", "herdr.json"].contains(&name.as_str()) {
                 continue;
             }
             if path.is_dir() {

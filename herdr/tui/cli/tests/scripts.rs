@@ -1,6 +1,6 @@
-//! The plugin's shell scripts that start the binaries: app.sh and cockpit.sh find them, fetch-apps.sh installs them from
-//! a release (served here by a small HTTP server), update.sh stops the apps, pin-spaces.sh orders the spaces, and
-//! browse.sh, shots.sh and focus.sh hand their arguments to the cockpit command.
+//! The plugin's shell scripts that start the binary: app.sh and cockpit.sh find it, fetch-apps.sh installs it from a
+//! release (served here by a small HTTP server) or has a binary do it, update.sh stops the apps and the hub,
+//! pin-spaces.sh orders the spaces, and browse.sh, shots.sh and focus.sh hand their arguments to the cockpit command.
 
 mod common;
 
@@ -15,14 +15,14 @@ use common::{Sandbox, executable, scripts, stderr, stdout};
 // ---------------------------------------------------------------------------
 // app.sh
 
-/// app.sh run on an app `demo` with these binaries in bin/ and tui/target/release/, and what it printed.
+/// app.sh run on an app `demo` with these cockpit binaries in bin/ and tui/target/release/, and what it printed.
 fn run_app(release: Option<&str>, dev: Option<&str>, fetch: &str) -> (Option<i32>, String, String) {
     let sandbox = Sandbox::new();
     sandbox.copy_script("app.sh");
     executable(&sandbox.root.join("herdr/fetch-apps.sh"), fetch);
     for (dir, body) in [("bin", release), ("tui/target/release", dev)] {
         if let Some(body) = body {
-            executable(&sandbox.root.join("herdr").join(dir).join("cockpit-demo"), body);
+            executable(&sandbox.root.join("herdr").join(dir).join("cockpit"), body);
         }
     }
     let out = sandbox.sh("app.sh", &["demo", "cockpit-space"], &[("COCKPIT_APP_WAIT", "0")]);
@@ -33,30 +33,30 @@ const NO_FETCH: &str = "#!/bin/sh\necho fetched\nexit 0\n";
 
 #[test]
 fn app_the_release_binary_comes_before_a_dev_build() {
-    assert_eq!(run_app(Some("#!/bin/sh\necho release \"$@\"\n"), Some("#!/bin/sh\necho dev\n"), NO_FETCH).1, "release cockpit-space\n");
-    assert_eq!(run_app(None, Some("#!/bin/sh\necho dev \"$@\"\n"), NO_FETCH).1, "dev cockpit-space\n");
+    assert_eq!(run_app(Some("#!/bin/sh\necho release \"$@\"\n"), Some("#!/bin/sh\necho dev\n"), NO_FETCH).1, "release demo cockpit-space\n");
+    assert_eq!(run_app(None, Some("#!/bin/sh\necho dev \"$@\"\n"), NO_FETCH).1, "dev demo cockpit-space\n");
 }
 
 #[test]
 fn app_the_binary_knows_its_herdr_folder() {
     let sandbox = Sandbox::new();
     sandbox.copy_script("app.sh");
-    executable(&sandbox.root.join("herdr/bin/cockpit-demo"), "#!/bin/sh\necho \"$COCKPIT_HERDR_DIR\"\n");
+    executable(&sandbox.root.join("herdr/bin/cockpit"), "#!/bin/sh\necho \"$COCKPIT_HERDR_DIR\"\n");
     let out = sandbox.sh("app.sh", &["demo"], &[("COCKPIT_HERDR_DIR", "/elsewhere")]);
     assert_eq!(PathBuf::from(stdout(&out).trim()), sandbox.root.join("herdr"));
 }
 
 #[test]
 fn app_missing_fetches_the_release_then_runs_it() {
-    let fetch = "#!/bin/sh\nmkdir -p bin && printf '#!/bin/sh\\necho fetched app \"$@\"\\n' > bin/cockpit-demo && chmod +x bin/cockpit-demo\n";
-    assert_eq!(run_app(None, None, fetch).1, "fetched app cockpit-space\n");
+    let fetch = "#!/bin/sh\nmkdir -p bin && printf '#!/bin/sh\\necho fetched \"$@\"\\n' > bin/cockpit && chmod +x bin/cockpit\n";
+    assert_eq!(run_app(None, None, fetch).1, "fetched demo cockpit-space\n");
 }
 
 #[test]
 fn app_missing_everywhere_says_so_and_fails() {
     let (code, out, err) = run_app(None, None, NO_FETCH);
     assert_eq!((code, out.as_str()), (Some(1), "fetched\n"));
-    assert_eq!(err, "cockpit: no cockpit-demo for this machine yet; /cockpit:doctor says why\n");
+    assert_eq!(err, "cockpit: no cockpit binary for this machine yet; /cockpit:doctor says why\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -127,18 +127,32 @@ fn a_notification_button_runs_cockpit_act() {
 // ---------------------------------------------------------------------------
 // update.sh
 
+/// The pattern update.sh hands `pkill -f` on the line naming what it stops.
+fn killed(what: &str) -> regex::Regex {
+    let script = std::fs::read_to_string(scripts().join("update.sh")).unwrap();
+    let line = script.lines().find(|l| l.starts_with("pkill -f") && l.contains(what)).unwrap_or_else(|| panic!("update.sh kills {what} by pattern"));
+    regex::Regex::new(line.trim_start_matches("pkill -f ").trim_matches('"')).unwrap()
+}
+
 #[test]
 fn update_stops_every_space_app_and_nothing_else() {
-    let script = std::fs::read_to_string(scripts().join("update.sh")).unwrap();
-    let pattern = regex::Regex::new(r#"pkill -f "(.*cockpit-space)""#).unwrap().captures(&script).expect("update.sh kills the apps by pattern")[1].to_string();
-    let apps = regex::Regex::new(&pattern).unwrap();
-    for line in
-        ["/x/herdr/bin/cockpit-inbox cockpit-space", "/x/herdr/bin/cockpit-runbook cockpit-space", "/x/herdr/tui/target/release/cockpit-meetings cockpit-space", "cockpit-todo cockpit-space"]
-    {
+    let apps = killed("cockpit-space");
+    for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit runbook cockpit-space", "/x/herdr/tui/target/release/cockpit meetings cockpit-space", "cockpit todo cockpit-space"] {
         assert!(apps.is_match(line), "{line}");
     }
-    for line in ["/x/herdr/bin/cockpit-show demo", "/x/herdr/bin/cockpit-hub", "/x/herdr/bin/cockpit actions sidebar"] {
+    for line in ["/x/herdr/bin/cockpit show demo", "/x/herdr/bin/cockpit hub", "/x/herdr/bin/cockpit actions sidebar", "sh /x/herdr/inbox-loop.sh"] {
         assert!(!apps.is_match(line), "{line}");
+    }
+}
+
+#[test]
+fn update_stops_the_hub_and_nothing_else() {
+    let hub = killed("hub");
+    for line in ["/x/herdr/bin/cockpit hub", "/x/herdr/tui/target/release/cockpit hub", "cockpit hub"] {
+        assert!(hub.is_match(line), "{line}");
+    }
+    for line in ["/x/herdr/bin/cockpit hub ping", "/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit show hub", "/x/notcockpit hub"] {
+        assert!(!hub.is_match(line), "{line}");
     }
 }
 
@@ -229,16 +243,14 @@ impl Release {
         self.dir.path().join("v9.9.9").join(format!("cockpit-apps-9.9.9-{}.tar.gz", target().unwrap()))
     }
 
-    /// Publishes an archive of two apps, not executable, with its checksum file (a wrong one when given).
+    /// Publishes an archive of the binary, a script saying "released", not executable, with its checksum file (a wrong
+    /// one when given).
     fn publish(&self, checksum: Option<&str>) {
         let staging = tempfile::tempdir().unwrap();
-        for app in ["cockpit", "cockpit-hub"] {
-            std::fs::write(staging.path().join(app), format!("#!/bin/sh\necho {app}\n")).unwrap();
-        }
+        std::fs::write(staging.path().join("cockpit"), "#!/bin/sh\necho released \"$@\"\n").unwrap();
         let asset = self.asset();
         std::fs::create_dir_all(asset.parent().unwrap()).unwrap();
-        let packed =
-            Command::new("tar").env("COPYFILE_DISABLE", "1").arg("-C").arg(staging.path()).arg("-czf").arg(&asset).args(["cockpit", "cockpit-hub"]).status().unwrap();
+        let packed = Command::new("tar").env("COPYFILE_DISABLE", "1").arg("-C").arg(staging.path()).arg("-czf").arg(&asset).arg("cockpit").status().unwrap();
         assert!(packed.success());
         let digest = match checksum {
             Some(sum) => sum.to_string(),
@@ -278,7 +290,7 @@ fn can_fetch() -> bool {
 }
 
 #[test]
-fn fetch_installs_the_binaries_once_per_version() {
+fn fetch_installs_the_binary_once_per_version() {
     if !can_fetch() {
         return;
     }
@@ -287,8 +299,7 @@ fn fetch_installs_the_binaries_once_per_version() {
     let out = fetch(&sandbox, &release);
     assert_eq!((out.status.code(), stdout(&out).as_str(), stderr(&out).as_str()), (Some(0), "", ""));
     let bin = sandbox.root.join("herdr/bin");
-    assert_eq!(stdout(&Command::new(bin.join("cockpit")).output().unwrap()), "cockpit\n");
-    assert_eq!(stdout(&Command::new(bin.join("cockpit-hub")).output().unwrap()), "cockpit-hub\n");
+    assert_eq!(stdout(&Command::new(bin.join("cockpit")).output().unwrap()), "released\n");
     assert_eq!(std::fs::read_to_string(bin.join(".version")).unwrap(), "9.9.9\n");
     let seen = release.requests.lock().unwrap().len();
     assert_eq!(fetch(&sandbox, &release).status.code(), Some(0));
@@ -327,7 +338,102 @@ fn fetch_in_a_checkout_with_its_own_build_does_nothing() {
     }
     let (sandbox, release) = (plugin(), Release::serve());
     release.publish(None);
-    executable(&sandbox.root.join("herdr/tui/target/release/cockpit-hub"), "");
+    executable(&sandbox.root.join("herdr/tui/target/release/cockpit"), "");
     assert_eq!(fetch(&sandbox, &release).status.code(), Some(0));
     assert!(release.requests.lock().unwrap().is_empty());
+}
+
+/// A cockpit binary that logs how it was called, under `name`, and exits with `code`.
+fn logging_cockpit(sandbox: &Sandbox, path: &Path, name: &str, code: i32) {
+    executable(path, &format!("#!/bin/sh\nprintf '%s\\n' \"{name} $*\" >> '{}'\necho 'its usage' >&2\nexit {code}\n", sandbox.log().display()));
+}
+
+#[test]
+fn fetch_has_the_folders_binary_do_it() {
+    let (sandbox, release) = (plugin(), Release::serve());
+    release.publish(None);
+    let here = sandbox.root.join("herdr");
+    logging_cockpit(&sandbox, &here.join("bin/cockpit"), "own", 0);
+    let out = fetch(&sandbox, &release);
+    assert_eq!((out.status.code(), stderr(&out).as_str()), (Some(0), ""));
+    assert_eq!(sandbox.calls(), [format!("own update-apps {}", here.display())]);
+    assert!(release.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn fetch_says_why_the_binary_could_not_install() {
+    let (sandbox, release) = (plugin(), Release::serve());
+    logging_cockpit(&sandbox, &sandbox.root.join("herdr/bin/cockpit"), "own", 3);
+    let out = fetch(&sandbox, &release);
+    assert_eq!((out.status.code(), stderr(&out).as_str()), (Some(1), "its usage\n"));
+    assert!(release.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn fetch_downloads_itself_when_no_binary_knows_update_apps() {
+    if !can_fetch() {
+        return;
+    }
+    let (sandbox, release) = (plugin(), Release::serve());
+    release.publish(None);
+    logging_cockpit(&sandbox, &sandbox.root.join("herdr/bin/cockpit"), "own", 1);
+    let out = fetch(&sandbox, &release);
+    assert_eq!((out.status.code(), stderr(&out).as_str()), (Some(0), ""));
+    assert_eq!(stdout(&Command::new(sandbox.root.join("herdr/bin/cockpit")).output().unwrap()), "released\n");
+}
+
+/// herdr's folders for the plugin: `installs/<n>/checkout/herdr` for each name, the last with fetch-apps.sh on 9.9.9.
+fn installs(sandbox: &Sandbox, names: &[&str]) -> Vec<PathBuf> {
+    let folders: Vec<PathBuf> = names.iter().map(|n| sandbox.root.join("plugins/github-installations/cockpit").join(n).join("checkout/herdr")).collect();
+    let new = folders.last().unwrap();
+    std::fs::create_dir_all(new).unwrap();
+    std::fs::copy(scripts().join("fetch-apps.sh"), new.join("fetch-apps.sh")).unwrap();
+    std::fs::write(new.join("herdr-plugin.toml"), "id = \"cockpit\"\nversion = \"9.9.9\"\n").unwrap();
+    folders
+}
+
+fn fetch_in(sandbox: &Sandbox, folder: &Path, release: &Release) -> std::process::Output {
+    Command::new("sh").arg(folder.join("fetch-apps.sh")).env_clear().envs(sandbox.env()).env("COCKPIT_RELEASES_URL", &release.url).output().unwrap()
+}
+
+#[test]
+fn fetch_in_a_new_install_has_the_newest_earlier_one_do_it() {
+    let (sandbox, release) = (Sandbox::new(), Release::serve());
+    let folders = installs(&sandbox, &["1-a", "2-b", "3-c"]);
+    for (folder, name) in folders.iter().zip(["older", "newest"]) {
+        logging_cockpit(&sandbox, &folder.join("bin/cockpit"), name, 0);
+        std::fs::write(folder.join("bin/.version"), "9.9.8\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    }
+    let out = fetch_in(&sandbox, &folders[2], &release);
+    assert_eq!((out.status.code(), stderr(&out).as_str()), (Some(0), ""));
+    assert_eq!(sandbox.calls(), [format!("newest update-apps {}", folders[2].display())]);
+}
+
+#[test]
+fn fetch_before_the_release_has_the_binary_copies_the_earlier_install_in() {
+    if target().is_none() {
+        return;
+    }
+    let (sandbox, release) = (Sandbox::new(), Release::serve());
+    let folders = installs(&sandbox, &["1-a", "2-b"]);
+    let (old, new) = (&folders[0], &folders[1]);
+    std::fs::create_dir_all(old.join("bin")).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_cockpit"), old.join("bin/cockpit")).unwrap();
+    std::fs::write(old.join("bin/.version"), "0.0.1\n").unwrap();
+    // The link still names the old install, as when the scripts of the new one have not run yet.
+    std::os::unix::fs::symlink(old, sandbox.home().join(".config/cockpit/herdr")).unwrap();
+    let out = fetch_in(&sandbox, new, &release);
+    assert_eq!((out.status.code(), stderr(&out).as_str()), (Some(0), ""));
+    let own = env!("CARGO_PKG_VERSION");
+    assert_eq!(std::fs::read_to_string(new.join("bin/.version")).unwrap(), format!("{own}\n"));
+    let copied = stdout(&Command::new(new.join("bin/cockpit")).arg("--version").output().unwrap());
+    assert_eq!(copied, format!("cockpit {own}\n"));
+    // Once the release has it, the copied binary installs it.
+    release.publish(None);
+    let out = fetch_in(&sandbox, new, &release);
+    assert_eq!((out.status.code(), stderr(&out).as_str()), (Some(0), ""));
+    assert_eq!(std::fs::read_to_string(new.join("bin/.version")).unwrap(), "9.9.9\n");
+    assert_eq!(stdout(&Command::new(new.join("bin/cockpit")).output().unwrap()), "released\n");
+    assert_eq!(listing(new), ["bin", "fetch-apps.sh", "herdr-plugin.toml"]);
 }

@@ -1,0 +1,44 @@
+---
+source: show/tests/snapshots.rs
+expression: "screen(& mut app, width)"
+---
+ ◆  code   view · hh:mm
+
+ Code
+ Some TypeScript:
+
+  // The quota of a plan.                                                   ts
+  export function quota(plan: Plan): number | null {
+    const limits: Record<string, number> = { free: 10, pro: 200 };
+    return limits[plan.name] ?? null;
+  }
+
+ A TSX component:
+
+  export const Badge = ({ count }: { count: number }) => (                 tsx
+    <span className="badge" data-count={count}>{count > 99 ? "99+" : count}</s
+  pan>
+  );
+
+ And Elixir:
+
+  defmodule Quota do                                                    elixir
+    @moduledoc "Daily quotas."
+    def limit(:free), do: 10
+    def limit(%{plan: plan}) when is_binary(plan), do: String.to_atom(plan) |>
+   limit()
+  end
+
+
+
+
+
+
+
+
+
+
+
+
+
+ q hide  ^p palette  tab focus  j/k scroll  space/b page  g/G top/bottom
