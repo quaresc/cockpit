@@ -93,7 +93,7 @@ macro_rules! snapshots {
     )*};
 }
 
-snapshots!(markdown, table, chart_line, chart_bar, flow, mermaid, sequence, image, compare, diff, log, ci, choice, confirm, mixed);
+snapshots!(markdown, gfm, code, diff_ts, table, chart_line, chart_bar, flow, mermaid, sequence, image, compare, diff, log, ci, choice, confirm, mixed);
 
 #[test]
 fn mixed_compact() {

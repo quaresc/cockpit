@@ -1,0 +1,16 @@
+[package]
+name = "cockpit-update"
+description = "Installs the release's `cockpit` binary for this version and machine into the herdr folder, and keeps it current while the hub runs."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+flate2 = "1.1.10"
+libc = "0.2"
+sha2 = "0.10.9"
+tar = { version = "0.4", default-features = false }
+ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+tempfile = "3"

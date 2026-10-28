@@ -12,7 +12,7 @@ use similar::{Algorithm, ChangeTag};
 
 use cockpit_core::theme::{BLUE, dim, fg};
 
-use crate::highlight::{Grammars, Painter, token_for_path};
+use crate::highlight::{Grammars, token_for_path};
 
 static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap());
 /// Past this many lines a diff stays plain: painting it would take seconds.
@@ -167,28 +167,35 @@ fn expand(text: &str) -> String {
     text.replace('\t', "    ")
 }
 
-/// Colours every line for its file's type, the grammar following each side of a hunk, then marks changed words.
-fn paint_file(file: &mut File, grammars: Option<&Grammars>) {
+/// Colours every line for its file's type, each side of a hunk painted as one text, then marks changed words.
+fn paint_file(file: &mut File, mut grammars: Option<&mut Grammars>) {
     let token = token_for_path(&file.path);
-    let painter = || grammars.map_or_else(Painter::plain, |g| g.painter(&token));
-    let (mut old, mut new) = (painter(), painter());
+    let mut start = 0;
+    while start < file.lines.len() {
+        let end = file.lines[start + 1..].iter().position(|l| l.kind == Kind::Hunk).map_or(file.lines.len(), |at| start + 1 + at);
+        for old in [true, false] {
+            let side: Vec<usize> = (start..end).filter(|&i| matches!((file.lines[i].kind, old), (Kind::Same, _) | (Kind::Del, true) | (Kind::Add, false))).collect();
+            let texts: Vec<String> = side.iter().map(|&i| expand(&file.lines[i].text)).collect();
+            let painted = match grammars.as_deref_mut() {
+                Some(grammars) => grammars.paint(&token, &texts),
+                None => texts.into_iter().map(|t| vec![(t, Style::new())]).collect(),
+            };
+            for (i, pieces) in side.into_iter().zip(painted) {
+                // A line both sides share takes the new side's colours.
+                if old && file.lines[i].kind == Kind::Same {
+                    continue;
+                }
+                file.lines[i].paint = pieces.into_iter().map(|(t, s)| (t, s, false)).collect();
+            }
+        }
+        start = end;
+    }
     for line in &mut file.lines {
-        let text = expand(&line.text);
-        let pieces = match line.kind {
-            Kind::Hunk => {
-                old.restart();
-                new.restart();
-                vec![(text, fg(BLUE), false)]
-            }
-            Kind::Note => vec![(text, dim(), false)],
-            Kind::Same => {
-                old.line(&text);
-                new.line(&text).into_iter().map(|(t, s)| (t, s, false)).collect()
-            }
-            Kind::Del => old.line(&text).into_iter().map(|(t, s)| (t, s, false)).collect(),
-            Kind::Add => new.line(&text).into_iter().map(|(t, s)| (t, s, false)).collect(),
-        };
-        line.paint = pieces;
+        match line.kind {
+            Kind::Hunk => line.paint = vec![(expand(&line.text), fg(BLUE), false)],
+            Kind::Note => line.paint = vec![(expand(&line.text), dim(), false)],
+            _ => {}
+        }
     }
     // A run of removed lines followed by added ones: each pair compared word by word.
     let mut i = 0;
@@ -210,9 +217,9 @@ fn paint_file(file: &mut File, grammars: Option<&Grammars>) {
 pub fn prepare(patch: &str) -> Vec<File> {
     let mut files = parse_patch(patch);
     let colour = files.iter().map(|f| f.lines.len()).sum::<usize>() <= PAINTED_LINES;
-    let grammars = (colour && !files.is_empty()).then(Grammars::load);
+    let mut grammars = (colour && !files.is_empty()).then(Grammars::default);
     for file in &mut files {
-        paint_file(file, grammars.as_ref());
+        paint_file(file, grammars.as_mut());
     }
     files
 }
@@ -263,6 +270,7 @@ pub fn git_diff(repo: &str, base: Option<&str>) -> Result<String, String> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use ratatui::style::Color;
 
     const PATCH: &str = "diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,3 +1,3 @@\n fn main() {\n-    let x = 1;\n+    let x = 2;\n }\n";
 
@@ -281,6 +289,16 @@ mod tests {
         assert_eq!((marked(&files[0].lines[2]), marked(&files[0].lines[3])), ("1".to_string(), "2".to_string()));
         let text = |l: &Line| l.paint.iter().map(|p| p.0.clone()).collect::<String>();
         assert_eq!(text(&files[0].lines[3]), "    let x = 2;");
+    }
+
+    #[test]
+    fn a_typescript_diff_keeps_its_colours_and_changed_words() {
+        let patch = "diff --git a/q.ts b/q.ts\n--- a/q.ts\n+++ b/q.ts\n@@ -1,3 +1,3 @@\n /** The\n  quota. */\n-const limit = 100;\n+const limit = 200;\n";
+        let files = prepare(patch);
+        let piece = |l: usize, text: &str| files[0].lines[l].paint.iter().find(|p| p.0 == text).map(|p| (p.1.fg, p.2));
+        assert_eq!(piece(2, " quota. */"), Some((Some(Color::Rgb(110, 110, 116)), false)));
+        assert_eq!(piece(4, "const"), Some((Some(Color::Rgb(160, 160, 160)), false)));
+        assert_eq!(piece(4, "200"), Some((Some(Color::Rgb(255, 199, 153)), true)));
     }
 
     /// A parsed line by kind, numbers and text.

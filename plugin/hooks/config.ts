@@ -31,6 +31,8 @@ export type TicketFields = Partial<Record<
 
 export type Tickets = {
   enabled: boolean
+  // A Linear API key: the hub then fetches my tickets itself, fresh without a Claude session. Never shared beyond the file.
+  token?: string
   // What the inbox and notifications call the tool: Linear, Jira…
   name: string
   server: string
@@ -54,6 +56,8 @@ export type CiFields = Partial<Record<
 
 export type Ci = {
   enabled: boolean
+  // A CircleCI API token: the hub then fetches the runs itself, fresh without a Claude session. Never shared beyond the file.
+  token?: string
   // What notifications and prompts call it: GitHub, CircleCI, GitLab…
   name: string
   // The CI connector; empty reads GitHub's checks through gh.
@@ -292,7 +296,8 @@ let shared = ''
 
 // The config as the mod reads it, defaults and older formats resolved, for the herdr apps and scripts to read as is.
 async function shareConfig($: $, config: Config) {
-  const body = JSON.stringify(config, null, 2)
+  // Tokens stay in the config file: the hub reads them there.
+  const body = JSON.stringify({ ...config, tickets: { ...config.tickets, token: undefined }, ci: { ...config.ci, token: undefined } }, null, 2)
   if (body === shared) return
   await $.process.run(['mkdir', '-p', await cacheDir($)])
   await writeAtomic($, `${await cacheDir($)}/config.json`, body)

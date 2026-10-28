@@ -1,0 +1,40 @@
+{
+  "/api/v2/me/collaborations": [{"vcs_type": "github", "name": "other", "slug": "gh/other"}, {"vcs_type": "github", "name": "acme", "slug": "gh/acme"}],
+  "/api/v2/pipeline?org-slug=gh/acme&mine=true": {"next_page_token": "t2", "items": [
+    {"id": "p-api-2", "project_slug": "gh/acme/api", "state": "created", "created_at": "2026-10-27T15:54:24.775Z",
+     "vcs": {"origin_repository_url": "https://github.com/acme/api", "branch": "me/eng-401-login", "revision": "c0ffee4"}},
+    {"id": "p-tag", "project_slug": "gh/acme/api", "state": "created", "created_at": "2026-10-27T15:00:00.000Z",
+     "vcs": {"origin_repository_url": "https://github.com/acme/api", "tag": "v1.2.0", "revision": "c0ffee3"}},
+    {"id": "p-web-1", "project_slug": "gh/acme/web", "state": "created", "created_at": "2026-10-27T14:00:00.000Z",
+     "vcs": {"origin_repository_url": "https://github.com/acme/web.git", "branch": "me/eng-401-form", "revision": "f00d"}}
+  ]},
+  "/api/v2/pipeline?org-slug=gh/acme&mine=true&page-token=t2": {"next_page_token": null, "items": [
+    {"id": "p-api-1", "project_slug": "gh/acme/api", "state": "created", "created_at": "2026-10-27T10:00:00.000Z",
+     "vcs": {"origin_repository_url": "https://github.com/acme/api", "branch": "me/eng-401-login", "revision": "c0ffee1"}}
+  ]},
+  "/api/v2/pipeline/p-api-2/workflow": {"next_page_token": null, "items": [
+    {"id": "w-api-2a", "name": "build", "status": "failed", "created_at": "2026-10-27T15:54:25.123Z"},
+    {"id": "w-api-2b", "name": "build", "status": "failed", "created_at": "2026-10-27T15:58:00.000Z"}
+  ]},
+  "/api/v2/workflow/w-api-2b/job": {"next_page_token": null, "items": [
+    {"id": "j-build", "name": "build", "status": "success", "job_number": 10, "project_slug": "gh/acme/api", "type": "build"},
+    {"id": "j-test", "name": "test", "status": "failed", "job_number": 11, "project_slug": "gh/acme/api", "type": "build"},
+    {"id": "j-tag", "name": "docker_tag", "status": "blocked", "project_slug": "gh/acme/api", "type": "build"}
+  ]},
+  "/api/v1.1/project/github/acme/api/11": {"steps": [
+    {"name": "Spin up environment", "actions": [{"status": "success", "exit_code": null}]},
+    {"name": "mix test", "actions": [{"status": "failed", "failed": true, "exit_code": 2}]}
+  ]},
+  "/api/v2/project/gh/acme/api/11/tests": {"next_page_token": null, "items": [
+    {"name": "login works", "classname": "Acme.LoginTest", "result": "failure"},
+    {"name": "", "classname": "Acme.SessionTest", "result": "failure"},
+    {"name": "logout works", "classname": "Acme.LoginTest", "result": "success"}
+  ]},
+  "/api/v2/pipeline/p-web-1/workflow": {"next_page_token": null, "items": [
+    {"id": "w-web-1", "name": "build", "status": "running", "created_at": "2026-10-27T14:00:01.000Z"}
+  ]},
+  "/api/v2/workflow/w-web-1/job": {"next_page_token": null, "items": [
+    {"id": "j-web-build", "name": "build", "status": "success", "job_number": 5, "project_slug": "gh/acme/web", "type": "build"},
+    {"id": "j-web-tag", "name": "docker_tag", "status": "running", "job_number": 6, "project_slug": "gh/acme/web", "type": "build"}
+  ]}
+}

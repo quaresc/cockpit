@@ -1,15 +1,20 @@
-//! Markdown drawn in the pane, parsed with pulldown-cmark (CommonMark, tables, strikethrough, task
-//! lists): a centred h1, blank lines around headings, paragraphs joined and wrapped, nested bullets, numbered lists,
-//! checkboxes, quotes with a bar, boxed tables, code in a tinted panel with syntax colours, and links a click opens.
+//! Markdown drawn in the pane, parsed with comrak (GitHub Flavored: tables, task lists, strikethrough, autolinks,
+//! footnotes, alerts): a centred h1, blank lines around headings, paragraphs joined and wrapped, nested bullets, numbered
+//! lists, checkboxes, quotes with a bar, alerts with their colour and icon, boxed tables, code in a tinted panel with
+//! syntax colours, footnotes under a rule, and links a click opens.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use comrak::arena_tree::NodeEdge;
+use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};
+use comrak::{Arena, Options, parse_document};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use regex::Regex;
 
 use cockpit_core::text::width;
-use cockpit_core::theme::{BLUE, DIM, FG, GREEN, ORANGE, PANEL, bold, dim, fg};
+use cockpit_core::theme::{BLUE, DIM, FG, GREEN, ORANGE, PANEL, PINK, RED, bold, dim, fg};
 
 use crate::highlight;
 use crate::row::{Act, Row};
@@ -21,7 +26,6 @@ const BULLETS: [&str; 3] = ["• ", "▪ ", "‣ "];
 const QUOTE_BAR: Color = Color::Rgb(122, 98, 80);
 const BORDER: Color = Color::Rgb(70, 70, 76);
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\S+\s*|\s+").unwrap());
-static BARE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://[^\s<>()]+[^\s<>().,;:!?'\x22]").unwrap());
 
 /// Splits styled segments into rows of at most `room` cells, breaking between words; a "\n" in a segment forces a break.
 pub fn wrap(segments: Vec<Segment>, room: usize) -> Vec<Vec<Segment>> {
@@ -87,14 +91,26 @@ fn web(url: &str) -> Option<String> {
     (url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:")).then(|| url.to_string())
 }
 
-/// What the lines being drawn sit in: a quote's bar, or a list item's marker on its first line and room under it after.
+/// An alert's colour and its Nerd Font octicon, as GitHub draws them.
+fn alert_look(kind: AlertType) -> (Color, &'static str) {
+    match kind {
+        AlertType::Note => (BLUE, "\u{f449}"),
+        AlertType::Tip => (GREEN, "\u{f400}"),
+        AlertType::Important => (PINK, "\u{f50a}"),
+        AlertType::Warning => (ORANGE, "\u{f421}"),
+        AlertType::Caution => (RED, "\u{f46e}"),
+    }
+}
+
+/// What the lines being drawn sit in: a quote's or an alert's bar, or a list item's marker on its first line and room
+/// under it after; a tight item's paragraphs have no blank line between them.
 enum Container {
-    Quote,
-    Item { marker: String, style: Style, used: bool },
+    Quote(Color),
+    Item { marker: String, style: Style, used: bool, tight: bool },
 }
 
 struct Table {
-    aligns: Vec<Alignment>,
+    aligns: Vec<TableAlignment>,
     rows: Vec<Vec<Vec<Segment>>>,
 }
 
@@ -103,19 +119,22 @@ struct Writer {
     cols: usize,
     out: Vec<Row>,
     containers: Vec<Container>,
-    /// Each open list's next number, None for bullets.
-    lists: Vec<Option<u64>>,
+    /// Each open list's next number (None for bullets) and whether it is tight.
+    lists: Vec<(Option<usize>, bool)>,
     inline: Vec<Segment>,
     styles: Vec<Style>,
+    /// How many styles were open when each item started: an item's styles end with it, a done task's struck one too.
+    item_styles: Vec<usize>,
     links: Vec<Option<String>>,
     image: Option<(Option<String>, String)>,
-    code: Option<(String, String)>,
     table: Option<Table>,
-    html: String,
+    /// Each footnote's number by its name, as its references show it.
+    footnotes: HashMap<String, u32>,
+    footnotes_shown: bool,
     /// A blank line is due before the next block.
     gap: bool,
-    /// The grammars, loaded at the first code block that needs them and held to the end.
-    grammars: Option<highlight::Grammars>,
+    /// The grammars, each loaded at the first code block that needs it and held to the end.
+    grammars: highlight::Grammars,
 }
 
 impl Writer {
@@ -132,8 +151,8 @@ impl Writer {
         let mut out = Vec::new();
         for c in &mut self.containers {
             match c {
-                Container::Quote => out.push(("▌ ".to_string(), fg(QUOTE_BAR))),
-                Container::Item { marker, style, used } => {
+                Container::Quote(color) => out.push(("▌ ".to_string(), fg(*color))),
+                Container::Item { marker, style, used, .. } => {
                     if *used {
                         out.push((" ".repeat(width(marker)), Style::new()));
                     } else {
@@ -151,7 +170,7 @@ impl Writer {
             .containers
             .iter()
             .map(|c| match c {
-                Container::Quote => 2,
+                Container::Quote(_) => 2,
                 Container::Item { marker, .. } => width(marker),
             })
             .sum();
@@ -166,15 +185,19 @@ impl Writer {
         self.out.push(add_segments(row, segments));
     }
 
-    /// Starts a block: the blank line the previous one asked for, the quote's bar running through it.
+    /// Starts a block: the blank line the previous one asked for, the quotes' bars running through it.
     fn block(&mut self) {
         if std::mem::take(&mut self.gap) && !self.out.is_empty() {
-            let bars = self.containers.iter().filter(|c| matches!(c, Container::Quote)).count();
-            self.out.push(Row::text("▌ ".repeat(bars).trim_end().to_string(), fg(QUOTE_BAR)));
+            let bars: Vec<Color> = self.containers.iter().filter_map(|c| if let Container::Quote(color) = c { Some(*color) } else { None }).collect();
+            let mut row = Row::new();
+            for (k, color) in bars.iter().enumerate() {
+                row = row.add(if k + 1 == bars.len() { "▌" } else { "▌ " }, fg(*color));
+            }
+            self.out.push(row);
         }
     }
 
-    /// The text gathered so far as wrapped lines: a paragraph, or a tight list item's text.
+    /// The text gathered so far as wrapped lines: a paragraph, or a heading's or cell's text.
     fn flush(&mut self) {
         let segments = std::mem::take(&mut self.inline);
         if segments.iter().all(|(t, _, _)| t.trim().is_empty()) {
@@ -187,40 +210,21 @@ impl Writer {
     }
 
     fn text(&mut self, text: &str) {
-        if let Some((_, code)) = self.code.as_mut() {
-            code.push_str(text);
-            return;
-        }
         if let Some((_, alt)) = self.image.as_mut() {
             alt.push_str(text);
             return;
         }
-        let style = self.style();
-        if let Some(link) = self.links.last() {
-            self.inline.push((text.to_string(), style, link.clone()));
-            return;
-        }
-        // A bare web address in the text is a link too.
-        let mut at = 0;
-        for m in BARE_URL.find_iter(text) {
-            if m.start() > at {
-                self.inline.push((text[at..m.start()].to_string(), style, None));
-            }
-            self.inline.push((m.as_str().to_string(), style.fg(BLUE).add_modifier(Modifier::UNDERLINED), Some(m.as_str().to_string())));
-            at = m.end();
-        }
-        if at < text.len() {
-            self.inline.push((text[at..].to_string(), style, None));
-        }
+        let link = self.links.last().cloned().flatten();
+        self.inline.push((text.to_string(), self.style(), link));
     }
 
-    fn heading(&mut self, level: HeadingLevel) {
+    fn heading(&mut self, level: u8) {
         let segments = std::mem::take(&mut self.inline);
         self.gap = true;
         self.block();
         let room = self.room();
         for row in wrap(segments, room) {
-            if level == HeadingLevel::H1 {
+            if level == 1 {
                 let used: usize = row.iter().map(|(t, _, _)| width(t)).sum();
                 let mut centred = vec![(" ".repeat(room.saturating_sub(used) / 2), Style::new(), None)];
                 centred.extend(row);
@@ -233,6 +237,7 @@ impl Writer {
     }
 
     fn code_block(&mut self, info: &str, text: &str) {
+        self.flush();
         self.block();
         let room = self.room();
         let panel = Style::new().bg(PANEL);
@@ -313,8 +318,8 @@ impl Writer {
                     let used: usize = piece.iter().map(|(t, _, _)| width(t)).sum();
                     let free = sizes[i].saturating_sub(used);
                     let (before, after) = match table.aligns.get(i) {
-                        Some(Alignment::Right) => (free, 0),
-                        Some(Alignment::Center) => (free / 2, free - free / 2),
+                        Some(TableAlignment::Right) => (free, 0),
+                        Some(TableAlignment::Center) => (free / 2, free - free / 2),
                         _ => (0, free),
                     };
                     row.push((" ".repeat(before + 1), Style::new(), None));
@@ -332,164 +337,183 @@ impl Writer {
         self.gap = true;
     }
 
-    fn start(&mut self, tag: Tag) {
-        match tag {
-            Tag::Heading { level, .. } => {
+    /// A list item or a footnote: its marker on its first line, its styles ending with it.
+    fn item(&mut self, marker: String, style: Style, tight: bool) {
+        self.flush();
+        self.item_styles.push(self.styles.len());
+        self.containers.push(Container::Item { marker, style, used: false, tight });
+    }
+
+    fn end_item(&mut self) {
+        self.flush();
+        if let Some(n) = self.item_styles.pop() {
+            self.styles.truncate(n);
+        }
+        // An item with nothing in it still shows its marker.
+        if let Some(Container::Item { used: false, .. }) = self.containers.last() {
+            self.line(vec![]);
+        }
+        self.containers.pop();
+    }
+
+    /// The next item's marker: its number in an ordered list, else the bullet of its depth.
+    fn marker(&mut self) -> String {
+        let depth = self.lists.len().saturating_sub(1);
+        match self.lists.last_mut().and_then(|(next, _)| next.as_mut()) {
+            Some(n) => {
+                *n += 1;
+                format!("{}. ", *n - 1)
+            }
+            None => BULLETS[depth % BULLETS.len()].to_string(),
+        }
+    }
+
+    fn enter(&mut self, value: &NodeValue) {
+        match value {
+            NodeValue::Heading(heading) => {
                 self.flush();
-                let style = match level {
-                    HeadingLevel::H1 => bold(ORANGE),
-                    HeadingLevel::H2 => bold(FG).add_modifier(Modifier::UNDERLINED),
-                    HeadingLevel::H3 => bold(FG),
-                    HeadingLevel::H4 => bold(DIM).add_modifier(Modifier::ITALIC),
+                let style = match heading.level {
+                    1 => bold(ORANGE),
+                    2 => bold(FG).add_modifier(Modifier::UNDERLINED),
+                    3 => bold(FG),
+                    4 => bold(DIM).add_modifier(Modifier::ITALIC),
                     _ => dim().add_modifier(Modifier::ITALIC),
                 };
                 self.styles.push(style);
             }
-            Tag::BlockQuote(_) => {
+            NodeValue::BlockQuote => {
                 self.flush();
                 self.block();
-                self.containers.push(Container::Quote);
+                self.containers.push(Container::Quote(QUOTE_BAR));
                 self.push_style(|s| s.add_modifier(Modifier::ITALIC));
             }
-            Tag::CodeBlock(kind) => {
+            NodeValue::Alert(alert) => {
                 self.flush();
-                let info = match kind {
-                    CodeBlockKind::Fenced(info) => info.to_string(),
-                    CodeBlockKind::Indented => String::new(),
-                };
-                self.code = Some((info, String::new()));
+                self.block();
+                let (color, icon) = alert_look(alert.alert_type);
+                self.containers.push(Container::Quote(color));
+                let title = alert.title.clone().unwrap_or_else(|| alert.alert_type.default_title().to_string());
+                self.line(vec![(format!("{icon} {title}"), bold(color), None)]);
+                self.styles.push(self.style());
             }
-            Tag::HtmlBlock => self.html.clear(),
-            Tag::List(start) => {
+            NodeValue::CodeBlock(block) => self.code_block(&block.info, &block.literal),
+            NodeValue::HtmlBlock(block) => self.html(&block.literal),
+            NodeValue::List(list) => {
                 self.flush();
                 if self.lists.is_empty() {
                     self.block();
                 }
-                self.lists.push(start);
+                self.lists.push(((list.list_type == ListType::Ordered).then_some(list.start), list.tight));
             }
-            Tag::Item => {
-                self.flush();
-                let depth = self.lists.len().saturating_sub(1);
-                let marker = match self.lists.last_mut().and_then(Option::as_mut) {
-                    Some(n) => {
-                        *n += 1;
-                        format!("{}. ", *n - 1)
-                    }
-                    None => BULLETS[depth % BULLETS.len()].to_string(),
-                };
-                self.containers.push(Container::Item { marker, style: fg(ORANGE), used: false });
+            NodeValue::Item(_) => {
+                let (marker, tight) = (self.marker(), self.lists.last().is_some_and(|l| l.1));
+                self.item(marker, fg(ORANGE), tight);
             }
-            Tag::Emphasis => self.push_style(|s| s.add_modifier(Modifier::ITALIC)),
-            Tag::Strong => self.push_style(|s| s.add_modifier(Modifier::BOLD)),
-            Tag::Strikethrough => self.push_style(|s| s.add_modifier(Modifier::CROSSED_OUT)),
-            Tag::Link { dest_url, .. } => {
-                self.links.push(web(&dest_url));
+            NodeValue::TaskItem(task) => {
+                let tight = self.lists.last().is_some_and(|l| l.1);
+                self.marker();
+                let done = task.symbol.is_some_and(|c| !c.is_whitespace());
+                let (marker, style) = if done { ("☑ ", fg(GREEN)) } else { ("☐ ", dim()) };
+                self.item(marker.into(), style, tight);
+                if done {
+                    self.push_style(|s| s.fg(DIM).add_modifier(Modifier::CROSSED_OUT));
+                }
+            }
+            NodeValue::FootnoteDefinition(note) => {
+                if !std::mem::replace(&mut self.footnotes_shown, true) {
+                    self.rule();
+                }
+                let number = self.footnotes.get(&note.name).copied().unwrap_or(self.footnotes.len() as u32 + 1);
+                self.item(format!("[{number}] "), fg(BLUE), true);
+            }
+            NodeValue::Emph => self.push_style(|s| s.add_modifier(Modifier::ITALIC)),
+            NodeValue::Strong => self.push_style(|s| s.add_modifier(Modifier::BOLD)),
+            NodeValue::Strikethrough => self.push_style(|s| s.add_modifier(Modifier::CROSSED_OUT)),
+            NodeValue::Link(link) => {
+                self.links.push(web(&link.url));
                 self.push_style(|s| s.fg(BLUE).add_modifier(Modifier::UNDERLINED));
             }
-            Tag::Image { dest_url, .. } => self.image = Some((web(&dest_url), String::new())),
-            Tag::Table(aligns) => {
+            NodeValue::Image(link) => self.image = Some((web(&link.url), String::new())),
+            NodeValue::Table(table) => {
                 self.flush();
-                self.table = Some(Table { aligns, rows: Vec::new() });
+                self.table = Some(Table { aligns: table.alignments.clone(), rows: Vec::new() });
             }
-            Tag::TableHead | Tag::TableRow => {
+            NodeValue::TableRow(_) => {
                 if let Some(t) = self.table.as_mut() {
                     t.rows.push(Vec::new());
                 }
             }
-            Tag::TableCell => self.inline.clear(),
+            NodeValue::TableCell => self.inline.clear(),
+            NodeValue::Text(text) => self.text(text),
+            NodeValue::Code(code) => match self.image.as_mut() {
+                Some((_, alt)) => alt.push_str(&code.literal),
+                None => {
+                    let link = self.links.last().cloned().flatten();
+                    self.inline.push((code.literal.clone(), self.style().fg(ORANGE).bg(PANEL), link));
+                }
+            },
+            NodeValue::HtmlInline(html) => self.inline.push((html.clone(), dim(), None)),
+            NodeValue::SoftBreak => self.text(" "),
+            NodeValue::LineBreak => self.inline.push(("\n".into(), Style::new(), None)),
+            NodeValue::ThematicBreak => self.rule(),
+            NodeValue::FootnoteReference(note) => {
+                self.footnotes.insert(note.name.clone(), note.ix);
+                self.inline.push((format!("[{}]", note.ix), fg(BLUE), None));
+            }
             _ => {}
         }
     }
 
-    fn end(&mut self, tag: TagEnd) {
-        match tag {
-            TagEnd::Paragraph => {
+    fn leave(&mut self, value: &NodeValue) {
+        match value {
+            NodeValue::Paragraph => {
                 self.flush();
-                self.gap = true;
+                self.gap = !matches!(self.containers.last(), Some(Container::Item { tight: true, .. }));
             }
-            TagEnd::Heading(level) => {
+            NodeValue::Heading(heading) => {
                 self.styles.pop();
-                self.heading(level);
+                self.heading(heading.level);
             }
-            TagEnd::BlockQuote(_) => {
+            NodeValue::BlockQuote | NodeValue::Alert(_) => {
                 self.flush();
                 self.containers.pop();
                 self.styles.pop();
                 self.gap = true;
             }
-            TagEnd::CodeBlock => {
-                if let Some((info, text)) = self.code.take() {
-                    self.code_block(&info, &text);
-                }
-            }
-            TagEnd::HtmlBlock => {
-                let html = std::mem::take(&mut self.html);
-                self.html(&html);
-            }
-            TagEnd::List(_) => {
+            NodeValue::List(_) => {
                 self.flush();
                 self.lists.pop();
                 if self.lists.is_empty() {
                     self.gap = true;
                 }
             }
-            TagEnd::Item => {
-                self.flush();
-                // An item with nothing in it still shows its marker.
-                if let Some(Container::Item { used: false, .. }) = self.containers.last() {
-                    self.line(vec![]);
-                }
-                self.containers.pop();
+            NodeValue::Item(_) | NodeValue::TaskItem(_) => self.end_item(),
+            NodeValue::FootnoteDefinition(_) => {
+                self.end_item();
+                self.gap = false;
             }
-            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
+            NodeValue::Emph | NodeValue::Strong | NodeValue::Strikethrough => {
                 self.styles.pop();
             }
-            TagEnd::Link => {
+            NodeValue::Link(_) => {
                 self.links.pop();
                 self.styles.pop();
             }
-            TagEnd::Image => {
+            NodeValue::Image(_) => {
                 if let Some((url, alt)) = self.image.take() {
                     let label = if alt.trim().is_empty() { "picture".to_string() } else { alt };
                     self.inline.push((format!("▣ {label}"), self.style().fg(DIM).add_modifier(Modifier::UNDERLINED), url));
                 }
             }
-            TagEnd::Table => {
+            NodeValue::Table(_) => {
                 if let Some(table) = self.table.take() {
                     self.table(table);
                 }
             }
-            TagEnd::TableCell => {
+            NodeValue::TableCell => {
                 let cell = std::mem::take(&mut self.inline);
                 if let Some(row) = self.table.as_mut().and_then(|t| t.rows.last_mut()) {
                     row.push(cell);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn event(&mut self, event: Event) {
-        match event {
-            Event::Start(tag) => self.start(tag),
-            Event::End(tag) => self.end(tag),
-            Event::Text(text) => self.text(&text),
-            Event::Code(code) => {
-                let style = self.style().fg(ORANGE).bg(PANEL);
-                let link = self.links.last().cloned().flatten();
-                self.inline.push((code.to_string(), style, link));
-            }
-            Event::Html(html) => self.html.push_str(&html),
-            Event::InlineHtml(html) => self.inline.push((html.to_string(), dim(), None)),
-            Event::SoftBreak => self.text(" "),
-            Event::HardBreak => self.inline.push(("\n".into(), Style::new(), None)),
-            Event::Rule => self.rule(),
-            Event::TaskListMarker(done) => {
-                if let Some(Container::Item { marker, style, .. }) = self.containers.last_mut() {
-                    (*marker, *style) = if done { ("☑ ".into(), fg(GREEN)) } else { ("☐ ".into(), dim()) };
-                }
-                if done {
-                    self.push_style(|s| s.fg(DIM).add_modifier(Modifier::CROSSED_OUT));
                 }
             }
             _ => {}
@@ -518,29 +542,69 @@ fn hard_wrap(segments: Vec<Segment>, room: usize) -> Vec<Vec<Segment>> {
     rows
 }
 
+/// GitHub Flavored Markdown with its footnotes and alerts.
+fn options() -> Options<'static> {
+    let mut options = Options::default();
+    let extension = &mut options.extension;
+    (extension.table, extension.strikethrough, extension.tasklist, extension.autolink) = (true, true, true, true);
+    (extension.footnotes, extension.alerts) = (true, true);
+    options
+}
+
 pub fn markdown(text: &str, cols: usize) -> Vec<Row> {
-    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let arena = Arena::new();
+    let root = parse_document(&arena, text, &options());
     let mut writer = Writer { cols: cols.max(20), ..Writer::default() };
-    // Each item's styles end with it, a checked task's struck style included.
-    let mut item_styles = Vec::new();
-    for event in Parser::new_ext(text, options) {
-        match &event {
-            Event::Start(Tag::Item) => item_styles.push(writer.styles.len()),
-            Event::End(TagEnd::Item) => {
-                if let Some(n) = item_styles.pop() {
-                    writer.flush();
-                    writer.styles.truncate(n);
-                }
-            }
-            _ => {}
+    for edge in root.traverse() {
+        match edge {
+            NodeEdge::Start(node) => writer.enter(&node.data().value),
+            NodeEdge::End(node) => writer.leave(&node.data().value),
         }
-        writer.event(event);
     }
     writer.flush();
     while writer.out.last().is_some_and(|r| r.line.width() == 0) {
         writer.out.pop();
     }
     writer.out
+}
+
+/// Markdown as lines for another space's panel: the same look, without the clicks.
+pub fn lines(text: &str, cols: usize) -> Vec<Line<'static>> {
+    markdown(text, cols).into_iter().map(|row| row.line).collect()
+}
+
+/// A line's inline marks only (code, emphasis, links), its blocks' marks dropped: a review comment's first line in a
+/// panel row. The text as it is when nothing in it is inline (a code fence's opening line).
+pub fn inline(text: &str) -> Vec<Span<'static>> {
+    let arena = Arena::new();
+    let root = parse_document(&arena, text, &options());
+    let mut writer = Writer::default();
+    for edge in root.traverse() {
+        match edge {
+            NodeEdge::Start(node) => match &node.data().value {
+                NodeValue::Paragraph | NodeValue::Heading(_) | NodeValue::TableCell if !writer.inline.is_empty() => writer.text(" "),
+                value @ (NodeValue::Text(_)
+                | NodeValue::Code(_)
+                | NodeValue::Emph
+                | NodeValue::Strong
+                | NodeValue::Strikethrough
+                | NodeValue::Link(_)
+                | NodeValue::Image(_)
+                | NodeValue::SoftBreak
+                | NodeValue::HtmlInline(_)) => writer.enter(value),
+                _ => {}
+            },
+            NodeEdge::End(node) => {
+                if let value @ (NodeValue::Emph | NodeValue::Strong | NodeValue::Strikethrough | NodeValue::Link(_) | NodeValue::Image(_)) = &node.data().value {
+                    writer.leave(value);
+                }
+            }
+        }
+    }
+    if writer.inline.iter().all(|(t, _, _)| t.trim().is_empty()) {
+        return vec![Span::raw(text.to_string())];
+    }
+    writer.inline.into_iter().map(|(t, s, _)| Span::styled(t, s)).collect()
 }
 
 #[cfg(test)]
@@ -551,7 +615,7 @@ mod tests {
     proptest! {
         /// Whatever the text and the width, drawing it ends without a panic.
         #[test]
-        fn any_text_draws(text in r"([-*#>|`_~\\\[\]()!: \n0-9a-zé✓.x]|https://a\.b/c|```rust\n|- \[ \] |\|---\|){0,80}", cols in 0usize..160) {
+        fn any_text_draws(text in r"([-*#>|`_~\\\[\]()!:^ \n0-9a-zé✓.x]|https://a\.b/c|www\.d\.e|```rust\n|```tsx\n|- \[ \] |\|---\||\[\^1\]|> \[!NOTE\]\n){0,80}", cols in 0usize..160) {
             let _ = markdown(&text, cols);
         }
 
@@ -593,5 +657,34 @@ mod tests {
         let mut acts: Vec<&Act> = rows[0].clicks.iter().map(|(_, _, a)| a).collect();
         acts.dedup();
         assert_eq!(acts, vec![&Act::Open("https://example.com".into()), &Act::Open("https://x.dev/a".into())]);
+    }
+
+    #[test]
+    fn alerts_have_their_icon_title_and_colour() {
+        let rows = markdown("> [!WARNING]\n> Mind the quota.\n\n> [!TIP] Shortcut\n> Press s.", 40);
+        assert_eq!(text(&rows), vec!["▌ \u{f421} Warning", "▌ Mind the quota.", "", "▌ \u{f400} Shortcut", "▌ Press s."]);
+        assert_eq!(rows[0].line.spans[0].style.fg, Some(ORANGE));
+        assert_eq!(rows[3].line.spans[1].style.fg, Some(GREEN));
+        assert!(!rows[1].line.spans[1].style.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn footnotes_go_under_a_rule() {
+        let shown = text(&markdown("Counted[^n] here.\n\n[^n]: Per organisation.", 30));
+        assert_eq!(shown, vec!["Counted[1] here.", "", &"─".repeat(30), "", "[1] Per organisation."]);
+    }
+
+    #[test]
+    fn inline_keeps_only_the_inline_marks() {
+        let spans = inline("## Use `quota()` **here**");
+        let shown: Vec<(&str, Option<Color>, bool)> = spans.iter().map(|s| (s.content.as_ref(), s.style.fg, s.style.add_modifier.contains(Modifier::BOLD))).collect();
+        assert_eq!(shown, vec![("Use ", None, false), ("quota()", Some(ORANGE), false), (" ", None, false), ("here", None, true)]);
+        assert_eq!(inline("```suggestion")[0].content, "```suggestion");
+    }
+
+    #[test]
+    fn www_addresses_link_too() {
+        let rows = markdown("see www.example.org now", 40);
+        assert!(rows[0].clicks.iter().any(|(_, _, a)| *a == Act::Open("http://www.example.org".into())));
     }
 }

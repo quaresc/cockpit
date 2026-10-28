@@ -1,7 +1,7 @@
-# cockpit's apps: one binary per space, the hub they share, and the `cockpit` command, on the core crate.
+# cockpit's apps, the hub they share and the commands the scripts call, all in the one `cockpit` binary, on the core crate.
 [workspace]
 resolver = "3"
-members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings", "cli"]
+members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings", "update", "cli"]
 
 [workspace.package]
 version = "0.17.0"
@@ -9,6 +9,7 @@ edition = "2024"
 
 [workspace.dependencies]
 cockpit-core = { path = "core" }
+cockpit-update = { path = "update" }
 insta = "1"
 ansi-to-tui = "8.0.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }

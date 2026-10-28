@@ -111,7 +111,10 @@ fn render(fetched: &Fetched) -> Vec<Line<'static>> {
     if !fetched.threads.is_empty() {
         lines.push(title(format!("{} unresolved review thread{}", fetched.threads.len(), if fetched.threads.len() == 1 { "" } else { "s" }), FG));
         for (place, author, body) in fetched.threads.iter().take(THREADS) {
-            lines.push(Line::from(vec![Span::styled(format!("  {place}  "), dim()), Span::styled(format!("{author}  "), fg(ORANGE)), Span::styled(body.clone(), fg(FG))]));
+            let mut spans = vec![Span::styled(format!("  {place}  "), dim()), Span::styled(format!("{author}  "), fg(ORANGE))];
+            // The comment's code, emphasis and links marked as GitHub shows them.
+            spans.extend(cockpit_show::markdown_inline(body).into_iter().map(|span| Span::styled(span.content, fg(FG).patch(span.style))));
+            lines.push(Line::from(spans));
         }
     }
     if !fetched.tests.is_empty() {
@@ -216,5 +219,14 @@ mod tests {
         assert_eq!(fetched.threads, vec![("src/a.rs:12".into(), "ana".into(), "Could this be a constant?".into()), ("README.md".into(), "cy".into(), "typo".into())]);
         assert_eq!(fetched.tests, vec!["test_login", "test_logout"]);
         assert_eq!(fetched.log, vec!["two", "three", "four", "five"]);
+    }
+
+    #[test]
+    fn a_comments_code_is_marked() {
+        let fetched = Fetched { threads: vec![("src/a.rs:3".into(), "ana".into(), "Use `quota()` here".into())], ..Fetched::default() };
+        let line = &render(&fetched)[1];
+        let code = line.spans.iter().find(|s| s.content == "quota()").map(|s| s.style.fg);
+        assert_eq!(code, Some(Some(ORANGE)));
+        assert_eq!(line.spans.last().map(|s| (s.content.as_ref(), s.style.fg)), Some((" here", Some(FG))));
     }
 }

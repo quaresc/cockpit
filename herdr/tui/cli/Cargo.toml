@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-cli"
-description = "The `cockpit` command the plugin's scripts call: the actions space, notification buttons, the browser beside a pane, screenshots and the hub's health."
+description = "The one `cockpit` binary: the space apps, the show view and the hub as its subcommands, and what the plugin's scripts call (the actions space, notification buttons, the browser beside a pane, screenshots, updates)."
 version.workspace = true
 edition.workspace = true
 
@@ -10,8 +10,16 @@ path = "src/main.rs"
 
 [dependencies]
 cockpit-core.workspace = true
+cockpit-update.workspace = true
+cockpit-hub = { path = "../hub" }
+cockpit-inbox = { path = "../inbox" }
+cockpit-meetings = { path = "../meetings" }
+cockpit-runbook = { path = "../runbook" }
+cockpit-show = { path = "../show" }
+cockpit-todo = { path = "../todo" }
 serde_json.workspace = true
 libc = "0.2"
+mimalloc = { version = "0.1.52", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
