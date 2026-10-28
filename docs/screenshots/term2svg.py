@@ -10,6 +10,11 @@ BG, FG = "#101010", "#D2D2D2"
 NAMED = {"black": "#101010", "red": "#FF8080", "green": "#99FFE4", "brown": "#FFC799", "yellow": "#FFC799", "blue": "#A0A0FF",
          "magenta": "#FF99CC", "cyan": "#99FFE4", "white": "#D2D2D2", "brightblack": "#505050", "brightwhite": "#FFFFFF"}
 
+# Emoji the apps draw with a variation selector (⚠️, ⏸️, ☀️) take two cells there, as unicode-width counts them; pyte
+# would count one and shift the rest of the line.
+_wcwidth = pyte.screens.wcwidth
+pyte.screens.wcwidth = lambda ch: 2 if ch in "\u26a0\u23f8\u2600" else _wcwidth(ch)
+
 class Screen(pyte.Screen):
     # SGR 2 (dim) is kept in the unused blink attribute.
     def select_graphic_rendition(self, *attrs, private=False):
@@ -22,6 +27,11 @@ class Screen(pyte.Screen):
             out.append(5 if a == 2 else 25 if a == 22 else a); i += 1
         if 22 in attrs: out.append(22)
         super().select_graphic_rendition(*out)
+
+    # The variation selector itself is dropped: the width above already counts it.
+    def draw(self, data):
+        super().draw(data.replace("\ufe0f", ""))
+
 
 def run(argv, cols, rows, env, keys=(), wait=2.5, cwd=None):
     pid, fd = pty.fork()

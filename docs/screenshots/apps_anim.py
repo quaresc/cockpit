@@ -1,4 +1,5 @@
-"""The Rust apps, built in herdr/tui, animated: the cursor steps through the rows. Run demo_data.py first."""
+"""The Rust apps, built in herdr/tui, animated: the cursor steps through the rows. Run demo_data.py, then history.py
+for the rows marked as changed since you last looked."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from term2svg import Screen, animate, last_used_row, run_steps, screen_of
@@ -9,13 +10,15 @@ APPS = os.path.join(HERE, "..", "..", "herdr")
 OUT = os.path.join(HERE, "..")
 COCKPIT = os.path.join(APPS, "tui", "target", "release", "cockpit")
 env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true", "COCKPIT_HERDR_DIR": APPS,
-       "COCKPIT_HUB_IDLE_SECS": "20"}
+       "COCKPIT_HUB_IDLE_SECS": "120", "COCKPIT_HUB_FEED": "off"}
 # app: (columns, rows, keys, seconds per step). The inbox: down the tree, a filter typed and kept, then the palette
 # searching every app through the hub.
 SHOTS = {
     "inbox": (120, 44, ["j"] * 6 + ["/", "q", "u", "o", "t", "a", "\r", "\x1b", "\x10", "p", "l", "a", "n", "\x1b"], 0.9),
     "todo": (100, 16, ["j", "j", "j", "k", "k"], 0.9),
     "meetings": (96, 18, ["j", "j", "j", "j"], 0.9),
+    # The monitor: down to the release that moved, then every release as one timeline and back.
+    "monitor": (120, 30, ["j", "j", "j", "j", "j", "w", "w"], 1.1),
 }
 
 

@@ -75,12 +75,64 @@ with open(os.path.join(cache, "activity", "t7.jsonl"), "w") as f:
                              (17, "command", "git push"), (16, "turn", "Pushed to me/eng-413-quota-ui; CI is green and the image is built."),
                              (5, "turn", "Should the banner also show on the mobile layout? The frame only covers desktop.")]:
         f.write(json.dumps({"at": int((now - timedelta(minutes=mins)).timestamp() * 1000), "kind": kind, "text": text}) + "\n")
+# The monitor: every app of production, those released today judged on their numbers before and after.
+def release(i, tag, actor, mins, state, summary, mine=False, tickets=(), before=None, after=None, new=()):
+    return {"id": i, "tag": tag, "actor": actor, "isMine": mine, "phase": "Succeeded", "startedAt": iso(minutes=mins + 4), "finishedAt": iso(minutes=mins),
+            "tickets": [{"id": t, "url": f"https://linear.app/acme/issue/{t}"} for t in tickets], "prs": [],
+            "verdict": {"state": state, "summary": summary, "before": before, "after": after, "newIssues": list(new), "until": iso(minutes=mins - 30)}}
+
+def app(name, tag, mins, health="Healthy", watched=True, monitors=None, errors=(), p95=(), issues=(), releases=(), pinned=False):
+    return {"id": f"{name}-production", "name": name, "service": name, "repo": name, "health": health, "tag": tag, "deployedAt": iso(minutes=mins), "behind": 0,
+            "argoUrl": f"https://argocd.example.com/applications/{name}", "datadogUrl": f"https://app.datadoghq.eu/apm/entity/service%3A{name}",
+            "watched": watched, "pinned": pinned, "monitors": monitors, "series": {"errors": list(errors), "p95": list(p95)} if watched else None,
+            "issues": list(issues), "releases": list(releases)}
+
+flat = [2, 3, 2, 2, 3, 2, 2, 2, 3, 2, 2, 3, 2, 2, 2, 3, 2, 2, 3, 2]
+monitor = {"version": 1, "at": int(now.timestamp() * 1000), "env": "production", "errors": [], "apps": [
+    app("api", "v2026.10.28.2", 50, monitors={"ok": 14, "warn": 0, "alert": 1, "nodata": 2, "alerting": [
+            {"id": 1, "name": "[api] Search - API Availability", "status": "Alert", "url": "https://app.datadoghq.eu/monitors/1"}]},
+        errors=flat[:16] + [3, 9, 14, 11], p95=[0.03] * 16 + [0.05, 0.12, 0.16, 0.15],
+        issues=[{"id": "e1", "type": "QuotaExceeded", "message": "daily quota checked before the account loaded", "count": 140,
+                 "firstSeen": iso(minutes=45), "firstVersion": "main-v2026.10.28.2", "url": "https://app.datadoghq.eu/error-tracking/issue/e1", "isNew": True}],
+        releases=[release(31, "v2026.10.28.2", "me", 50, "moved", "errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error", True, ["ENG-412"],
+                          {"errors": 2, "hits": 1512, "p95": 0.033}, {"errors": 31, "hits": 1630, "p95": 0.161}, ["e1"]),
+                  release(30, "v2026.10.28.1", "jonas", 160, "ok", "errors 0.12% → 0.13% · p95 31 → 33 ms",
+                          before={"errors": 2, "hits": 1650, "p95": 0.031}, after={"errors": 2, "hits": 1512, "p95": 0.033})], pinned=True),
+    app("web", "v2026.10.28.3", 12, health="Progressing", monitors={"ok": 6, "warn": 0, "alert": 0, "nodata": 0, "alerting": []},
+        errors=flat, p95=[0.21] * 18 + [0.22, 0.21],
+        releases=[release(32, "v2026.10.28.3", "sam", 12, "watching", "watching", before={"errors": 1, "hits": 4210, "p95": 0.21})]),
+    app("billing", "v2026.10.28", 300, monitors={"ok": 9, "warn": 0, "alert": 0, "nodata": 1, "alerting": []}, errors=flat, p95=[0.09] * 20,
+        releases=[release(29, "v2026.10.28", "lin", 300, "ok", "errors 0.04% → 0.03% · p95 92 → 88 ms")]),
+    app("mobile-api", "v2026.10.27", 1600, watched=False), app("search", "v2026.10.26", 3100, watched=False), app("infra-jobs", "v1.4.0", 9000, watched=False)]}
+with open(os.path.join(cache, "monitor.json"), "w") as f: json.dump(monitor, f)
+
+# Past Claude sessions, for the palette's search by words and by meaning.
+def session(project, sid, title, mins, lines):
+    folder = os.path.join(home, ".claude", "projects", project); os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, f"{sid}.jsonl"), "w") as f:
+        f.write(json.dumps({"type": "summary", "summary": title}) + "\n")
+        for n, (role, text) in enumerate(lines):
+            f.write(json.dumps({"type": role, "cwd": os.path.join(home, "code", project.split("-")[-1]), "sessionId": sid, "timestamp": iso(minutes=mins - n),
+                                "message": {"role": role, "content": [{"type": "text", "text": text}]}}) + "\n")
+session("-code-api", "s-quotas", "Daily quotas for ENG-412", 1500, [
+    ("user", "Store and enforce the daily quotas for ENG-412: count exports and searches per account per day"),
+    ("assistant", "The quota model lives in Quotas::Daily; the 429 answer carries the quota payload so the front can show the banner."),
+    ("user", "Exports were counted twice when the CSV job retried"),
+    ("assistant", "Fixed: the export counter increments once per job id, and the retry reuses it. The test covers the retry.")])
+session("-code-web", "s-dark", "Dark mode tokens", 4300, [
+    ("user", "Add dark mode tokens to the settings page"),
+    ("assistant", "The tokens are in tokens.css; the settings page reads them and the contrast passes on both themes.")])
+session("-code-billing", "s-csv", "Invoice CSV export", 7000, [
+    ("user", "Export invoices as CSV for ENG-398"),
+    ("assistant", "The export streams rows by month; amounts are written in cents so spreadsheets don't round them.")])
+
 with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox, f)
 with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
     json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "name": "Linear", "keys": ["ENG"]}, "ci": {"name": "GitHub", "imageJob": "docker"},
+               "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "monitor"],
                "platform": {"enabled": True, "previewPrefix": "pv-", "previewDashboardUrl": "https://argocd.example.com/applications/{preview}", "tools": {"createPreview": {"tool": "previews_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"
