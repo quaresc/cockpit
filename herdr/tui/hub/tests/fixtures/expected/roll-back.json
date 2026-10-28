@@ -1,0 +1,76 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "create",
+        "--workspace",
+        "w3",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "roll back api v2026.10.28.1",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'Roll api back in production from v2026.10.28.1 to v2026.10.28. Why: release v2026.10.28.1 by me (Succeeded), 2026-10-28T15:50:47Z → 2026-10-28T15:58:09Z, verdict moved: errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error (before: 2 errors in 1512 requests, p95 0.033 s; after: 31 errors in 1630 requests, p95 0.161 s), shipping https://linear.app/acme/issue/ENG-401/sign-in, https://github.com/acme/api/pull/4; new error Req.TransportError: socket closed, 140 events in the last day, first seen 2026-10-28T15:55:59Z in main-v2026.10.28.1 (https://app.datadoghq.eu/error-tracking/issue/1fcdadd8). First check v2026.10.28: what changed between it and v2026.10.28.1 (git log v2026.10.28..v2026.10.28.1 in this repo, and the PRs in between), whether anything v2026.10.28.1 shipped makes going back unsafe (a migration, a message or API contract other apps rely on), and what Backstage says runs now (get-deploy-status, list-releases). Then propose the Backstage deploy of v2026.10.28 to production, naming the environment, the app and the version, and ask me before calling deploy-app. Deploy nothing until I say yes; once deployed, follow it with get-deploy-workflow until it ends.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "plan eng-401": "w9:p2",
+      "review web#9": "w9:p1",
+      "roll back api v2026.10.28.1": "wT:p1",
+      "talk eng-403": "w9:p4"
+    }
+  },
+  "note": "started \"roll back api v2026.10.28.1\" in the actions space",
+  "pending": {},
+  "refreshing": []
+}

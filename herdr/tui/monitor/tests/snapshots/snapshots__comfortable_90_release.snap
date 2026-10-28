@@ -1,0 +1,34 @@
+---
+source: monitor/tests/snapshots.rs
+expression: "render(&mut app, 90, 30)"
+---
+   Monitor   3 apps · 3 releases today · updated 17:56
+
+ ▼  api       v2026.10.28.1  1 h ago by you    12 ok · 1 alert    ▁▁▁█▃▁▁▁▁▁▁▁▄ 14 err
+   ├  [api] Current user - API Availability                                        Alert
+   ├  new Req.TransportError: socket closed                            140×  since 16:55
+   ├ ⚠️  v2026.10.28.1  16:58 you     ENG-412  errors 0.13% → 1.9% · p95 33 → 161 ms · 1 …
+   └ ✅  v2026.10.28    16:34 jonas   errors 0.12% → 0.13% · p95 31 → 33 ms
+ ▼  web       v2026.10.28.3  16 min ago by sam 6 ok · 1 warn      ▁█▁▁▁█▁▁▁▁▁▁█ 1 err
+   ├  [web] Checkout - API Latency                                                  Warn
+   └ ⏳  v2026.10.28.3  17:38 sam     watching until 17:10
+    billing   v2026.10.20    8 d ago           not watched
+
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────────────────────────────
+ ⚠️  api v2026.10.28.1  by you
+ Succeeded · 16:50 → 16:58 · watched to 17:28
+ errors 0.13% → 1.9% · p95 33 → 161 ms · 1 new error
+ before 2 errors / 1.5k hits, p95 33 ms   after 31 errors / 1.6k hits, p95 161 ms
+ ENG-412  api#2219  api#2223
+ new: Req.TransportError: socket closed (140×)
+
+   investigate  i     open  o     roll back  u     talk  t     bug  b
+ enter main  space fold  w releases  R refresh  q quit                        ▏^p palette

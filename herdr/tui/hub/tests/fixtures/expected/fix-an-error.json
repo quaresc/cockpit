@@ -1,0 +1,76 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "create",
+        "--workspace",
+        "w3",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "fix api 1fcdadd8",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'Fix the error Req.TransportError: socket closed in api (Datadog service api, env production): new error Req.TransportError: socket closed, 140 events in the last day, first seen 2026-10-28T15:55:59Z in main-v2026.10.28.1 (https://app.datadoghq.eu/error-tracking/issue/1fcdadd8). It came with the release v2026.10.28.1. Load the datadog-conventions skill and read the issue'\"'\"'s stack trace and sample events, find the cause in this repo, reproduce it in a failing test, then fix it. Follow the repo'\"'\"'s conventions (its CLAUDE.md and mine): branch off an updated main, name the branch as they say and ask me for the ticket key when it needs one, then open a draft PR with a short description that links the Datadog issue.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "fix api 1fcdadd8": "wT:p1",
+      "plan eng-401": "w9:p2",
+      "review web#9": "w9:p1",
+      "talk eng-403": "w9:p4"
+    }
+  },
+  "note": "started \"fix api 1fcdadd8\" in the actions space",
+  "pending": {},
+  "refreshing": []
+}

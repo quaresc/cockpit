@@ -35,6 +35,7 @@
   "calendar": { "enabled": true, "name": "Google Calendar", "server": "claude.ai Google Calendar" },
   "metabase": { "server": "metabase" },
   "datadog": { "server": "claude.ai Datadog" },
+  "monitor": { "env": "production", "notify": "mine", "moved": { "errorPoints": 0.5, "p95Ratio": 1.5, "minHits": 50 } },
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
   "e2eBrowser": "terminal-browser",

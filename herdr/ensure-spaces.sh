@@ -50,6 +50,7 @@ printf '%s\n' "$SPACE_ROWS" | while IFS="$(printf '\037')" read -r name icon cwd
     to-do) glyph='\357\221\236' app=todo ;;
     runbook) glyph='\357\220\205' app=runbook ;;
     meetings) glyph='\357\221\225' app=meetings ;;
+    monitor) glyph='\357\203\244' app=monitor ;;
     *) glyph='\357\220\223' app="" ;;
   esac
   [ -n "$icon" ] || icon=$(printf "$glyph")

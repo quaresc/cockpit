@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "args": [
+        "https://app.datadoghq.eu/monitors/17255491"
+      ],
+      "cmd": "open",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "opened https://app.datadoghq.eu/monitors/17255491",
+  "pending": {},
+  "refreshing": []
+}

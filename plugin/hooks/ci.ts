@@ -360,13 +360,20 @@ export async function startDeployWatch($: $, ticket: string, prs: DeployedPr[]) 
 
 let login: string | undefined
 
-export async function previewsFor($: $): Promise<Preview[]> {
-  if (!(await can($, 'listPreviews'))) return []
+// My GitHub login, asked once; empty when gh cannot say.
+export async function githubLogin($: $) {
   if (!login) {
     const { exitCode, stdout } = await $.process.run(['gh', 'api', 'user', '--jq', '.login'])
-    if (exitCode !== 0) return []
+    if (exitCode !== 0) return ''
     login = stdout.trim()
   }
+  return login
+}
+
+export async function previewsFor($: $): Promise<Preview[]> {
+  if (!(await can($, 'listPreviews'))) return []
+  const login = await githubLogin($)
+  if (!login) return []
   return (await listPreviews($, { login })).flatMap(env =>
     env.apps
       .filter(p => p.enabled && p.branch && !['main', 'master'].includes(p.branch))

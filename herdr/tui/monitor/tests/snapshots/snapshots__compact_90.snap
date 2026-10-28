@@ -1,0 +1,24 @@
+---
+source: monitor/tests/snapshots.rs
+expression: "render(&mut app, 90, 20)"
+---
+   Monitor   3 apps · 3 releases today · updated 17:56
+
+ ▼  api       v2026.10.28.1  1 h ago by you    12 ok · 1 alert    ▁▁▁█▃▁▁▁▁▁▁▁▄ 14 err
+   ├  [api] Current user - API Availability                                        Alert
+   ├  new Req.TransportErr…  140×  since 16:55   fix  f     open  o     investigate  i
+   ├ ⚠️  v2026.10.28.1  16:58 you     ENG-412  errors 0.13% → 1.9% · p95 33 → 161 ms · 1 …
+   └ ✅  v2026.10.28    16:34 jonas   errors 0.12% → 0.13% · p95 31 → 33 ms
+ ▼  web       v2026.10.28.3  16 min ago by sam 6 ok · 1 warn      ▁█▁▁▁█▁▁▁▁▁▁█ 1 err
+   ├  [web] Checkout - API Latency                                                  Warn
+   └ ⏳  v2026.10.28.3  17:38 sam     watching until 17:10
+    billing   v2026.10.20    8 d ago           not watched
+
+
+
+
+
+
+
+
+ enter main  space fold  w releases  R refresh  q quit                        ▏^p palette
