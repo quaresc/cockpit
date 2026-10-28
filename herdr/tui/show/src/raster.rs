@@ -21,6 +21,22 @@ fn fonts() -> Arc<usvg::fontdb::Database> {
         .clone()
 }
 
+/// Draws every picture's text with this one font instead of the system's, before anything is drawn: snapshot tests
+/// use it so a chart's pixels are the same on macOS and on the Linux CI. False when pictures were drawn already.
+pub fn use_only_font(file: &std::path::Path) -> bool {
+    let mut db = usvg::fontdb::Database::new();
+    if db.load_font_file(file).is_err() {
+        return false;
+    }
+    let family = db.faces().next().and_then(|face| face.families.first().map(|(name, _)| name.clone()));
+    if let Some(family) = family {
+        db.set_sans_serif_family(family.clone());
+        db.set_serif_family(family.clone());
+        db.set_monospace_family(family);
+    }
+    FONTS.set(Arc::new(db)).is_ok()
+}
+
 /// mimalloc's `mi_option_disallow_arena_alloc` (its place in v3's `mi_option_e`, which libmimalloc-sys does not name).
 const DISALLOW_ARENA_ALLOC: libmimalloc_sys::mi_option_t = 26;
 
