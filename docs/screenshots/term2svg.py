@@ -140,11 +140,15 @@ def run_steps(argv, cols, rows, env, keys, cwd=None, settle=1.5, gap=0.5):
         if cwd: os.chdir(cwd)
         os.execvpe(argv[0], argv, {**os.environ, **env})
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    out, shots, start, sent = b"", [], time.time(), 0
+    out, shots, start, sent, answered = b"", [], time.time(), 0, False
     while sent <= len(keys):
         if select.select([fd], [], [], 0.05)[0]:
             try: out += os.read(fd, 1 << 16)
             except OSError: break
+        if not answered and b"\033[5n" in out:
+            # The app's graphics query, answered as a terminal without image support would: else its reader, left
+            # waiting, puts the terminal back in line mode on a later key.
+            os.write(fd, b"\033[?62;22c\033[6;20;10t\033[0n"); answered = True
         if time.time() - start > settle + gap * sent:
             shots.append(out.decode("utf-8", "replace"))
             if sent < len(keys): os.write(fd, keys[sent].encode())

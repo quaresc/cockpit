@@ -1,0 +1,48 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "create",
+        "--cwd",
+        "<BOX>/repos",
+        "--label",
+        "review docs#3",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude '/code-review https://github.com/acme/docs/pull/3'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "started \"review docs#3\" in a new space",
+  "pending": {},
+  "refreshing": []
+}

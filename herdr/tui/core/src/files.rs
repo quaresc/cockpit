@@ -18,7 +18,7 @@ pub fn config_dir() -> PathBuf {
     home().join(".config/cockpit")
 }
 
-/// The herdr plugin folder, where the text apps and bridge.py live: app.sh says so, else the binary's own place.
+/// The herdr plugin folder, where its scripts live: app.sh says so, else the binary's own place.
 pub fn herdr_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("COCKPIT_HERDR_DIR") {
         return PathBuf::from(dir);
@@ -69,7 +69,7 @@ pub fn watch(dirs: &[PathBuf]) -> (Option<RecommendedWatcher>, Receiver<()>) {
 pub enum Density {
     /// Rows with room, their actions in the panel under the list.
     Comfortable,
-    /// Denser rows, their actions on the selected row itself, like the light apps.
+    /// Denser rows, their actions on the selected row itself.
     Compact,
 }
 

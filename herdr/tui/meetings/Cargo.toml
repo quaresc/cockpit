@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-meetings"
-description = "meetings.py in Rust, for the config's apps: \"rust\"."
+description = "The meetings space: the week grouped by day, with briefs prepared before each meeting."
 version.workspace = true
 edition.workspace = true
 

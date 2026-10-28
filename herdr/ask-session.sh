@@ -8,7 +8,7 @@ state() { "$H" pane get "$pane" 2>/dev/null | jq -r '.result.pane | if .agent th
 
 st=$(state)
 if [ -z "$st" ]; then
-  pane=$(python3 "$ROOT/actions.py" tab "$REPOS" runbook)
+  pane=$(sh "$ROOT/cockpit.sh" actions tab "$REPOS" runbook)
   [ -n "$pane" ] || pane=$("$H" workspace create --cwd "$REPOS" --label runbook --focus | jq -r '.result.root_pane.pane_id')
   st=shell
 fi

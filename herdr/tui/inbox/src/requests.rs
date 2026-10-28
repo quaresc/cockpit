@@ -1,4 +1,4 @@
-//! Requests in flight (rerun, redeploy, preview, release…) that the mod carries out: inbox.py files them, this app
+//! Requests in flight (rerun, redeploy, preview, release…) that the mod carries out: the hub files them, this app
 //! watches for their results and shows the working text, then the outcome, on the row that asked.
 
 use std::collections::HashMap;
@@ -40,7 +40,7 @@ fn now() -> f64 {
 }
 
 impl Requests {
-    /// The requests an action filed, as bridge.py returns them: row → {file, working, label, at}.
+    /// The requests an action filed, as the hub returns them: row → {file, working, label, at}.
     pub fn merge(&mut self, pending: &Value) {
         for (row, job) in pending.as_object().into_iter().flatten() {
             let file = s(job, "file").to_string();
@@ -87,5 +87,26 @@ impl Requests {
         }
         self.outcome.retain(|_, outcome| now() - outcome.at <= OUTCOME_SHOWN);
         notes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_request_no_session_took_is_deleted_and_says_so() {
+        let dir = crate::test_home::home().join(".cache/cockpit/requests");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("1-rerun.json"), "{}").unwrap();
+        let mut requests = Requests::default();
+        requests.merge(&json!({"row": {"file": "1-rerun.json", "working": "rerunning…", "label": "x", "at": now() - CLAIM_WAIT - 1.0}}));
+        assert!(requests.settle().is_empty());
+        assert!(!dir.join("1-rerun.json").exists());
+        let outcome = &requests.outcome["row"];
+        assert_eq!((outcome.ok, outcome.message.as_str()), (false, "no Claude session picked it up"));
+        assert!(requests.working("row").is_none());
     }
 }

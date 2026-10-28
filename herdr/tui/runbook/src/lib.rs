@@ -1,4 +1,4 @@
-//! runbook.py in Rust: a tab per runbook with its progress, its steps as rows whose cells wrap, the selected step's
+//! The runbook space: a tab per runbook with its progress, its steps as rows whose cells wrap, the selected step's
 //! actions under them or at its end, and the steps that turn done spinning, flashing and fading one after the other.
 //! Steps can be filtered as you type, picked for a batch, and edited or added straight into the runbook file.
 

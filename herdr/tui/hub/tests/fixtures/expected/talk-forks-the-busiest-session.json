@@ -1,0 +1,76 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "create",
+        "--workspace",
+        "w3",
+        "--cwd",
+        "<BOX>/repos/api",
+        "--label",
+        "talk eng-401",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude --resume s-main --fork-session 'This is a fork of your session on ENG-401, opened to talk it over. Per the inbox now: ENG-401 \"Sign in with Google\" (https://linear.app/acme/issue/ENG-401/sign-in) is In Progress; PR https://github.com/acme/api/pull/4 on branch me/eng-401-login (base main): changes requested, CI FAILURE, failing lint, test; api#2 is live in production; web#5 is not in production yet, prod runs v9.0; preview pv-eng-401 runs api me/eng-401-login; its runbook is <BOX>/home/.config/cockpit/runbooks/eng-401.md. Catch up on what changed since (the ticket'\"'\"'s comments, the PRs'\"'\"' reviews and CI), sum it up in a few lines, then wait for my questions. Change nothing (no edits, commits, pushes or ticket updates) unless I ask.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "plan eng-401": "w9:p2",
+      "review web#9": "w9:p1",
+      "talk eng-401": "wT:p1",
+      "talk eng-403": "w9:p4"
+    }
+  },
+  "note": "started \"talk eng-401\" in the actions space",
+  "pending": {},
+  "refreshing": []
+}

@@ -1,4 +1,4 @@
-//! JSON values as show.py writes them in cells, on axes and in CSV.
+//! JSON values as the view writes them in cells, on axes and in CSV.
 
 use serde_json::Value;
 
@@ -6,7 +6,7 @@ pub fn number(value: &Value) -> Option<f64> {
     value.as_f64().filter(|_| value.is_number())
 }
 
-/// Thousands separators on the integer part, as Python's `{:,}`.
+/// Thousands separators (commas) on the integer part.
 fn grouped(digits: &str) -> String {
     let (sign, digits) = digits.strip_prefix('-').map_or(("", digits), |d| ("-", d));
     let (int, frac) = digits.split_once('.').map_or((digits, None), |(i, f)| (i, Some(f)));
@@ -74,7 +74,7 @@ pub fn text(value: &Value) -> String {
     value.as_str().map_or_else(|| value.to_string(), str::to_string)
 }
 
-/// Rows as Python's csv module writes them: quoted only when needed, None empty, booleans True/False.
+/// Rows as CSV: quoted only when needed, null empty, booleans True/False.
 pub fn csv(columns: &[Value], rows: &[Vec<Value>]) -> String {
     let field = |v: &Value| {
         let text = match v {
@@ -131,7 +131,7 @@ impl<'de> serde::Deserialize<'de> for First {
     }
 }
 
-/// Columns and rows from a command's JSON, as show.py reads it: {columns, rows}, a list of objects (their keys in the
+/// Columns and rows from a command's JSON: {columns, rows}, a list of objects (their keys in the
 /// first one's order), or a list of lists under a header.
 pub fn rows_of(output: &str) -> Result<(Value, Value), String> {
     let data: Value = serde_json::from_str(output).map_err(|e| e.to_string())?;

@@ -16,7 +16,7 @@ const REF: usize = 24;
 const NOTES: usize = 16;
 const AGE: usize = 5;
 
-/// One of inbox.py's functions, called through the bridge with these arguments.
+/// One of the inbox's actions, called through the bridge with these arguments.
 #[derive(Clone, Debug)]
 pub struct Call {
     pub function: &'static str,

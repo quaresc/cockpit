@@ -56,3 +56,18 @@ pub fn json_files(dir: &str) -> Vec<PathBuf> {
     paths.sort();
     paths
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ticket_costs_sum_every_session() {
+        let costs = crate::test_home::home().join(".cache/cockpit/costs");
+        std::fs::create_dir_all(&costs).unwrap();
+        std::fs::write(costs.join("a.json"), r#"{"ENG-1": 1.5, "ENG-2": 0.25}"#).unwrap();
+        std::fs::write(costs.join("b.json"), r#"{"ENG-1": 2.0}"#).unwrap();
+        std::fs::write(costs.join("notes.txt"), r#"{"ENG-1": 100}"#).unwrap();
+        assert_eq!(ticket_costs(), HashMap::from([("ENG-1".to_string(), 3.5), ("ENG-2".to_string(), 0.25)]));
+    }
+}

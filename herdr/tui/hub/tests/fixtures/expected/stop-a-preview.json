@@ -1,0 +1,21 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/requests/<MS>-stop-preview.json": {
+      "label": "stop pv-eng-401",
+      "preview": "pv-eng-401",
+      "type": "stop-preview"
+    }
+  },
+  "note": "",
+  "pending": {
+    "preview-pv-eng-401": {
+      "at": 0,
+      "file": "<MS>-stop-preview.json",
+      "label": "stop pv-eng-401",
+      "working": "stopping…"
+    }
+  },
+  "refreshing": []
+}

@@ -1,5 +1,5 @@
-//! show.py in Rust: `cockpit-show <name>` shows ~/.cache/cockpit/show/<name>.json beside a Claude session, keeps
-//! `<name>.pid` while it runs (the mod reads it to update the open pane) and writes answers like show.py.
+//! `cockpit-show <name>` shows ~/.cache/cockpit/show/<name>.json beside a Claude session, keeps `<name>.pid` while it
+//! runs (the mod reads it to update the open pane) and writes the session's answers back.
 
 use std::path::PathBuf;
 

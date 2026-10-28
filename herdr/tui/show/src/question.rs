@@ -1,5 +1,5 @@
 //! Questions whose answer goes back to the session: a choice (options, the highlighted one's preview, a free answer
-//! typed in a field) and a confirm (Cancel / Confirm), drawn like Textual's OptionList, Input and Buttons.
+//! typed in a field) and a confirm (Cancel / Confirm), drawn as an option list, a text field and buttons.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Modifier, Style};
@@ -11,7 +11,7 @@ use cockpit_core::theme::{BG, DIM, FG, GREEN, LINE, ORANGE, RED, SURFACE, bold, 
 use crate::markdown::markdown;
 use crate::row::{Act, Row, Target};
 
-/// Textual's `OptionList { max-height: 8 }`, borders included.
+/// The options in view at once, so the list and its borders stand at most eight rows tall.
 const OPTIONS_SHOWN: usize = 6;
 const CURSOR_BLURRED: Color = Color::Rgb(70, 56, 44);
 
@@ -24,7 +24,7 @@ pub enum Key {
     Comment(Value, String),
 }
 
-/// A row of a box with Textual's tall border: thick left edge, thin right one, the top and bottom as eighth blocks.
+/// A row of a box with a tall border: thick left edge, thin right one, the top and bottom as eighth blocks.
 fn edge(cols: usize, top: bool, color: Color, target: Target) -> Row {
     let line = if top { "▔" } else { "▁" }.repeat(cols.saturating_sub(2));
     Row::text("▊", fg(color).bg(SURFACE)).add(line, fg(color).bg(SURFACE)).add("▎", fg(color).bg(SURFACE)).target(target)

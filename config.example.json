@@ -43,6 +43,5 @@
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "runbookTools": [],
   "worktrees": false,
-  "apps": "rust",
   "density": "comfortable"
 }

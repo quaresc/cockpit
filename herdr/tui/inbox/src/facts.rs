@@ -1,4 +1,4 @@
-//! What inbox.py derives from a cache entry: ages, the CI and review glyphs, a ticket's status and links, a dashboard's
+//! What the inbox derives from a cache entry: ages, the CI and review glyphs, a ticket's status and links, a dashboard's
 //! name; and the config values it reads.
 
 use std::sync::{LazyLock, OnceLock};
@@ -193,9 +193,47 @@ impl Config {
     }
 }
 
-/// A URL component escaped as Python's quote(safe="") does.
+/// A URL component percent-encoded: every byte but ASCII letters, digits and `_.-~` escaped.
 fn quote(text: &str) -> String {
     text.bytes()
         .map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_ticket_is_a_whole_token_of_the_branch() {
+        assert!(has_ticket("me/eng-4-login", "ENG-4"));
+        assert!(has_ticket("ENG-4", "eng-4"));
+        assert!(!has_ticket("me/eng-42-login", "ENG-4"));
+        assert!(!has_ticket("me/xeng-4-login", "ENG-4"));
+        assert!(!has_ticket("", "ENG-4"));
+        assert!(!has_ticket("eng-4", ""));
+    }
+
+    #[test]
+    fn unreadable_dates_have_no_age() {
+        assert_eq!(age_days(""), None);
+        assert_eq!(age_days("yesterday"), None);
+        assert_eq!(ago(""), "");
+    }
+
+    #[test]
+    fn a_date_has_its_age_in_days() {
+        let want = (Utc::now().timestamp() - 946_684_800) as f64 / 86_400.0;
+        let got = age_days("2000-01-01T00:00:00Z").expect("a readable date");
+        assert!((got - want).abs() < 0.01, "{got} days, not {want}");
+    }
+
+    #[test]
+    fn a_pinned_space_by_its_name_after_the_icon() {
+        let config = Config::from(json!({"spaces": ["inbox", "actions", {"name": "notes"}]}));
+        assert!(config.is_pinned("[3] \u{f0e7}  actions"));
+        assert!(config.is_pinned("x  notes"));
+        assert!(!config.is_pinned("[6] eng-4 actions"));
+    }
 }

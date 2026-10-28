@@ -12,10 +12,8 @@ for pid in $(pgrep -f "herdr/(inbox|todo|runbook|meetings)-loop\.sh"); do
   pkill -P "$pid"
   kill "$pid"
 done
-# A Textual or Rust app runs under app.sh (and uv), out of reach of pkill -P: it goes by the argument that marks it,
-# after inbox_tx.py or the cockpit-inbox binary alike.
-pkill -f "(inbox|todo|runbook|meetings)(_tx)?(\.py)? cockpit-space"
-# The Rust apps' hub serves the old folder: the first app that needs it starts it again from the new one.
+# The apps go too, and the hub, detached from them, which serves the old folder: the first app that needs it starts it again.
+pkill -f "cockpit-(inbox|todo|runbook|meetings) cockpit-space"
 pkill -x cockpit-hub
 sleep 1
 sh "$root/ensure-spaces.sh"

@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-core"
-description = "What the Rust space apps share: theme, terminal, file watching, the Python bridge for actions, palette, dialogs and toasts."
+description = "What the Rust space apps share: theme, terminal, file watching, the bridge that runs actions through the hub, palette, dialogs and toasts."
 version.workspace = true
 edition.workspace = true
 

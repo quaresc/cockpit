@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "args": [
+        "ev1_20261028T084500Z"
+      ],
+      "cmd": "meeting-brief.sh",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "preparing the brief of Team daily, about a minute",
+  "pending": {},
+  "refreshing": []
+}

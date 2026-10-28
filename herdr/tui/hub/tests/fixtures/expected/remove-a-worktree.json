@@ -1,0 +1,19 @@
+{
+  "calls": [
+    {
+      "args": [
+        "worktree",
+        "remove",
+        "--workspace",
+        "w7"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "removed the worktree of api me/x",
+  "pending": {},
+  "refreshing": []
+}

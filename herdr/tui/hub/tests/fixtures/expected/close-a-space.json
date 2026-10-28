@@ -1,0 +1,18 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "close",
+        "w7"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "closed api me/x",
+  "pending": {},
+  "refreshing": []
+}

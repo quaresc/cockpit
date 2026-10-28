@@ -1,0 +1,33 @@
+{
+  "calls": [
+    {
+      "args": [
+        "plugin",
+        "pane",
+        "open",
+        "--plugin",
+        "cockpit",
+        "--entrypoint",
+        "peek",
+        "--placement",
+        "popup",
+        "--env",
+        "PEEK_URL=https://github.com/acme/api/pull/4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "https://github.com/acme/api/pull/4"
+      ],
+      "cmd": "open",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "opened https://github.com/acme/api/pull/4",
+  "pending": {},
+  "refreshing": []
+}

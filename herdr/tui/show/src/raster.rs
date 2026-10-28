@@ -1,5 +1,5 @@
 //! Pixels for the image blocks: SVG rasterized with resvg (system fonts loaded once, in the background), and pictures
-//! fetched like picture.py, a URL downloaded once into the cache under its SHA-1.
+//! fetched once, a URL downloaded into the cache under its SHA-1.
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -106,7 +106,7 @@ pub fn fetch(source: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// SHA-1, so a URL lands in the same cache file picture.py uses.
+/// SHA-1, so a URL always lands in the same cache file.
 fn sha1_hex(data: &[u8]) -> String {
     let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
     let mut message = data.to_vec();

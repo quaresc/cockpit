@@ -1,4 +1,4 @@
-//! The week as the mod caches it in ~/.cache/cockpit/meetings.json, the times meetings.py words, and their briefs.
+//! The week as the mod caches it in ~/.cache/cockpit/meetings.json, its meetings' times in words, and their briefs.
 
 use std::path::PathBuf;
 
@@ -52,7 +52,7 @@ pub struct Meeting {
     pub attendees: u64,
     pub people: Vec<String>,
     pub briefable: bool,
-    /// The meeting as the cache has it, for the actions run in Python.
+    /// The meeting as the cache has it, for the actions the hub runs.
     pub raw: Value,
 }
 
@@ -139,7 +139,7 @@ pub fn cache_path() -> PathBuf {
     files::cache().join("meetings.json")
 }
 
-/// "in 12 min", "in 2 h 05", else the time, as meetings.py says when a meeting starts.
+/// When a meeting starts: "in 12 min", "in 2 h 05", else the time.
 pub fn until_text(start: DateTime<Utc>, clock: &Clock) -> String {
     let minutes = (start - clock.now).num_seconds().div_euclid(60);
     if minutes < 60 {

@@ -1,21 +1,18 @@
 #!/bin/sh
 # Keeps the pinned spaces on top of the sidebar, in the configured order, agents after.
-# One listing per event: the moves are worked out on it, and none is sent when the order already holds.
+# One listing per event: the moves are worked out on it, and none is sent when the order already holds. herdr's CLI has
+# no move, so each goes to its socket.
 . "$(dirname "$0")/lib.sh"
-"$H" workspace list | SPACES="$SPACES" python3 -c '
-import json, os, socket, sys
-listed = json.load(sys.stdin)["result"]["workspaces"]
-order = [w["workspace_id"] for w in listed]
-label = {w["workspace_id"]: w["label"] for w in listed}
-for i, name in enumerate(os.environ["SPACES"].splitlines()):
-    found = next((space for space in order if label[space].endswith("  " + name)), None)
-    if found is None or order.index(found) == i:
-        continue
-    order.remove(found)
-    order.insert(i, found)
-    s = socket.socket(socket.AF_UNIX)
-    s.connect(os.environ["HERDR_SOCKET_PATH"])
-    s.sendall((json.dumps({"id": "cockpit:pin", "method": "workspace.move", "params": {"workspace_id": found, "insert_index": i}}) + "\n").encode())
-    s.recv(65536)
-    s.close()
-'
+"$H" workspace list | jq -c --arg spaces "$SPACES" '
+  .result.workspaces as $listed
+  | ($listed | map({key: .workspace_id, value: (.label // "")}) | from_entries) as $label
+  | reduce ($spaces | split("\n") | to_entries[]) as $space ({order: [$listed[].workspace_id], moves: []};
+      ([.order[] | select($label[.] | endswith("  " + $space.value))][0]) as $found
+      | if $found == null or (.order | index($found)) == $space.key then .
+        else .order = ((.order - [$found]) | .[:$space.key] + [$found] + .[$space.key:])
+          | .moves += [{id: "cockpit:pin", method: "workspace.move", params: {workspace_id: $found, insert_index: $space.key}}]
+        end)
+  | .moves[]' 2>/dev/null |
+  while IFS= read -r move; do
+    printf '%s\n' "$move" | nc -w 2 -U "$HERDR_SOCKET_PATH" >/dev/null
+  done

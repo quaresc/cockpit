@@ -1,0 +1,40 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "create",
+        "--cwd",
+        "<BOX>/repos",
+        "--label",
+        "eng-403",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "claude 'Continue ENG-403 (https://linear.app/acme/issue/ENG-403/reset). Find its branch (named after eng-403) in the repo it touches, check it out, and summarize where it stands before changing anything.'"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "started \"eng-403\" in a new space",
+  "pending": {},
+  "refreshing": []
+}

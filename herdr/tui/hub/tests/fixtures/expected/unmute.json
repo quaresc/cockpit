@@ -1,0 +1,12 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.config/cockpit/muted.json": [
+      "zz"
+    ]
+  },
+  "note": "unmuted web",
+  "pending": {},
+  "refreshing": []
+}

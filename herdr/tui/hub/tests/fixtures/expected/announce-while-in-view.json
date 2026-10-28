@@ -1,0 +1,17 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "",
+  "pending": {},
+  "refreshing": []
+}

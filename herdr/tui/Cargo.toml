@@ -1,7 +1,7 @@
-# The space apps in Rust, for the config's `apps: "rust"`: one binary each, sharing the core crate.
+# cockpit's apps: one binary per space, the hub they share, and the `cockpit` command, on the core crate.
 [workspace]
 resolver = "3"
-members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings"]
+members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings", "cli"]
 
 [workspace.package]
 version = "0.16.3"

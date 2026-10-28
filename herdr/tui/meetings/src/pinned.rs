@@ -13,7 +13,7 @@ pub const ICON_NOW: &str = "\u{f444}";
 pub const ICON_PEOPLE: &str = "\u{f4fd}";
 pub const ICON_JOIN: &str = "\u{f0567}";
 
-/// A response's glyph, as meetings.py draws it.
+/// A response's glyph.
 pub fn response_icon(response: &str) -> &'static str {
     match response {
         "tentative" => "\u{f420}",

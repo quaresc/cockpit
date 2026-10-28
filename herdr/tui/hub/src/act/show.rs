@@ -1,4 +1,4 @@
-//! show.py's one action that needs herdr: herdr-reviewr opened on a repo, zoomed over the asking app's pane.
+//! The show view's one action that needs herdr: herdr-reviewr opened on a repo, zoomed over the asking app's pane.
 
 use std::time::Duration;
 
@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::{Ctx, arg};
 use crate::herdr;
 use crate::proc;
-use crate::py::{Res, cut, text};
+use crate::value::{Res, cut, text};
 
 const REVIEWR: &str = "persiyanov.reviewr";
 

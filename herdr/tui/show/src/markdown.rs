@@ -1,4 +1,4 @@
-//! Markdown drawn like Textual's Markdown widget, parsed with pulldown-cmark (CommonMark, tables, strikethrough, task
+//! Markdown drawn in the pane, parsed with pulldown-cmark (CommonMark, tables, strikethrough, task
 //! lists): a centred h1, blank lines around headings, paragraphs joined and wrapped, nested bullets, numbered lists,
 //! checkboxes, quotes with a bar, boxed tables, code in a tinted panel with syntax colours, and links a click opens.
 

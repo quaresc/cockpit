@@ -128,10 +128,7 @@ export type Config = {
   runbookTools: string[]
   // Whether the inbox starts work on a branch checked out nowhere in a new herdr worktree, rather than in the main checkout.
   worktrees: boolean
-  // The space and show apps in Rust (images, animations, a command palette, about 11 MB each), drawn with Textual for
-  // about 60–80 MB each, or in text.
-  apps: 'rust' | 'full' | 'light'
-  // How tight the Rust apps lay out their rows: compact puts a row's buttons on it, like the light apps.
+  // How tight the space apps lay out their rows: compact puts a row's buttons on the row itself.
   density: 'comfortable' | 'compact'
 }
 
@@ -225,7 +222,6 @@ const DEFAULTS: Config = {
   spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],
   runbookTools: [],
   worktrees: false,
-  apps: 'rust',
   density: 'comfortable',
 }
 

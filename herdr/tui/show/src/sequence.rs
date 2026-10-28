@@ -1,4 +1,4 @@
-//! sequence.py in Rust: one lifeline per actor, each message an arrow between two of them, a reply dashed, a message
+//! Sequence charts: one lifeline per actor, each message an arrow between two of them, a reply dashed, a message
 //! to oneself looping back, a note beside its actor; drawn on a canvas whose line cells join into box-drawing corners.
 
 use std::collections::HashMap;
@@ -81,7 +81,7 @@ impl Canvas {
     }
 }
 
-/// Python's textwrap.wrap: words filled greedily, long words broken, nothing for an empty text.
+/// Words filled greedily into lines of `room` cells, long words broken, nothing for an empty text.
 fn wrap(text: &str, room: usize) -> Vec<String> {
     let options = textwrap::Options::new(room.max(1))
         .word_separator(textwrap::WordSeparator::AsciiSpace)

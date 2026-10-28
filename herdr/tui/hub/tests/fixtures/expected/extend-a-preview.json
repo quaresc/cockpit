@@ -1,0 +1,22 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/requests/<MS>-extend.json": {
+      "days": 2,
+      "label": "extend pv-eng-401",
+      "preview": "pv-eng-401",
+      "type": "extend"
+    }
+  },
+  "note": "",
+  "pending": {
+    "preview-pv-eng-401": {
+      "at": 0,
+      "file": "<MS>-extend.json",
+      "label": "extend pv-eng-401",
+      "working": "extending…"
+    }
+  },
+  "refreshing": []
+}

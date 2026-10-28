@@ -1,4 +1,4 @@
-//! Ticket keys and URLs in an item's text, and where a ticket key leads, as cockpit_config.py finds it.
+//! Ticket keys and URLs in an item's text, and where a ticket key leads, from the config's tickets settings.
 
 use regex::Regex;
 use serde_json::Value;
@@ -45,7 +45,7 @@ pub fn split<'a>(text: &'a str, tokens: &Regex) -> Vec<(&'a str, bool)> {
     parts
 }
 
-/// Percent-encoding as Python's `quote(value, safe="")`.
+/// Percent-encoding: every byte but ASCII letters, digits and `_.-~` escaped.
 fn quote(value: &str) -> String {
     value
         .bytes()

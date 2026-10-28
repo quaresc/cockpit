@@ -1,5 +1,5 @@
-//! The apps' actions, ported from the text apps' Python so the Rust apps need no Python: each one takes the arguments
-//! bridge.py would pass, after `state`, and leaves the same note, requests and refreshes.
+//! The apps' actions: each one takes the JSON arguments its app passes and leaves a note, the requests it filed and the
+//! refreshes it started.
 
 mod book;
 mod inbox;
@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use serde_json::{Map, Value, json};
 
 use crate::config::{self, Config};
-use crate::py::Res;
+use crate::value::Res;
 
-/// What an action leaves behind, as bridge.py's state did.
+/// What an action leaves behind, for its reply.
 pub struct Ctx {
     /// The confirm key a dialog already asked about: `confirmed` holds for it alone.
     armed: Option<String>,
@@ -91,7 +91,7 @@ fn action(app: &str, name: &str) -> Option<Action> {
     Some(found)
 }
 
-/// bridge.py's markers: {"$book": slug} for that runbook, {"$handoff": id} for that handoff, {"$inbox": true} for the
+/// The arguments' markers: {"$book": slug} for that runbook, {"$handoff": id} for that handoff, {"$inbox": true} for the
 /// inbox cache.
 fn resolve(arg: Value) -> Value {
     if let Some(slug) = arg.get("$book") {
@@ -100,13 +100,13 @@ fn resolve(arg: Value) -> Value {
     if let Some(id) = arg.get("$handoff").and_then(Value::as_str) {
         return book::read_handoffs().remove(id).unwrap_or(Value::Null);
     }
-    if arg.get("$inbox").is_some_and(crate::py::truthy) {
+    if arg.get("$inbox").is_some_and(crate::value::truthy) {
         return config::read_inbox();
     }
     arg
 }
 
-/// Runs one action: its reply as bridge.py printed it, or {"unknown": true} when the hub has no such action.
+/// Runs one action: its reply {note, pending, refreshing, error}, or {"unknown": true} when the hub has no such action.
 pub fn act(app: &str, name: &str, args: Vec<Value>, armed: Option<String>, env: HashMap<String, String>) -> Value {
     let Some(run) = action(app, name) else {
         return json!({"unknown": true});

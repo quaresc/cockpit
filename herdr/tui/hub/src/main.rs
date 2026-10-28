@@ -8,9 +8,9 @@ mod go;
 mod herdr;
 mod history;
 mod proc;
-mod py;
 mod search;
 mod server;
+mod value;
 
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};

@@ -1,5 +1,4 @@
-//! The herdr CLI, the way the text apps call it: a run whose output the caller reads (inbox.run), a call whose `result`
-//! comes back (actions.herdr), and the spaces with their "[N] " prefix stripped.
+//! The herdr CLI: a run whose output the caller reads, its `result`, and the spaces with their "[N] " prefix stripped.
 
 use std::sync::LazyLock;
 
@@ -18,18 +17,6 @@ fn argv(args: &[&str]) -> Vec<String> {
 /// A herdr call run to its end, 15 seconds at most.
 pub fn run(args: &[&str]) -> Out {
     proc::run15(&argv(args))
-}
-
-/// A herdr call's `result`; None when it fails, answers no JSON or a null result.
-pub fn result(args: &[&str]) -> Option<Value> {
-    parse(&run(args))
-}
-
-pub fn parse(out: &Out) -> Option<Value> {
-    if !out.ok() {
-        return None;
-    }
-    serde_json::from_str::<Value>(&out.stdout).ok()?.get("result").filter(|r| !r.is_null()).cloned()
 }
 
 /// The `result` of a call that succeeded or not, the way a JSON parse of its output finds it.

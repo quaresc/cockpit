@@ -1,4 +1,4 @@
-//! graphics.py in Rust: line charts, bar charts and flow charts as SVG, every size in pixels of the pane so a chart
+//! Line charts, bar charts and flow charts as SVG, every size in pixels of the pane so a chart
 //! drawn at the terminal's cell size fills whole cells; `font` is the label size. A chart also says where its points
 //! fall, for the mouse, and marks the hovered one: a crosshair on a line chart, a band behind a bar.
 

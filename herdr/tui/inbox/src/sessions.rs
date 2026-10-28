@@ -119,3 +119,34 @@ impl Local {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_merged_session_in_a_pinned_space_closes_its_tab_only() {
+        let now = now_ms();
+        let beats = vec![
+            json!({"at": now, "space": "w2", "tab": "w2:t3", "repo": "api", "branch": "b"}),
+            json!({"at": now, "space": "w5", "tab": "w5:t1", "repo": "api", "branch": "c"}),
+        ];
+        let spaces = HashMap::from([("w2".to_string(), json!({"label": "\u{f0e7}  actions"})), ("w5".to_string(), json!({"label": "eng-4"}))]);
+        let config = Config::from(json!({"spaces": ["inbox", "actions"]}));
+        let merged = HashSet::from([("api".to_string(), "b".to_string()), ("api".to_string(), "c".to_string())]);
+        let closing = Local::fixed(spaces, beats).merged_sessions(&merged, &[], &config);
+        let pair = |space: &str, branch: &str| (space.to_string(), ("api".to_string(), branch.to_string()));
+        assert_eq!(closing, vec![pair("tab:w2:t3", "b"), pair("w5", "c")]);
+    }
+
+    #[test]
+    fn a_branch_whose_pr_is_still_open_keeps_its_session() {
+        let beats = vec![json!({"at": now_ms(), "space": "w5", "tab": "w5:t1", "repo": "api", "branch": "c"})];
+        let spaces = HashMap::from([("w5".to_string(), json!({"label": "eng-4"}))]);
+        let merged = HashSet::from([("api".to_string(), "c".to_string())]);
+        let mine = [json!({"repo": "api", "branch": "c"})];
+        assert!(Local::fixed(spaces, beats).merged_sessions(&merged, &mine, &Config::from(json!({}))).is_empty());
+    }
+}

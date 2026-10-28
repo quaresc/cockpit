@@ -1,5 +1,5 @@
-//! Runbook files and handoffs as runbook.py reads them: a title, an `updated:` line, a step table and notes, parsed to
-//! the same JSON the runbook app passes whole; handoffs by id.
+//! Runbook files and handoffs: a title, an `updated:` line, a step table and notes, parsed to the same JSON the runbook
+//! app passes whole; handoffs by id.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -1,0 +1,21 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/requests/<MS>-rerun.json": {
+      "label": "rerun api#4",
+      "type": "rerun",
+      "workflowId": "wf1"
+    }
+  },
+  "note": "",
+  "pending": {
+    "https://github.com/acme/api/pull/4": {
+      "at": 0,
+      "file": "<MS>-rerun.json",
+      "label": "rerun api#4",
+      "working": "rerunning failed jobs…"
+    }
+  },
+  "refreshing": []
+}

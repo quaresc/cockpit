@@ -1,3 +1,0 @@
-# E731 (named lambdas) and E741 (l for a line) are this code's idiom.
-[lint]
-ignore = ["E731", "E741"]

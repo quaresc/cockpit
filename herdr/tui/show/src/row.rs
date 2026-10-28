@@ -22,7 +22,7 @@ pub enum Act {
     Jump(usize),
 }
 
-/// A place the keyboard can sit in a block, cycled with tab like Textual's focus chain.
+/// A place the keyboard can sit in a block, cycled with tab.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
     Table,
