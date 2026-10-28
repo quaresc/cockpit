@@ -5,6 +5,18 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.18.0 (2026-10-28)
+
+- One `cockpit` binary instead of seven, a smaller download. It keeps itself current: the hub installs a new release
+  as soon as it is published, and an update that arrives before its binary keeps the previous one running (#5).
+- The hub fetches GitHub itself every minute, so the inbox stays fresh without a Claude session; with `tickets.token`
+  or `ci.token` in the config it fetches Linear or CircleCI too.
+- ctrl+p finds past Claude sessions in an index built into the hub, nothing to install, and opens a fork of the one you
+  pick in the actions space.
+- Code is coloured with tree-sitter in 22 languages, TypeScript and Elixir included, and markdown renders as on GitHub:
+  alerts, footnotes, autolinks.
+- The palette never waits on the hub while you type, and the hub stays up while a space app runs.
+
 ## 0.17.0 (2026-10-28)
 
 - The space and show apps are rewritten in Rust: about 11 MB each, idle CPU about 0, nothing that cockpit runs needs
