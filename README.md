@@ -5,7 +5,8 @@
 <p align="center"><b>One space with everything, for Claude Code users who switch context all day.</b><br>
 cockpit is a Claude Code plugin and a <a href="https://herdr.dev">herdr</a> plugin that work as one
 (<a href="#how-it-works">how the two halves fit</a>): your agents run side by side in herdr, and each sits beside its
-ticket, PR, CI and the page it tests, with pinned spaces for your inbox, to-dos, runbooks and meetings.</p>
+ticket, PR, CI and the page it tests, with pinned spaces for your inbox, to-dos, runbooks, meetings and releases, and
+one palette over all of it.</p>
 
 ![herdr with the cockpit sidebar, an agent testing its change in terminal-browser beside it, and its footer](docs/overview.svg)
 
@@ -13,8 +14,9 @@ ticket, PR, CI and the page it tests, with pinned spaces for your inbox, to-dos,
 
 herdr is the workspace: spaces, panes and tabs for many agents at once, with their status. It doesn't know about your
 work. cockpit adds that context: each agent shows its ticket, branch, PR, CI and deploy, pinned spaces gather your
-review requests, tickets, meetings and to-dos, notifications come with buttons that act, and inside Claude Code you get
-a footer of links, runbooks and briefs.
+review requests, tickets, meetings, to-dos and how each release is doing, notifications come with buttons that act, and
+inside Claude Code you get a footer of links, runbooks and briefs. One palette, over any pane, finds all of it, what
+changed this week and the past session you half remember.
 
 ## Install
 
@@ -38,8 +40,8 @@ off. Updates arrive as a notification.
 <tr><td colspan="2" align="center"><img src="docs/sidebar.svg" width="238" alt="Sidebar: CI runs on an agent's branch, the agent finishes, a review request arrives"></td></tr>
 <tr><td width="24%"><b>🔗 Footer</b></td><td>One click to the ticket, PR, deploy dashboard, preview and each page the conversation cites.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/footer.svg" width="614" alt="Footer: the chips follow what the conversation names"></td></tr>
-<tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys, previews and what each cost in Claude usage. Each row has its actions, and several picked rows share them; <code>/</code> filters, review threads and failing CI show beside a PR, and a row flashes when its CI turns or an agent finishes. A review, a plan or a talk about a ticket (forked from the session that worked on it) opens in a tab of the actions space.</td></tr>
-<tr><td colspan="2" align="center"><img src="docs/inbox.svg" width="668" alt="Inbox: the tree of projects, tickets and stacked PRs, a filter typed and kept, then the palette searching every app"></td></tr>
+<tr><td width="24%"><b>📥 Inbox</b></td><td>Review requests, then your tickets by project with their stacked PRs, CI, deploys, previews and what each cost in Claude usage. Each row has its actions, and several picked rows share them; <code>/</code> filters, review threads and failing CI show beside a PR, and a row flashes when its CI turns or an agent finishes. Rows that changed since you last left the space are marked, with a line saying what changed. A review, a plan or a talk about a ticket (forked from the session that worked on it) opens in a tab of the actions space.</td></tr>
+<tr><td colspan="2" align="center"><img src="docs/inbox.svg" width="668" alt="Inbox: what changed since you last looked marked on its rows, the tree of projects, tickets and stacked PRs, a filter typed and kept, then the palette searching every app"></td></tr>
 <tr><td width="24%"><b>🧪 E2E tests</b></td><td>The agent opens its page in terminal-browser beside it, on phone and desktop, main against the branch, and puts the before/after in the PR.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/e2e.svg" width="829" alt="E2E test: terminal-browser opens beside the agent, phone then desktop, then the before and after"></td></tr>
 <tr><td width="24%"><b>📋 Runbook</b></td><td><code>/runbook</code> writes the steps left to ship a ticket and keeps them current; steps light up as they get done, and you can filter, edit and add them in place.</td></tr>
@@ -55,9 +57,12 @@ off. Updates arrive as a notification.
 <tr><td width="24%"><b>📅 Meetings</b></td><td>Your week, as a list or drawn day by day, with join and prepare on each meeting.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/meetings.svg" width="539" alt="Meetings space"></td></tr>
 <tr><td width="24%"><b>🩺 Monitor</b></td><td>Every new release of the environment, from the platform connector, with a verdict once it has run a while: errors, p95 and new Datadog errors before and after, alerting monitors and a day of numbers per app. From a release or an error: investigate, fix it in a draft PR, file a bug or roll back, each in a tab of the actions space. Opt in by adding <code>monitor</code> to <code>spaces</code>.</td></tr>
-<tr><td width="24%"><b>⚙️ Settings</b></td><td><code>/cockpit</code> flips what you change day to day. In every app, ctrl+p searches all of them: a ticket, its runbook, its PRs, a view.</td></tr>
+<tr><td colspan="2" align="center"><img src="docs/monitor.svg" width="668" alt="Monitor: the apps released today with their verdicts, the release that moved selected, then every release as one timeline"></td></tr>
+<tr><td width="24%"><b>🔎 Palette</b></td><td><code>prefix+space</code> (or Cmd+K, mapped in Ghostty) opens it over any pane, and ctrl+p in every app: tickets, PRs, runbooks and their steps, meetings, releases, the week's history (a review asked, CI turning, a ticket moving on, a release judged) and past sessions. Over a Claude session, put what you found in its prompt, ask it about it or fork it. Claude can search the same way.</td></tr>
+<tr><td colspan="2" align="center"><img src="docs/palette.svg" width="561" alt="Palette over a Claude session: spaces and commands, a ticket found with its PR, runbook and history, then a past session found by a plain question"></td></tr>
+<tr><td width="24%"><b>⚙️ Settings</b></td><td><code>/cockpit</code> flips what you change day to day.</td></tr>
 <tr><td colspan="2" align="center"><img src="docs/settings.svg" width="546" alt="The /cockpit settings pane"></td></tr>
-<tr><td width="24%"><b>🕰️ Past sessions</b></td><td>ctrl+p also finds your past Claude sessions by what was said in them, from an index the hub keeps on its own; choosing one opens a fork of it in the actions space that sums up where it stood.</td></tr>
+<tr><td width="24%"><b>🕰️ Past sessions</b></td><td>The palette finds your past Claude sessions by what was said in them and by what they were about ("the session where we fixed quotas"), each with the passage that matched, from an index the hub keeps with a small local model; choosing one opens a fork of it in the actions space that sums up where it stood.</td></tr>
 </table>
 
 ## Supported tools
