@@ -28,8 +28,13 @@ fn idle_limit() -> u64 {
     std::env::var("COCKPIT_HUB_IDLE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(30 * 60)
 }
 
-/// Serves until idle; returns at once when another hub already answers on the socket.
+/// Serves until idle; returns at once when another hub already answers on the socket. Run with HUB_TASK set, it indexes
+/// the past Claude sessions once instead (see search::sessions).
 pub fn run() {
+    if std::env::var_os(search::sessions::HUB_TASK).is_some() {
+        search::sessions::index_once();
+        return;
+    }
     // Its own session: closing the pane of the app that started it does not take the hub down.
     // SAFETY: setsid has no memory effects; it fails harmlessly when the hub already leads a group.
     unsafe { libc::setsid() };
@@ -52,6 +57,7 @@ pub fn run() {
         move || exit_when_idle(&socket, inode, &last)
     });
     std::thread::spawn(watch);
+    std::thread::spawn(search::sessions::keep);
     std::thread::spawn(move || {
         let dir = files::herdr_dir();
         cockpit_update::keep_current(&dir, |binary| hand_over(&dir, binary, &socket, inode));

@@ -1,23 +1,16 @@
-//! Past Claude sessions through the socket, memex faked by tests/fixtures/memex.sh: found after the apps' own entries,
-//! none without memex, and a fork of one opened in a tab of the actions space.
+//! Past Claude sessions through the socket, from the fixture box's transcripts: indexed in the background once the hub
+//! starts, found after the apps' own entries, and a fork of one opened in a tab of the actions space.
 
 mod common;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use common::{Hub, Sandbox, fixtures};
+use common::{Hub, Sandbox};
 use serde_json::{Value, json};
 
-/// A sandbox with the fake memex in its bin folder.
-fn with_memex() -> Sandbox {
-    let sandbox = Sandbox::new(&json!({}), &json!({}));
-    let bin = sandbox.root.join("bin/memex");
-    let script = std::fs::read_to_string(fixtures().join("memex.sh")).unwrap().replace("@BOX@", &sandbox.root.to_string_lossy());
-    std::fs::write(&bin, script).unwrap();
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
-    sandbox
+fn sandbox() -> Sandbox {
+    Sandbox::new(&json!({}), &json!({}))
 }
 
 fn herdr_calls(sandbox: &Sandbox) -> Vec<Vec<String>> {
@@ -33,7 +26,7 @@ fn real(path: &str) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
 }
 
-/// The search's entries once memex's sessions are among them: a first search may not wait for them, a later one has them.
+/// The search's entries once sessions are among them: the index builds in the background after the hub starts.
 fn search_with_sessions(hub: &Hub, query: &str) -> Vec<Value> {
     let start = Instant::now();
     loop {
@@ -42,46 +35,46 @@ fn search_with_sessions(hub: &Hub, query: &str) -> Vec<Value> {
         if entries.iter().any(|e| e["app"] == "session") {
             return entries;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "no session found for {query:?}: {entries:?}");
+        assert!(start.elapsed() < Duration::from_secs(10), "no session found for {query:?}: {entries:?}");
         std::thread::sleep(Duration::from_millis(100));
     }
 }
 
 #[test]
 fn sessions_come_after_the_apps_entries() {
-    let sandbox = with_memex();
+    let sandbox = sandbox();
     let hub = Hub::start(&sandbox, &[]);
     let entries = search_with_sessions(&hub, "dark mode");
     assert_eq!(entries[0]["app"], "inbox");
     let last = entries.last().unwrap();
-    assert_eq!((last["app"].as_str(), last["kind"].as_str(), last["title"].as_str()), (Some("session"), Some("session"), Some("dark mode tokens for the sign-in page")));
+    assert_eq!((last["kind"].as_str(), last["title"].as_str()), (Some("session"), Some("Add dark mode tokens to the sign-in page")));
     assert_eq!(last["target"]["key"], "s-dark");
     let sessions: Vec<String> =
         search_with_sessions(&hub, "sign-in").iter().filter(|e| e["app"] == "session").map(|e| e["target"]["key"].as_str().unwrap().to_string()).collect();
     assert_eq!(sessions, ["s-login", "s-dark"]);
+    assert!(sandbox.home().join(".cache/cockpit/sessions-index/v1/manifest.json").exists());
 }
 
 #[test]
-fn without_memex_only_the_apps_are_searched() {
-    let sandbox = Sandbox::new(&json!({}), &json!({}));
-    // PATH without any memex: the sandbox's fakes, then the system's folders and jq's, which the fake herdr needs.
-    let jq = std::process::Command::new("sh").args(["-c", "command -v jq"]).output().unwrap();
-    let jq_dir = PathBuf::from(String::from_utf8_lossy(&jq.stdout).trim()).parent().unwrap().to_path_buf();
-    let tools = sandbox.root.join("tools");
-    std::fs::create_dir_all(&tools).unwrap();
-    std::os::unix::fs::symlink(jq_dir.join("jq"), tools.join("jq")).unwrap();
-    let path = format!("{}:{}:/usr/bin:/bin", sandbox.root.join("bin").display(), tools.display());
-    let hub = Hub::start(&sandbox, &[("PATH", &path)]);
-    let found = hub.request(&json!({"op": "search", "query": "dark mode"}));
-    let entries = found["entries"].as_array().unwrap();
-    assert!(!entries.is_empty() && entries.iter().all(|e| e["app"] != "session"), "{entries:?}");
+fn a_new_transcript_is_found_after_the_watch_sees_it() {
+    let sandbox = sandbox();
+    let hub = Hub::start(&sandbox, &[]);
+    search_with_sessions(&hub, "dark mode");
+    let line = json!({"type": "user", "cwd": sandbox.root.join("repos/api"), "timestamp": "2026-10-28T08:00:00Z", "message": {"role": "user", "content": "Rotate the narwhal keys"}});
+    std::fs::write(sandbox.home().join(".claude/projects/-box-repos-api/s-keys.jsonl"), format!("{line}\n")).unwrap();
+    let start = Instant::now();
+    // The watch waits for quiet and spaces its updates half a minute apart; the test only checks it comes.
+    while !hub.request(&json!({"op": "search", "query": "narwhal"}))["entries"].as_array().unwrap().iter().any(|e| e["target"]["key"] == "s-keys") {
+        assert!(start.elapsed() < Duration::from_secs(60), "the new transcript was never indexed");
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }
 
 #[test]
 fn going_to_a_session_forks_it_in_a_tab_of_the_actions_space() {
-    let sandbox = with_memex();
+    let sandbox = sandbox();
     let hub = Hub::start(&sandbox, &[]);
-    let target = search_with_sessions(&hub, "google sign-in").iter().find(|e| e["app"] == "session").unwrap()["target"].clone();
+    let target = search_with_sessions(&hub, "callback").iter().find(|e| e["app"] == "session").unwrap()["target"].clone();
     let reply = hub.request(&json!({"op": "go", "target": target}));
     assert_eq!(reply["note"], "opened a fork of \"Google sign-in for ENG-401\"");
     let calls = herdr_calls(&sandbox);
@@ -111,7 +104,7 @@ fn a_session_already_open_comes_back_into_view() {
 
 #[test]
 fn a_session_whose_folder_is_gone_is_not_opened() {
-    let sandbox = Sandbox::new(&json!({}), &json!({}));
+    let sandbox = sandbox();
     let hub = Hub::start(&sandbox, &[]);
     let reply = hub.request(&json!({"op": "go", "target": {"app": "session", "key": "s-old", "cwd": "/nowhere/at/all"}}));
     assert_eq!(reply["error"], "the folder of session s-old is gone");
