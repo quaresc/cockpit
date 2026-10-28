@@ -1,0 +1,17 @@
+[package]
+name = "cockpit-meetings"
+description = "meetings.py in Rust, for the config's apps: \"rust\"."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde_json.workspace = true
+notify.workspace = true
+chrono.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

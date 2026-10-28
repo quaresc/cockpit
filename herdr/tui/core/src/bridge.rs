@@ -1,6 +1,6 @@
-//! The text apps' actions, run by bridge.py in a Python process of their own, so they stay written once: a call names a
-//! module, a function and its JSON arguments, and its reply (the note the action left, the requests it filed) comes back
-//! on a channel, so a slow herdr or git call never holds up the keys.
+//! An action run in the background: the hub runs it, or bridge.py runs the text apps' own Python version while the hub
+//! has none by that name. A call names a module (the app), a function (the action) and its JSON arguments; its reply (the
+//! note the action left, the requests it filed) comes back on a channel, so a slow herdr or git call never holds up the keys.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -39,9 +39,25 @@ impl Bridge {
         let request = json!({"module": module, "function": function, "args": args, "armed": armed});
         let tag = tag.to_string();
         std::thread::spawn(move || {
-            let _ = tx.send(run(&tag, &request));
+            let _ = tx.send(through_hub(&tag, &request).unwrap_or_else(|| run(&tag, &request)));
         });
     }
+}
+
+/// The hub's answer, or None when it has no such action (or is not there), for bridge.py to run it.
+fn through_hub(tag: &str, request: &Value) -> Option<Reply> {
+    let ask = json!({"op": "act", "app": request["module"], "action": request["function"], "args": request["args"], "armed": request["armed"]});
+    let answer = crate::hub::request(&ask, std::time::Duration::from_secs(120)).ok()?;
+    if answer["unknown"].as_bool() == Some(true) {
+        return None;
+    }
+    Some(Reply {
+        tag: tag.into(),
+        note: answer["note"].as_str().unwrap_or_default().to_string(),
+        pending: answer["pending"].clone(),
+        refreshing: answer["refreshing"].clone(),
+        error: answer["error"].as_str().map(str::to_string),
+    })
 }
 
 fn run(tag: &str, request: &Value) -> Reply {

@@ -481,12 +481,13 @@ impl term::App for ShowApp {
         }
     }
 
-    fn tick(&mut self) {
+    fn tick(&mut self) -> bool {
         self.pump();
         self.reload();
         for view in &mut self.views {
             view.tick(&self.ctx);
         }
+        true
     }
 
     fn timeout(&self) -> Duration {

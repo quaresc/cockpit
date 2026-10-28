@@ -62,6 +62,19 @@ pub fn watch(dirs: &[PathBuf]) -> (Option<RecommendedWatcher>, Receiver<()>) {
     (Some(watcher), rx)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Density {
+    /// Rows with room, their actions in the panel under the list.
+    Comfortable,
+    /// Denser rows, their actions on the selected row itself, like the light apps.
+    Compact,
+}
+
+/// The config's `density`: comfortable unless it says compact.
+pub fn density() -> Density {
+    if config()["density"].as_str() == Some("compact") { Density::Compact } else { Density::Comfortable }
+}
+
 pub fn open_url(url: &str) {
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let _ = std::process::Command::new(opener).arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();

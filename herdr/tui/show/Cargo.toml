@@ -21,3 +21,6 @@ regex.workspace = true
 tachyonfx.workspace = true
 notify.workspace = true
 signal-hook = "0.3.18"
+
+[dev-dependencies]
+insta.workspace = true
