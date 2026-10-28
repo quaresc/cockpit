@@ -1,5 +1,6 @@
 //! The app's state and what changes it: the document the hub pushes, the minute moving the "2 h ago" texts, focus
-//! requests, folds and the selection kept by key, and the actions sent through the bridge.
+//! requests, folds and the selection kept by key, what changed since you last looked, and the actions sent through the
+//! bridge.
 
 use std::collections::HashSet;
 use std::time::SystemTime;
@@ -9,6 +10,7 @@ use cockpit_core::dialog::Dialog;
 use cockpit_core::files::{self, Density};
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::palette::Palette;
+use cockpit_core::seen::Seen;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
 use serde_json::Value;
@@ -85,6 +87,8 @@ pub struct App {
     pinned: bool,
     reported: Option<String>,
     live: bool,
+    /// What changed since you last looked at the monitor.
+    pub looked: Seen,
 }
 
 impl App {
@@ -93,6 +97,7 @@ impl App {
         let mut app = Self::with(None, files::density(), pinned::is_pinned());
         app.live = true;
         app.docs = Some(hub::subscribe(&["monitor"]));
+        app.looked = Seen::start("monitor");
         app.reload();
         app
     }
@@ -130,7 +135,13 @@ impl App {
             pinned,
             reported: None,
             live: false,
+            looked: Seen::fixture(0, Vec::new()),
         }
+    }
+
+    /// The hub's events and the time you last looked, as tests give them.
+    pub fn feed_events(&mut self, since_ms: u64, events: Vec<Value>) {
+        self.looked = Seen::fixture(since_ms, events);
     }
 
     /// A document given whole: what tests draw.
@@ -161,6 +172,7 @@ impl App {
         self.doc = value.as_ref().and_then(Doc::parse);
         self.raw = value;
         self.select_default();
+        self.looked.fetch();
         true
     }
 
@@ -182,8 +194,9 @@ impl App {
         true
     }
 
-    /// Selects the app known by this id or name, unfolded, in the view by app.
-    pub fn focus(&mut self, app: &str) {
+    /// Selects the app known by this id or name, unfolded, in the view by app; a release's row key selects that release.
+    pub fn focus(&mut self, key: &str) {
+        let (app, release) = key.split_once("/release/").map_or((key, None), |(app, _)| (app, Some(key)));
         let Some(id) = self.doc.as_ref().and_then(|d| d.apps.iter().find(|a| a.id == app || a.name == app)).map(|a| a.id.clone()) else {
             self.toasts.push(format!("{app} is not in the monitor"), Toast::Note);
             return;
@@ -191,7 +204,7 @@ impl App {
         self.timeline = false;
         self.closed.remove(&id);
         self.opened.insert(id.clone());
-        self.selected = Some(id);
+        self.selected = Some(release.map_or(id, str::to_string));
         self.follow = true;
     }
 
@@ -212,6 +225,7 @@ impl App {
             changed = true;
         }
         changed |= self.take_focus();
+        changed |= self.looked.pump();
         let toasting = self.toasts.any();
         changed |= toasting || self.toasting;
         self.toasting = toasting;

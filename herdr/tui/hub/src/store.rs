@@ -17,6 +17,8 @@ pub const DOCS: [&str; 5] = ["inbox", "ci", "meetings", "brief", "monitor"];
 
 const CURRENT: TableDefinition<&str, &[u8]> = TableDefinition::new("current");
 const PAST: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("past");
+/// What happened, by time and order within it (see events).
+const EVENTS: TableDefinition<(u64, u32), &[u8]> = TableDefinition::new("events");
 const KEEP_PAST_MS: u64 = 7 * 86_400_000;
 /// Fields that change on every write without saying anything new: a version differing only by them is not kept as past.
 const VOLATILE: [&str; 3] = ["at", "modAt", "hub"];
@@ -126,6 +128,7 @@ impl Store {
         if self.db.is_none() {
             self.db = create(&self.dir.join("store.redb")).ok();
         }
+        let happened = crate::events::of(name, before, after, &self.get("inbox"));
         let Some(db) = &self.db else { return };
         let now = now_ms();
         let write = || -> Result<(), redb::Error> {
@@ -136,6 +139,14 @@ impl Store {
                     let mut past = txn.open_table(PAST)?;
                     past.insert((name, now), pack(after).as_slice())?;
                     past.retain_in((name, 0)..(name, now.saturating_sub(KEEP_PAST_MS)), |_, _| false)?;
+                    let mut table = txn.open_table(EVENTS)?;
+                    for (n, event) in happened.iter().enumerate() {
+                        let mut event = event.clone();
+                        event["at"] = json!(now);
+                        event["doc"] = json!(name);
+                        table.insert((now, n as u32), pack(&event).as_slice())?;
+                    }
+                    table.retain_in((0, 0)..(now.saturating_sub(KEEP_PAST_MS), 0), |_, _| false)?;
                 }
             }
             txn.commit()?;
@@ -148,6 +159,17 @@ impl Store {
     pub fn close(&mut self) {
         self.db = None;
         self.closed = true;
+    }
+
+    /// What happened since `since_ms`, newest first, at most `limit` of them: {at, doc, app, key, title} each.
+    pub fn events(&self, since_ms: u64, limit: usize) -> Vec<Value> {
+        let read = || -> Option<Vec<Value>> {
+            let txn = self.db.as_ref()?.begin_read().ok()?;
+            let table = txn.open_table(EVENTS).ok()?;
+            let range = table.range((since_ms, 0)..).ok()?;
+            Some(range.rev().flatten().take(limit).filter_map(|(_, bytes)| unpack(bytes.value())).collect())
+        };
+        read().unwrap_or_default()
     }
 
     /// The document's versions since `since_ms` (epoch milliseconds), oldest first, each as {at, value}.
@@ -296,6 +318,23 @@ mod tests {
         assert_eq!(past.iter().map(|v| v["value"]["at"].clone()).collect::<Vec<_>>(), [json!(1), json!(3)]);
         assert!(store.past("inbox", now_ms() + 1).is_empty());
         assert!(store.past("ci", 0).is_empty());
+    }
+
+    #[test]
+    fn what_happened_is_kept_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open(dir.path());
+        store.update("inbox", |_| json!({"version": 1, "tickets": [{"id": "ENG-1", "status": "Todo"}]}));
+        store.update("inbox", |_| json!({"version": 1, "tickets": [{"id": "ENG-1", "status": "Done"}]}));
+        std::thread::sleep(Duration::from_millis(2));
+        store.update("inbox", |_| json!({"version": 1, "tickets": [{"id": "ENG-1", "status": "Done"}, {"id": "ENG-2", "status": "Todo", "title": "b"}]}));
+        let events = store.events(0, 10);
+        let titles: Vec<&str> = events.iter().map(|e| e["title"].as_str().unwrap()).collect();
+        assert_eq!(titles, ["🎫 Assigned: ENG-2 b", "🎫 ENG-1: Todo → Done"]);
+        assert_eq!((&events[0]["doc"], &events[0]["key"]), (&json!("inbox"), &json!("ENG-2")));
+        assert!(events[0]["at"].as_u64().unwrap() > events[1]["at"].as_u64().unwrap());
+        assert_eq!(store.events(0, 1).len(), 1);
+        assert!(store.events(now_ms() + 1, 10).is_empty());
     }
 
     #[test]

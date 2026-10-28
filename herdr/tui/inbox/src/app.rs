@@ -1,5 +1,6 @@
 //! The inbox app: the tree rebuilt when the caches change or the ages move, what changed since the last rebuild shown
-//! on its rows, details fetched for the highlighted PR; a frame drawn only when something changed.
+//! on its rows and what changed since you last looked marked on them, details fetched for the highlighted PR; a frame
+//! drawn only when something changed.
 
 use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
@@ -14,6 +15,7 @@ use cockpit_core::focus;
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::input::Input;
 use cockpit_core::palette::Palette;
+use cockpit_core::seen::Seen;
 use cockpit_core::term;
 use cockpit_core::theme::base;
 use cockpit_core::toast::{Kind as Toast, Toasts};
@@ -95,6 +97,8 @@ pub struct App {
     details: Details,
     history: History,
     focus_seen: SystemTime,
+    /// What changed since you last looked at the inbox.
+    looked: Seen,
 }
 
 impl App {
@@ -135,6 +139,7 @@ impl App {
             details: Details::new(live),
             history: History::new(live, series),
             focus_seen: SystemTime::now(),
+            looked: Seen::fixture(0, Vec::new()),
         }
     }
 
@@ -147,6 +152,7 @@ impl App {
         app._watcher = watcher;
         app.changes = Some(changes);
         app.docs = Some(hub::subscribe(&crate::inputs::DOCS));
+        app.looked = Seen::start("inbox");
         app.reload(true);
         app
     }
@@ -171,6 +177,11 @@ impl App {
             fetched.absorb(kind, answer);
         }
         self.details.set(url, fetched);
+    }
+
+    /// The hub's events and the time you last looked, as a fixture app would have them.
+    pub fn feed_events(&mut self, since_ms: u64, events: Vec<Value>) {
+        self.looked = Seen::fixture(since_ms, events);
     }
 
     /// Whether some row's effect still plays, for tests.
@@ -237,11 +248,15 @@ impl App {
             changed = true;
         }
         changed |= self.details.pump();
+        changed |= self.looked.pump();
         if !self.live {
             return changed;
         }
         let files_changed = self.changes.as_ref().is_some_and(|rx| rx.try_iter().count() > 0);
         let pushed = self.docs.as_mut().is_some_and(Docs::pump);
+        if pushed {
+            self.looked.fetch();
+        }
         if self.settled.elapsed() >= Duration::from_secs(1) {
             self.settled = Instant::now();
             let before = self.requests.count();
@@ -327,6 +342,11 @@ impl App {
         self.toasting = self.toasts.any();
     }
 
+    /// The cursor's row path, to tell when it moves.
+    fn cursor(&self) -> Option<String> {
+        self.tree.current().map(|n| self.tree.nodes[n].path.clone())
+    }
+
     pub(crate) fn row_acts(&self) -> Vec<Act> {
         self.tree.current().map(|n| self.tree.nodes[n].row.acts.iter().map(|a| a.act.clone()).collect()).unwrap_or_default()
     }
@@ -341,18 +361,29 @@ impl term::App for App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         frame.render_widget(Block::new().style(base()), area);
-        let head_height = panel::height(&self.head, area.width.saturating_sub(2)).max(1);
+        let mut head = self.head.clone();
+        let since = |ms: u64| crate::facts::clock(&Value::from(ms));
+        if let Some(line) = self.looked.head(area.width.saturating_sub(2) as usize, since) {
+            head.insert(1.min(head.len()), line);
+        }
+        let head_height = panel::height(&head, area.width.saturating_sub(2)).max(1);
         let (info, acts) = if self.compact { (Vec::new(), Vec::new()) } else { self.panel_content() };
         let panel_height = if self.compact { 0 } else { panel::panel_height(&info, &acts, area.width).min(area.height / 2) };
         let bar = u16::from(self.editing || self.tree.filtering());
-        let [head, filter, tree, bottom, footer] =
+        let [head_area, filter, tree, bottom, footer] =
             Layout::vertical([Constraint::Length(head_height), Constraint::Length(bar), Constraint::Min(1), Constraint::Length(panel_height), Constraint::Length(1)]).areas(area);
-        panel::header(frame, head, &self.head);
+        panel::header(frame, head_area, &head);
         if bar > 0 {
             frame.render_widget(Paragraph::new(filter_line(&self.filter, self.editing, self.tree.matched())), panel::inset(filter));
         }
         let row_acts = if self.compact && self.picked.is_empty() { self.row_acts() } else { Vec::new() };
-        let paint = Paint { requests: &self.requests, picked: &self.picked.keys, effects: &mut self.effects, buttons: self.compact.then_some(row_acts.as_slice()) };
+        let paint = Paint {
+            requests: &self.requests,
+            picked: &self.picked.keys,
+            effects: &mut self.effects,
+            buttons: self.compact.then_some(row_acts.as_slice()),
+            looked: &self.looked,
+        };
         let clicks = self.tree.render(frame, panel::inset(tree), paint);
         self.buttons = if self.compact { clicks } else { panel::panel(frame, bottom, &info, &acts) };
         if self.compact && !self.picked.is_empty() {
@@ -372,7 +403,12 @@ impl term::App for App {
     }
 
     fn event(&mut self, event: Event) -> bool {
+        let cursor = self.cursor();
         let quit = match event {
+            Event::FocusGained | Event::FocusLost => {
+                self.looked.focus(event == Event::FocusGained);
+                false
+            }
             Event::Key(key) if key.kind == KeyEventKind::Press => self.key(key),
             Event::Mouse(mouse) => {
                 self.mouse(mouse);
@@ -380,6 +416,10 @@ impl term::App for App {
             }
             _ => false,
         };
+        // The cursor moved onto a row: its marker, and those of the rows it hides folded, clear.
+        if let Some(node) = self.tree.current().filter(|_| self.cursor() != cursor) {
+            self.looked.select(self.tree.marker_keys(node));
+        }
         self.pump();
         self.pace();
         quit

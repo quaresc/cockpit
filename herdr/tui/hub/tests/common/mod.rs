@@ -110,6 +110,8 @@ impl Sandbox {
                 ("COCKPIT_NOTIFY_PROGRAM".into(), self.root.join("bin/notify").to_string_lossy().into_owned()),
                 // The feed reaches GitHub on its own: only the feed's tests turn it on, against a fake GitHub.
                 ("COCKPIT_HUB_FEED".into(), "off".into()),
+                // Nor does the session index download its model.
+                ("COCKPIT_EMBED".into(), "off".into()),
             ])
             .collect()
     }

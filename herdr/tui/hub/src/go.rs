@@ -16,6 +16,7 @@ fn space_of(app: &str) -> Option<&'static str> {
         "runbook" => Some("runbook"),
         "todo" | "to-do" => Some("to-do"),
         "meetings" => Some("meetings"),
+        "monitor" => Some("monitor"),
         _ => None,
     }
 }

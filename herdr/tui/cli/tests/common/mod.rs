@@ -109,6 +109,8 @@ impl Sandbox {
                 ("COCKPIT_TERMINAL_BROWSER".into(), self.root.join("bin/terminal-browser").to_string_lossy().into_owned()),
                 // Notifications reach the fake receiver instead of the screen.
                 ("COCKPIT_NOTIFY_PROGRAM".into(), self.root.join("bin/notify").to_string_lossy().into_owned()),
+                // A hub started here indexes sessions without downloading the search model.
+                ("COCKPIT_EMBED".into(), "off".into()),
             ])
             .collect()
     }

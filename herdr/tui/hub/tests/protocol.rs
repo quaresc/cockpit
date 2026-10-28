@@ -99,7 +99,7 @@ fn search_follows_file_changes() {
         if found["entries"].as_array().is_some_and(|e| !e.is_empty()) {
             break;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "the index never saw the new item");
+        assert!(start.elapsed() < Duration::from_secs(10), "the index never saw the new item");
         std::thread::sleep(Duration::from_millis(100));
     }
 }

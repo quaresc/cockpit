@@ -403,6 +403,35 @@ fn store_leases_print_granted_or_held() {
 }
 
 // ---------------------------------------------------------------------------
+// search and events, against a fake hub
+
+#[test]
+fn search_prints_the_hubs_answer() {
+    let sandbox = Sandbox::new();
+    let answer = json!({"entries": [{"app": "inbox", "kind": "ticket", "title": "ENG-401 Sign in with Google", "help": "In Progress", "target": {"app": "inbox", "key": "ENG-401"}}]});
+    let seen = fake_hub(&sandbox, Some(answer.clone()));
+    let out = sandbox.cockpit(&["search", "sign", "in"], &[]);
+    assert_eq!(serde_json::from_str::<Value>(&stdout(&out)).unwrap(), answer);
+    assert_eq!(seen.lock().unwrap()[0], json!({"op": "search", "query": "sign in"}));
+    assert_eq!(sandbox.cockpit(&["search"], &[]).status.code(), Some(1));
+}
+
+#[test]
+fn events_ask_since_when_and_say_each_ones_local_time() {
+    let sandbox = Sandbox::new();
+    let event = json!({"at": 1_761_660_000_000_u64, "doc": "inbox", "app": "inbox", "key": "ENG-412", "title": "🎫 ENG-412: To review → Done"});
+    let seen = fake_hub(&sandbox, Some(json!({"events": [event]})));
+    let out = sandbox.cockpit(&["events", "--since", "1761000000000", "--app", "inbox"], &[]);
+    let printed: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(printed["events"][0]["key"], "ENG-412");
+    assert!(regex::Regex::new(r"^2025-10-2\d \d\d:\d\d$").unwrap().is_match(printed["events"][0]["when"].as_str().unwrap()));
+    assert_eq!(seen.lock().unwrap()[0], json!({"op": "events", "since": 1_761_000_000_000_u64, "app": "inbox", "limit": 500}));
+    let out = sandbox.cockpit(&["events", "--app", "todo"], &[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("--since 30m|2h|1d"));
+}
+
+// ---------------------------------------------------------------------------
 // notify and focus
 
 #[test]

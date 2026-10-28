@@ -79,6 +79,12 @@ pub fn handle(request: &Value) -> Value {
         "history" => {
             json!({"values": history::series(&files::cache(), field("kind"), field("key"))})
         }
+        "events" => {
+            let (since, limit) = (request["since"].as_u64().unwrap_or(0), request["limit"].as_u64().unwrap_or(500) as usize);
+            let events = store::global().events(since, limit);
+            let app = field("app");
+            json!({"events": events.into_iter().filter(|e| app.is_empty() || e["app"] == app).collect::<Vec<_>>()})
+        }
         op if op.starts_with("store.") => store_op(op, request),
         other => json!({"error": format!("unknown op {other:?}")}),
     }

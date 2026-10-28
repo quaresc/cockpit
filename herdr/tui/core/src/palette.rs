@@ -141,12 +141,23 @@ impl Palette {
         Outcome::Open
     }
 
+    /// The found item under the selection; None on one of the app's own entries.
+    pub fn selected_found(&self) -> Option<&crate::hub::Found> {
+        self.state.selected()?.checked_sub(self.shown.len()).and_then(|i| self.elsewhere.get(i))
+    }
+
+    /// Over the app, as tall as its entries need.
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         self.arrived();
         let width = area.width.saturating_sub(4).min(90);
         // Each entry takes two lines: its text and its help.
         let height = ((self.shown.len() + self.elsewhere.len()) as u16 * 2 + 4).min(area.height.saturating_sub(2)).max(6);
-        let box_ = Rect { x: area.x + (area.width - width) / 2, y: area.y + 1, width, height };
+        self.render_in(frame, Rect { x: area.x + (area.width - width) / 2, y: area.y + 1, width, height });
+    }
+
+    /// Filling this box, as the palette app draws it.
+    pub fn render_in(&mut self, frame: &mut Frame, box_: Rect) {
+        self.arrived();
         frame.render_widget(Clear, box_);
         let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().fg(ORANGE)).style(Style::new().bg(SURFACE));
         let inner = block.inner(box_);

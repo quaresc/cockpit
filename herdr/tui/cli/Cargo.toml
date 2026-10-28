@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-cli"
-description = "The one `cockpit` binary: the space apps, the show view and the hub as its subcommands, what keeps them running in their spaces, and what the plugin's scripts call (the actions space, notifications and their clicks and buttons, the browser beside a pane, screenshots, updates, the doctor)."
+description = "The one `cockpit` binary: the space apps, the show view, the palette popup and the hub as its subcommands, what keeps them running in their spaces, and what the plugin's scripts call (the actions space, notifications and their clicks and buttons, the browser beside a pane, screenshots, updates, the doctor)."
 version.workspace = true
 edition.workspace = true
 
@@ -15,9 +15,11 @@ cockpit-hub = { path = "../hub" }
 cockpit-inbox = { path = "../inbox" }
 cockpit-meetings = { path = "../meetings" }
 cockpit-monitor = { path = "../monitor" }
+cockpit-palette = { path = "../palette" }
 cockpit-runbook = { path = "../runbook" }
 cockpit-show = { path = "../show" }
 cockpit-todo = { path = "../todo" }
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 libc = "0.2"

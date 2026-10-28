@@ -1,10 +1,12 @@
 //! The inbox drawn on the anonymised sandbox fixtures: three widths, both groupings, filtered, with picked rows, a PR's
-//! details, and the compact layout.
+//! details, the compact layout, and what changed since you last looked.
 
 mod common;
 
+use cockpit_core::term::App as _;
 use cockpit_core::testing::render;
 use common::{app, focus, typed};
+use crossterm::event::Event;
 use serde_json::json;
 
 const HEIGHT: u16 = 64;
@@ -77,4 +79,33 @@ fn compact() {
     focus(&mut app, "https://github.com/acme/api/pull/2224");
     typed(&mut app, "v");
     insta::assert_snapshot!("compact_picked", render(&mut app, 90, 20));
+}
+
+#[test]
+fn changes_since_you_last_looked() {
+    let mut app = app(false);
+    // You last looked at 09:30; an event before then is old, one whose key matches no row counts in the head only.
+    let event = |at: u64, key: &str, title: &str| json!({"at": at, "doc": "inbox", "app": "inbox", "key": key, "title": title});
+    app.feed_events(
+        1_793_179_800_000,
+        vec![
+            event(1_793_181_300_000, "https://github.com/acme/web/pull/1866", "🔴 CI failing: web#1866"),
+            event(1_793_181_000_000, "https://github.com/acme/billing/pull/381", "👀 Review requested: billing#381 chore(ci): add an SBOM step"),
+            event(1_793_180_700_000, "ENG-415", "🎫 ENG-415: In progress → To review"),
+            event(1_793_180_520_000, "api/main", "🟢 CI passed: api main"),
+            event(1_793_180_400_000, "https://github.com/acme/site/pull/1291", "✅ Approved: site#1291"),
+            event(1_793_179_200_000, "ENG-405", "🎫 ENG-405: Todo → In progress"),
+        ],
+    );
+    insta::assert_snapshot!("changes_since_90", render(&mut app, 90, HEIGHT + 1));
+    focus(&mut app, "https://github.com/acme/billing/pull/381");
+    typed(&mut app, "j");
+    typed(&mut app, "k");
+    let screen = render(&mut app, 90, HEIGHT + 1);
+    assert!(screen.contains("4 changes since 09:30: 🔴  CI failing: web#1866 · 🎫  ENG-415"), "selecting a row clears its change:\n{screen}");
+    app.event(Event::FocusLost);
+    let mut unchanged = common::app(false);
+    focus(&mut unchanged, "https://github.com/acme/billing/pull/381");
+    typed(&mut unchanged, "jk");
+    assert_eq!(render(&mut app, 90, HEIGHT + 1), render(&mut unchanged, 90, HEIGHT + 1), "leaving clears every marker and the head line");
 }

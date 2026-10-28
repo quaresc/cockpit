@@ -103,3 +103,11 @@ placement = "popup"
 width = "70%"
 height = "60%"
 command = ["sh", "recap.sh"]
+
+[[panes]]
+id = "palette"
+title = "Cockpit"
+placement = "popup"
+width = "70%"
+height = "60%"
+command = ["sh", "cockpit.sh", "palette"]

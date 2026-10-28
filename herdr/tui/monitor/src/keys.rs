@@ -68,7 +68,12 @@ impl App {
     }
 
     pub fn event(&mut self, event: Event) -> bool {
-        match event {
+        let selected = self.selected.clone();
+        let quit = match event {
+            Event::FocusGained | Event::FocusLost => {
+                self.looked.focus(event == Event::FocusGained);
+                false
+            }
             Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
             Event::Mouse(mouse) => {
                 let at = Position::new(mouse.column, mouse.row);
@@ -82,7 +87,13 @@ impl App {
                 false
             }
             _ => false,
+        };
+        // The selection moved onto a row: its marker, and those of the rows it hides folded, clear.
+        if let Some(row) = self.selected_row().filter(|_| self.selected != selected) {
+            let keys = self.marker_keys(&row);
+            self.looked.select(keys.iter().map(String::as_str));
         }
+        quit
     }
 
     pub fn key(&mut self, key: KeyEvent) -> bool {

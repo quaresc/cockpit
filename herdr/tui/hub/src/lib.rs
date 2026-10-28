@@ -4,6 +4,7 @@
 
 mod act;
 mod config;
+mod events;
 mod feed;
 mod fetch;
 mod go;

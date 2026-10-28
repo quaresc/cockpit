@@ -60,6 +60,14 @@ claude = [
   [{ token = "$clash", fg = "#FF8080", bold = true }],
 ]
 
+# The palette over the pane in view: every app's items, the week's events, past sessions and cockpit's commands; over a
+# Claude session, a found item can go into it.
+[[keys.command]]
+key = "prefix+space"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/palette.sh"
+description = "cockpit palette"
+
 # The page of the terminal-browser beside the focused pane, in the default browser.
 [[keys.command]]
 key = "prefix+f"
