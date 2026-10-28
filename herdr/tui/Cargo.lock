@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-cli"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "cockpit-core",
  "libc",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-core"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "crossterm",
  "notify",
@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-hub"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-inbox"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-meetings"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-runbook"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-show"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-todo"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "cockpit-core",
