@@ -1,11 +1,12 @@
 [package]
 name = "cockpit-hub"
-description = "The background process the space apps share: actions, search across apps, details on demand, history."
+description = "The background process the space apps share: actions, search across apps, details on demand, history, and the binary kept on the plugin's version."
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true
+cockpit-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
@@ -13,6 +14,8 @@ chrono.workspace = true
 notify.workspace = true
 nucleo-matcher.workspace = true
 libc = "0.2"
+# The feed's HTTPS calls to GitHub, Linear and CircleCI.
+ureq = { version = "3.5.0", default-features = false, features = ["rustls", "gzip"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -23,7 +23,7 @@ def pane(name, spec, cols, rows, keys=(), wait=2.0):
     json.dump({**spec, "at": int(time.time() * 1000)}, open(os.path.join(HOME, ".cache", "cockpit", "show", f"{name}.json"), "w"))
     shutil.rmtree(SHOTS, ignore_errors=True)
     os.makedirs(SHOTS)
-    argv, wait = [os.path.join(APPS, "tui", "target", "release", "cockpit-show"), name], wait + 3
+    argv, wait = [os.path.join(APPS, "tui", "target", "release", "cockpit"), "show", name], wait + 3
     env["COCKPIT_SHOT_DIR"] = SHOTS
     return screen_of(run(argv, cols, rows, env, keys, wait=wait, cwd=APPS), cols, rows)
 

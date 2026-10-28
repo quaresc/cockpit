@@ -1,0 +1,7 @@
+{"data": {"viewer": {"assignedIssues": {"nodes": [
+  {"identifier": "ENG-403", "title": "Password reset", "url": "https://linear.app/acme/issue/ENG-403/password-reset", "state": {"name": "Todo", "type": "unstarted"}, "parent": null, "project": {"name": "Sign-in"}},
+  {"identifier": "ENG-401", "title": "Google sign-in", "url": "https://linear.app/acme/issue/ENG-401/google-sign-in", "state": {"name": "In Progress", "type": "started"}, "parent": null, "project": {"name": "Sign-in"}},
+  {"identifier": "ENG-404", "title": "Old spike", "url": "https://linear.app/acme/issue/ENG-404/old-spike", "state": {"name": "Done", "type": "completed"}, "parent": null, "project": null},
+  {"identifier": "ENG-402", "title": "Login form", "url": "https://linear.app/acme/issue/ENG-402/login-form", "state": {"name": "In Review", "type": "started"}, "parent": {"identifier": "ENG-401"}, "project": {"name": "Sign-in"}},
+  {"identifier": "ENG-405", "title": "Deploy SSO", "url": "https://linear.app/acme/issue/ENG-405/deploy-sso", "state": {"name": "To Deploy", "type": "started"}, "parent": null, "project": null}
+]}}}}

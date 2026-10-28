@@ -52,7 +52,7 @@ async function write($: $, setting: Setting, value: string | boolean | number) {
   await $.fs.write(path, `${JSON.stringify(raw, null, 2)}\n`)
   forgetConfig()
   // The space apps stop, and their loops start them again in the new density; an open show pane keeps its own until it reopens.
-  if (setting.key === 'density') await $.process.run(['pkill', '-f', 'cockpit-(inbox|todo|runbook|meetings) cockpit-space']).catch(() => undefined)
+  if (setting.key === 'density') await $.process.run(['pkill', '-f', 'cockpit (inbox|todo|runbook|meetings) cockpit-space']).catch(() => undefined)
   await update($, shown, () => Date.now())
 }
 
@@ -67,10 +67,10 @@ async function terminalBrowserVersion($: $) {
   return done?.exitCode === 0 ? done.stdout.trim().split(/\s+/).at(-1) : undefined
 }
 
-// Whether the apps are there: the release's in bin/, or a dev build.
+// Whether the apps are there: the release's binary in bin/, or a dev build.
 async function hasApps($: $) {
   const root = (await loadConfig($)).herdrPluginRoot
-  for (const dir of ['bin', 'tui/target/release']) if (await $.fs.exists(`${root}/${dir}/cockpit-inbox`)) return true
+  for (const dir of ['bin', 'tui/target/release']) if (await $.fs.exists(`${root}/${dir}/cockpit`)) return true
   return false
 }
 

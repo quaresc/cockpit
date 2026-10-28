@@ -190,12 +190,11 @@ impl App {
                 rows.push(plain_row(Line::from(vec![Span::raw(" ".repeat(BRIEF_INDENT)), Span::styled("preparing the brief…", fg(ORANGE).add_modifier(Modifier::DIM))])));
             }
             if let (Some(brief), true) = (self.briefs.get(&m.id), self.open.contains(&m.id)) {
-                for text in brief.iter().filter(|t| !t.trim().is_empty()) {
-                    let is_heading = text.starts_with('#');
-                    let shown = if is_heading { text.trim_start_matches(['#', ' ']).trim().to_string() } else { text.clone() };
-                    let style = if is_heading { bold(FG) } else { fg(FG) };
-                    for part in wrap(&shown, cells.saturating_sub(BRIEF_INDENT)) {
-                        rows.push(plain_row(Line::from(vec![Span::raw(" ".repeat(BRIEF_INDENT)), Span::styled(part, style)])));
+                // The brief's markdown drawn as the show view draws it, kept tight: no blank line between its blocks.
+                for line in cockpit_show::markdown_lines(&brief.join("\n"), cells.saturating_sub(BRIEF_INDENT)) {
+                    if line.width() > 0 {
+                        let indent = Span::raw(" ".repeat(BRIEF_INDENT));
+                        rows.push(plain_row(Line::from(std::iter::once(indent).chain(line.spans).collect::<Vec<_>>()).style(fg(FG))));
                     }
                 }
                 rows.push(plain_row(Line::raw("")));

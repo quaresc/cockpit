@@ -1,9 +1,10 @@
 #!/bin/sh
 # Makes sure the pinned spaces exist and run their app, e.g. after herdr restores a session.
 . "$(dirname "$0")/lib.sh"
-prune_installs
-# The Rust apps of this version, before any space starts one: a first install and every update come through here.
+# The binary of this version, before any space starts one: a first install and every update come through here. Before
+# the old installs go, since until the release has the binary the previous install's is copied in.
 sh "$ROOT/fetch-apps.sh"
+prune_installs
 
 ensure() {
   name=$1 label=$2 app=$3 cwd=${4:-$REPOS}

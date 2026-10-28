@@ -1,0 +1,12 @@
+{
+ "title": "diff_ts",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "diff",
+   "title": "TypeScript change",
+   "patch": "diff --git a/src/quota.ts b/src/quota.ts\nindex 1111111..2222222 100644\n--- a/src/quota.ts\n+++ b/src/quota.ts\n@@ -1,6 +1,7 @@\n /** The daily quota of a plan. */\n export function quota(plan: string): number | null {\n-  const limits = { free: 10, pro: 100 };\n+  const limits: Record<string, number> = { free: 10, pro: 200 };\n+  // Enterprise has none.\n   return limits[plan] ?? null;\n }\n-export const RESET = \"00:00\";\n+export const RESET = `00:00 ${\"UTC\"}`;\n"
+  }
+ ],
+ "placement": "right"
+}

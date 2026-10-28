@@ -1,5 +1,8 @@
 //! The palette's search across the apps: one index of the inbox's PRs and tickets, the runbooks and their steps, the
-//! show views and their blocks, the to-do items and the meetings, rebuilt when the watcher says a file changed.
+//! show views and their blocks, the to-do items and the meetings, rebuilt when the watcher says a file changed; then the
+//! past Claude sessions memex finds.
+
+pub mod memex;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -42,8 +45,14 @@ pub fn invalidate() {
     DIRTY.store(true, Ordering::SeqCst);
 }
 
-/// The entries matching the query, best first, 50 at most.
+/// The entries matching the query, best first, 50 at most, then the few past sessions memex finds for it.
 pub fn search(query: &str) -> Vec<Value> {
+    let mut found = apps(query);
+    found.extend(memex::sessions(query));
+    found
+}
+
+fn apps(query: &str) -> Vec<Value> {
     let Ok(mut index) = INDEX.lock() else {
         return Vec::new();
     };

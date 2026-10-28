@@ -20,3 +20,8 @@ pub mod sessions;
 mod test_home;
 mod tree;
 mod work;
+
+/// `cockpit inbox`: the inbox in the terminal until it quits.
+pub fn run() -> std::io::Result<()> {
+    cockpit_core::term::run(&mut app::App::start())
+}

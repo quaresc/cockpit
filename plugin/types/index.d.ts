@@ -50,9 +50,15 @@ export type Usage = { limits: { name: string; percent: number }[] }
 // A view the show tool opened, as its footer chip: open in a pane, or hidden and one press away.
 export type ViewChip = { name: string; isOpen: boolean }
 
+// What the hub's own feed wrote last: when it tried, when its GitHub and ticket fields last came in, and its errors.
+export type HubPart = { at: number; github?: number; tickets?: number; errors: string[] }
+
 export type Inbox = {
   version?: number
+  // The last write, by the mod or the hub; `modAt` is the mod's own last fetch.
   at: number
+  modAt?: number
+  hub?: HubPart
   direct: Pr[]
   team: Pr[]
   botRepos: string[]
@@ -84,7 +90,8 @@ export type CiRun = {
   dockerTag?: string
 }
 
-export type CiState = { at: number; runs: CiRun[]; error?: string; version?: number }
+// `by: 'hub'` when the hub's feed wrote it.
+export type CiState = { at: number; runs: CiRun[]; error?: string; version?: number; by?: 'hub' }
 
 export type Work = { repo: string; dir: string }
 

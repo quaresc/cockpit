@@ -17,6 +17,11 @@ pub mod steps;
 pub mod table;
 pub mod view;
 
+/// `cockpit runbook`: the runbooks in the terminal until it quits.
+pub fn run() -> std::io::Result<()> {
+    cockpit_core::term::run(&mut app::App::new())
+}
+
 use std::time::Duration;
 
 use crossterm::event::Event;

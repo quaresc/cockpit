@@ -21,6 +21,13 @@ pub trait App {
 }
 
 static WOKEN: AtomicBool = AtomicBool::new(false);
+static REDRAW: AtomicBool = AtomicBool::new(false);
+
+/// Wakes the loop and draws the next frame whatever the app's tick says: an answer that arrived in the background.
+pub fn redraw() {
+    REDRAW.store(true, Ordering::Relaxed);
+    wake();
+}
 
 /// Makes the loop tick now rather than at its timeout: a watched file changed, a background reply came.
 pub fn wake() {
@@ -56,7 +63,7 @@ pub fn run(app: &mut impl App) -> std::io::Result<()> {
                 }
                 true
             } else {
-                app.tick()
+                app.tick() | REDRAW.swap(false, Ordering::Relaxed)
             };
         }
     })();

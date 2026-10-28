@@ -40,7 +40,7 @@ fn several_requests_on_one_connection_and_bad_ones() {
 fn one_hub_at_a_time() {
     let sandbox = sandbox();
     let hub = Hub::start(&sandbox, &[]);
-    let mut second = std::process::Command::new(env!("CARGO_BIN_EXE_cockpit-hub")).env_clear().envs(sandbox.env()).spawn().unwrap();
+    let mut second = common::hub_command(&sandbox).spawn().unwrap();
     let status = second.wait().unwrap();
     assert!(status.success());
     assert_eq!(hub.request(&json!({"op": "ping"})), json!({"ok": true}));

@@ -4,6 +4,7 @@ import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Preview } 
 
 import { cacheDir, fill, home, loadConfig, writeAtomic } from './config'
 import { appFor, call, callMapped, can, createPreview, dashboardName, deployedApps, extendPreview, listAt, listPreviews, pick, previewUrl, text } from './platform'
+import { hubOwnsCi } from './feed'
 import { ciChanges, hasTicket } from './match'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
@@ -304,6 +305,8 @@ export function refreshCi($: $, isForced = false) {
       if (!ci.enabled || (ci.server ? isConnectorMissing : !github.enabled)) return
       // A cache from an older version of this code is rebuilt from scratch, without notifications.
       const stored = await readCi($)
+      // The hub keeps ci.json while its feed is fresh: GitHub's checks, or CircleCI given a token. It announces the runs too.
+      if (hubOwnsCi(stored)) return
       const prev = stored?.version === CI_VERSION ? stored : null
       if (!isForced && prev && Date.now() - prev.at < CI_STALE_MS) return
       await withLock($, 'ci', async () => {

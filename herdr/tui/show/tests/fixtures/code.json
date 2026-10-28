@@ -1,0 +1,12 @@
+{
+ "title": "code",
+ "at": 1793520000000,
+ "blocks": [
+  {
+   "type": "markdown",
+   "title": "Code",
+   "text": "Some TypeScript:\n\n```ts\n// The quota of a plan.\nexport function quota(plan: Plan): number | null {\n  const limits: Record<string, number> = { free: 10, pro: 200 };\n  return limits[plan.name] ?? null;\n}\n```\n\nA TSX component:\n\n```tsx\nexport const Badge = ({ count }: { count: number }) => (\n  <span className=\"badge\" data-count={count}>{count > 99 ? \"99+\" : count}</span>\n);\n```\n\nAnd Elixir:\n\n```elixir\ndefmodule Quota do\n  @moduledoc \"Daily quotas.\"\n  def limit(:free), do: 10\n  def limit(%{plan: plan}) when is_binary(plan), do: String.to_atom(plan) |> limit()\nend\n```\n"
+  }
+ ],
+ "placement": "right"
+}

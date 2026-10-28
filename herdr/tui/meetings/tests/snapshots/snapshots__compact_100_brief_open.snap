@@ -14,10 +14,10 @@ expression: "render(&mut app, 100, 30)"
    11:15–11:30   15 min  Ledger Move… 4      hide brief  b     join  m     open  o     redo  r  █
        Invite has no description; the purpose comes from the tickets it names.                    █
        Where it stands                                                                            █
-       - ENG-398 and ENG-399 both wait for PM/Design validation.                                  █
-       - Two PRs are approved but blocked on a failing CI job.                                    █
+       • ENG-398 and ENG-399 both wait for PM/Design validation.                                  █
+       • Two PRs are approved but blocked on a failing CI job.                                    █
        Bring                                                                                      █
-       - The CI failure, and an agenda if none was shared.                                        █
+       • The CI failure, and an agenda if none was shared.                                        █
                                                                                                   ▕
    11:45–12:00   15 min  Accounts Daily                                                     9   ▕
        preparing the brief…                                                                       ▕

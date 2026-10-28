@@ -1,0 +1,39 @@
+{"data": {
+  "review": {"nodes": [
+    {"__typename": "PullRequest", "number": 9, "title": "Dark mode", "url": "https://github.com/acme/web/pull/9", "isDraft": false, "updatedAt": "2026-10-27T14:06:50Z",
+     "headRefName": "maya/dark", "baseRefName": "main", "repository": {"name": "web", "nameWithOwner": "acme/web"},
+     "author": {"__typename": "User", "login": "maya", "name": "Maya Haddad"}, "reviewDecision": "REVIEW_REQUIRED",
+     "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]}},
+    {"__typename": "PullRequest", "number": 3, "title": "Typo", "url": "https://github.com/acme/docs/pull/3", "isDraft": false, "updatedAt": "2026-10-25T08:00:00Z",
+     "headRefName": "jonas/typo", "baseRefName": "main", "repository": {"name": "docs", "nameWithOwner": "acme/docs"},
+     "author": {"__typename": "User", "login": "jonas", "name": null}, "reviewDecision": null,
+     "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}},
+    {"__typename": "PullRequest", "number": 30, "title": "Bump serde", "url": "https://github.com/acme/api/pull/30", "isDraft": false, "updatedAt": "2026-10-26T08:00:00Z",
+     "headRefName": "deps/serde", "baseRefName": "main", "repository": {"name": "api", "nameWithOwner": "acme/api"},
+     "author": {"__typename": "Bot", "login": "renovate"}, "reviewDecision": null,
+     "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
+    {"__typename": "Issue"}
+  ]},
+  "direct": {"nodes": [{"url": "https://github.com/acme/web/pull/9"}, {}]},
+  "mine": {"nodes": [
+    {"__typename": "PullRequest", "number": 4, "title": "Google sign-in", "url": "https://github.com/acme/api/pull/4", "isDraft": false, "updatedAt": "2026-10-27T15:53:26Z",
+     "headRefName": "me/eng-401-login", "baseRefName": "main", "repository": {"name": "api", "nameWithOwner": "acme/api"},
+     "author": {"__typename": "User", "login": "me", "name": "Me Too"}, "reviewDecision": "CHANGES_REQUESTED",
+     "commits": {"nodes": [{"commit": {"oid": "c0ffee4", "committedDate": "2026-10-27T15:50:00Z", "statusCheckRollup": {"state": "FAILURE", "contexts": {"nodes": [
+       {"databaseId": 111, "name": "lint", "status": "COMPLETED", "conclusion": "FAILURE", "detailsUrl": "https://github.com/acme/api/actions/runs/900/job/111", "checkSuite": {"workflowRun": {"databaseId": 900}}},
+       {"context": "ci/circleci: test", "state": "FAILURE", "targetUrl": "https://circleci.com/gh/acme/api/77"},
+       {"databaseId": 112, "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS", "detailsUrl": null, "checkSuite": {"workflowRun": {"databaseId": 900}}},
+       {"databaseId": 113, "name": "docker_build", "status": "COMPLETED", "conclusion": "SKIPPED", "detailsUrl": null, "checkSuite": {"workflowRun": {"databaseId": 901}}}
+     ]}}}}]}},
+    {"__typename": "PullRequest", "number": 7, "title": "Other work", "url": "https://github.com/acme/api/pull/7", "isDraft": true, "updatedAt": "2026-10-20T10:00:00Z",
+     "headRefName": "me/other", "baseRefName": "main", "repository": {"name": "api", "nameWithOwner": "acme/api"},
+     "author": {"__typename": "User", "login": "me", "name": "Me Too"}, "reviewDecision": null,
+     "commits": {"nodes": [{"commit": {"oid": "beef007", "committedDate": "2026-10-20T09:00:00Z", "statusCheckRollup": null}}]}}
+  ]},
+  "merged": {"nodes": [
+    {"number": 2, "url": "https://github.com/acme/api/pull/2", "headRefName": "me/eng-400-sso", "mergedAt": "2026-10-20T09:00:00Z",
+     "repository": {"name": "api", "nameWithOwner": "acme/api"}, "mergeCommit": {"oid": "abc123"}},
+    {"number": 1, "url": "https://github.com/acme/api/pull/1", "headRefName": "me/old", "mergedAt": "2026-10-10T09:00:00Z",
+     "repository": {"name": "api", "nameWithOwner": "acme/api"}, "mergeCommit": null}
+  ]}
+}}
