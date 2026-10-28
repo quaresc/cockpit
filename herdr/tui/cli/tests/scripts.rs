@@ -130,7 +130,7 @@ fn killed(what: &str) -> regex::Regex {
 #[test]
 fn update_stops_every_space_app_and_nothing_else() {
     let apps = killed("cockpit-space");
-    for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit runbook cockpit-space", "/x/herdr/tui/target/release/cockpit meetings cockpit-space", "cockpit todo cockpit-space"] {
+    for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit runbook cockpit-space", "/x/herdr/tui/target/release/cockpit meetings cockpit-space", "cockpit todo cockpit-space", "/x/herdr/bin/cockpit monitor cockpit-space"] {
         assert!(apps.is_match(line), "{line}");
     }
     for line in ["/x/herdr/bin/cockpit show demo", "/x/herdr/bin/cockpit hub", "/x/herdr/bin/cockpit actions sidebar", "/x/herdr/bin/cockpit space inbox"] {
@@ -141,7 +141,7 @@ fn update_stops_every_space_app_and_nothing_else() {
 #[test]
 fn update_stops_every_spaces_supervisor_and_nothing_else() {
     let supervisors = killed("cockpit space");
-    for line in ["/x/herdr/bin/cockpit space inbox", "/x/herdr/tui/target/release/cockpit space meetings", "cockpit space todo", "/x/cockpit space runbook"] {
+    for line in ["/x/herdr/bin/cockpit space inbox", "/x/herdr/tui/target/release/cockpit space meetings", "cockpit space todo", "/x/cockpit space runbook", "/x/herdr/bin/cockpit space monitor"] {
         assert!(supervisors.is_match(line), "{line}");
     }
     for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit space inbox extra", "/x/herdr/bin/cockpit hub", "/x/notcockpit space inbox"]

@@ -87,7 +87,7 @@ fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
 /// Whether a pinned space's app runs: the hub keeps fetching for it and keeping its binary current, requests or not.
 fn space_apps_running() -> bool {
     std::process::Command::new("pgrep")
-        .args(["-f", "cockpit (inbox|runbook|todo|meetings) cockpit-space"])
+        .args(["-f", "cockpit (inbox|runbook|todo|meetings|monitor) cockpit-space"])
         .stdout(Stdio::null())
         .status()
         .is_ok_and(|s| s.success())

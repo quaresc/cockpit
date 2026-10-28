@@ -23,7 +23,8 @@ use std::time::Duration;
 
 const USAGE: &str = "cockpit, the plugin's command.
 
-    cockpit inbox|runbook|todo|meetings        a space's app (cockpit space adds cockpit-space, which update.sh looks for)
+    cockpit inbox|runbook|todo|meetings|monitor
+                                               a space's app (cockpit space adds cockpit-space, which update.sh looks for)
     cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
     cockpit show <name>                        the view a Claude session shows beside itself
     cockpit hub                                the background process the apps share; the first app that needs it starts it
@@ -49,6 +50,7 @@ fn main() {
         "runbook" => app(cockpit_runbook::run()),
         "todo" => app(cockpit_todo::run()),
         "meetings" => app(cockpit_meetings::run()),
+        "monitor" => app(cockpit_monitor::run()),
         "show" => app(cockpit_show::run(rest.first().map_or("show", String::as_str))),
         "hub" if rest.is_empty() => cockpit_hub::run(),
         "hub" if rest == ["ping"] => std::process::exit(if ping(Duration::from_secs(2)) { 0 } else { 1 }),

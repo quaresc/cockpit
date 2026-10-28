@@ -251,7 +251,7 @@ pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let prs: Vec<Value> = list(&data["mine"]).iter().filter(|pr| config::has_ticket(pr["branch"].as_str().unwrap_or_default(), &id)).cloned().collect();
     let (_, session) = owner_of(book)?;
     let owner = (session != "-").then_some(session);
-    inbox::talk_over(ctx, &ticket, &prs, &data, owner.as_deref())
+    inbox::talk_over(ctx, &ticket, &prs, &data, owner.as_deref(), "")
 }
 
 pub fn delete(ctx: &mut Ctx, args: &[Value]) -> Res {

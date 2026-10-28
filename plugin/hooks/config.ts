@@ -17,7 +17,9 @@ export type PlatformFields = Partial<Record<
   | 'apps' | 'appId' | 'appRepo' | 'appLink' | 'appTag' | 'appSha' | 'appKind'
   | 'deployments' | 'deployWorkflow' | 'deployNamespace' | 'deployTag' | 'deployBranch'
   | 'previews' | 'previewId' | 'previewExpires' | 'previewActive' | 'previewHealth' | 'previewApps'
-  | 'appName' | 'appEnabled' | 'appBranch' | 'statusApps' | 'statusUrl' | 'createdId' | 'healthy',
+  | 'appName' | 'appEnabled' | 'appBranch' | 'statusApps' | 'statusUrl' | 'createdId' | 'healthy'
+  | 'appHealth' | 'appDeployedAt' | 'appBehind' | 'appService' | 'appDatadog'
+  | 'deployId' | 'deployActor' | 'deployPhase' | 'deployStarted' | 'deployFinished',
   string
 >> & { skipKinds?: string[] }
 
@@ -120,6 +122,14 @@ export type Config = {
   // Connectors that show panes refresh from.
   metabase: { server: string }
   datadog: { server: string }
+  // The monitor space: the environment it watches, the Datadog queries of a service ({service}, {env}), when a release
+  // counts as moved, and whose releases notify (mine, all or none).
+  monitor: {
+    env: string
+    queries: { errors: string; hits: string; p95: string }
+    moved: { errorPoints: number; p95Ratio: number; minHits: number }
+    notify: 'mine' | 'all' | 'none'
+  }
   brief: { enabled: boolean; at: string; weekends: boolean }
   notifications: boolean
   // Where an agent runs its E2E tests of a front change: terminal-browser beside it, or Claude in Chrome.
@@ -218,6 +228,16 @@ const DEFAULTS: Config = {
   calendar: GOOGLE_CALENDAR,
   metabase: { server: 'metabase' },
   datadog: { server: 'claude.ai Datadog' },
+  monitor: {
+    env: 'production',
+    queries: {
+      errors: 'sum:trace.http.server.request.errors{service:{service},env:{env}}.as_count()',
+      hits: 'sum:trace.http.server.request.hits{service:{service},env:{env}}.as_count()',
+      p95: 'p95:trace.http.server.request{service:{service},env:{env}}',
+    },
+    moved: { errorPoints: 0.5, p95Ratio: 1.5, minHits: 50 },
+    notify: 'mine',
+  },
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
   e2eBrowser: 'terminal-browser',
@@ -278,6 +298,12 @@ export async function loadConfig($: $): Promise<Config> {
     calendar: { ...DEFAULTS.calendar, ...raw.calendar },
     metabase: { ...DEFAULTS.metabase, ...raw.metabase },
     datadog: { ...DEFAULTS.datadog, ...raw.datadog },
+    monitor: {
+      ...DEFAULTS.monitor,
+      ...raw.monitor,
+      queries: { ...DEFAULTS.monitor.queries, ...raw.monitor?.queries },
+      moved: { ...DEFAULTS.monitor.moved, ...raw.monitor?.moved },
+    },
     brief: { ...DEFAULTS.brief, ...raw.brief },
     deployWatch: { ...DEFAULTS.deployWatch, ...raw.deployWatch },
     recap: { ...DEFAULTS.recap, ...raw.recap },
