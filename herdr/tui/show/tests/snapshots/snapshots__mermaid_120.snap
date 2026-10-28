@@ -5,10 +5,10 @@ expression: "screen(& mut app, width)"
  ◆  Mermaid   view · hh:mm
 
  Flowchart
- [picture row]
- [picture row]
- [picture row]
- [picture row]
+                    ▄▄▄▄▄▄▄
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▀▀▀▀▀▀▀
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▄▄▄▄▄▄▄
+                    ▀▀▀▀▀▀▀
 
  Sequence
    ┌─────────┐   ┌─────┐   ┌──────┐

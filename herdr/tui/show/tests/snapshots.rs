@@ -49,6 +49,8 @@ fn setup() {
         for warm in [true, false, true] {
             gif.encode_frame(Frame::from_parts(gradient(120, 60, warm), 0, 0, Delay::from_numer_denom_ms(150, 1))).unwrap();
         }
+        // One bundled font for every picture's text, so their pixels match on macOS and on the Linux CI.
+        assert!(cockpit_show::use_only_font(&fixtures().join("fonts/FiraCode-subset.ttf")));
         // SAFETY: set once, before any test thread reads the environment.
         unsafe {
             std::env::set_var("HOME", &home);
@@ -69,18 +71,8 @@ fn app(fixture: &str, width: u16, density: Density, test: &str) -> ShowApp {
     app
 }
 
-/// The screen with its clock masked, and each row of picture cells reduced to a marker: their pixels come from text
-/// rasterized with the machine's fonts, which differ between macOS and the Linux CI, while the rows they hold do not.
 fn screen(app: &mut ShowApp, width: u16) -> String {
-    let screen = TIME.replace_all(&cockpit_core::testing::render(app, width, 40), "hh:mm").into_owned();
-    screen
-        .lines()
-        .map(|line| {
-            let blocks = line.chars().filter(|c| matches!(c, '▀' | '▄' | '█')).count();
-            if blocks * 3 >= line.trim().chars().count().max(1) * 2 && blocks > 0 { " [picture row]".to_string() } else { line.to_string() }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    TIME.replace_all(&cockpit_core::testing::render(app, width, 40), "hh:mm").into_owned()
 }
 
 fn press(app: &mut ShowApp, keys: &[KeyCode]) {

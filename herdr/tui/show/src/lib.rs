@@ -16,6 +16,8 @@ mod patch;
 mod picture;
 mod question;
 mod raster;
+
+pub use raster::use_only_font;
 mod row;
 mod sequence;
 mod svg;
