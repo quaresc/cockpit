@@ -4,7 +4,7 @@ import type { MonitorState } from '../types'
 
 import { bins, dataOf, parseIssues, refreshMonitor, verdictOf } from '../hooks/monitor'
 
-const moved = { errorPoints: 0.5, p95Ratio: 1.5, minHits: 50 }
+const moved = { errorPoints: 0.5, p95Ratio: 1.5, p95Ms: 100, minHits: 50 }
 const at = Date.parse('2026-10-28T16:00:00Z')
 
 const ISSUES = `- issue_id: 1fcdadd8
@@ -45,6 +45,7 @@ test('error tracking issues read from their YAML list, a block message to its fi
 test('a Datadog answer is read from its JSON block or as is', async () => {
   expect(dataOf('<METADATA>x</METADATA>\n<JSON_DATA>\n[{"id": 1}]\n</JSON_DATA>')).toEqual([{ id: 1 }])
   expect(dataOf('[2]')).toEqual([2])
+  expect(dataOf('<METADATA>\n  <message>No data returned.</message>\n</METADATA>\n<JSON_DATA>\n\n</JSON_DATA>')).toEqual([])
 })
 
 test('a timeseries lands in bins: a count summed, a gauge averaged', async () => {
@@ -63,6 +64,7 @@ test('a release is watched, then ok or moved by its error rate, p95 or new error
   expect([ok.state, ok.summary]).toEqual(['ok', 'errors 0.13% → 0.13% · p95 33 → 35 ms'])
   expect(verdictOf('Succeeded', before, { errors: 31, hits: 1630, p95: 0.035 }, [], until, at, moved).state).toBe('moved')
   expect(verdictOf('Succeeded', before, { errors: 2, hits: 1500, p95: 0.161 }, [], until, at, moved).state).toBe('moved')
+  expect(verdictOf('Succeeded', { ...before, p95: 0.013 }, { errors: 2, hits: 1500, p95: 0.046 }, [], until, at, moved).state).toBe('ok')
   expect(verdictOf('Succeeded', before, { errors: 2, hits: 1500, p95: 0.035 }, ['1fcdadd8'], until, at, moved).summary).toContain('1 new error')
   expect(verdictOf('Succeeded', before, { errors: 9, hits: 10, p95: 0.5 }, [], until, at, moved).state).toBe('ok')
   expect(verdictOf('Failed', null, null, [], until, at, moved).state).toBe('failed')
