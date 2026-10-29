@@ -26,4 +26,14 @@ Sum up my open PRs: which wait for review, which fail CI, which can merge.
 - `budget`: only when I ask for one, dollars a week (`budget: 2`), as Claude estimates its runs; on a Claude plan runs draw on the plan, not dollars. Runs wait once the week's runs reach it, and a run stops at what is left.
 - `timeout` (minutes, 30 by default), `notify` (`always`, `failed` or `never`), `paused: true`.
 
-Keep the prompt short and concrete. Never give a routine tools that deploy, delete or write to a production system unless I asked for exactly that. Reply with the file's path, when it runs next in words, and the tools it may use.
+Keep the prompt short and concrete. Never give a routine tools that deploy, delete or write to a production system unless I asked for exactly that.
+
+A `lightest` routine knows nothing but its file: no CLAUDE.md, memory, skills or other servers. Before writing one, resolve everything it needs here, with the tools you have:
+- every tool it calls, by the exact name you see in your own tool list (`mcp__claude_ai_Slack__slack_send_message`, `Bash(gh pr list:*)`), all of them in `tools`;
+- every value the prompt relies on, written in literally: "me" as my user id in that tool (look it up), a channel, repo, project or team by its id or full name, never "my", "the usual" or "today's" without saying how to find it;
+- the exact call: which tool, which arguments, in which order, and what to reply.
+If a step needs judgement or tools you cannot name upfront, pick `haiku` or `sonnet` instead.
+
+Then try it: `sh ~/.config/cockpit/herdr/app.sh routine run <slug>` runs it through the hub and prints whether it worked, the tools it called and its output. Run it right away when its tools only read; when they send, post or change something, show me the exact call it makes and run it only once I agree. A lightest run that calls none of its tools fails: fix the file and try again.
+
+Reply with the file's path, when it runs next in words, the tools it may use, and how the trial went.

@@ -115,6 +115,29 @@
    "prompt": "Draft my standup.",
    "next": null,
    "notify": "always"
+  },
+  {
+   "slug": "ping-team",
+   "name": "Ping the team",
+   "path": "/home/me/.config/cockpit/routines/ping-team.md",
+   "when": "daily at 10:00",
+   "whenText": "daily 10:00",
+   "trigger": "schedule",
+   "error": null,
+   "run": "claude",
+   "cwd": "",
+   "model": "lightest",
+   "tools": [],
+   "mode": "",
+   "budget": null,
+   "timeout": 30,
+   "paused": false,
+   "prompt": "Post the standup reminder in #team.",
+   "next": 1793347200000,
+   "notify": "always",
+   "problems": [
+    "lists no tools: a lightest run loads nothing else, so it can call nothing"
+   ]
   }
  ],
  "running": {
