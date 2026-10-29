@@ -32,6 +32,9 @@ const EVENT_GAP_MS: u64 = 10 * 60_000;
 const KILL_AFTER_MS: u64 = 10_000;
 const PROMPT_SHOWN: usize = 600;
 const WEEK_MS: u64 = 7 * 86_400_000;
+/// The lightest routines' whole system prompt, in place of Claude Code's.
+const LIGHT_PROMPT: &str = "You run one unattended task for cockpit, with only the tools it names. Do what it asks, \
+                            then reply in one short line saying what you did.";
 
 /// Where routines are read, where their runs go, and what runs Claude.
 pub struct Setup {
@@ -294,7 +297,8 @@ pub fn prompt(r: &Routine, why: &str, event: &Value, now: u64) -> String {
     out
 }
 
-/// The MCP servers Claude Code connected the last time a routine ran, as its init event listed them.
+/// The MCP servers Claude Code connected in the routines' runs, as their init events listed them: the lightest runs
+/// connect only their own, so the list only grows.
 fn known_servers(setup: &Setup) -> Vec<String> {
     files::load(&setup.runs.join("mcp-servers.json")).map(|v| list(&v["servers"]).iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
@@ -302,7 +306,8 @@ fn known_servers(setup: &Setup) -> Vec<String> {
 /// The headless Claude command for a routine, `cap` the dollars it may still spend this week. A routine that lists its
 /// tools gets those built-in tools alone (and ToolSearch, which loads the MCP ones it names), and skills only when it
 /// lists Skill: each run then reads a fraction of the tool and skill definitions. The lightest one runs haiku at low
-/// effort with every other MCP server of `servers` denied, so it reads their tools' names no more.
+/// effort, on a one-line system prompt, with every other MCP server of `servers` denied, so neither their tools nor
+/// their instructions are read.
 pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap: Option<f64>, servers: &[String]) -> Vec<String> {
     let mut argv: Vec<String> =
         vec![claude.into(), "-p".into(), prompt, "--output-format".into(), "stream-json".into(), "--verbose".into(), "--session-id".into(), session.into()];
@@ -335,14 +340,19 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap
             argv.extend(r.tools.iter().cloned());
         }
     }
-    let unused: Vec<String> = servers
-        .iter()
-        .map(|s| crate::config::tool_prefix(s))
-        .filter(|prefix| !r.tools.iter().any(|t| t == prefix || t.starts_with(&format!("{prefix}__"))))
-        .collect();
-    if r.is_lightest() && !unused.is_empty() {
-        argv.push("--disallowedTools".into());
-        argv.extend(unused);
+    if r.is_lightest() {
+        let unused: Vec<Value> = servers
+            .iter()
+            .filter(|s| {
+                let prefix = crate::config::tool_prefix(s);
+                !r.tools.iter().any(|t| *t == prefix || t.starts_with(&format!("{prefix}__")))
+            })
+            .map(|s| json!({"serverName": s}))
+            .collect();
+        if !unused.is_empty() {
+            argv.extend(["--settings".into(), json!({"deniedMcpServers": unused}).to_string()]);
+        }
+        argv.extend(["--system-prompt".into(), LIGHT_PROMPT.into()]);
     }
     argv
 }
@@ -458,7 +468,9 @@ fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, kind: Run, n
     if let Some(init) = events.iter().find(|e| e["type"] == "system" && e["subtype"] == "init") {
         let servers: Vec<&Value> = list(&init["mcp_servers"]).iter().map(|s| &s["name"]).filter(|n| n.is_string()).collect();
         if !servers.is_empty() {
-            let _ = files::write(&setup.runs.join("mcp-servers.json"), &json!({"servers": servers, "at": now}));
+            let mut known = known_servers(setup);
+            known.extend(servers.iter().filter_map(|s| s.as_str()).map(str::to_string).filter(|s| !known.contains(s)).collect::<Vec<_>>());
+            let _ = files::write(&setup.runs.join("mcp-servers.json"), &json!({"servers": known, "at": now}));
         }
     }
     let shown = match &answer {
@@ -767,7 +779,10 @@ mod tests {
         let tail: Vec<&str> = argv[10..].iter().map(String::as_str).collect();
         assert_eq!(
             tail,
-            ["--model", "haiku", "--effort", "low", "--disable-slash-commands", "--tools", "ToolSearch", "--allowedTools", "mcp__x__y", "--disallowedTools", "mcp__claude_ai_Datadog_2"]
+            [
+                "--model", "haiku", "--effort", "low", "--disable-slash-commands", "--tools", "ToolSearch", "--allowedTools", "mcp__x__y", "--settings",
+                r#"{"deniedMcpServers":[{"serverName":"claude.ai Datadog (2)"}]}"#, "--system-prompt", LIGHT_PROMPT
+            ]
         );
         let p = prompt(&r, "🔴 CI failed: api main", &json!({"title": "🔴 CI failed: api main", "key": "u1"}), ms("2026-10-29 09:00"));
         assert!(p.starts_with("Go.\n\n---\ncockpit runs this as the routine \"S\" (by hand): 🔴 CI failed: api main, at 2026-10-29 09:00."), "{p}");
@@ -830,12 +845,14 @@ mod tests {
         w.round(1_000);
         run_now(&mut w.store, &w.setup, "dm", 2_000, &mut |_, _, _, _| {});
         w.settle(3_000);
-        assert!(!std::fs::read_to_string(w._dir.path().join("argv")).unwrap().contains("--disallowedTools"), "nothing known to deny yet");
+        assert!(!std::fs::read_to_string(w._dir.path().join("argv")).unwrap().contains("deniedMcpServers"), "nothing known to deny yet");
         assert_eq!(known_servers(&w.setup), ["claude.ai Slack", "claude.ai Datadog (2)", "backstage"]);
+        std::fs::write(w.setup.runs.join("mcp-servers.json"), r#"{"servers": ["cockpit"]}"#).unwrap();
         run_now(&mut w.store, &w.setup, "dm", 4_000, &mut |_, _, _, _| {});
         w.settle(5_000);
         let argv = std::fs::read_to_string(w._dir.path().join("argv")).unwrap();
-        assert!(argv.ends_with("--disallowedTools\nmcp__claude_ai_Datadog_2\nmcp__backstage\n"), "{argv}");
+        assert!(argv.contains(r#"{"deniedMcpServers":[{"serverName":"cockpit"}]}"#), "{argv}");
+        assert_eq!(known_servers(&w.setup), ["cockpit", "claude.ai Slack", "claude.ai Datadog (2)", "backstage"], "the list only grows");
     }
 
     #[test]

@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.24.0 (2026-10-29)
+
+- `model: lightest` routines run on a one-line system prompt instead of Claude Code's, and the MCP servers they do not
+  call are not connected at all (`deniedMcpServers`), so neither their tools nor their instructions are read: a
+  routine calling one MCP tool reads 8 to 14k tokens instead of about 33k.
+- The servers the lightest routines leave out are learnt from every run and never forgotten by one that connected
+  fewer.
+
 ## 0.23.1 (2026-10-29)
 
 - Routines show what their latest run cost, not the average of all their runs, which a change of model or setup made
