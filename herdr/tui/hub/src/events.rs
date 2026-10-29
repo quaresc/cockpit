@@ -1,5 +1,6 @@
 //! What happened, read from two versions of a shared document: a review requested, CI turning, a ticket moving on, a
-//! release judged. The store keeps a week of them; the palette searches them and the apps mark the rows they touch.
+//! release judged, a routine run. The store keeps a week of them; the palette searches them, the apps mark the rows they
+//! touch and routines run on them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -11,9 +12,10 @@ fn s<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or_default()
 }
 
-/// One event: the app and row it belongs to (the row's key there), and its line.
-fn event(app: &str, key: &str, title: String) -> Value {
-    json!({"app": app, "key": key, "title": title})
+/// One event: the app and row it belongs to (the row's key there), what kind it is (routines listen by kind), and its
+/// line.
+fn event(app: &str, kind: &str, key: &str, title: String) -> Value {
+    json!({"app": app, "kind": kind, "key": key, "title": title})
 }
 
 /// An id as the apps write it in a row key: a string as is, a number in digits.
@@ -35,6 +37,7 @@ pub fn of(doc: &str, before: &Value, after: &Value, inbox_doc: &Value) -> Vec<Va
         "inbox" => inbox(before, after),
         "ci" => ci(before, after, inbox_doc),
         "monitor" => monitor(before, after),
+        "routines" => routines(before, after),
         _ => Vec::new(),
     }
 }
@@ -53,50 +56,50 @@ fn ci_state(pr: &Value) -> &str {
 
 fn inbox(before: &Value, after: &Value) -> Vec<Value> {
     let mut out = Vec::new();
-    for (field, what) in [("direct", "👀 Review requested"), ("team", "👥 Team review")] {
+    for (field, kind, what) in [("direct", "review_requested", "👀 Review requested"), ("team", "team_review", "👥 Team review")] {
         let known = by(list(&before[field]), "url");
         for pr in list(&after[field]).iter().filter(|p| !known.contains_key(s(p, "url"))) {
-            out.push(event("inbox", s(pr, "url"), format!("{what}: {} {}", pr_name(pr), s(pr, "title"))));
+            out.push(event("inbox", kind, s(pr, "url"), format!("{what}: {} {}", pr_name(pr), s(pr, "title"))));
         }
     }
     let was_mine = by(list(&before["mine"]), "url");
     for pr in list(&after["mine"]) {
         let (url, name) = (s(pr, "url"), pr_name(pr));
         let Some(was) = was_mine.get(url) else {
-            out.push(event("inbox", url, format!("📝 Opened: {name} {}", s(pr, "title"))));
+            out.push(event("inbox", "pr_opened", url, format!("📝 Opened: {name} {}", s(pr, "title"))));
             continue;
         };
         match (ci_state(was), ci_state(pr)) {
-            (a, "failing") if a != "failing" => out.push(event("inbox", url, format!("🔴 CI failing: {name}"))),
-            ("failing", "passing") => out.push(event("inbox", url, format!("🟢 CI passing again: {name}"))),
+            (a, "failing") if a != "failing" => out.push(event("inbox", "ci_failing", url, format!("🔴 CI failing: {name}"))),
+            ("failing", "passing") => out.push(event("inbox", "ci_passing", url, format!("🟢 CI passing again: {name}"))),
             _ => {}
         }
         if pr["review"] != was["review"] {
             match s(pr, "review") {
-                "APPROVED" => out.push(event("inbox", url, format!("✅ Approved: {name}"))),
-                "CHANGES_REQUESTED" => out.push(event("inbox", url, format!("❌ Changes requested: {name}"))),
+                "APPROVED" => out.push(event("inbox", "approved", url, format!("✅ Approved: {name}"))),
+                "CHANGES_REQUESTED" => out.push(event("inbox", "changes_requested", url, format!("❌ Changes requested: {name}"))),
                 _ => {}
             }
         }
     }
     let merged_before: HashSet<&str> = list(&before["merged"]).iter().map(|p| s(p, "url")).collect();
     for pr in list(&after["merged"]).iter().filter(|p| !merged_before.contains(s(p, "url"))) {
-        out.push(event("inbox", s(pr, "url"), format!("🟣 Merged: {}", pr_name(pr))));
+        out.push(event("inbox", "merged", s(pr, "url"), format!("🟣 Merged: {}", pr_name(pr))));
     }
     let tickets_before = by(list(&before["tickets"]), "id");
     let tickets_after = by(list(&after["tickets"]), "id");
     for ticket in list(&after["tickets"]) {
         let id = s(ticket, "id");
         match tickets_before.get(id) {
-            None if !tickets_before.is_empty() => out.push(event("inbox", id, format!("🎫 Assigned: {id} {}", s(ticket, "title")))),
+            None if !tickets_before.is_empty() => out.push(event("inbox", "ticket_assigned", id, format!("🎫 Assigned: {id} {}", s(ticket, "title")))),
             Some(was) if was["status"] != ticket["status"] => {
-                out.push(event("inbox", id, format!("🎫 {id}: {} → {}", s(was, "status"), s(ticket, "status"))));
+                out.push(event("inbox", "ticket_moved", id, format!("🎫 {id}: {} → {}", s(was, "status"), s(ticket, "status"))));
             }
             _ => {}
         }
     }
     for ticket in list(&before["tickets"]).iter().filter(|t| !tickets_after.contains_key(s(t, "id"))) {
-        out.push(event("inbox", s(ticket, "id"), format!("🎫 {} left the inbox ({})", s(ticket, "id"), s(ticket, "title"))));
+        out.push(event("inbox", "ticket_left", s(ticket, "id"), format!("🎫 {} left the inbox ({})", s(ticket, "id"), s(ticket, "title"))));
     }
     if let Some(deploys) = after["deploys"].as_object() {
         for (id, prs) in deploys {
@@ -104,7 +107,7 @@ fn inbox(before: &Value, after: &Value) -> Vec<Value> {
             for pr in list(prs).iter().filter(|p| p["isLive"] == true) {
                 let was_live = list(was).iter().any(|w| w["repo"] == pr["repo"] && w["number"] == pr["number"] && w["isLive"] == true);
                 if !was_live {
-                    out.push(event("inbox", id, format!("🚀 Live: {id} {}#{} in {}", s(pr, "repo"), pr["number"], s(pr, "tag"))));
+                    out.push(event("inbox", "live", id, format!("🚀 Live: {id} {}#{} in {}", s(pr, "repo"), pr["number"], s(pr, "tag"))));
                 }
             }
         }
@@ -120,10 +123,10 @@ fn ci(before: &Value, after: &Value, inbox: &Value) -> Vec<Value> {
         let pr = list(&inbox["mine"]).iter().find(|p| p["repo"] == run["repo"] && p["branch"] == run["branch"]);
         let key = pr.map(|p| s(p, "url").to_string()).unwrap_or_else(|| format!("{}/{}", s(run, "repo"), s(run, "branch")));
         match (ended, s(run, "outcome")) {
-            (true, "succeeded") => out.push(event("inbox", &key, format!("🟢 CI passed: {} {}", s(run, "repo"), s(run, "branch")))),
+            (true, "succeeded") => out.push(event("inbox", "ci_passed", &key, format!("🟢 CI passed: {} {}", s(run, "repo"), s(run, "branch")))),
             (true, "failed") => {
                 let job = run["failed"]["job"].as_str().map(|j| format!(" · {j}")).unwrap_or_default();
-                out.push(event("inbox", &key, format!("🔴 CI failed: {} {}{job}", s(run, "repo"), s(run, "branch"))));
+                out.push(event("inbox", "ci_failed", &key, format!("🔴 CI failed: {} {}{job}", s(run, "repo"), s(run, "branch"))));
             }
             _ => {}
         }
@@ -144,26 +147,45 @@ fn monitor(before: &Value, after: &Value) -> Vec<Value> {
             let tag = s(release, "tag");
             let state = s(&release["verdict"], "state");
             match releases_before.get(&rid) {
-                None => out.push(event("monitor", &key, format!("📦 {name} {tag} released by {}", s(release, "actor")))),
+                None => out.push(event("monitor", "released", &key, format!("📦 {name} {tag} released by {}", s(release, "actor")))),
                 Some(was) if s(&was["verdict"], "state") != state => {
-                    let line = match state {
-                        "ok" => format!("✅ {name} {tag} looks fine"),
-                        "moved" => format!("⚠️ {name} {tag} moved: {}", s(&release["verdict"], "summary")),
-                        "failed" => format!("❌ {name} {tag} failed to deploy"),
+                    let (kind, line) = match state {
+                        "ok" => ("release_ok", format!("✅ {name} {tag} looks fine")),
+                        "moved" => ("release_moved", format!("⚠️ {name} {tag} moved: {}", s(&release["verdict"], "summary"))),
+                        "failed" => ("release_failed", format!("❌ {name} {tag} failed to deploy")),
                         _ => continue,
                     };
-                    out.push(event("monitor", &key, line));
+                    out.push(event("monitor", kind, &key, line));
                 }
                 _ => {}
             }
         }
         let alerting_before: HashSet<String> = list(&was["monitors"]["alerting"]).iter().map(|m| m["id"].to_string()).collect();
         for m in list(&app["monitors"]["alerting"]).iter().filter(|m| !alerting_before.contains(&m["id"].to_string())) {
-            out.push(event("monitor", id, format!("🔔 {} {}", s(m, "name"), s(m, "status").to_lowercase())));
+            out.push(event("monitor", "alert", id, format!("🔔 {} {}", s(m, "name"), s(m, "status").to_lowercase())));
         }
         let issues_before: HashSet<&str> = list(&was["issues"]).iter().map(|i| s(i, "id")).collect();
         for issue in list(&app["issues"]).iter().filter(|i| i["isNew"] == true && !issues_before.contains(s(i, "id"))) {
-            out.push(event("monitor", id, format!("🐞 New error in {name}: {} {}", s(issue, "type"), s(issue, "message"))));
+            out.push(event("monitor", "new_error", id, format!("🐞 New error in {name}: {} {}", s(issue, "type"), s(issue, "message"))));
+        }
+    }
+    out
+}
+
+/// Each run that ended, by its routine's name.
+fn routines(before: &Value, after: &Value) -> Vec<Value> {
+    let mut out = Vec::new();
+    for (slug, runs) in after["runs"].as_object().into_iter().flatten() {
+        let known: HashSet<&str> = list(&before["runs"][slug]).iter().map(|r| s(r, "id")).collect();
+        let name = list(&after["routines"]).iter().find(|r| s(r, "slug") == slug).map_or(slug.as_str(), |r| s(r, "name"));
+        for run in list(runs).iter().rev().filter(|r| !known.contains(s(r, "id"))) {
+            let summary = s(run, "summary");
+            let (kind, line) = match run["ok"].as_bool() {
+                Some(true) => ("routine_ok", format!("✅ {name}: {summary}")),
+                _ if run["stopped"] == true => ("routine_failed", format!("⏹ {name} stopped")),
+                _ => ("routine_failed", format!("❌ {name} failed: {summary}")),
+            };
+            out.push(event("routines", kind, slug, line.trim_end_matches([':', ' ']).to_string()));
         }
     }
     out
@@ -229,6 +251,17 @@ mod tests {
             ]
         );
         assert_eq!(events[1]["key"], "api-production/release/1");
+    }
+
+    #[test]
+    fn a_routine_run_that_ends_says_how() {
+        let before = json!({"version": 1, "routines": [{"slug": "sweep", "name": "Morning sweep"}], "runs": {"sweep": [{"id": "1", "ok": true}]}});
+        let after = json!({"version": 1, "routines": [{"slug": "sweep", "name": "Morning sweep"}], "runs": {
+            "sweep": [{"id": "3", "ok": false, "summary": "exit 2"}, {"id": "2", "ok": true, "summary": "3 PRs waiting"}, {"id": "1", "ok": true}],
+            "gone": [{"id": "9", "ok": false, "stopped": true}]}});
+        let events = of("routines", &before, &after, &Value::Null);
+        assert_eq!(titles(&events), ["⏹ gone stopped", "✅ Morning sweep: 3 PRs waiting", "❌ Morning sweep failed: exit 2"]);
+        assert_eq!((&events[1]["app"], &events[1]["kind"], &events[1]["key"]), (&json!("routines"), &json!("routine_ok"), &json!("sweep")));
     }
 
     #[test]

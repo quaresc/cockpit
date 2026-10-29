@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::proc::fail;
 
-const USAGE: &str = "The documents the hub keeps (inbox, ci, meetings, brief, monitor) and its leases.
+const USAGE: &str = "The documents the hub keeps (inbox, ci, meetings, brief, monitor, routines) and its leases.
 
     cockpit store get <doc>                       the document as JSON, null before anyone wrote it
     cockpit store put <doc> <file>                the JSON in the file becomes the document; the file goes, the document is printed

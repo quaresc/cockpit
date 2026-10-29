@@ -1,0 +1,177 @@
+{
+ "version": 1,
+ "at": 1793264380000,
+ "cursor": 1793264380000,
+ "routines": [
+  {
+   "slug": "morning-sweep",
+   "name": "Morning sweep",
+   "path": "/home/me/.config/cockpit/routines/morning-sweep.md",
+   "when": "weekdays at 09:00",
+   "whenText": "weekdays 09:00",
+   "trigger": "schedule",
+   "error": null,
+   "run": "claude",
+   "cwd": "",
+   "model": "sonnet",
+   "tools": [
+    "Read",
+    "Bash(gh pr list:*)"
+   ],
+   "mode": "",
+   "budget": 0.5,
+   "timeout": 30,
+   "paused": false,
+   "prompt": "Sum up my open PRs: which wait for review, which fail CI, which can merge.",
+   "next": 1793347200000,
+   "notify": "always"
+  },
+  {
+   "slug": "fix-ci",
+   "name": "Fix CI on sourcing",
+   "path": "/home/me/.config/cockpit/routines/fix-ci.md",
+   "when": "on CI failing · sourcing",
+   "whenText": "on ci-failed sourcing",
+   "trigger": "event",
+   "error": null,
+   "run": "claude",
+   "cwd": "/home/me/repos/sourcing",
+   "model": "",
+   "tools": [
+    "Read",
+    "Grep",
+    "Bash(mix test:*)"
+   ],
+   "mode": "acceptEdits",
+   "budget": null,
+   "timeout": 30,
+   "paused": false,
+   "prompt": "Find why CI failed on this branch and push a fix if it is a lint or format issue.",
+   "next": null,
+   "notify": "failed"
+  },
+  {
+   "slug": "notes-pull",
+   "name": "Pull my notes",
+   "path": "/home/me/.config/cockpit/routines/notes-pull.md",
+   "when": "every 30 min",
+   "whenText": "every 30m",
+   "trigger": "every",
+   "error": null,
+   "run": "shell",
+   "cwd": "/home/me/notes",
+   "model": "",
+   "tools": [],
+   "mode": "",
+   "budget": null,
+   "timeout": 30,
+   "paused": false,
+   "prompt": "git pull --rebase --autostash",
+   "next": 1793266160000,
+   "notify": "failed"
+  },
+  {
+   "slug": "weekly-digest",
+   "name": "Weekly digest",
+   "path": "/home/me/.config/cockpit/routines/weekly-digest.md",
+   "when": "Fri at 16:00",
+   "whenText": "fri 16:00",
+   "trigger": "schedule",
+   "error": null,
+   "run": "claude",
+   "cwd": "",
+   "model": "opus",
+   "tools": [],
+   "mode": "",
+   "budget": null,
+   "timeout": 30,
+   "paused": true,
+   "prompt": "Write my week's digest from my merged PRs and tickets.",
+   "next": null,
+   "notify": "always"
+  },
+  {
+   "slug": "standup",
+   "name": "Standup notes",
+   "path": "/home/me/.config/cockpit/routines/standup.md",
+   "when": "when? manual, every 30m, daily 09:00",
+   "whenText": "every morning",
+   "trigger": "broken",
+   "error": "when? manual, every 30m, daily 09:00, weekdays 09:00, mon,thu 14:00, cron 0 9 * * 1-5 or on ci-failed",
+   "run": "claude",
+   "cwd": "",
+   "model": "",
+   "tools": [],
+   "mode": "",
+   "budget": null,
+   "timeout": 30,
+   "paused": false,
+   "prompt": "Draft my standup.",
+   "next": null,
+   "notify": "always"
+  }
+ ],
+ "running": {
+  "notes-pull": {
+   "id": "1793264360000",
+   "pid": 4242,
+   "started": 1793264360000,
+   "why": "every 30 min",
+   "session": "",
+   "timeout": 30
+  }
+ },
+ "queued": [],
+ "runs": {
+  "morning-sweep": [
+   {
+    "id": "1793260800000",
+    "started": 1793260800000,
+    "ended": 1793260872000,
+    "ok": true,
+    "code": 0,
+    "why": "scheduled for 09:00",
+    "session": "0b7c1e9a-2f4d-4c55-9b1e-6d0f3a8e2c41",
+    "cost": 0.18,
+    "summary": "3 PRs wait for review, CI green on all of them"
+   },
+   {
+    "id": "1793174400000",
+    "started": 1793174400000,
+    "ended": 1793174458000,
+    "ok": true,
+    "code": 0,
+    "why": "scheduled for 09:00",
+    "session": "5d2a7f10-8c3b-4e6d-a1f9-2b4c6d8e0f13",
+    "cost": 0.15,
+    "summary": "2 PRs wait for review, api#41 fails lint"
+   }
+  ],
+  "fix-ci": [
+   {
+    "id": "1793257920000",
+    "started": 1793257920000,
+    "ended": 1793258200000,
+    "ok": false,
+    "code": 1,
+    "why": "🔴 CI failed: sourcing cq/sou-2909-quotas · test",
+    "session": "9e8d7c6b-5a4f-4321-8fed-cba987654321",
+    "cost": 0.41,
+    "summary": "The failure is a flaky OpenSearch test, not lint: left it alone"
+   }
+  ],
+  "notes-pull": [
+   {
+    "id": "1793262560000",
+    "started": 1793262560000,
+    "ended": 1793262562000,
+    "ok": true,
+    "code": 0,
+    "why": "every 30 min",
+    "session": "",
+    "summary": "Already up to date."
+   }
+  ]
+ },
+ "marks": {}
+}

@@ -24,20 +24,21 @@ use std::time::Duration;
 
 const USAGE: &str = "cockpit, the plugin's command.
 
-    cockpit inbox|runbook|todo|meetings|monitor
+    cockpit inbox|runbook|todo|meetings|monitor|routines
                                                a space's app (cockpit space adds cockpit-space, which update.sh looks for)
     cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
     cockpit show <name>                        the view a Claude session shows beside itself
     cockpit palette                            the launcher herdr opens as a popup (prefix+space); PALETTE_PANE is the pane below
     cockpit search <query>                     what the palette finds, as the hub's JSON: items, the week's events, past sessions
-    cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor]
+    cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor|routines]
                                                what changed in the shared data, newest first, as the hub's JSON (a day by default)
     cockpit hub                                the background process the apps share; the first app that needs it starts it
     cockpit hub ping                           exits 0 when the hub answers within 2 seconds
     cockpit update-apps [herdr folder]         installs the release's binary for the plugin's version
     cockpit actions tab <cwd> <label> [key]   a tab in the actions space, its pane id printed
     cockpit actions sidebar                    the actions space's sessions listed under its sidebar row
-    cockpit act <review|ci|rerun|plan> <ref>   what a notification's button does
+    cockpit act <review|ci|rerun|plan|routine> <ref>
+                                               what a notification's button does
     cockpit notify <title> <body> [action] [<label>=<action> ...]
                                                a system notification; a click or a button does its action
     cockpit focus <target>                     what a notification's click does (cockpit focus for more)
@@ -56,6 +57,7 @@ fn main() {
         "todo" => app(cockpit_todo::run()),
         "meetings" => app(cockpit_meetings::run()),
         "monitor" => app(cockpit_monitor::run()),
+        "routines" => app(cockpit_routines::run()),
         "show" => app(cockpit_show::run(rest.first().map_or("show", String::as_str))),
         "palette" => app(cockpit_palette::run()),
         "search" => find::search(rest),

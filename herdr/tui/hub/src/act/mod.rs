@@ -5,6 +5,7 @@ mod book;
 mod inbox;
 mod meetings;
 mod monitor;
+mod routines;
 mod runbook;
 mod show;
 mod space;
@@ -95,6 +96,15 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("monitor", "pin") => monitor::pin,
         ("monitor", "request_refresh") => monitor::request_refresh,
         ("monitor", "open_url") => monitor::open_url,
+        ("routines", "add") => routines::add,
+        ("routines", "run") => routines::run,
+        ("routines", "stop") => routines::stop,
+        ("routines", "pause") => routines::pause,
+        ("routines", "delete") => routines::delete,
+        ("routines", "edit") => routines::edit,
+        ("routines", "output") => routines::output,
+        ("routines", "talk") => routines::talk,
+        ("routines", "request_refresh") => routines::request_refresh,
         _ => return None,
     };
     Some(found)

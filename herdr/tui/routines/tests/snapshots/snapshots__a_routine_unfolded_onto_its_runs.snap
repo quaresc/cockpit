@@ -1,0 +1,34 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app, 110, 30)"
+---
+   Routines   5 routines · 1 running · 3 runs today · $0.74 this week
+
+ ▶ ⣾ Pull my notes       every 30 min              running 40 s            next in 30 min
+ ▶  Fix CI on sourcing  on CI failing · sourcing  failed 1 h ago          on its event    The failure is a …
+    Standup notes       when?                     never ran
+ ▼  Morning sweep       weekdays at 09:00         ran 1 h ago             next Fri 09:00  3 PRs wait for re…
+   ├  09:00       1 min   $0.18  3 PRs wait for review, CI green on all of them · scheduled for 09:00
+   └  Wed 09:00   58 s    $0.15  2 PRs wait for review, api#41 fails lint · scheduled for 09:00
+    Weekly digest       Fri at 16:00              never ran               paused
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ran 25 h ago · took 58 s · $0.15 · scheduled for 09:00
+ 2 PRs wait for review, api#41 fails lint
+
+   open  o     talk  t     run  r
+ enter main  a add  space runs  R refresh  q quit                                                 ▏^p palette

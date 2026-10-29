@@ -1,0 +1,12 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app, 90, 8)"
+---
+   Routines   waiting for the hub
+
+ No routine yet. a adds one; the hub runs them on their schedule or when something
+ happens.
+
+
+
+ enter main  a add  space runs  R refresh  q quit                             ▏^p palette

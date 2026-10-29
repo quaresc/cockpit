@@ -16,6 +16,7 @@ cockpit-inbox = { path = "../inbox" }
 cockpit-meetings = { path = "../meetings" }
 cockpit-monitor = { path = "../monitor" }
 cockpit-palette = { path = "../palette" }
+cockpit-routines = { path = "../routines" }
 cockpit-runbook = { path = "../runbook" }
 cockpit-show = { path = "../show" }
 cockpit-todo = { path = "../todo" }

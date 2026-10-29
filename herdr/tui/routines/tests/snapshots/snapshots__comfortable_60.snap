@@ -1,0 +1,34 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app(Density::Comfortable), 60, 30)"
+---
+   Routines   5 routines · 1 running · 3 runs today
+
+ ▶ ⣾ Pull my notes       every 30 min
+ ▶  Fix CI on sourcing  on CI failing · sourcing
+    Standup notes       when?
+ ▶  Morning sweep       weekdays at 09:00
+    Weekly digest       Fri at 16:00
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────
+ Pull my notes  ·  every 30 min  ·  next in 30 min
+ shell · in /home/me/notes · notifies on failure
+ git pull --rebase --autostash
+ running for 40 s · every 30 min
+
+   stop  s     edit  e     open  o     pause  p
+ enter main  a add  space runs  R refresh       ▏^p palette

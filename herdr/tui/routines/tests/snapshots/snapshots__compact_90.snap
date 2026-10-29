@@ -1,0 +1,20 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app(Density::Compact), 90, 16)"
+---
+   Routines   5 routines · 1 running · 3 runs today · $0.74 this week
+
+ ▶ ⣾ Pull my notes       every 30 min                   stop  s     edit  e     open  o
+ ▶  Fix CI on sourcing  on CI failing · sourcing  failed 1 h ago          The failure i…
+    Standup notes       when?                     never ran
+ ▶  Morning sweep       weekdays at 09:00         ran 1 h ago             3 PRs wait fo…
+    Weekly digest       Fri at 16:00              never ran
+
+
+
+
+
+
+
+
+ enter main  a add  space runs  R refresh  q quit                             ▏^p palette

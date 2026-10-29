@@ -9,9 +9,9 @@ root=$(jq -r '.[] | select(.plugin_id == "cockpit") | .plugin_root' "$HOME/.conf
 
 # The spaces' supervisors and their apps stop, then ensure-spaces (from the new folder) moves the link, prunes old folders
 # and starts them again.
-pkill -f "(^|/)cockpit space (inbox|todo|runbook|meetings|monitor)$"
+pkill -f "(^|/)cockpit space (inbox|todo|runbook|meetings|monitor|routines)$"
 # The apps go too, and the hub, detached from them, which serves the old folder: the first app that needs it starts it again.
-pkill -f "cockpit (inbox|todo|runbook|meetings|monitor) cockpit-space"
+pkill -f "cockpit (inbox|todo|runbook|meetings|monitor|routines) cockpit-space"
 pkill -f "(^|/)cockpit hub$"
 sleep 1
 sh "$root/ensure-spaces.sh"

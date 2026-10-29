@@ -1,0 +1,11 @@
+3 PRs wait for review, CI green on all of them
+
+## Waiting for review
+- api#44 Quotas per seat · 2 days, no reviewer yet
+- web#212 Dark mode toggle · Jonas asked for changes yesterday, answered
+- sourcing#88 Daily quotas · approved by Sam, needs a second review
+
+## Can merge
+- api#41 Lint fixes · approved, CI green
+
+Nothing fails CI this morning.

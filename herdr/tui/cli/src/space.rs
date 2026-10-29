@@ -14,9 +14,9 @@ use cockpit_core::files;
 
 const USAGE: &str = "Keeps a space's app running in its pane; ctrl+c twice in a row leaves it.
 
-    cockpit space inbox|todo|runbook|meetings|monitor";
+    cockpit space inbox|todo|runbook|meetings|monitor|routines";
 
-const APPS: [&str; 5] = ["inbox", "todo", "runbook", "meetings", "monitor"];
+const APPS: [&str; 6] = ["inbox", "todo", "runbook", "meetings", "monitor", "routines"];
 /// A run at least this long resets the wait before the next one.
 const LONG_RUN: Duration = Duration::from_secs(60);
 const FIRST_WAIT: Duration = Duration::from_secs(1);

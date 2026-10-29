@@ -166,7 +166,7 @@ impl Doctor {
             ok(&format!("cockpit binary in {} ({})", dir.display(), runs.strip_prefix("cockpit ").unwrap_or(&runs)));
         }
         // A hub left with a dead socket keeps every action and search waiting.
-        if self.running("cockpit (inbox|todo|runbook|meetings|monitor) cockpit-space") {
+        if self.running("cockpit (inbox|todo|runbook|meetings|monitor|routines) cockpit-space") {
             if !self.running("(^|/)cockpit hub$") {
                 ok("hub not started yet: the apps start it at their first action or search");
             } else if self.succeeds(&[&binary.to_string_lossy(), "hub", "ping"]) {
@@ -357,7 +357,7 @@ impl Doctor {
                     "space {space} is hidden in the sidebar → add {{ contains = \"  \" }} before the hiding rule of ui.sidebar.spaces in ~/.config/herdr/config.toml"
                 ));
             }
-            if !["inbox", "to-do", "runbook", "meetings", "monitor"].contains(&space.as_str()) {
+            if !["inbox", "to-do", "runbook", "meetings", "monitor", "routines"].contains(&space.as_str()) {
                 ok(&format!("space {space}"));
                 continue;
             }

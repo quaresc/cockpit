@@ -8,7 +8,7 @@ python3 -m venv .venv && .venv/bin/pip install pyte fonttools pillow
 (cd ../../herdr/tui && cargo build --release)  # the cockpit binary whose apps the screenshots run
 python3 demo_data.py home          # a fake HOME with caches, to-dos, runbooks, releases and past sessions; run it again before each script
 .venv/bin/python history.py        # the hub's history from an earlier inbox and monitor, and "last looked" before it
-.venv/bin/python apps_anim.py      # inbox, to-do, meetings and monitor: the cursor stepping, the rows marked as changed
+.venv/bin/python apps_anim.py      # inbox, to-do, meetings, monitor and routines: the cursor stepping, the rows marked as changed
 .venv/bin/python palette_anim.py   # the palette popup over a Claude session: a ticket and its history, a past session
 .venv/bin/python runbook_anim.py   # a refresh landing in the runbook
 .venv/bin/python show_anim.py      # show: charts beside the conversation, laid over as the images it saves

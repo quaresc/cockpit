@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::proc::fail;
 
 const SEARCH: &str = "cockpit search <query>: what the palette finds (PRs, tickets, runbooks, views, to-dos, meetings, releases, the week's events, past sessions)";
-const EVENTS: &str = "cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor]: what changed in the shared data, newest first";
+const EVENTS: &str = "cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor|routines]: what changed in the shared data, newest first";
 
 fn ask(what: &str, request: Value, timeout: Duration) -> Value {
     cockpit_core::hub::request(&request, timeout).unwrap_or_else(|error| fail(&format!("cockpit {what}: {error}")))
@@ -44,7 +44,7 @@ pub fn events_args(args: &[String], now_ms: u64) -> Option<(u64, String)> {
         let value = args.next()?;
         match flag.as_str() {
             "--since" => since = since_ms(value, now_ms)?,
-            "--app" if ["inbox", "monitor"].contains(&value.as_str()) => app = value.clone(),
+            "--app" if ["inbox", "monitor", "routines"].contains(&value.as_str()) => app = value.clone(),
             _ => return None,
         }
     }

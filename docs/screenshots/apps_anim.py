@@ -19,6 +19,8 @@ SHOTS = {
     "meetings": (96, 18, ["j", "j", "j", "j"], 0.9),
     # The monitor: down to the release that moved, then every release as one timeline and back.
     "monitor": (120, 30, ["j", "j", "j", "j", "j", "w", "w"], 1.1),
+    # The routines: down to the morning sweep and its last output, its runs unfolded, then the form adding one.
+    "routines": (112, 24, ["j", "j", " ", "j", "j", "k", "k", "a", "\t", "\x15", *"fri 16:00", "\t", *"Sum up my reviews", "\x1b"], 0.6),
 }
 
 

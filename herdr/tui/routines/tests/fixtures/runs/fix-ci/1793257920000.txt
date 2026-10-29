@@ -1,0 +1,4 @@
+The failure is a flaky OpenSearch test, not lint: left it alone
+
+`test/search/index_test.exs:42` timed out waiting for the index refresh; it passed on rerun locally.
+No change pushed.

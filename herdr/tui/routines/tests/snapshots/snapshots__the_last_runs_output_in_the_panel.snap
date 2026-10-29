@@ -1,0 +1,38 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app, 100, 34)"
+---
+   Routines   5 routines · 1 running · 3 runs today · $0.74 this week
+
+ ▶ ⣾ Pull my notes       every 30 min              running 40 s            next in 30 min
+ ▶  Fix CI on sourcing  on CI failing · sourcing  failed 1 h ago          on its event
+    Standup notes       when?                     never ran
+ ▶  Morning sweep       weekdays at 09:00         ran 1 h ago             next Fri 09:00
+    Weekly digest       Fri at 16:00              never ran               paused
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Morning sweep  ·  weekdays at 09:00  ·  next Fri 09:00
+ Claude · sonnet · in the repos folder · Read, Bash(gh pr list:*) · ≤ $0.50
+ Sum up my open PRs: which wait for review, which fail CI, which can merge.
+ ran 1 h ago · took 1 min · $0.18 · scheduled for 09:00
+ 3 PRs wait for review, CI green on all of them
+ ## Waiting for review
+ - api#44 Quotas per seat · 2 days, no reviewer yet
+ - web#212 Dark mode toggle · Jonas asked for changes yesterday, answered
+ - sourcing#88 Daily quotas · approved by Sam, needs a second review
+ ## Can merge
+ - api#41 Lint fixes · approved, CI green
+ Nothing fails CI this morning.
+
+   run  r     edit  e     open  o     talk  t     pause  p     delete  D
+ enter main  a add  space runs  R refresh  q quit                                       ▏^p palette
