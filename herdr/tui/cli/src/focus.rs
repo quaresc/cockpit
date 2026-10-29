@@ -112,11 +112,53 @@ fn act(rest: &str) {
         Command::new(own).args(["act", action, reference]).env("COCKPIT_HERDR_DIR", files::herdr_dir()).stdin(Stdio::null()).stdout(log).stderr(err).status();
 }
 
-/// The terminal app hosting herdr, as the last notification recorded it, brought forward on macOS.
+/// The terminal app hosting herdr, as the last notification recorded it, brought forward on macOS: in Ghostty, the very
+/// window and tab where herdr runs, else the app.
 fn terminal_forward() {
     let terminal = std::fs::read_to_string(files::cache().join("terminal-app")).unwrap_or_default();
     let terminal = terminal.trim_end_matches('\n');
-    if cfg!(target_os = "macos") && !terminal.is_empty() {
-        proc::run(&["open", "-b", terminal], &[], TIMEOUT);
+    if !cfg!(target_os = "macos") || terminal.is_empty() {
+        return;
+    }
+    if terminal == GHOSTTY && herdr_tty().is_some_and(|tty| ghostty_focus(&tty)) {
+        return;
+    }
+    proc::run(&["open", "-b", terminal], &[], TIMEOUT);
+}
+
+const GHOSTTY: &str = "com.mitchellh.ghostty";
+
+/// The terminal herdr's client draws in, as `/dev/ttys012`: its server runs detached, with none.
+fn herdr_tty() -> Option<String> {
+    let out = proc::run(&["ps", "-axo", "tty=,args="], &[], TIMEOUT)?;
+    client_tty(&out.stdout)
+}
+
+fn client_tty(ps: &str) -> Option<String> {
+    ps.lines().find_map(|line| {
+        let mut words = line.split_whitespace();
+        let (tty, program, next) = (words.next()?, words.next()?, words.next());
+        let is_client = program.rsplit('/').next() == Some("herdr") && next.is_none_or(|w| w.starts_with('-'));
+        (is_client && tty != "??").then(|| format!("/dev/{tty}"))
+    })
+}
+
+/// Focuses the Ghostty terminal on this tty, with its window and tab (Ghostty 1.3.2 and later script it); false when
+/// none is, or Ghostty says no.
+fn ghostty_focus(tty: &str) -> bool {
+    let script = format!("tell application \"Ghostty\" to focus (first terminal whose tty is \"{tty}\")");
+    proc::run(&["osascript", "-e", &script], &[], TIMEOUT).is_some_and(|out| out.ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn herdrs_client_is_the_one_on_a_terminal() {
+        let ps = "??       /opt/homebrew/bin/herdr server\nttys003  -zsh\nttys000  herdr\nttys004  herdr agent prompt w1:p1 hi\n";
+        assert_eq!(client_tty(ps), Some("/dev/ttys000".into()));
+        assert_eq!(client_tty("ttys000  /usr/local/bin/herdr --session work\n"), Some("/dev/ttys000".into()));
+        assert_eq!(client_tty("??  herdr server\nttys001  herdrd\n"), None);
     }
 }

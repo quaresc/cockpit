@@ -179,10 +179,11 @@ fn moved() -> String {
 
 const BOOK_WHOLE: &str = r#"[{"path": "@BOX@/home/.config/cockpit/runbooks/notes.md", "slug": "notes", "title": "Notes for later", "updated": "", "steps": [], "notes": []}, {"n": "1", "step": "Look", "where": "api#4", "status": "⬜ to do", "command": ""}]"#;
 
-/// Text with the sandbox's root and the clock taken out.
+/// Text with the sandbox's root and the clock taken out: today's date too, as a step marked done says it.
 fn norm_text(text: &str, root: &Path) -> String {
     let root = root.to_string_lossy();
-    let text = text.replace(&format!("/private{root}"), "<BOX>").replace(&*root, "<BOX>");
+    let today = chrono::Local::now().format("done %-d %b").to_string();
+    let text = text.replace(&format!("/private{root}"), "<BOX>").replace(&*root, "<BOX>").replace(&today, "done <TODAY>");
     static MS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b\d{13}-").unwrap());
     static MINUTE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}").unwrap());
     MINUTE.replace_all(&MS.replace_all(&text, "<MS>-"), "<MINUTE>").into_owned()
