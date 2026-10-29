@@ -4,7 +4,7 @@ resolver = "3"
 members = ["core", "hub", "inbox", "runbook", "show", "todo", "meetings", "monitor", "routines", "palette", "update", "cli"]
 
 [workspace.package]
-version = "0.23.1"
+version = "0.24.0"
 edition = "2024"
 
 [workspace.dependencies]
