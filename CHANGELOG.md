@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.23.1 (2026-10-29)
+
+- Routines show what their latest run cost, not the average of all their runs, which a change of model or setup made
+  stale.
+
 ## 0.23.0 (2026-10-29)
 
 - Routines pick their model: `m` on a routine steps through default, lightest, haiku, sonnet and opus, and the form

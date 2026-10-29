@@ -554,15 +554,14 @@ fn shown(r: &Routine, doc: &Value, now: u64) -> Value {
         "slug": r.slug, "name": r.name, "path": r.path, "when": r.when_shown(), "whenText": r.when_text, "trigger": trigger,
         "error": r.when.as_ref().err(), "run": if r.run == Run::Claude { "claude" } else { "shell" }, "cwd": r.cwd, "model": r.model,
         "tools": r.tools, "mode": r.mode, "budget": r.budget, "timeout": r.timeout, "paused": r.paused, "prompt": prompt, "next": next,
-        "spentWeek": spent(doc, &r.slug, now), "perRun": per_run(doc, &r.slug), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
+        "spentWeek": spent(doc, &r.slug, now), "lastCost": last_cost(doc, &r.slug), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
         "notify": match r.notify { Notify::Always => "always", Notify::Failed => "failed", Notify::Never => "never" },
     })
 }
 
-/// What a run of the routine costs on average, over the runs that say.
-fn per_run(doc: &Value, slug: &str) -> Option<f64> {
-    let costs: Vec<f64> = list(&doc["runs"][slug]).iter().filter_map(|r| r["cost"].as_f64()).collect();
-    (!costs.is_empty()).then(|| costs.iter().sum::<f64>() / costs.len() as f64)
+/// What its latest run that cost anything cost.
+fn last_cost(doc: &Value, slug: &str) -> Option<f64> {
+    list(&doc["runs"][slug]).iter().filter_map(|r| r["cost"].as_f64()).find(|c| *c > 0.0)
 }
 
 /// A routine's runs, queue and marks gone with it, and its files.
@@ -821,7 +820,7 @@ mod tests {
         assert_eq!(doc["runs"]["sweep"].as_array().unwrap().len(), 2, "held back");
         assert_eq!(w.told, ["⏸ Sweep | its $0.20 for the week is spent ($0.24): it waits until older runs fall out of the week"], "said once");
         let doc = w.settle(now + WEEK_MS + 10);
-        assert_eq!((&doc["routines"][0]["spentWeek"], &doc["routines"][0]["perRun"]), (&json!(0.0), &json!(0.12)));
+        assert_eq!((&doc["routines"][0]["spentWeek"], &doc["routines"][0]["lastCost"]), (&json!(0.0), &json!(0.12)));
     }
 
     #[test]
