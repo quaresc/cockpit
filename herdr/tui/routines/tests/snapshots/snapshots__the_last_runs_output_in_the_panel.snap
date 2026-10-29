@@ -34,5 +34,5 @@ expression: "render(&mut app, 100, 34)"
  - api#41 Lint fixes · approved, CI green
  Nothing fails CI this morning.
 
-   run  r     edit  e     open  o     talk  t     pause  p     delete  D
+   run  r     edit  e     open  o     talk  t     pause  p     model sonnet  m     delete  D
  enter main  a add  space runs  R refresh  q quit                                       ▏^p palette

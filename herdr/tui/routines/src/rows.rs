@@ -129,6 +129,13 @@ impl App {
                     }
                 }
                 acts.push((Act::new(if r.paused { "resume" } else { "pause" }, 'p', "pause"), Cmd::Pause(slug.clone(), !r.paused)));
+                if r.run != "shell" {
+                    let models = cockpit_core::routines::MODELS;
+                    let at = models.iter().position(|m| m.eq_ignore_ascii_case(&r.model)).unwrap_or(0);
+                    let next = models[(at + 1) % models.len()];
+                    let label = format!("model {}", if r.model.is_empty() { "default" } else { &r.model });
+                    acts.push((Act { label, key: Some('m'), id: "model".into(), ..Default::default() }, Cmd::Model(slug.clone(), next.into())));
+                }
                 acts.push((Act::new("delete", 'D', "delete").confirm(&format!("delete-routine-{slug}")), Cmd::Delete(slug)));
             }
             Item::Run(_, id) => {

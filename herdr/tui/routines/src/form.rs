@@ -1,5 +1,5 @@
 //! The form that adds a routine: its name, when it runs (read back in words as you type, with its next run), the prompt
-//! or script, the folder it runs in, and whether Claude or the shell runs it.
+//! or script, the folder it runs in, whether Claude or the shell runs it, and Claude's model.
 
 use chrono::Local;
 use cockpit_core::input::Input;
@@ -20,14 +20,19 @@ pub const WHEN: usize = 1;
 pub const PROMPT: usize = 2;
 pub const FOLDER: usize = 3;
 pub const KIND: usize = 4;
+pub const MODEL: usize = 5;
+/// The model switch's choices, as the hub's `add` takes them: Claude's default first.
+const MODELS: [(&str, &str); 5] = [("", "default"), ("lightest", "lightest"), ("haiku", "haiku"), ("sonnet", "sonnet"), ("opus", "opus")];
 const LABELS: [&str; 4] = ["name", "when", "prompt", "folder"];
 
 #[derive(Default)]
 pub struct Form {
     pub fields: [Input; 4],
-    /// The field typed in, KIND for the claude/shell switch.
+    /// The field typed in, KIND for the claude/shell switch, MODEL for the model's.
     pub at: usize,
     pub shell: bool,
+    /// Which of MODELS.
+    pub model: usize,
 }
 
 /// What a key did to the form.
@@ -78,23 +83,30 @@ impl Form {
         let shift_tab = key.code == KeyCode::BackTab || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT));
         match key.code {
             KeyCode::Esc => return Outcome::Cancel,
-            _ if shift_tab => self.at = (self.at + KIND) % (KIND + 1),
+            _ if shift_tab => self.at = (self.at + MODEL) % (MODEL + 1),
             KeyCode::Up => self.at = self.at.saturating_sub(1),
-            KeyCode::Tab | KeyCode::Down => self.at = (self.at + 1) % (KIND + 1),
+            KeyCode::Tab | KeyCode::Down => self.at = (self.at + 1) % (MODEL + 1),
             KeyCode::Enter if self.at < FOLDER => self.at += 1,
             KeyCode::Enter => {
                 if self.problem().is_none() {
                     let kind = if self.shell { "shell" } else { "claude" };
                     let mut values: Vec<String> = (0..4).map(|f| self.text(f).to_string()).collect();
                     values.push(kind.into());
+                    values.push(if self.shell { String::new() } else { MODELS[self.model].0.to_string() });
                     return Outcome::Submit(values);
                 }
             }
             KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if self.at == KIND => self.shell = !self.shell,
+            KeyCode::Left if self.at == MODEL => self.model = (self.model + MODELS.len() - 1) % MODELS.len(),
+            KeyCode::Char(' ') | KeyCode::Right if self.at == MODEL => self.model = (self.model + 1) % MODELS.len(),
             _ if self.at < KIND => {
                 self.fields[self.at].key(key);
             }
             _ => {}
+        }
+        // A script has no model to pick.
+        if self.shell && self.at == MODEL {
+            self.at = if shift_tab || key.code == KeyCode::Up { KIND } else { NAME };
         }
         Outcome::Stay
     }
@@ -113,7 +125,8 @@ impl Form {
                 let value = &self.fields[n].text;
                 let (text, style) = match (n, value.is_empty()) {
                     (NAME, true) => ("from the prompt".to_string(), dim()),
-                    (FOLDER, true) => ("the repos folder".to_string(), dim()),
+                    (FOLDER, true) if self.shell => ("the repos folder".to_string(), dim()),
+                    (FOLDER, true) => ("a folder of its own".to_string(), dim()),
                     _ => (value.clone(), fg(FG)),
                 };
                 Line::from(vec![Span::styled(prompt, dim()), Span::styled(cut_line(&text, inner.saturating_sub(label_w)), style)])
@@ -131,6 +144,17 @@ impl Form {
         };
         let kind_label = Span::styled(format!("{:<label_w$}", "runs"), if self.at == KIND { fg(ORANGE) } else { dim() });
         lines.push(Line::from(vec![kind_label, pill(!self.shell, "Claude"), Span::raw(" "), pill(self.shell, "shell")]));
+        if !self.shell {
+            let mut spans = vec![Span::styled(format!("{:<label_w$}", "model"), if self.at == MODEL { fg(ORANGE) } else { dim() })];
+            for (n, (_, label)) in MODELS.iter().enumerate() {
+                spans.push(pill(n == self.model, label));
+                spans.push(Span::raw(" "));
+            }
+            lines.push(Line::from(spans));
+            if MODELS[self.model].0 == "lightest" {
+                lines.push(Line::styled(format!("{:label_w$}haiku with nothing loaded but the tools it lists", ""), dim()));
+            }
+        }
         lines.push(Line::raw(""));
         let help = match self.problem() {
             Some(problem) => Line::styled(problem, fg(RED)),

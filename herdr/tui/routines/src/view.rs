@@ -344,7 +344,12 @@ fn settings(r: &Routine) -> String {
     };
     let mut parts = vec![if r.run == "shell" { "shell".to_string() } else { "Claude".to_string() }];
     if r.run != "shell" {
-        parts.extend([r.model.clone(), r.mode.clone()].into_iter().filter(|p| !p.is_empty()));
+        let model = match r.model.to_lowercase().as_str() {
+            "" => "default model".to_string(),
+            "lightest" | "light" => "lightest (haiku, nothing but its tools)".to_string(),
+            other => other.to_string(),
+        };
+        parts.extend([model, r.mode.clone()].into_iter().filter(|p| !p.is_empty()));
     }
     parts.push(cwd);
     if !r.tools.is_empty() {
@@ -386,7 +391,7 @@ fn button_line(acts: &[(Act, Cmd)]) -> Line<'static> {
 
 /// The actions that fit in `cells`, the least used ones left out first: they keep their keys and palette entries.
 fn fitting(acts: &[(Act, Cmd)], cells: usize) -> Vec<(Act, Cmd)> {
-    const DROPPED_FIRST: [&str; 4] = ["delete", "pause", "talk", "edit"];
+    const DROPPED_FIRST: [&str; 5] = ["delete", "model", "pause", "talk", "edit"];
     let fits = |acts: &[(Act, Cmd)]| width(&plain(&button_line(acts))) <= cells;
     let mut kept = acts.to_vec();
     for id in DROPPED_FIRST {

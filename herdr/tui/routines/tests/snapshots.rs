@@ -98,14 +98,17 @@ fn the_form_reads_when_back_and_adds_the_routine() {
     typed(&mut app, "mon,thu 14:30");
     key(&mut app, KeyCode::Tab);
     typed(&mut app, "List the PRs waiting for my review, oldest first.");
+    for _ in 0..3 {
+        key(&mut app, KeyCode::Tab);
+    }
+    key(&mut app, KeyCode::Right);
     insta::assert_snapshot!(render(&mut app, 90, 30));
-    key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Enter);
     assert!(app.form.is_none());
     let sent = last(&app);
     let args: Vec<&str> = sent.args.iter().map(|a| a.as_str().unwrap()).collect();
     assert_eq!(sent.action, "add");
-    assert_eq!(args, ["Review digest", "mon,thu 14:30", "List the PRs waiting for my review, oldest first.", "", "claude"]);
+    assert_eq!(args, ["Review digest", "mon,thu 14:30", "List the PRs waiting for my review, oldest first.", "", "claude", "lightest"]);
 }
 
 #[test]
@@ -138,8 +141,10 @@ fn each_rows_keys_send_their_action() {
     assert_eq!(last(&app), Sent { action: "pause".into(), args: vec![json!("morning-sweep"), json!(true)], armed: None });
     press(&mut app, 'e');
     assert_eq!(last(&app).action, "edit");
+    press(&mut app, 'm');
+    assert_eq!(last(&app), Sent { action: "model".into(), args: vec![json!("morning-sweep"), json!("opus")], armed: None }, "sonnet's next");
     press(&mut app, 'D');
-    assert_eq!(app.sent.len(), 5, "a delete asks first");
+    assert_eq!(app.sent.len(), 6, "a delete asks first");
     press(&mut app, 'y');
     assert_eq!(last(&app), Sent { action: "delete".into(), args: vec![json!("morning-sweep")], armed: Some("delete-routine-morning-sweep".into()) });
     app.selected = Some("notes-pull".into());

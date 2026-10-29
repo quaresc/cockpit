@@ -331,6 +331,10 @@ pub enum Notify {
     Never,
 }
 
+/// The models a routine picks from, cheapest first after Claude's default: `lightest` is haiku at low effort with
+/// nothing loaded but the tools the routine lists.
+pub const MODELS: [&str; 5] = ["", "lightest", "haiku", "sonnet", "opus"];
+
 /// One routine as its file says.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Routine {
@@ -447,6 +451,11 @@ impl Routine {
             },
             paused: truthy("paused"),
         }
+    }
+
+    /// Haiku with nothing but its own tools.
+    pub fn is_lightest(&self) -> bool {
+        matches!(self.model.to_lowercase().as_str(), "lightest" | "light")
     }
 
     /// How its `when` reads, or why it does not parse.

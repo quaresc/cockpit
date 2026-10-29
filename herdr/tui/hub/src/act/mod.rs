@@ -100,6 +100,7 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("routines", "run") => routines::run,
         ("routines", "stop") => routines::stop,
         ("routines", "pause") => routines::pause,
+        ("routines", "model") => routines::set_model,
         ("routines", "delete") => routines::delete,
         ("routines", "edit") => routines::edit,
         ("routines", "output") => routines::output,
