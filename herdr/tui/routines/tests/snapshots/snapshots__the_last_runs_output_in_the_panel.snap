@@ -2,13 +2,13 @@
 source: routines/tests/snapshots.rs
 expression: "render(&mut app, 100, 34)"
 ---
-   Routines   5 routines · 1 running · 3 runs today · $0.74 this week
+   Routines   5 routines · 1 running · 3 runs today · ~$0.74 this week
 
- ▶ ⣾ Pull my notes       every 30 min              running 40 s            next in 30 min
- ▶  Fix CI on sourcing  on CI failing · sourcing  failed 1 h ago          on its event
-    Standup notes       when?                     never ran
- ▶  Morning sweep       weekdays at 09:00         ran 1 h ago             next Fri 09:00
-    Weekly digest       Fri at 16:00              never ran               paused
+ ▶ ⣾ Pull my notes       every 30 min                           running 40 s
+ ▶  Fix CI on sourcing  on CI failing · sourcing  ~$0.41/run   over its weekly budget  The failur…
+    Standup notes       when?                                  never ran
+ ▶  Morning sweep       weekdays at 09:00         ~$0.17/run   ran 1 h ago             3 PRs wait…
+    Weekly digest       Fri at 16:00                           never ran
 
 
 
@@ -22,9 +22,9 @@ expression: "render(&mut app, 100, 34)"
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
  Morning sweep  ·  weekdays at 09:00  ·  next Fri 09:00
- Claude · sonnet · in the repos folder · Read, Bash(gh pr list:*) · ≤ $0.50
+ Claude · sonnet · in a folder of its own · Read, Bash(gh pr list:*) · ~$0.33 of its $1.00 a week
  Sum up my open PRs: which wait for review, which fail CI, which can merge.
- ran 1 h ago · took 1 min · $0.18 · scheduled for 09:00
+ ran 1 h ago · took 1 min · ~$0.18 · scheduled for 09:00
  3 PRs wait for review, CI green on all of them
  ## Waiting for review
  - api#44 Quotas per seat · 2 days, no reviewer yet

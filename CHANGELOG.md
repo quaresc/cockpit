@@ -5,6 +5,17 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.22.0 (2026-10-29)
+
+- Routines: each one shows what a run costs on average, Claude's estimate (on a Claude plan runs draw on the plan,
+  not dollars), and the panel what its runs cost this week.
+- `budget` is now dollars a week: runs wait once the last seven days reach it (one notification says so), and a run
+  stops at what is left of it.
+- Claude routines run lighter: in a folder of their own unless `cwd` says otherwise, so no project's CLAUDE.md or memory
+  is read, and a routine listing its tools gets those built-in tools alone and no skills unless it lists `Skill`.
+  A run calling one MCP tool reads about 80k tokens instead of 110 to 150k.
+- A run stopped by its budget or turn limit says so in words.
+
 ## 0.21.0 (2026-10-29)
 
 - A routines space (opt-in: `routines` in `spaces`, `prefix+y`): Claude prompts and shell scripts in

@@ -36,7 +36,7 @@ pub struct Row {
 pub fn ordered(doc: &Doc) -> Vec<&Routine> {
     let rank = |r: &Routine| match doc.state(r) {
         State::Running | State::Waiting => 0,
-        State::Failed | State::Broken => 1,
+        State::Failed | State::Broken | State::Over => 1,
         State::Paused => 3,
         _ => 2,
     };

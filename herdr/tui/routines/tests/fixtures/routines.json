@@ -19,12 +19,15 @@
     "Bash(gh pr list:*)"
    ],
    "mode": "",
-   "budget": 0.5,
+   "budget": 1.0,
    "timeout": 30,
    "paused": false,
    "prompt": "Sum up my open PRs: which wait for review, which fail CI, which can merge.",
    "next": 1793347200000,
-   "notify": "always"
+   "notify": "always",
+   "spentWeek": 0.33,
+   "perRun": 0.165,
+   "over": false
   },
   {
    "slug": "fix-ci",
@@ -43,12 +46,15 @@
     "Bash(mix test:*)"
    ],
    "mode": "acceptEdits",
-   "budget": null,
+   "budget": 0.4,
    "timeout": 30,
    "paused": false,
    "prompt": "Find why CI failed on this branch and push a fix if it is a lint or format issue.",
    "next": null,
-   "notify": "failed"
+   "notify": "failed",
+   "spentWeek": 0.41,
+   "perRun": 0.41,
+   "over": true
   },
   {
    "slug": "notes-pull",

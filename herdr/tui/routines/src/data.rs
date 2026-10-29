@@ -24,7 +24,12 @@ pub struct Routine {
     pub model: String,
     pub tools: Vec<String>,
     pub mode: String,
+    /// Dollars a week, and what its runs of the last seven days cost, as Claude estimates them.
     pub budget: Option<f64>,
+    pub spent_week: f64,
+    pub per_run: Option<f64>,
+    /// Its week's budget is spent: runs wait.
+    pub over: bool,
     pub paused: bool,
     pub prompt: String,
     pub next: Option<u64>,
@@ -90,6 +95,7 @@ pub enum State {
     Running,
     Waiting,
     Broken,
+    Over,
     Paused,
     Failed,
     Ok,
@@ -143,6 +149,8 @@ impl Doc {
             State::Broken
         } else if r.paused {
             State::Paused
+        } else if r.over {
+            State::Over
         } else {
             match self.last(&r.slug) {
                 Some(run) if run.ok => State::Ok,
@@ -166,6 +174,11 @@ pub fn duration(ms: u64) -> String {
 /// "$0.12", "$1.40".
 pub fn dollars(usd: f64) -> String {
     format!("${usd:.2}")
+}
+
+/// A cost Claude estimated, not billed on a Claude plan: "~$0.07", "~$0.004".
+pub fn estimate(usd: f64) -> String {
+    if usd > 0.0 && usd < 0.01 { format!("~${usd:.3}") } else { format!("~${usd:.2}") }
 }
 
 #[derive(Clone, Copy, Debug)]
