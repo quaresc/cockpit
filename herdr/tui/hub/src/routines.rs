@@ -31,6 +31,7 @@ const EVENT_GAP_MS: u64 = 10 * 60_000;
 /// A run stopped that still lives this long after is killed.
 const KILL_AFTER_MS: u64 = 10_000;
 const PROMPT_SHOWN: usize = 600;
+const WEEK_MS: u64 = 7 * 86_400_000;
 
 /// Where routines are read, where their runs go, and what runs Claude.
 pub struct Setup {
@@ -146,7 +147,7 @@ pub fn round(store: &mut Store, setup: &Setup, now: u64, notify: Notifier) {
     let mut events = store.events(cursor + 1, 500);
     events.reverse();
     listen(&mut doc, &all, &events, now);
-    start_queued(&mut doc, setup, &all, now);
+    start_queued(&mut doc, setup, &all, now, notify);
     doc["routines"] = Value::Array(all.iter().map(|r| shown(r, &doc, now)).collect());
     save(store, doc, now);
 }
@@ -215,8 +216,25 @@ fn listen(doc: &mut Value, all: &[Routine], events: &[Value], now: u64) {
     }
 }
 
-/// Starts queued runs, oldest first, while fewer than three run; one whose routine is gone or broken is dropped.
-fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64) {
+/// What a routine's runs cost over the last seven days, as Claude estimated them.
+fn spent(doc: &Value, slug: &str, now: u64) -> f64 {
+    list(&doc["runs"][slug]).iter().filter(|r| now.saturating_sub(r["started"].as_u64().unwrap_or(0)) < WEEK_MS).filter_map(|r| r["cost"].as_f64()).sum()
+}
+
+/// A run held back by its weekly budget: it is dropped, and the first one of a stretch says so.
+fn over_budget(doc: &mut Value, r: &Routine, left: f64, notify: Notifier) {
+    if doc["marks"][&r.slug]["over"] == true {
+        return;
+    }
+    doc["marks"][&r.slug]["over"] = json!(true);
+    let budget = r.budget.unwrap_or_default();
+    let body = format!("its ${budget:.2} for the week is spent (${:.2}): it waits until older runs fall out of the week", budget - left);
+    notify(&format!("⏸ {}", r.name), &body, &format!("routine:{}", r.slug), &[format!("Open=routine:{}", r.slug)]);
+}
+
+/// Starts queued runs, oldest first, while fewer than three run; one whose routine is gone or broken is dropped, and
+/// so is one over its weekly budget.
+fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notify: Notifier) {
     let queued: Vec<Value> = list(&doc["queued"]).to_vec();
     let mut left = Vec::new();
     for q in queued {
@@ -228,7 +246,13 @@ fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64) {
             continue;
         }
         let why = q["why"].as_str().unwrap_or_default();
-        match start(setup, r, why, &q["event"], now) {
+        let left_this_week = r.budget.filter(|_| r.run == Run::Claude).map(|b| b - spent(doc, slug, now));
+        if let Some(left) = left_this_week.filter(|l| *l < 0.01) {
+            over_budget(doc, r, left, notify);
+            continue;
+        }
+        doc["marks"][slug]["over"] = json!(false);
+        match start(setup, r, why, &q["event"], now, left_this_week) {
             Ok(run) => doc["running"][slug] = run,
             Err(err) => record(doc, setup, slug, failed_to_start(now, why, &err)),
         }
@@ -270,8 +294,10 @@ pub fn prompt(r: &Routine, why: &str, event: &Value, now: u64) -> String {
     out
 }
 
-/// The headless Claude command for a routine.
-pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str) -> Vec<String> {
+/// The headless Claude command for a routine, `cap` the dollars it may still spend this week. A routine that lists its
+/// tools gets those built-in tools alone (and ToolSearch, which loads the MCP ones it names), and skills only when it
+/// lists Skill: each run then reads a fraction of the tool and skill definitions.
+pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap: Option<f64>) -> Vec<String> {
     let mut argv: Vec<String> = vec![claude.into(), "-p".into(), prompt, "--output-format".into(), "json".into(), "--session-id".into(), session.into()];
     argv.extend(["--name".into(), format!("routine: {}", r.name)]);
     if !r.model.is_empty() {
@@ -280,10 +306,21 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str) -> 
     if !r.mode.is_empty() {
         argv.extend(["--permission-mode".into(), r.mode.clone()]);
     }
-    if let Some(budget) = r.budget {
-        argv.extend(["--max-budget-usd".into(), format!("{budget}")]);
+    if let Some(cap) = cap {
+        argv.extend(["--max-budget-usd".into(), format!("{cap:.2}")]);
     }
     if !r.tools.is_empty() {
+        let mut builtin = vec!["ToolSearch".to_string()];
+        for tool in r.tools.iter().filter(|t| !t.starts_with("mcp__")) {
+            let name = tool.split('(').next().unwrap_or(tool).trim().to_string();
+            if !builtin.contains(&name) {
+                builtin.push(name);
+            }
+        }
+        if !builtin.iter().any(|t| t == "Skill") {
+            argv.push("--disable-slash-commands".into());
+        }
+        argv.extend(["--tools".into(), builtin.join(",")]);
         argv.push("--allowedTools".into());
         argv.extend(r.tools.iter().cloned());
     }
@@ -291,16 +328,21 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str) -> 
 }
 
 /// Starts a run in its own process group: its entry in `running`.
-fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64) -> Result<Value, String> {
+fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Option<f64>) -> Result<Value, String> {
     let id = now.to_string();
     let dir = setup.runs.join(&r.slug);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let session = if r.run == Run::Claude { uuid() } else { String::new() };
     let command = match r.run {
-        Run::Claude => claude_argv(&setup.claude, r, prompt(r, why, event, now), &session),
+        Run::Claude => claude_argv(&setup.claude, r, prompt(r, why, event, now), &session, cap),
         Run::Shell => vec!["sh".into(), "-c".into(), r.body.clone()],
     };
-    let cwd = if r.cwd.is_empty() { setup.repos.clone() } else { r.cwd.clone() };
+    // A Claude run without a folder gets its own, where no project's CLAUDE.md and memory are read.
+    let cwd = match (r.cwd.is_empty(), r.run) {
+        (false, _) => r.cwd.clone(),
+        (true, Run::Claude) => dir.to_string_lossy().into_owned(),
+        (true, Run::Shell) => setup.repos.clone(),
+    };
     if !Path::new(&cwd).is_dir() {
         return Err(format!("no folder {cwd}"));
     }
@@ -401,7 +443,13 @@ fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, kind: Run, n
                 record["ok"] = json!(false);
             }
             let result = answer["result"].as_str().unwrap_or_default().to_string();
-            if result.is_empty() { answer["subtype"].as_str().map(|s| s.replace('_', " ")).unwrap_or_default() } else { result }
+            let stopped = match answer["subtype"].as_str().unwrap_or_default() {
+                "error_max_budget_usd" => "stopped at its weekly budget".to_string(),
+                "error_max_turns" => "stopped at its turn limit".to_string(),
+                "error_during_execution" => "failed while running".to_string(),
+                other => other.replace('_', " "),
+            };
+            if result.is_empty() { stopped } else { result }
         }
         None if out.trim().is_empty() => err.clone(),
         None => out.clone(),
@@ -478,8 +526,15 @@ fn shown(r: &Routine, doc: &Value, now: u64) -> Value {
         "slug": r.slug, "name": r.name, "path": r.path, "when": r.when_shown(), "whenText": r.when_text, "trigger": trigger,
         "error": r.when.as_ref().err(), "run": if r.run == Run::Claude { "claude" } else { "shell" }, "cwd": r.cwd, "model": r.model,
         "tools": r.tools, "mode": r.mode, "budget": r.budget, "timeout": r.timeout, "paused": r.paused, "prompt": prompt, "next": next,
+        "spentWeek": spent(doc, &r.slug, now), "perRun": per_run(doc, &r.slug), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
         "notify": match r.notify { Notify::Always => "always", Notify::Failed => "failed", Notify::Never => "never" },
     })
+}
+
+/// What a run of the routine costs on average, over the runs that say.
+fn per_run(doc: &Value, slug: &str) -> Option<f64> {
+    let costs: Vec<f64> = list(&doc["runs"][slug]).iter().filter_map(|r| r["cost"].as_f64()).collect();
+    (!costs.is_empty()).then(|| costs.iter().sum::<f64>() / costs.len() as f64)
 }
 
 /// A routine's runs, queue and marks gone with it, and its files.
@@ -659,13 +714,21 @@ mod tests {
 
     #[test]
     fn the_claude_command_carries_the_routines_settings() {
-        let r = Routine::parse("s", Path::new("/r/s.md"), "---\nname: S\nmodel: opus\nmode: acceptEdits\nbudget: 1.5\ntools: Read, Grep\n---\nGo.");
-        let argv = claude_argv("claude", &r, "P".into(), "id");
+        let r = Routine::parse("s", Path::new("/r/s.md"), "---\nname: S\nmodel: opus\nmode: acceptEdits\nbudget: 1.5\ntools: Read, Bash(gh:*), mcp__x__y\n---\nGo.");
+        let argv = claude_argv("claude", &r, "P".into(), "id", Some(1.234));
         let tail: Vec<&str> = argv[3..].iter().map(String::as_str).collect();
         assert_eq!(
             tail,
-            ["--output-format", "json", "--session-id", "id", "--name", "routine: S", "--model", "opus", "--permission-mode", "acceptEdits", "--max-budget-usd", "1.5", "--allowedTools", "Read", "Grep"]
+            [
+                "--output-format", "json", "--session-id", "id", "--name", "routine: S", "--model", "opus", "--permission-mode", "acceptEdits",
+                "--max-budget-usd", "1.23", "--disable-slash-commands", "--tools", "ToolSearch,Read,Bash", "--allowedTools", "Read", "Bash(gh:*)", "mcp__x__y"
+            ]
         );
+        let open = Routine::parse("o", Path::new("/r/o.md"), "---\ntools: Skill, mcp__x__y\n---\nGo.");
+        let argv = claude_argv("claude", &open, "P".into(), "id", None);
+        assert!(!argv.contains(&"--disable-slash-commands".to_string()) && argv.contains(&"ToolSearch,Skill".to_string()), "{argv:?}");
+        let bare = Routine::parse("b", Path::new("/r/b.md"), "Go.");
+        assert!(!claude_argv("claude", &bare, "P".into(), "id", None).contains(&"--tools".to_string()), "no tools listed: Claude's defaults");
         let p = prompt(&r, "🔴 CI failed: api main", &json!({"title": "🔴 CI failed: api main", "key": "u1"}), ms("2026-10-29 09:00"));
         assert!(p.starts_with("Go.\n\n---\ncockpit runs this as the routine \"S\" (by hand): 🔴 CI failed: api main, at 2026-10-29 09:00."), "{p}");
         assert!(p.ends_with("What set it off: 🔴 CI failed: api main (u1)."), "{p}");
@@ -695,6 +758,29 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         let doc = w.settle(now + 62_000);
         assert_eq!(doc["runs"]["slow1"][0]["summary"], "timed out after 1 min");
+    }
+
+    #[test]
+    fn a_weekly_budget_caps_each_run_and_holds_back_runs_once_spent() {
+        let mut w = World::new();
+        w.write("sweep", "---\nname: Sweep\nbudget: $0.20/week\n---\nSweep.");
+        let now = now_ms();
+        w.round(now);
+        run_now(&mut w.store, &w.setup, "sweep", now, &mut |_, _, _, _| {});
+        let doc = w.settle(now);
+        assert_eq!((&doc["routines"][0]["spentWeek"], &doc["routines"][0]["over"]), (&json!(0.12), &json!(false)));
+        run_now(&mut w.store, &w.setup, "sweep", now + 1, &mut |_, _, _, _| {});
+        let doc = w.settle(now + 2);
+        assert_eq!((doc["runs"]["sweep"].as_array().unwrap().len(), &doc["routines"][0]["over"]), (2, &json!(true)));
+        w.told.clear();
+        let told = &mut w.told;
+        run_now(&mut w.store, &w.setup, "sweep", now + 3, &mut |title, body, _, _| told.push(format!("{title} | {body}")));
+        run_now(&mut w.store, &w.setup, "sweep", now + 4, &mut |title, body, _, _| told.push(format!("{title} | {body}")));
+        let doc = w.settle(now + 5);
+        assert_eq!(doc["runs"]["sweep"].as_array().unwrap().len(), 2, "held back");
+        assert_eq!(w.told, ["⏸ Sweep | its $0.20 for the week is spent ($0.24): it waits until older runs fall out of the week"], "said once");
+        let doc = w.settle(now + WEEK_MS + 10);
+        assert_eq!((&doc["routines"][0]["spentWeek"], &doc["routines"][0]["perRun"]), (&json!(0.0), &json!(0.12)));
     }
 
     #[test]

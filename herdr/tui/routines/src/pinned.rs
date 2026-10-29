@@ -15,13 +15,16 @@ pub fn is_pinned() -> bool {
 /// else the next run.
 pub fn sidebar_text(doc: &Doc, clock: &Clock) -> (String, bool) {
     let count = |state: State| doc.routines.iter().filter(|r| doc.state(r) == state).count();
-    let (running, failed) = (count(State::Running), count(State::Failed) + count(State::Broken));
+    let (running, failed, over) = (count(State::Running), count(State::Failed) + count(State::Broken), count(State::Over));
     if running > 0 {
         let failing = if failed > 0 { format!(" · {failed} failed") } else { String::new() };
         return (format!("\u{f04b}  {running} running{failing}"), failed > 0);
     }
     if failed > 0 {
         return (format!("\u{f00d}  {failed} failed"), true);
+    }
+    if over > 0 {
+        return (format!("\u{f155}  {over} over budget"), true);
     }
     let next = doc.routines.iter().filter(|r| !r.paused).filter_map(|r| r.next).min();
     match next {

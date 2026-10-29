@@ -348,6 +348,7 @@ pub struct Routine {
     pub model: String,
     pub tools: Vec<String>,
     pub mode: String,
+    /// Dollars a Claude routine may spend over the last seven days, as Claude estimates its runs.
     pub budget: Option<f64>,
     /// Minutes a run may take before it is stopped.
     pub timeout: u64,
@@ -405,6 +406,13 @@ pub fn set_field(text: &str, key: &str, value: &str) -> String {
     text
 }
 
+/// "2", "$2", "$1.50/week", "2 a week": the leading amount.
+fn dollars(text: &str) -> Option<f64> {
+    let text = text.trim().trim_start_matches('$');
+    let end = text.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(text.len());
+    text[..end].parse().ok().filter(|b: &f64| *b > 0.0)
+}
+
 fn expand(path: &str) -> String {
     match path.strip_prefix('~') {
         Some(rest) => format!("{}{rest}", files::home().to_string_lossy()),
@@ -430,7 +438,7 @@ impl Routine {
             model: get("model"),
             tools: get("tools").split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect(),
             mode: get("mode"),
-            budget: get("budget").trim_start_matches('$').parse().ok().filter(|b: &f64| *b > 0.0),
+            budget: dollars(&get("budget")),
             timeout: get("timeout").trim_end_matches("m").trim().parse().ok().filter(|t| *t > 0).unwrap_or(30),
             notify: match get("notify").to_lowercase().as_str() {
                 "never" | "no" | "off" => Notify::Never,
@@ -557,13 +565,14 @@ mod tests {
 
     #[test]
     fn a_file_reads_its_front_matter_and_body() {
-        let text = "---\nname: Morning sweep\nwhen: weekdays 09:00\ncwd: ~/work\ntools: Read, Bash(gh pr list:*)\nmodel: sonnet\nbudget: $0.50\nnotify: failed\n---\n\nSum up my PRs.\n";
+        let text = "---\nname: Morning sweep\nwhen: weekdays 09:00\ncwd: ~/work\ntools: Read, Bash(gh pr list:*)\nmodel: sonnet\nbudget: $0.50/week\nnotify: failed\n---\n\nSum up my PRs.\n";
         let r = Routine::parse("morning-sweep", Path::new("/r/morning-sweep.md"), text);
         assert_eq!((r.name.as_str(), r.body.as_str(), r.model.as_str()), ("Morning sweep", "Sum up my PRs.", "sonnet"));
         assert_eq!(r.tools, ["Read", "Bash(gh pr list:*)"]);
         assert_eq!((r.budget, r.timeout, r.notify, r.paused, r.run), (Some(0.5), 30, Notify::Failed, false, Run::Claude));
         assert!(r.cwd.ends_with("/work") && !r.cwd.starts_with('~'));
         assert_eq!(r.when_shown(), "weekdays at 09:00");
+        assert_eq!([dollars("2"), dollars("$1.5 a week"), dollars("0"), dollars("lots")], [Some(2.0), Some(1.5), None, None]);
         let bare = Routine::parse("fetch-all", Path::new("/r/fetch-all.md"), "git fetch --all");
         assert_eq!((bare.name.as_str(), bare.when.clone(), bare.body.as_str()), ("fetch all", Ok(When::Manual), "git fetch --all"));
     }

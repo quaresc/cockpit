@@ -92,7 +92,8 @@ fix it in a draft PR, file a bug or roll back.
 
 **⏰ Routines** (opt-in: add `routines` to `spaces`) · Claude prompts and scripts the hub runs on its own: on a schedule
 (`weekdays 09:00`, `every 30m`, cron), or when something happens (`on ci-failed`, `on review`, `on release-moved`). Each
-run's answer, cost and session stay with it; run, stop, pause, edit or talk a run over from the space. `a` adds one,
+run's answer, estimated cost and session stay with it, and a weekly budget can cap a routine; run, stop, pause, edit or
+talk a run over from the space. `a` adds one,
 `/routine <when and what>` asks Claude to write it. Local: they run while the hub does.
 
 <p align="center"><img src="docs/routines.svg" width="668" alt="Routines: the morning sweep's last answer, its runs unfolded, then the form adding one"></p>

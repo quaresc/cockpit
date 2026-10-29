@@ -15,7 +15,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::app::{App, Cmd};
-use crate::data::{Doc, Routine, Run, State, dollars, duration};
+use crate::data::{Doc, Routine, Run, State, dollars, duration, estimate};
 use crate::pinned::ICON;
 use crate::rows::{Item, Row};
 
@@ -23,6 +23,7 @@ const NAME_MIN: usize = 12;
 const NAME_MAX: usize = 28;
 const WHEN_MAX: usize = 26;
 const LAST: usize = 24;
+const COST: usize = 13;
 const NEXT: usize = 16;
 const PANEL_MAX: usize = 16;
 const SPINNER: [&str; 8] = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
@@ -78,7 +79,7 @@ impl App {
         facts.push(format!("{} today", plural(today, "run")));
         let cost: f64 = doc.runs.values().flatten().filter(|r| self.clock.now.saturating_sub(r.started) < 7 * 86_400_000).filter_map(|r| r.cost).sum();
         if cost > 0.0 {
-            facts.push(format!("{} this week", dollars(cost)));
+            facts.push(format!("{} this week", estimate(cost)));
         }
         while facts.len() > 1 && 13 + width(&facts.join(" · ")) > cells {
             facts.pop();
@@ -172,6 +173,7 @@ impl App {
             State::Running => (SPINNER[(self.clock.now / 125) as usize % SPINNER.len()].to_string(), ORANGE),
             State::Waiting => ("\u{f252}".into(), ORANGE),
             State::Broken => ("\u{f071}".into(), RED),
+            State::Over => ("\u{f155}".into(), ORANGE),
             State::Paused => ("\u{f04c}".into(), DIM),
             State::Failed => ("\u{f00d}".into(), RED),
             State::Ok => ("\u{f00c}".into(), GREEN),
@@ -191,7 +193,13 @@ impl App {
         let when = if r.error.is_some() { "when?".to_string() } else { r.when.clone() };
         spans.push(Span::styled(cell(&when, when_w), when_style));
         let mut left = room.saturating_sub(2 + name_w + when_w);
+        if left >= COST + LAST {
+            let cost = r.per_run.map(|c| format!("{}/run", estimate(c))).unwrap_or_default();
+            spans.push(Span::styled(cell(&cost, COST), if r.over { fg(ORANGE) } else { dim() }));
+            left -= COST;
+        }
         let (last, last_style) = match (doc.running.get(&r.slug), doc.last(&r.slug)) {
+            (None, _) if r.over && !r.paused => ("over its weekly budget".into(), fg(ORANGE)),
             (Some(run), _) => (format!("running {}", duration(self.clock.now.saturating_sub(run.started))), fg(ORANGE)),
             (None, _) if doc.queued.contains(&r.slug) => ("waiting its turn".into(), fg(ORANGE)),
             (None, Some(run)) => (format!("{} {}", if run.ok { "ran" } else { "failed" }, self.clock.ago(run.started)), if run.ok { dim() } else { fg(RED) }),
@@ -221,8 +229,8 @@ impl App {
     fn run_cells(&self, run: &Run, room: usize) -> Vec<Span<'static>> {
         let (glyph, color) = if run.ok { ("\u{f00c}", GREEN) } else if run.stopped { ("\u{f04d}", DIM) } else { ("\u{f00d}", RED) };
         let when = self.clock.when(run.started);
-        let cost = run.cost.map(dollars).unwrap_or_default();
-        let facts = format!("{:<12}{:<8}{:<7}", when, run.took(), cost);
+        let cost = run.cost.map(estimate).unwrap_or_default();
+        let facts = format!("{:<12}{:<8}{:<9}", when, run.took(), cost);
         let used = 2 + width(&facts);
         let rest = room.saturating_sub(used);
         let text = if run.why.is_empty() { run.summary.clone() } else { format!("{} · {}", run.summary, run.why) };
@@ -266,7 +274,7 @@ impl App {
             let (word, color) = if run.ok { ("ran", GREEN) } else if run.stopped { ("stopped", DIM) } else { ("failed", RED) };
             let mut facts = vec![format!("{word} {}", self.clock.ago(run.started)), format!("took {}", run.took())];
             if let Some(cost) = run.cost {
-                facts.push(dollars(cost));
+                facts.push(estimate(cost));
             }
             if let Some(code) = run.code.filter(|c| *c != 0) {
                 facts.push(format!("exit {code}"));
@@ -329,7 +337,11 @@ impl App {
 /// "Claude · sonnet · acceptEdits · in ~/work · Read, Grep · ≤ $0.50", "shell · in ~/notes".
 fn settings(r: &Routine) -> String {
     let home = cockpit_core::files::home().to_string_lossy().into_owned();
-    let cwd = if r.cwd.is_empty() { "in the repos folder".to_string() } else { format!("in {}", r.cwd.replacen(&home, "~", 1)) };
+    let cwd = match (r.cwd.is_empty(), r.run == "shell") {
+        (false, _) => format!("in {}", r.cwd.replacen(&home, "~", 1)),
+        (true, true) => "in the repos folder".to_string(),
+        (true, false) => "in a folder of its own".to_string(),
+    };
     let mut parts = vec![if r.run == "shell" { "shell".to_string() } else { "Claude".to_string() }];
     if r.run != "shell" {
         parts.extend([r.model.clone(), r.mode.clone()].into_iter().filter(|p| !p.is_empty()));
@@ -338,8 +350,10 @@ fn settings(r: &Routine) -> String {
     if !r.tools.is_empty() {
         parts.push(r.tools.join(", "));
     }
-    if let Some(budget) = r.budget {
-        parts.push(format!("≤ {}", dollars(budget)));
+    match (r.budget, r.spent_week > 0.0) {
+        (Some(budget), _) => parts.push(format!("{} of its {} a week", estimate(r.spent_week), dollars(budget))),
+        (None, true) => parts.push(format!("{} this week", estimate(r.spent_week))),
+        _ => {}
     }
     if r.notify != "always" && !r.notify.is_empty() {
         parts.push(format!("notifies {}", if r.notify == "failed" { "on failure" } else { "never" }));
