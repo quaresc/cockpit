@@ -184,7 +184,10 @@ impl App {
     /// A routine's cells: its glyph and name, when it runs, then as room allows its last run and its next one.
     fn routine_cells(&self, doc: &Doc, r: &Routine, room: usize) -> Vec<Span<'static>> {
         let state = doc.state(r);
-        let (glyph, color) = self.glyph(state);
+        let (glyph, color) = match state {
+            State::Ok | State::Never | State::Failed if !r.problems.is_empty() => ("\u{f071}".to_string(), ORANGE),
+            _ => self.glyph(state),
+        };
         let name_w = self.name_w();
         let when_w = WHEN_MAX.min(room.saturating_sub(2 + name_w));
         let name_style = if r.paused { dim() } else { bold(FG) };
@@ -219,7 +222,9 @@ impl App {
             spans.push(Span::styled(cell(&next, NEXT), dim()));
             left -= NEXT;
         }
-        if let Some(run) = doc.last(&r.slug).filter(|_| left > 8 && !doc.running.contains_key(&r.slug)) {
+        if let Some(problem) = r.problems.first().filter(|_| left > 8) {
+            spans.push(Span::styled(fit(problem, left), fg(ORANGE)));
+        } else if let Some(run) = doc.last(&r.slug).filter(|_| left > 8 && !doc.running.contains_key(&r.slug)) {
             spans.push(Span::styled(fit(&run.summary, left), if run.ok { fg(FG) } else { fg(RED) }));
         }
         spans
@@ -256,6 +261,9 @@ impl App {
                 lines.push(Line::from(title));
                 if let Some(err) = &r.error {
                     lines.push(Line::styled(format!("when \"{}\": {err}", r.when_text), fg(RED)));
+                }
+                for problem in &r.problems {
+                    lines.push(Line::styled(format!("\u{f071} {problem}"), fg(ORANGE)));
                 }
                 lines.push(Line::styled(settings(&r), dim()));
                 let first = r.prompt.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string();

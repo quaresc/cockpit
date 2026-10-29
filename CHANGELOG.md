@@ -5,6 +5,16 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.25.0 (2026-10-29)
+
+- Lightest routines no longer give up when their MCP server is still connecting at the start: their system prompt names
+  the tools to load and says to try again, and a run that calls none of its listed tools runs once more, then fails
+  as "called none of its tools" instead of passing.
+- The routines space flags a lightest routine whose file lists no tools, or a tool no connected MCP server has.
+- `cockpit routine run <slug>` runs a routine now and waits: how it went, the tools it called, its output. `/routine`
+  resolves every id and exact tool name before writing a lightest routine, then tries it (asking first when it sends
+  or changes something).
+
 ## 0.24.0 (2026-10-29)
 
 - `model: lightest` routines run on a one-line system prompt instead of Claude Code's, and the MCP servers they do not

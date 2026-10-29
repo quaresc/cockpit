@@ -163,7 +163,7 @@ fn each_rows_keys_send_their_action() {
 fn the_list_puts_running_and_failed_first() {
     let app = app(Density::Comfortable);
     let keys: Vec<String> = app.rows().into_iter().map(|r| r.key).collect();
-    assert_eq!(keys, ["notes-pull", "fix-ci", "standup", "morning-sweep", "weekly-digest"]);
+    assert_eq!(keys, ["notes-pull", "fix-ci", "standup", "morning-sweep", "ping-team", "weekly-digest"]);
 }
 
 #[test]

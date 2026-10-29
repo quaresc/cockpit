@@ -8,6 +8,7 @@ mod doctor;
 mod find;
 mod focus;
 mod proc;
+mod routine;
 mod shots;
 mod space;
 mod store;
@@ -45,7 +46,8 @@ const USAGE: &str = "cockpit, the plugin's command.
     cockpit doctor                             checks every part of cockpit, one ok, warn or fail line each
     cockpit browse ...                         a page in terminal-browser beside a pane (cockpit browse for more)
     cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)
-    cockpit store ...                          the documents the hub keeps and its leases, for the mod (cockpit store for more)";
+    cockpit store ...                          the documents the hub keeps and its leases, for the mod (cockpit store for more)
+    cockpit routine run <slug>                 a routine run now and waited for: how it went, what it called, its output";
 
 fn main() {
     cockpit_core::answer_version("cockpit");
@@ -74,6 +76,7 @@ fn main() {
         "browse" => browse::main(rest),
         "shots" => shots::main(rest),
         "store" => store::main(rest),
+        "routine" => routine::main(rest),
         _ => proc::fail(USAGE),
     }
 }

@@ -32,9 +32,44 @@ const EVENT_GAP_MS: u64 = 10 * 60_000;
 const KILL_AFTER_MS: u64 = 10_000;
 const PROMPT_SHOWN: usize = 600;
 const WEEK_MS: u64 = 7 * 86_400_000;
-/// The lightest routines' whole system prompt, in place of Claude Code's.
-const LIGHT_PROMPT: &str = "You run one unattended task for cockpit, with only the tools it names. Do what it asks, \
-                            then reply in one short line saying what you did.";
+/// The lightest routines' whole system prompt, in place of Claude Code's: its MCP tools load on demand, and may still
+/// be connecting when the run starts.
+pub fn light_prompt(r: &Routine) -> String {
+    let mcp: Vec<&str> = r.tools.iter().filter(|t| t.starts_with("mcp__")).map(String::as_str).collect();
+    let load = if mcp.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Its tools load on demand: first call ToolSearch with query \"select:{}\", then call them as the task says; when one \
+             is not found yet, its server is still connecting: call ToolSearch again. Never answer that you lack a tool before \
+             that. ",
+            mcp.join(",")
+        )
+    };
+    format!("You run one unattended task for cockpit, with only the tools it names. {load}Reply in one short line saying what you did.")
+}
+
+/// What a lightest routine's file lacks for a run that loads nothing else: its tools, and servers that have them.
+fn problems(r: &Routine, servers: &[String]) -> Vec<String> {
+    if !r.is_lightest() || r.run != Run::Claude {
+        return Vec::new();
+    }
+    if r.tools.is_empty() {
+        return vec!["lists no tools: a lightest run loads nothing else, so it can call nothing".into()];
+    }
+    let prefixes: Vec<String> = servers.iter().map(|s| crate::config::tool_prefix(s)).collect();
+    r.tools
+        .iter()
+        .filter(|t| t.starts_with("mcp__") && !servers.is_empty())
+        .filter(|t| !prefixes.iter().any(|p| t.starts_with(&format!("{p}__"))))
+        .map(|t| format!("{t} belongs to no MCP server Claude Code connects"))
+        .collect()
+}
+
+/// Whether a tool a run called is one the routine lists: by full name for MCP tools, by name for built-in ones.
+fn lists(r: &Routine, called: &str) -> bool {
+    r.tools.iter().any(|t| t == called || t.split('(').next().is_some_and(|name| name.trim() == called))
+}
 
 /// Where routines are read, where their runs go, and what runs Claude.
 pub struct Setup {
@@ -151,7 +186,8 @@ pub fn round(store: &mut Store, setup: &Setup, now: u64, notify: Notifier) {
     events.reverse();
     listen(&mut doc, &all, &events, now);
     start_queued(&mut doc, setup, &all, now, notify);
-    doc["routines"] = Value::Array(all.iter().map(|r| shown(r, &doc, now)).collect());
+    let servers = known_servers(setup);
+    doc["routines"] = Value::Array(all.iter().map(|r| shown(r, &doc, now, &servers)).collect());
     save(store, doc, now);
 }
 
@@ -256,7 +292,10 @@ fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notif
         }
         doc["marks"][slug]["over"] = json!(false);
         match start(setup, r, why, &q["event"], now, left_this_week) {
-            Ok(run) => doc["running"][slug] = run,
+            Ok(mut run) => {
+                run["retry"] = q["retry"].clone();
+                doc["running"][slug] = run;
+            }
             Err(err) => record(doc, setup, slug, failed_to_start(now, why, &err)),
         }
     }
@@ -352,7 +391,7 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap
         if !unused.is_empty() {
             argv.extend(["--settings".into(), json!({"deniedMcpServers": unused}).to_string()]);
         }
-        argv.extend(["--system-prompt".into(), LIGHT_PROMPT.into()]);
+        argv.extend(["--system-prompt".into(), light_prompt(r)]);
     }
     argv
 }
@@ -443,19 +482,30 @@ fn finish(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notify: Not
             continue;
         }
         let r = all.iter().find(|r| r.slug == slug);
-        let ended = ended(setup, &slug, &run, code, r.map_or(Run::Shell, |r| r.run), now);
-        if let Some(r) = r {
-            tell(r, &ended, notify);
-        }
+        let ended = ended(setup, &slug, &run, code, r, now);
         if let Some(running) = doc["running"].as_object_mut() {
             running.remove(&slug);
         }
+        // A lightest run that called none of its tools most likely started before their server connected: once more.
+        let again = ended["missedTools"] == true && run["retry"] != true;
+        if let Some(r) = r.filter(|_| !again) {
+            tell(r, &ended, notify);
+        }
         record(doc, setup, &slug, ended);
+        if again {
+            let why = format!("again: {}", run["why"].as_str().unwrap_or_default());
+            queue(doc, &slug, why, run["event"].clone());
+            if let Some(last) = doc["queued"].as_array_mut().and_then(|q| q.last_mut()) {
+                last["retry"] = json!(true);
+            }
+        }
     }
 }
 
-/// The run's record from what it left: Claude's JSON answer or the script's output, in <id>.txt for the app.
-fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, kind: Run, now: u64) -> Value {
+/// The run's record from what it left: Claude's JSON answer or the script's output, in <id>.txt for the app. A lightest
+/// run that called none of the tools its routine lists failed, whatever it answered.
+fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, r: Option<&Routine>, now: u64) -> Value {
+    let kind = r.map_or(Run::Shell, |r| r.run);
     let id = run["id"].as_str().unwrap_or_default();
     let out = std::fs::read_to_string(setup.run_file(slug, id, "out")).unwrap_or_default();
     let err = std::fs::read_to_string(setup.run_file(slug, id, "err")).unwrap_or_default();
@@ -464,6 +514,16 @@ fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, kind: Run, n
     });
     let events: Vec<Value> = if kind == Run::Claude { out.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect() } else { Vec::new() };
     let answer = events.iter().rev().find(|e| e["type"] == "result").cloned();
+    let called: Vec<&str> = events
+        .iter()
+        .filter(|e| e["type"] == "assistant")
+        .flat_map(|e| list(&e["message"]["content"]))
+        .filter(|c| c["type"] == "tool_use")
+        .filter_map(|c| c["name"].as_str())
+        .filter(|name| *name != "ToolSearch")
+        .collect();
+    record["called"] = json!(called);
+    let missed = r.is_some_and(|r| r.is_lightest() && !r.tools.is_empty() && !called.iter().any(|c| lists(r, c)));
     // The servers this run's Claude connected, which the lightest routines deny but for their own.
     if let Some(init) = events.iter().find(|e| e["type"] == "system" && e["subtype"] == "init") {
         let servers: Vec<&Value> = list(&init["mcp_servers"]).iter().map(|s| &s["name"]).filter(|n| n.is_string()).collect();
@@ -502,6 +562,10 @@ fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, kind: Run, n
     } else if !run["stopping"].is_null() {
         record["stopped"] = json!(true);
         "stopped".into()
+    } else if missed && answer.is_some() {
+        record["ok"] = json!(false);
+        record["missedTools"] = json!(true);
+        format!("called none of its tools: {}", first.unwrap_or_default())
     } else if record["ok"] == true {
         first.unwrap_or_else(|| "done".into())
     } else {
@@ -543,7 +607,7 @@ fn tell(r: &Routine, run: &Value, notify: Notifier) {
 }
 
 /// A routine as the app shows it, with its state and its next run.
-fn shown(r: &Routine, doc: &Value, now: u64) -> Value {
+fn shown(r: &Routine, doc: &Value, now: u64, servers: &[String]) -> Value {
     let base = mark(doc, &r.slug, "seen").max(mark(doc, &r.slug, "fired"));
     let next = match &r.when {
         _ if r.paused => None,
@@ -566,7 +630,7 @@ fn shown(r: &Routine, doc: &Value, now: u64) -> Value {
         "slug": r.slug, "name": r.name, "path": r.path, "when": r.when_shown(), "whenText": r.when_text, "trigger": trigger,
         "error": r.when.as_ref().err(), "run": if r.run == Run::Claude { "claude" } else { "shell" }, "cwd": r.cwd, "model": r.model,
         "tools": r.tools, "mode": r.mode, "budget": r.budget, "timeout": r.timeout, "paused": r.paused, "prompt": prompt, "next": next,
-        "spentWeek": spent(doc, &r.slug, now), "lastCost": last_cost(doc, &r.slug), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
+        "spentWeek": spent(doc, &r.slug, now), "lastCost": last_cost(doc, &r.slug), "problems": problems(r, servers), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
         "notify": match r.notify { Notify::Always => "always", Notify::Failed => "failed", Notify::Never => "never" },
     })
 }
@@ -638,7 +702,7 @@ mod tests {
             std::fs::write(
                 &setup.claude,
                 format!(
-                    "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}/argv\necho '{{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{{\"name\":\"claude.ai Slack\"}},{{\"name\":\"claude.ai Datadog (2)\"}},{{\"name\":\"backstage\"}}]}}'\nprintf '{{\"type\":\"result\",\"is_error\":false,\"result\":\"Swept 3 PRs\\\\nall green\",\"session_id\":\"%s\",\"total_cost_usd\":0.12}}\\n' \"$7\"\n",
+                    "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}/argv\necho '{{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{{\"name\":\"claude.ai Slack\"}},{{\"name\":\"claude.ai Datadog (2)\"}},{{\"name\":\"backstage\"}}]}}'\necho '{{\"type\":\"assistant\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"mcp__claude_ai_Slack__slack_send_message\"}}]}}}}'\nprintf '{{\"type\":\"result\",\"is_error\":false,\"result\":\"Swept 3 PRs\\\\nall green\",\"session_id\":\"%s\",\"total_cost_usd\":0.12}}\\n' \"$7\"\n",
                     dir.path().display()
                 ),
             )
@@ -781,7 +845,7 @@ mod tests {
             tail,
             [
                 "--model", "haiku", "--effort", "low", "--disable-slash-commands", "--tools", "ToolSearch", "--allowedTools", "mcp__x__y", "--settings",
-                r#"{"deniedMcpServers":[{"serverName":"claude.ai Datadog (2)"}]}"#, "--system-prompt", LIGHT_PROMPT
+                r#"{"deniedMcpServers":[{"serverName":"claude.ai Datadog (2)"}]}"#, "--system-prompt", &light_prompt(&light)
             ]
         );
         let p = prompt(&r, "🔴 CI failed: api main", &json!({"title": "🔴 CI failed: api main", "key": "u1"}), ms("2026-10-29 09:00"));
@@ -853,6 +917,38 @@ mod tests {
         let argv = std::fs::read_to_string(w._dir.path().join("argv")).unwrap();
         assert!(argv.contains(r#"{"deniedMcpServers":[{"serverName":"cockpit"}]}"#), "{argv}");
         assert_eq!(known_servers(&w.setup), ["cockpit", "claude.ai Slack", "claude.ai Datadog (2)", "backstage"], "the list only grows");
+    }
+
+    #[test]
+    fn a_lightest_run_that_calls_none_of_its_tools_runs_once_more_then_fails() {
+        let mut w = World::new();
+        w.write("other", "---\nname: Other\nmodel: lightest\ntools: mcp__claude_ai_Linear__get_issue\n---\nGet ENG-1.");
+        w.round(1_000);
+        run_now(&mut w.store, &w.setup, "other", 2_000, &mut |_, _, _, _| {});
+        let doc = w.settle(3_000);
+        let runs: Vec<(&str, &str)> = list(&doc["runs"]["other"]).iter().map(|r| (r["why"].as_str().unwrap(), r["summary"].as_str().unwrap())).collect();
+        assert_eq!(runs, [("again: run by hand", "called none of its tools: Swept 3 PRs"), ("run by hand", "called none of its tools: Swept 3 PRs")]);
+        assert_eq!(w.told, ["❌ Other | called none of its tools: Swept 3 PRs | Open=routine:other Talk=act:routine:other"], "told once, after the second run");
+        w.write("dm", "---\nmodel: lightest\ntools: mcp__claude_ai_Slack__slack_send_message\nnotify: never\n---\nSay hi.");
+        w.round(4_000);
+        run_now(&mut w.store, &w.setup, "dm", 5_000, &mut |_, _, _, _| {});
+        let doc = w.settle(6_000);
+        assert_eq!((&doc["runs"]["dm"][0]["ok"], &doc["runs"]["dm"][0]["called"]), (&json!(true), &json!(["mcp__claude_ai_Slack__slack_send_message"])));
+    }
+
+    #[test]
+    fn a_lightest_routine_says_what_its_file_lacks() {
+        let servers = ["claude.ai Slack".to_string()];
+        let parse = |text: &str| Routine::parse("r", Path::new("/r/r.md"), text);
+        assert_eq!(problems(&parse("---\nmodel: lightest\n---\nGo."), &servers), ["lists no tools: a lightest run loads nothing else, so it can call nothing"]);
+        assert_eq!(
+            problems(&parse("---\nmodel: lightest\ntools: mcp__claude_ai_Slack__slack_send_message, mcp__claude_ai_Slak__x, Read\n---\nGo."), &servers),
+            ["mcp__claude_ai_Slak__x belongs to no MCP server Claude Code connects"]
+        );
+        assert!(problems(&parse("---\nmodel: lightest\ntools: mcp__a__b\n---\nGo."), &[]).is_empty(), "no server known yet: nothing to say");
+        assert!(problems(&parse("---\nmodel: haiku\n---\nGo."), &servers).is_empty(), "only the lightest");
+        let prompt = light_prompt(&parse("---\nmodel: lightest\ntools: mcp__a__b, Read\n---\nGo."));
+        assert!(prompt.contains("ToolSearch with query \"select:mcp__a__b\""), "{prompt}");
     }
 
     #[test]

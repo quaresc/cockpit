@@ -30,6 +30,8 @@ pub struct Routine {
     pub last_cost: Option<f64>,
     /// Its week's budget is spent: runs wait.
     pub over: bool,
+    /// What its file lacks for a lightest run.
+    pub problems: Vec<String>,
     pub paused: bool,
     pub prompt: String,
     pub next: Option<u64>,
