@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.20.1 (2026-10-29)
+
+- A notification click brings forward the very Ghostty window and tab where herdr runs, not just Ghostty (#11).
+- Doctor and setup ask for Ghostty 1.4.0 or newer rather than its tip builds, now that a stable release reads herdr's
+  frame files (#11).
+
 ## 0.20.0 (2026-10-28)
 
 - `prefix+space` opens the palette as a popup over any pane: search everything, jump to a space, check cockpit, read
