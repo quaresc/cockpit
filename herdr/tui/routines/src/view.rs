@@ -194,7 +194,7 @@ impl App {
         spans.push(Span::styled(cell(&when, when_w), when_style));
         let mut left = room.saturating_sub(2 + name_w + when_w);
         if left >= COST + LAST {
-            let cost = r.per_run.map(|c| format!("{}/run", estimate(c))).unwrap_or_default();
+            let cost = r.last_cost.map(|c| format!("{} last", estimate(c))).unwrap_or_default();
             spans.push(Span::styled(cell(&cost, COST), if r.over { fg(ORANGE) } else { dim() }));
             left -= COST;
         }

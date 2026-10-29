@@ -27,7 +27,7 @@ pub struct Routine {
     /// Dollars a week, and what its runs of the last seven days cost, as Claude estimates them.
     pub budget: Option<f64>,
     pub spent_week: f64,
-    pub per_run: Option<f64>,
+    pub last_cost: Option<f64>,
     /// Its week's budget is spent: runs wait.
     pub over: bool,
     pub paused: bool,
