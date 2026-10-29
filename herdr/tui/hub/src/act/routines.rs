@@ -29,7 +29,7 @@ fn routine(setup: &Setup, slug: &str) -> Res<routines::Routine> {
     Ok(routines::Routine::parse(slug, &path, &text))
 }
 
-/// A new routine from the app's form: name, when, prompt (or script), folder, and "shell" for a script.
+/// A new routine from the app's form: name, when, prompt (or script), folder, "shell" for a script, and its model.
 pub fn add(ctx: &mut Ctx, args: &[Value]) -> Res {
     let note = create(&Setup::live(), args)?;
     ctx.note(note);
@@ -50,10 +50,29 @@ fn create(setup: &Setup, args: &[Value]) -> Res<String> {
     let mut file = routines::new_file(&name, &when, &cwd, &body);
     if field(4) == "shell" {
         file = routines::set_field(&file, "run", "shell");
+    } else if !field(5).is_empty() {
+        file = routines::set_field(&file, "model", &model(&field(5))?);
     }
     let path = setup.routines.join(format!("{slug}.md"));
     std::fs::write(&path, file).map_err(|e| e.to_string())?;
     Ok(format!("added {name}: e edits its file"))
+}
+
+/// One of the models a routine picks from.
+fn model(name: &str) -> Res<String> {
+    let name = name.trim().to_lowercase();
+    if routines::MODELS.contains(&name.as_str()) { Ok(name) } else { Err(format!("no model {name:?}: one of lightest, haiku, sonnet, opus")) }
+}
+
+/// The routine's model: lightest, haiku, sonnet, opus, or empty for Claude's default.
+pub fn set_model(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let r = routine(&Setup::live(), &slug(args)?)?;
+    let name = model(opt(args, 1).as_str().unwrap_or_default())?;
+    let text = std::fs::read_to_string(&r.path).map_err(|e| e.to_string())?;
+    std::fs::write(&r.path, routines::set_field(&text, "model", &name)).map_err(|e| e.to_string())?;
+    ctx.note(format!("{} runs on {}", r.name, if name.is_empty() { "Claude's default model" } else { &name }));
+    runner::poke();
+    Ok(())
 }
 
 pub fn run(ctx: &mut Ctx, args: &[Value]) -> Res {
@@ -217,10 +236,11 @@ mod tests {
     #[test]
     fn a_routine_added_from_the_form_is_a_file_named_after_it() {
         let (_dir, _, setup) = world();
-        let args = [json!("Morning sweep"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/work"), json!("")];
+        let args = [json!("Morning sweep"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/work"), json!(""), json!("lightest")];
         assert_eq!(create(&setup, &args).unwrap(), "added Morning sweep: e edits its file");
         let text = std::fs::read_to_string(setup.routines.join("morning-sweep.md")).unwrap();
-        assert_eq!(text, "---\nname: Morning sweep\nwhen: weekdays 09:00\ncwd: ~/work\n---\n\nSum up my PRs.\n");
+        assert_eq!(text, "---\nname: Morning sweep\nwhen: weekdays 09:00\ncwd: ~/work\nmodel: lightest\n---\n\nSum up my PRs.\n");
+        assert!(create(&setup, &[json!("x"), json!("hourly"), json!("y"), json!(""), json!(""), json!("gpt")]).unwrap_err().starts_with("no model"));
         let script = [json!(""), json!("hourly"), json!("git -C ~/notes pull"), json!(""), json!("shell")];
         create(&setup, &script).unwrap();
         let r = routine(&setup, "git-c-notes-pull").unwrap();

@@ -294,13 +294,22 @@ pub fn prompt(r: &Routine, why: &str, event: &Value, now: u64) -> String {
     out
 }
 
+/// The MCP servers Claude Code connected the last time a routine ran, as its init event listed them.
+fn known_servers(setup: &Setup) -> Vec<String> {
+    files::load(&setup.runs.join("mcp-servers.json")).map(|v| list(&v["servers"]).iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default()
+}
+
 /// The headless Claude command for a routine, `cap` the dollars it may still spend this week. A routine that lists its
 /// tools gets those built-in tools alone (and ToolSearch, which loads the MCP ones it names), and skills only when it
-/// lists Skill: each run then reads a fraction of the tool and skill definitions.
-pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap: Option<f64>) -> Vec<String> {
-    let mut argv: Vec<String> = vec![claude.into(), "-p".into(), prompt, "--output-format".into(), "json".into(), "--session-id".into(), session.into()];
+/// lists Skill: each run then reads a fraction of the tool and skill definitions. The lightest one runs haiku at low
+/// effort with every other MCP server of `servers` denied, so it reads their tools' names no more.
+pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap: Option<f64>, servers: &[String]) -> Vec<String> {
+    let mut argv: Vec<String> =
+        vec![claude.into(), "-p".into(), prompt, "--output-format".into(), "stream-json".into(), "--verbose".into(), "--session-id".into(), session.into()];
     argv.extend(["--name".into(), format!("routine: {}", r.name)]);
-    if !r.model.is_empty() {
+    if r.is_lightest() {
+        argv.extend(["--model".into(), "haiku".into(), "--effort".into(), "low".into()]);
+    } else if !r.model.is_empty() {
         argv.extend(["--model".into(), r.model.clone()]);
     }
     if !r.mode.is_empty() {
@@ -309,7 +318,7 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap
     if let Some(cap) = cap {
         argv.extend(["--max-budget-usd".into(), format!("{cap:.2}")]);
     }
-    if !r.tools.is_empty() {
+    if !r.tools.is_empty() || r.is_lightest() {
         let mut builtin = vec!["ToolSearch".to_string()];
         for tool in r.tools.iter().filter(|t| !t.starts_with("mcp__")) {
             let name = tool.split('(').next().unwrap_or(tool).trim().to_string();
@@ -321,8 +330,19 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap
             argv.push("--disable-slash-commands".into());
         }
         argv.extend(["--tools".into(), builtin.join(",")]);
-        argv.push("--allowedTools".into());
-        argv.extend(r.tools.iter().cloned());
+        if !r.tools.is_empty() {
+            argv.push("--allowedTools".into());
+            argv.extend(r.tools.iter().cloned());
+        }
+    }
+    let unused: Vec<String> = servers
+        .iter()
+        .map(|s| crate::config::tool_prefix(s))
+        .filter(|prefix| !r.tools.iter().any(|t| t == prefix || t.starts_with(&format!("{prefix}__"))))
+        .collect();
+    if r.is_lightest() && !unused.is_empty() {
+        argv.push("--disallowedTools".into());
+        argv.extend(unused);
     }
     argv
 }
@@ -334,7 +354,7 @@ fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Op
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let session = if r.run == Run::Claude { uuid() } else { String::new() };
     let command = match r.run {
-        Run::Claude => claude_argv(&setup.claude, r, prompt(r, why, event, now), &session, cap),
+        Run::Claude => claude_argv(&setup.claude, r, prompt(r, why, event, now), &session, cap, &known_servers(setup)),
         Run::Shell => vec!["sh".into(), "-c".into(), r.body.clone()],
     };
     // A Claude run without a folder gets its own, where no project's CLAUDE.md and memory are read.
@@ -432,7 +452,15 @@ fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, kind: Run, n
     let mut record = json!({
         "id": id, "started": run["started"], "ended": now, "code": code, "why": run["why"], "session": run["session"], "ok": code == Some(0),
     });
-    let answer = (kind == Run::Claude).then(|| out.lines().rev().find_map(|l| serde_json::from_str::<Value>(l).ok().filter(Value::is_object))).flatten();
+    let events: Vec<Value> = if kind == Run::Claude { out.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect() } else { Vec::new() };
+    let answer = events.iter().rev().find(|e| e["type"] == "result").cloned();
+    // The servers this run's Claude connected, which the lightest routines deny but for their own.
+    if let Some(init) = events.iter().find(|e| e["type"] == "system" && e["subtype"] == "init") {
+        let servers: Vec<&Value> = list(&init["mcp_servers"]).iter().map(|s| &s["name"]).filter(|n| n.is_string()).collect();
+        if !servers.is_empty() {
+            let _ = files::write(&setup.runs.join("mcp-servers.json"), &json!({"servers": servers, "at": now}));
+        }
+    }
     let shown = match &answer {
         Some(answer) => {
             record["cost"] = answer["total_cost_usd"].clone();
@@ -595,10 +623,13 @@ mod tests {
                 repos: dir.path().to_string_lossy().into_owned(),
             };
             std::fs::create_dir_all(&setup.routines).unwrap();
-            // A Claude that answers like `claude -p --output-format json`, with what it was asked.
+            // A Claude that answers like `claude -p --output-format stream-json --verbose`, keeping what it was asked.
             std::fs::write(
                 &setup.claude,
-                "#!/bin/sh\nprintf '{\"type\":\"result\",\"is_error\":false,\"result\":\"Swept 3 PRs\\\\nall green\",\"session_id\":\"%s\",\"total_cost_usd\":0.12}\\n' \"$6\"\n",
+                format!(
+                    "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}/argv\necho '{{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{{\"name\":\"claude.ai Slack\"}},{{\"name\":\"claude.ai Datadog (2)\"}},{{\"name\":\"backstage\"}}]}}'\nprintf '{{\"type\":\"result\",\"is_error\":false,\"result\":\"Swept 3 PRs\\\\nall green\",\"session_id\":\"%s\",\"total_cost_usd\":0.12}}\\n' \"$7\"\n",
+                    dir.path().display()
+                ),
             )
             .unwrap();
             std::process::Command::new("chmod").args(["+x", &setup.claude]).status().unwrap();
@@ -715,20 +746,30 @@ mod tests {
     #[test]
     fn the_claude_command_carries_the_routines_settings() {
         let r = Routine::parse("s", Path::new("/r/s.md"), "---\nname: S\nmodel: opus\nmode: acceptEdits\nbudget: 1.5\ntools: Read, Bash(gh:*), mcp__x__y\n---\nGo.");
-        let argv = claude_argv("claude", &r, "P".into(), "id", Some(1.234));
+        let servers = ["x".to_string(), "claude.ai Datadog (2)".to_string()];
+        let argv = claude_argv("claude", &r, "P".into(), "id", Some(1.234), &servers);
         let tail: Vec<&str> = argv[3..].iter().map(String::as_str).collect();
         assert_eq!(
             tail,
             [
-                "--output-format", "json", "--session-id", "id", "--name", "routine: S", "--model", "opus", "--permission-mode", "acceptEdits",
-                "--max-budget-usd", "1.23", "--disable-slash-commands", "--tools", "ToolSearch,Read,Bash", "--allowedTools", "Read", "Bash(gh:*)", "mcp__x__y"
-            ]
+                "--output-format", "stream-json", "--verbose", "--session-id", "id", "--name", "routine: S", "--model", "opus", "--permission-mode",
+                "acceptEdits", "--max-budget-usd", "1.23", "--disable-slash-commands", "--tools", "ToolSearch,Read,Bash", "--allowedTools", "Read",
+                "Bash(gh:*)", "mcp__x__y"
+            ],
+            "only the lightest routines deny servers"
         );
         let open = Routine::parse("o", Path::new("/r/o.md"), "---\ntools: Skill, mcp__x__y\n---\nGo.");
-        let argv = claude_argv("claude", &open, "P".into(), "id", None);
+        let argv = claude_argv("claude", &open, "P".into(), "id", None, &[]);
         assert!(!argv.contains(&"--disable-slash-commands".to_string()) && argv.contains(&"ToolSearch,Skill".to_string()), "{argv:?}");
         let bare = Routine::parse("b", Path::new("/r/b.md"), "Go.");
-        assert!(!claude_argv("claude", &bare, "P".into(), "id", None).contains(&"--tools".to_string()), "no tools listed: Claude's defaults");
+        assert!(!claude_argv("claude", &bare, "P".into(), "id", None, &[]).contains(&"--tools".to_string()), "no tools listed: Claude's defaults");
+        let light = Routine::parse("l", Path::new("/r/l.md"), "---\nmodel: lightest\ntools: mcp__x__y\n---\nGo.");
+        let argv = claude_argv("claude", &light, "P".into(), "id", None, &servers);
+        let tail: Vec<&str> = argv[10..].iter().map(String::as_str).collect();
+        assert_eq!(
+            tail,
+            ["--model", "haiku", "--effort", "low", "--disable-slash-commands", "--tools", "ToolSearch", "--allowedTools", "mcp__x__y", "--disallowedTools", "mcp__claude_ai_Datadog_2"]
+        );
         let p = prompt(&r, "🔴 CI failed: api main", &json!({"title": "🔴 CI failed: api main", "key": "u1"}), ms("2026-10-29 09:00"));
         assert!(p.starts_with("Go.\n\n---\ncockpit runs this as the routine \"S\" (by hand): 🔴 CI failed: api main, at 2026-10-29 09:00."), "{p}");
         assert!(p.ends_with("What set it off: 🔴 CI failed: api main (u1)."), "{p}");
@@ -781,6 +822,21 @@ mod tests {
         assert_eq!(w.told, ["⏸ Sweep | its $0.20 for the week is spent ($0.24): it waits until older runs fall out of the week"], "said once");
         let doc = w.settle(now + WEEK_MS + 10);
         assert_eq!((&doc["routines"][0]["spentWeek"], &doc["routines"][0]["perRun"]), (&json!(0.0), &json!(0.12)));
+    }
+
+    #[test]
+    fn a_claude_run_records_the_servers_the_lightest_routines_then_deny() {
+        let mut w = World::new();
+        w.write("dm", "---\nmodel: lightest\ntools: mcp__claude_ai_Slack__slack_send_message\n---\nSay hi.");
+        w.round(1_000);
+        run_now(&mut w.store, &w.setup, "dm", 2_000, &mut |_, _, _, _| {});
+        w.settle(3_000);
+        assert!(!std::fs::read_to_string(w._dir.path().join("argv")).unwrap().contains("--disallowedTools"), "nothing known to deny yet");
+        assert_eq!(known_servers(&w.setup), ["claude.ai Slack", "claude.ai Datadog (2)", "backstage"]);
+        run_now(&mut w.store, &w.setup, "dm", 4_000, &mut |_, _, _, _| {});
+        w.settle(5_000);
+        let argv = std::fs::read_to_string(w._dir.path().join("argv")).unwrap();
+        assert!(argv.ends_with("--disallowedTools\nmcp__claude_ai_Datadog_2\nmcp__backstage\n"), "{argv}");
     }
 
     #[test]

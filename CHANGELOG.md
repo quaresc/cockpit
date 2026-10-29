@@ -5,6 +5,15 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.23.0 (2026-10-29)
+
+- Routines pick their model: `m` on a routine steps through default, lightest, haiku, sonnet and opus, and the form
+  that adds one has the same switch.
+- `model: lightest` is the cheapest run: haiku at low effort, its listed tools alone, no skills, and every MCP server
+  it does not call denied, from the servers the last run reported. A routine calling one MCP tool reads about 30k
+  tokens instead of 80k.
+- Claude routines run with `--output-format stream-json`, which tells the hub the MCP servers Claude Code connected.
+
 ## 0.22.0 (2026-10-29)
 
 - Routines: each one shows what a run costs on average, Claude's estimate (on a Claude plan runs draw on the plan,

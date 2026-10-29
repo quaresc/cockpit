@@ -27,6 +27,8 @@ pub enum Cmd {
     Run(String),
     Stop(String),
     Pause(String, bool),
+    /// A routine and the model it runs on next.
+    Model(String, String),
     Delete(String),
     Edit(String),
     Output(String, Option<String>),
@@ -272,6 +274,7 @@ impl App {
             Cmd::Run(slug) => self.call("run", vec![slug.into()], None),
             Cmd::Stop(slug) => self.call("stop", vec![slug.into()], None),
             Cmd::Pause(slug, paused) => self.call("pause", vec![slug.into(), paused.into()], None),
+            Cmd::Model(slug, model) => self.call("model", vec![slug.into(), model.into()], None),
             Cmd::Delete(slug) => self.call("delete", vec![slug.into()], armed),
             Cmd::Edit(slug) => self.call("edit", vec![slug.into()], None),
             Cmd::Output(slug, run) => self.call("output", vec![slug.into(), id(run)], None),

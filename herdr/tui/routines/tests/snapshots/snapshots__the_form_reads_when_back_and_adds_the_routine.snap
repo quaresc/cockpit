@@ -9,7 +9,6 @@ expression: "render(&mut app, 90, 30)"
     Standup notes       when?                                  never ran
  ▶  Morning sweep       weekdays at 09:00         ~$0.17/run   ran 1 h ago
     Weekly digest       Fri at 16:00                           never ran
-
        ╭──────────────────────────────────────────────────────────────────────────╮
        │                                                                          │
        │  New routine                                                             │
@@ -18,13 +17,14 @@ expression: "render(&mut app, 90, 30)"
        │  when    mon,thu 14:30                                                   │
        │          → Mon, Thu at 14:30 · next 14:30                                │
        │  prompt  List the PRs waiting for my review, oldest first.               │
-       │  folder  the repos folder                                                │
+       │  folder  a folder of its own                                             │
        │  runs     Claude   shell                                                 │
+       │  model    default   lightest   haiku   sonnet   opus                     │
+       │          haiku with nothing loaded but the tools it lists                │
        │                                                                          │
        │  tab moves · enter from the folder on adds it · esc cancels              │
        │                                                                          │
-       ╰──────────────────────────────────────────────────────────────────────────╯
-──────────────────────────────────────────────────────────────────────────────────────────
+───────╰──────────────────────────────────────────────────────────────────────────╯───────
  Pull my notes  ·  every 30 min  ·  next in 30 min
  shell · in /home/me/notes · notifies on failure
  git pull --rebase --autostash
