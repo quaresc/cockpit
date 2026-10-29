@@ -27,6 +27,8 @@ rows = [
   [{ token = "$meetings", fg = "#FFC799" }],
   # The monitor space, when pinned: red when a release moved or failed or a monitor alerts.
   [{ token = "$monitor_bad", fg = "#FF8080" }, { token = "$monitor", dim = true }],
+  # The routines space, when pinned: red when a routine's last run failed.
+  [{ token = "$routines_bad", fg = "#FF8080" }, { token = "$routines", dim = true }],
   # The actions space's sessions, one per line with its state; one waiting for you in the accent colour.
   [{ token = "$act_1", dim = true }, { token = "$act_1_wait", fg = "#FFC799" }],
   [{ token = "$act_2", dim = true }, { token = "$act_2_wait", fg = "#FFC799" }],
@@ -117,3 +119,9 @@ key = "prefix+o"
 type = "shell"
 command = "sh ~/.config/cockpit/herdr/focus-space.sh monitor"
 description = "monitor space"
+
+[[keys.command]]
+key = "prefix+y"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh routines"
+description = "routines space"

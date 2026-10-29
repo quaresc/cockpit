@@ -1,4 +1,4 @@
-//! `cockpit act`: what a notification's button does, through the hub's inbox actions and the inbox cache. Pressed from a
+//! `cockpit act`: what a notification's button does, through the hub's inbox and routines actions and the inbox cache. Pressed from a
 //! notification, nobody reads stderr: a failure comes back as a notification too.
 
 use std::time::Duration;
@@ -11,7 +11,8 @@ const USAGE: &str = "What a notification's button does, with the inbox app's own
     cockpit act review <PR url>       a Claude review of the PR in the actions space
     cockpit act ci <PR url>           a Claude investigation of the PR's failing CI in a new space
     cockpit act rerun <PR url>        the PR's failed CI jobs rerun, by the next Claude session
-    cockpit act plan <ticket id>      a Claude plan for the ticket in the actions space";
+    cockpit act plan <ticket id>      a Claude plan for the ticket in the actions space
+    cockpit act routine <slug>        the routine's last Claude run resumed in the actions space";
 
 pub fn main(args: &[String]) {
     match press(args) {
@@ -29,11 +30,11 @@ pub fn main(args: &[String]) {
 fn press(args: &[String]) -> Result<String, String> {
     let [kind, reference] = args else { return Err(USAGE.into()) };
     match kind.as_str() {
-        "review" => act("review", vec![pr_of(reference)?], None),
+        "review" => act("inbox", "review", vec![pr_of(reference)?], None),
         "ci" => {
             let pr = pr_of(reference)?;
             let run = ci_run_of(&pr);
-            act("fix_ci", vec![pr, run, json!("here")], None)
+            act("inbox", "fix_ci", vec![pr, run, json!("here")], None)
         }
         "rerun" => {
             let pr = pr_of(reference)?;
@@ -43,20 +44,21 @@ fn press(args: &[String]) -> Result<String, String> {
                 return Err(format!("no CI run to rerun for {}#{}", text(&pr["repo"]), text(&pr["number"])));
             };
             // A notification's button is the confirmation the inbox asks for with a second press.
-            act("rerun", vec![pr, run], Some(format!("rerun-{}", text(&workflow))))
+            act("inbox", "rerun", vec![pr, run], Some(format!("rerun-{}", text(&workflow))))
         }
-        "plan" => act("plan", vec![json!({"id": reference.to_uppercase(), "url": ticket_url(reference).unwrap_or_default()})], None),
+        "routine" => act("routines", "talk", vec![json!(reference), Value::Null], None),
+        "plan" => act("inbox", "plan", vec![json!({"id": reference.to_uppercase(), "url": ticket_url(reference).unwrap_or_default()})], None),
         _ => Err(USAGE.into()),
     }
 }
 
-/// The hub's inbox action, its note as the answer.
-fn act(action: &str, args: Vec<Value>, armed: Option<String>) -> Result<String, String> {
+/// The hub's action of that app, its note as the answer.
+fn act(app: &str, action: &str, args: Vec<Value>, armed: Option<String>) -> Result<String, String> {
     let env = json!({"HERDR_PANE_ID": std::env::var("HERDR_PANE_ID").unwrap_or_default()});
-    let request = json!({"op": "act", "app": "inbox", "action": action, "args": args, "armed": armed, "env": env});
+    let request = json!({"op": "act", "app": app, "action": action, "args": args, "armed": armed, "env": env});
     let answer = cockpit_core::hub::request(&request, Duration::from_secs(120))?;
     if answer["unknown"] == true {
-        return Err(format!("the cockpit hub has no inbox action {action}"));
+        return Err(format!("the cockpit hub has no {app} action {action}"));
     }
     if let Some(error) = answer["error"].as_str() {
         return Err(error.to_string());

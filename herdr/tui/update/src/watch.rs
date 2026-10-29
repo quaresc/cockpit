@@ -54,7 +54,7 @@ pub(crate) fn space_apps(listed: &str, ours: &Path) -> Vec<i32> {
         .lines()
         .filter_map(|line| {
             let (pid, command) = line.trim_start().split_once(' ')?;
-            let binary = ["inbox", "todo", "runbook", "meetings", "monitor"].iter().find_map(|app| command.strip_suffix(&format!(" {app} cockpit-space")))?;
+            let binary = ["inbox", "todo", "runbook", "meetings", "monitor", "routines"].iter().find_map(|app| command.strip_suffix(&format!(" {app} cockpit-space")))?;
             (Path::new(binary).canonicalize().ok()? == ours).then(|| pid.parse().ok())?
         })
         .collect()

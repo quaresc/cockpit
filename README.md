@@ -10,7 +10,7 @@ A Claude Code plugin and a <a href="https://herdr.dev">herdr</a> plugin that wor
 herdr runs your agents side by side but doesn't know what they work on. cockpit adds that context:
 
 - each agent sits beside its **ticket, PR, CI, deploy** and the page it tests;
-- pinned spaces hold your **inbox, runbooks, to-dos, meetings and releases**;
+- pinned spaces hold your **inbox, runbooks, to-dos, meetings, releases and routines**;
 - **one palette** searches all of it, the week's history and your past sessions.
 
 ## Install
@@ -90,6 +90,13 @@ fix it in a draft PR, file a bug or roll back.
 
 <p align="center"><img src="docs/monitor.svg" width="668" alt="Monitor: the apps released today with their verdicts, the release that moved selected, then every release as one timeline"></p>
 
+**⏰ Routines** (opt-in: add `routines` to `spaces`) · Claude prompts and scripts the hub runs on its own: on a schedule
+(`weekdays 09:00`, `every 30m`, cron), or when something happens (`on ci-failed`, `on review`, `on release-moved`). Each
+run's answer, cost and session stay with it; run, stop, pause, edit or talk a run over from the space. `a` adds one,
+`/routine <when and what>` asks Claude to write it. Local: they run while the hub does.
+
+<p align="center"><img src="docs/routines.svg" width="668" alt="Routines: the morning sweep's last answer, its runs unfolded, then the form adding one"></p>
+
 ### Everywhere
 
 **🔎 Palette** · `prefix+space` (or Cmd+K in Ghostty) over any pane, ctrl+p in every app. Finds tickets, PRs, runbook
@@ -162,7 +169,7 @@ session. Everything else comes through a session's connectors, unless you give t
 | `monitor` | `env`; the Datadog `queries` per service (`errors`, `hits`, `p95`, with `{service}` and `{env}`); when a release counts as `moved` (`errorPoints`, `p95Ratio`, `p95Ms`, `minHits`); whose releases `notify` (`mine`, `all`, `none`). |
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When they run and which tools they may use. |
 | `e2eBrowser` | `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
-| `spaces` | Pinned spaces in sidebar order: `inbox`, `terminal`, `actions` (a tab per review, plan or talk started from the inbox or runbook), `to-do`, `runbook`, `meetings`, the opt-in `monitor`, and your own, as a name or `{ "name": "notes", "cwd": "~/notes", "icon": "", "key": "prefix+n" }`. An open space with that name becomes the pinned one. |
+| `spaces` | Pinned spaces in sidebar order: `inbox`, `terminal`, `actions` (a tab per review, plan or talk started from the inbox or runbook), `to-do`, `runbook`, `meetings`, the opt-in `monitor` and `routines`, and your own, as a name or `{ "name": "notes", "cwd": "~/notes", "icon": "", "key": "prefix+n" }`. An open space with that name becomes the pinned one. |
 | `density` | `comfortable` (default, actions in a panel under the list) or `compact` (buttons on the row). `/cockpit` switches it. |
 
 Tokens stay in this file only.
@@ -174,7 +181,7 @@ Tokens stay in this file only.
 
 | Keys | |
 | --- | --- |
-| `prefix` + `i` `t` `a` `d` `u` `m` `o` | Inbox, terminal, actions, to-do, runbook, meetings, monitor (and each own space's `key`) |
+| `prefix` + `i` `t` `a` `d` `u` `m` `o` `y` | Inbox, terminal, actions, to-do, runbook, meetings, monitor, routines (and each own space's `key`) |
 | `prefix+f` | The page beside the agent, in your browser |
 | `prefix+space` | The palette, over any pane |
 | `j` `k` · `g` `G` · `[` `]` | Rows · ends · groups, in every app |

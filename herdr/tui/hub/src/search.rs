@@ -1,6 +1,7 @@
 //! The palette's search across the apps: one index of the inbox's PRs and tickets, the runbooks and their steps, the
-//! show views and their blocks, the to-do items and the meetings, rebuilt when the watcher says a file changed; then the
-//! week's events (what changed, and when), then the past Claude sessions from their own index.
+//! show views and their blocks, the to-do items, the meetings, the monitor's releases and the routines, rebuilt when the
+//! watcher says a file changed; then the week's events (what changed, and when), then the past Claude sessions from
+//! their own index.
 
 mod embed;
 pub mod sessions;
@@ -66,7 +67,11 @@ fn history(query: &str, events: Vec<Value>, now_ms: u64) -> Vec<Value> {
     let entries: Vec<Entry> = events
         .iter()
         .map(|e| {
-            let app = if e["app"] == "monitor" { "monitor" } else { "inbox" };
+            let app = match e["app"].as_str() {
+                Some("monitor") => "monitor",
+                Some("routines") => "routines",
+                _ => "inbox",
+            };
             let ago = ago(now_ms.saturating_sub(e["at"].as_u64().unwrap_or(0)));
             entry(app, "changed", text(&e["title"]), ago, text(&e["key"]))
         })
@@ -130,7 +135,18 @@ pub fn build(home: &Path) -> Vec<Entry> {
     todo(&std::fs::read_to_string(home.join(".config/cockpit/todo.md")).unwrap_or_default(), &mut out);
     meetings(&files::load(&cache.join("meetings.json")).unwrap_or(Value::Null), &mut out);
     monitor(&files::load(&cache.join("monitor.json")).unwrap_or(Value::Null), &mut out);
+    routines(&files::load(&cache.join("routines.json")).unwrap_or(Value::Null), &mut out);
     out
+}
+
+/// The routines, each with when it runs and how its last run went.
+fn routines(data: &Value, out: &mut Vec<Entry>) {
+    for r in list(&data["routines"]) {
+        let slug = text(&r["slug"]);
+        let last = list(&data["runs"][slug.as_str()]).first().map(|run| text(&run["summary"]));
+        let help = std::iter::once(text(&r["when"])).chain(last).collect::<Vec<_>>().join(" · ");
+        out.push(entry("routines", "routine", text(&r["name"]), help, slug));
+    }
 }
 
 /// The monitor's apps and their releases, each with how it stands.

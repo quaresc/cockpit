@@ -106,6 +106,33 @@ monitor = {"version": 1, "at": int(now.timestamp() * 1000), "env": "production",
     app("mobile-api", "v2026.10.27", 1600, watched=False), app("search", "v2026.10.26", 3100, watched=False), app("infra-jobs", "v1.4.0", 9000, watched=False)]}
 with open(os.path.join(cache, "monitor.json"), "w") as f: json.dump(monitor, f)
 
+# Routines: their files, and the runs the hub recorded with what each said.
+os.makedirs(os.path.join(conf, "routines"), exist_ok=True)
+ms = lambda **d: int((now - timedelta(**d)).timestamp() * 1000)
+for slug, head, body in [
+    ("morning-sweep", "name: Morning sweep\nwhen: weekdays 09:00\nmodel: sonnet\ntools: Read, Bash(gh pr list:*)\nbudget: 0.50", "Sum up my open PRs: which wait for review, which fail CI, which can merge."),
+    ("fix-lint", "name: Fix lint on my PRs\nwhen: on ci-failed lint\nmode: acceptEdits\ntools: Read, Edit, Bash(yarn lint:*), Bash(git:*)\nnotify: failed", "CI failed on lint: fix it on the branch and push."),
+    ("notes-pull", "name: Pull my notes\nwhen: every 30m\nrun: shell\ncwd: ~/code\nnotify: never", "git -C ~/code/api fetch --quiet && echo fetched"),
+    ("weekly-digest", "name: Weekly digest\nwhen: fri 16:00\nmodel: opus\npaused: true", "Write my week's digest from my merged PRs and tickets.")]:
+    with open(os.path.join(conf, "routines", f"{slug}.md"), "w") as f: f.write(f"---\n{head}\n---\n\n{body}\n")
+def run(mins, took, ok, why, summary, cost=None, session="", code=0):
+    return {"id": str(ms(minutes=mins)), "started": ms(minutes=mins), "ended": ms(minutes=mins) + took * 1000, "ok": ok, "code": code, "why": why,
+            "session": session, "cost": cost, "summary": summary}
+runs = {
+    "morning-sweep": [run(70, 72, True, "scheduled for 09:00", "3 PRs wait for review, CI green on all of them", 0.18, "s-sweep-1"),
+                      run(1510, 58, True, "scheduled for 09:00", "2 PRs wait for review, billing#375 fails lint", 0.15, "s-sweep-0")],
+    "fix-lint": [run(130, 210, True, "🔴 CI failed: billing me/eng-398-invoice-csv · lint", "Fixed 2 lint errors in billing#375 and pushed", 0.31, "s-lint-0")],
+    "notes-pull": [run(12, 2, True, "every 30 min", "fetched"), run(42, 2, False, "every 30 min", "fatal: unable to access github.com", code=128)]}
+for slug, rs in runs.items():
+    os.makedirs(os.path.join(cache, "routines", slug), exist_ok=True)
+with open(os.path.join(cache, "routines", "morning-sweep", runs["morning-sweep"][0]["id"] + ".txt"), "w") as f:
+    f.write("3 PRs wait for review, CI green on all of them\n\n## Waiting for review\n- api#412 Daily quotas · 2 days, no reviewer yet\n"
+            "- web#413 Quota banner · Maya asked for changes yesterday, answered\n- billing#375 Invoice CSV export · approved by Lin, needs a second review\n\n"
+            "## Can merge\n- api#409 Search rate limit · approved, CI green\n")
+with open(os.path.join(cache, "routines.json"), "w") as f:
+    json.dump({"version": 1, "at": ms(minutes=1), "cursor": ms(minutes=1), "routines": [], "running": {}, "queued": [], "runs": runs, "marks": {
+        slug: {"seen": ms(days=3), "fired": ms(minutes=70) if slug == "morning-sweep" else ms(minutes=12)} for slug in runs}}, f)
+
 # Past Claude sessions, for the palette's search by words and by meaning.
 def session(project, sid, title, mins, lines):
     folder = os.path.join(home, ".claude", "projects", project); os.makedirs(folder, exist_ok=True)
@@ -132,7 +159,7 @@ with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
     json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "name": "Linear", "keys": ["ENG"]}, "ci": {"name": "GitHub", "imageJob": "docker"},
-               "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "monitor"],
+               "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "monitor", "routines"],
                "platform": {"enabled": True, "previewPrefix": "pv-", "previewDashboardUrl": "https://argocd.example.com/applications/{preview}", "tools": {"createPreview": {"tool": "previews_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"

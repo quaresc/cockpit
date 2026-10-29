@@ -5,6 +5,17 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.21.0 (2026-10-29)
+
+- A routines space (opt-in: `routines` in `spaces`, `prefix+y`): Claude prompts and shell scripts in
+  `~/.config/cockpit/routines/` that the hub runs on a schedule, every so often or on an event (CI failing, a review
+  requested, a release that moved…), three at a time, a missed run caught up once within 12 hours.
+- Each run keeps its answer, cost and Claude session: run, stop, pause, edit or delete a routine, read a run's output
+  or resume its session in the actions space; a notification when a run ends, with Open and Talk.
+- `a` in the space adds a routine in a form that reads its schedule back in words; `/routine` asks Claude to write one.
+- The hub's events carry a kind, the palette finds routines and their runs, and the hub stays up while a routine waits
+  for its time.
+
 ## 0.20.1 (2026-10-29)
 
 - A notification click brings forward the very Ghostty window and tab where herdr runs, not just Ghostty (#11).

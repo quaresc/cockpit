@@ -18,8 +18,10 @@ const USAGE: &str = "What a click on a cockpit notification does.
     cockpit focus runbook:<slug>[:<step>,<step>]    the runbook space, that runbook open and its steps played as done
     cockpit focus meeting:<event id>                the meetings space, that meeting's brief open
     cockpit focus monitor:<app>                     the monitor space, that app (its id or name) selected and unfolded
+    cockpit focus routine:<slug>                    the routines space, that routine selected
     cockpit focus update                            cockpit updated, in the background
-    cockpit focus act:<review|ci|rerun|plan>:<ref>  a notification button: cockpit act with that action, then the terminal
+    cockpit focus act:<review|ci|rerun|plan|routine>:<ref>
+                                                    a notification button: cockpit act with that action, then the terminal
     cockpit focus http(s)://…                       opened in the browser";
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -40,6 +42,9 @@ pub fn main(args: &[String]) {
     } else if let Some(app) = target.strip_prefix("monitor:") {
         request("monitor-focus.json", &json!({"app": app, "at": now()}));
         space("monitor");
+    } else if let Some(slug) = target.strip_prefix("routine:") {
+        cockpit_core::focus::request("routines", &json!({"app": "routines", "key": slug}));
+        space("routines");
     } else if let Some(rest) = target.strip_prefix("act:") {
         act(rest);
     } else if let Some(id) = target.strip_prefix("workspace:") {

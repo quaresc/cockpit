@@ -1,6 +1,6 @@
-//! `cockpit hub`: answers the apps on ~/.cache/cockpit/hub.sock (see cockpit_core::hub for the protocol) and is the
-//! only writer of the documents they share (see store). One runs at a time, detached from the app that started it, and
-//! exits after 30 minutes with no request and no subscriber.
+//! `cockpit hub`: answers the apps on ~/.cache/cockpit/hub.sock (see cockpit_core::hub for the protocol), is the only
+//! writer of the documents they share (see store) and runs the routines. One runs at a time, detached from the app that
+//! started it, and exits after 30 minutes with no request, no subscriber and no routine to run on its own.
 
 mod act;
 mod config;
@@ -11,6 +11,7 @@ mod go;
 mod herdr;
 mod history;
 mod proc;
+mod routines;
 mod search;
 mod server;
 mod store;
@@ -63,6 +64,7 @@ pub fn run() {
     });
     std::thread::spawn(watch);
     std::thread::spawn(search::sessions::keep);
+    std::thread::spawn(routines::keep);
     std::thread::spawn(move || {
         let dir = files::herdr_dir();
         cockpit_update::keep_current(&dir, |binary| hand_over(&dir, binary, &socket, inode));
@@ -88,7 +90,7 @@ fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
 /// Whether a pinned space's app runs: the hub keeps fetching for it and keeping its binary current, requests or not.
 fn space_apps_running() -> bool {
     std::process::Command::new("pgrep")
-        .args(["-f", "cockpit (inbox|runbook|todo|meetings|monitor) cockpit-space"])
+        .args(["-f", "cockpit (inbox|runbook|todo|meetings|monitor|routines) cockpit-space"])
         .stdout(Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
@@ -99,7 +101,7 @@ fn exit_when_idle(socket: &Path, inode: u64, last: &AtomicU64) {
     loop {
         std::thread::sleep(Duration::from_secs((limit / 10).clamp(1, 30)));
         let is_idle = server::now_secs().saturating_sub(last.load(Ordering::SeqCst)) >= limit;
-        if is_idle && !store::global().has_subscribers() && !space_apps_running() {
+        if is_idle && !store::global().has_subscribers() && !space_apps_running() && !routines::wanted() {
             // Only our own socket goes: a newer hub may have taken the path.
             if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
                 let _ = std::fs::remove_file(socket);

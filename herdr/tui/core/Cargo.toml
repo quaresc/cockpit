@@ -1,10 +1,11 @@
 [package]
 name = "cockpit-core"
-description = "What the Rust space apps share: theme, terminal, file watching, the bridge that runs actions through the hub, palette, dialogs and toasts."
+description = "What the Rust space apps share: theme, terminal, file watching, the bridge that runs actions through the hub, routines, palette, dialogs and toasts."
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
+chrono.workspace = true
 crossterm.workspace = true
 notify.workspace = true
 nucleo-matcher.workspace = true
@@ -16,3 +17,4 @@ tachyonfx.workspace = true
 
 [dev-dependencies]
 regex.workspace = true
+tempfile = "3"
