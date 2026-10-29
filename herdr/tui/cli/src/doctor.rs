@@ -464,8 +464,8 @@ impl Doctor {
             let fps = if fps.is_empty() { "display" } else { &fps };
             warn(&format!("terminal-browser render.fps is {fps}: 60 scrolls smoothly and leaves herdr room → terminal-browser config set render.fps 60"));
         }
-        // herdr hands frames to Ghostty as files in /tmp, which Ghostty reads on macOS from its tip builds (stable 1.3.1
-        // and older refuse them).
+        // herdr hands frames to Ghostty as files in /tmp, which Ghostty reads on macOS from 1.3.2 on (1.3.1 and older
+        // refuse them).
         let ghostty = "/Applications/Ghostty.app/Contents/MacOS/ghostty";
         if cfg!(target_os = "macos") && proc::executable(Path::new(ghostty)) {
             let info = self.output(&[ghostty, "--version"]);
@@ -476,7 +476,7 @@ impl Doctor {
                 ok(&format!("Ghostty {version} ({channel}) reads herdr's frame files"));
             } else {
                 warn(&format!(
-                    "Ghostty {version} ({channel}) refuses herdr's frame files, so terminal-browser panes are slow → add auto-update-channel = tip to Ghostty's config, then Ghostty → Check for Updates…, or download the tip build from ghostty.org/download"
+                    "Ghostty {version} ({channel}) refuses herdr's frame files, so terminal-browser panes are slow → update Ghostty to 1.4.0 or newer: Ghostty → Check for Updates…, or ghostty.org/download"
                 ));
             }
         }

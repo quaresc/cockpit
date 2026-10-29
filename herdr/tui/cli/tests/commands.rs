@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::{Sandbox, stderr, stdout};
+use common::{Sandbox, executable, stderr, stdout};
 use serde_json::{Value, json};
 
 const SPACES: &str = r#"{"result": {"workspaces": [{"workspace_id": "w1", "label": "[1] x  inbox"}, {"workspace_id": "w3", "label": "[3] y  actions"}]}}"#;
@@ -486,6 +486,19 @@ fn focus_opens_a_url_and_brings_the_terminal_forward() {
     sandbox.cockpit(&["focus", "tab:t4"], &[]);
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let mut expected = vec![format!("{opener} https://x.test/a"), "herdr tab focus t4".to_string()];
+    if cfg!(target_os = "macos") {
+        expected.push(r#"osascript -e tell application "Ghostty" to focus (first terminal whose tty is "/dev/ttys007")"#.into());
+    }
+    assert_eq!(sandbox.calls(), expected);
+}
+
+#[test]
+fn focus_brings_the_app_forward_when_ghostty_cannot_say_where_herdr_runs() {
+    let sandbox = Sandbox::new();
+    executable(&sandbox.root.join("bin/osascript"), "#!/bin/sh\nexit 1\n");
+    sandbox.write("home/.cache/cockpit/terminal-app", "com.mitchellh.ghostty\n");
+    sandbox.cockpit(&["focus", "tab:t4"], &[]);
+    let mut expected = vec!["herdr tab focus t4".to_string()];
     if cfg!(target_os = "macos") {
         expected.push("open -b com.mitchellh.ghostty".into());
     }

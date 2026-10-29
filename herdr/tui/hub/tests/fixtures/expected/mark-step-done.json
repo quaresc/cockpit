@@ -14,7 +14,7 @@
       "step": "2",
       "title": "Run the migration"
     },
-    "home/.config/cockpit/runbooks/eng-401.md": "# ENG-401 · Google sign-in\nupdated: <MINUTE>\n\n| # | Step | Where | Status | Command |\n|---|------|-------|--------|---------|\n| 1 | Merge the API PR | api#4 | 🟡 in review | |\n| 2 | Run the migration | prod | ✅ done 28 Oct | `mix ecto.migrate` |\n| 3 | Announce | slack | ✅ done 27 Oct | |\n\n## Notes\n- Feature flag first\n"
+    "home/.config/cockpit/runbooks/eng-401.md": "# ENG-401 · Google sign-in\nupdated: <MINUTE>\n\n| # | Step | Where | Status | Command |\n|---|------|-------|--------|---------|\n| 1 | Merge the API PR | api#4 | 🟡 in review | |\n| 2 | Run the migration | prod | ✅ done <TODAY> | `mix ecto.migrate` |\n| 3 | Announce | slack | ✅ done 27 Oct | |\n\n## Notes\n- Feature flag first\n"
   },
   "note": "eng-401 step 2 marked done",
   "pending": {},
