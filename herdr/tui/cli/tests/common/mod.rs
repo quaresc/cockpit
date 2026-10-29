@@ -56,6 +56,9 @@ impl Sandbox {
             executable(&sandbox.root.join("bin").join(tool), &fake(tool, &log, &[]));
         }
         executable(&sandbox.root.join("bin/notify"), &fake("notify", &log, &[]));
+        // herdr's client on a terminal of its own, and a Ghostty that answers AppleScript: the real ones stay untouched.
+        executable(&sandbox.root.join("bin/ps"), "#!/bin/sh\nprintf '%s\\n' '??       /opt/homebrew/bin/herdr server' 'ttys007  herdr'\n");
+        executable(&sandbox.root.join("bin/osascript"), &fake("osascript", &log, &[]));
         sandbox.herdr(&[]);
         sandbox
     }
