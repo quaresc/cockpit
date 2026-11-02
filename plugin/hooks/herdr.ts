@@ -18,7 +18,8 @@ let isJob = false
 export async function setBackground($: $, isInteractive: boolean) {
   const isDaemon = (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
   const jobDir = await $.env.get('CLAUDE_JOB_DIR')
-  isJob = isDaemon && Boolean(jobDir) && (await $.fs.exists(jobDir ?? ''))
+  // A job's own process may not carry the bg kind: its job folder is what says it is one.
+  isJob = Boolean(jobDir) && (await $.fs.exists(jobDir ?? ''))
   isBackground = !isJob && (!isInteractive || isDaemon)
   return isBackground
 }

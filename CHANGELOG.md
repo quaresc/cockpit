@@ -5,6 +5,13 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.27.1 (2026-11-02)
+
+- A background job (it has a job folder) never fetches: its MCP calls cannot run there, and it filled the inbox with
+  "$.mcp.call is not available" errors.
+- MCP calls that cannot run yet no longer show as errors in the inbox (tickets, previews, deploy status); they are
+  retried within a minute.
+
 ## 0.27.0 (2026-11-02)
 
 - Inbox, quieter: no tiles, one line per PR and review like the TUI, each person in their own color, the reference a
