@@ -182,7 +182,7 @@ const BOOK_WHOLE: &str = r#"[{"path": "@BOX@/home/.config/cockpit/runbooks/notes
 /// Text with the sandbox's root and the clock taken out: today's date too, as a step marked done says it.
 fn norm_text(text: &str, root: &Path) -> String {
     let root = root.to_string_lossy();
-    let today = chrono::Local::now().format("done %-d %b").to_string();
+    let today = chrono::Local::now().format("done %d %b").to_string();
     let text = text.replace(&format!("/private{root}"), "<BOX>").replace(&*root, "<BOX>").replace(&today, "done <TODAY>");
     static MS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b\d{13}-").unwrap());
     static MINUTE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}").unwrap());
