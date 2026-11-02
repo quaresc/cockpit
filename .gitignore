@@ -5,3 +5,5 @@ docs/screenshots/home/
 herdr/bin/
 herdr/bin.*/
 herdr/fetch.lock/
+app/mods/cockpit/gpui-kit.d.ts
+app/mods/cockpit/jsconfig.json

@@ -1,6 +1,6 @@
 id = "cockpit"
 name = "Cockpit"
-version = "0.25.0"
+version = "0.26.0"
 min_herdr_version = "0.7.5"
 description = "One agent per space, pinned inbox, terminal, actions, to-do, runbook, meetings, monitor and routines spaces with their apps, and your own, PR peek popups, E2E tests in terminal-browser beside the agent"
 platforms = ["macos", "linux"]
@@ -103,6 +103,22 @@ placement = "popup"
 width = "70%"
 height = "60%"
 command = ["sh", "recap.sh"]
+
+[[panes]]
+id = "agents"
+title = "Agents"
+placement = "popup"
+width = "80%"
+height = "75%"
+command = ["sh", "cockpit.sh", "agents", "pick"]
+
+[[panes]]
+id = "queue"
+title = "Queue"
+placement = "popup"
+width = "60%"
+height = "50%"
+command = ["sh", "cockpit.sh", "queue", "pick"]
 
 [[panes]]
 id = "palette"

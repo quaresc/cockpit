@@ -35,7 +35,13 @@ pub struct Routine {
     pub paused: bool,
     pub prompt: String,
     pub next: Option<u64>,
+    /// Its next three runs on its own.
+    pub next_runs: Vec<u64>,
     pub notify: String,
+    /// Each run in a worktree of its own.
+    pub worktree: bool,
+    /// Minutes a run missed while the hub was down may still start late.
+    pub catch_up: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -62,11 +68,60 @@ pub struct Run {
     pub summary: String,
     pub stopped: bool,
     pub timed_out: bool,
+    /// Its time passed while the hub was down, too long ago to run late.
+    pub missed: bool,
+    /// It ran late, after the hub came back.
+    pub late: bool,
+    /// Seen in the run inbox, or opened.
+    pub read: bool,
+    pub worktree: Option<Worktree>,
+}
+
+/// The git worktree a run worked in: kept while it holds commits or changes, removed otherwise.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Worktree {
+    pub path: String,
+    pub branch: String,
+    pub commits: u64,
+    pub dirty: bool,
+    pub removed: bool,
+}
+
+impl Worktree {
+    pub fn kept(&self) -> bool {
+        !self.removed && !self.path.is_empty()
+    }
+
+    /// "auto/fix-lint-17… · 2 commits", "… · uncommitted changes".
+    pub fn describe(&self) -> String {
+        let mut what = Vec::new();
+        if self.commits > 0 {
+            what.push(if self.commits == 1 { "1 commit".to_string() } else { format!("{} commits", self.commits) });
+        }
+        if self.dirty {
+            what.push("uncommitted changes".into());
+        }
+        if what.is_empty() { self.branch.clone() } else { format!("{} · {}", self.branch, what.join(", ")) }
+    }
 }
 
 impl Run {
     pub fn session(&self) -> Option<&str> {
         self.session.as_deref().filter(|s| !s.is_empty())
+    }
+
+    /// How it ended, in a word: ok, failed, missed, stopped.
+    pub fn word(&self) -> &'static str {
+        if self.ok {
+            "ok"
+        } else if self.missed {
+            "missed"
+        } else if self.stopped {
+            "stopped"
+        } else {
+            "failed"
+        }
     }
 
     pub fn took(&self) -> String {
@@ -81,10 +136,11 @@ struct Queued {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(rename_all = "camelCase", default)]
 struct Raw {
     version: u64,
     at: Option<u64>,
+    inbox_from: Option<u64>,
     routines: Vec<Routine>,
     running: HashMap<String, Running>,
     queued: Vec<Queued>,
@@ -100,6 +156,7 @@ pub enum State {
     Over,
     Paused,
     Failed,
+    Missed,
     Ok,
     Never,
 }
@@ -107,6 +164,8 @@ pub enum State {
 #[derive(Clone, Debug, Default)]
 pub struct Doc {
     pub at: Option<u64>,
+    /// Runs that ended after this and are not read show in the run inbox; none before the hub first set it.
+    pub inbox_from: u64,
     pub routines: Vec<Routine>,
     pub running: HashMap<String, Running>,
     pub queued: Vec<String>,
@@ -119,6 +178,7 @@ impl Doc {
         let raw: Raw = serde_json::from_value(value.clone()).ok()?;
         (raw.version == 1).then(|| Doc {
             at: raw.at,
+            inbox_from: raw.inbox_from.unwrap_or(u64::MAX),
             routines: raw.routines,
             running: raw.running,
             queued: raw.queued.into_iter().map(|q| q.slug).collect(),
@@ -142,6 +202,18 @@ impl Doc {
         self.runs(slug).iter().find(|r| r.id == id)
     }
 
+    pub fn is_unread(&self, run: &Run) -> bool {
+        !run.read && run.ended > self.inbox_from
+    }
+
+    /// The runs not read yet, newest first, with their routine's slug.
+    pub fn unread(&self) -> Vec<(&str, &Run)> {
+        let mut all: Vec<(&str, &Run)> =
+            self.routines.iter().flat_map(|r| self.runs(&r.slug).iter().filter(|run| self.is_unread(run)).map(move |run| (r.slug.as_str(), run))).collect();
+        all.sort_by_key(|(_, run)| std::cmp::Reverse(run.ended));
+        all
+    }
+
     pub fn state(&self, r: &Routine) -> State {
         if self.running.contains_key(&r.slug) {
             State::Running
@@ -156,6 +228,7 @@ impl Doc {
         } else {
             match self.last(&r.slug) {
                 Some(run) if run.ok => State::Ok,
+                Some(run) if run.missed => State::Missed,
                 Some(_) => State::Failed,
                 None => State::Never,
             }

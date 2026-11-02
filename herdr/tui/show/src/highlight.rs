@@ -66,6 +66,21 @@ fn style(index: usize) -> Style {
     color.map_or(style, |hex| style.fg(Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)))
 }
 
+/// A painted piece's syntax role for the Herdr app, which colours it from the person's theme: `k`eyword, `s`tring,
+/// `f`unction (numbers and constants too), `t`ype, `c`omment, `p`arameter, `l`ink, or "" for plain text.
+pub fn class_of(style: &Style) -> &'static str {
+    match style.fg {
+        Some(Color::Rgb(0x6E, 0x6E, 0x74)) => "c",
+        Some(Color::Rgb(0x99, 0xFF, 0xE4)) => "s",
+        Some(Color::Rgb(0xFF, 0xC7, 0x99)) => "f",
+        Some(Color::Rgb(0xA0, 0xA0, 0xA0)) => "k",
+        Some(Color::Rgb(0xFF, 0xFF, 0xFF)) => "t",
+        Some(Color::Rgb(0xD2, 0xD2, 0xD2)) => "p",
+        Some(Color::Rgb(0xA0, 0xA0, 0xFF)) => "l",
+        _ => "",
+    }
+}
+
 /// A language a grammar is bundled for.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Lang {

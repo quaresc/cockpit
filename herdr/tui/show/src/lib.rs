@@ -7,6 +7,7 @@ mod blocks;
 mod chart;
 mod compare;
 mod diff;
+pub mod gui;
 mod highlight;
 mod log;
 mod markdown;
@@ -15,6 +16,7 @@ mod patch;
 mod picture;
 mod question;
 mod raster;
+pub mod review;
 
 pub use raster::use_only_font;
 mod row;
@@ -24,6 +26,7 @@ mod svg;
 mod table;
 mod text_drawing;
 mod value;
+mod walkthrough;
 
 pub use app::ShowApp;
 pub use markdown::{inline as markdown_inline, lines as markdown_lines};

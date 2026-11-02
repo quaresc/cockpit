@@ -31,6 +31,7 @@
   },
   "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
   "recap": { "enabled": true, "awayMinutes": 10 },
+  "agents": { "recap": "auto" },
   "meetingBrief": { "enabled": true, "model": "sonnet", "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
   "calendar": { "enabled": true, "name": "Google Calendar", "server": "claude.ai Google Calendar" },
   "metabase": { "server": "metabase" },
@@ -44,5 +45,6 @@
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "runbookTools": [],
   "worktrees": false,
-  "density": "comfortable"
+  "density": "comfortable",
+  "editor": "code"
 }

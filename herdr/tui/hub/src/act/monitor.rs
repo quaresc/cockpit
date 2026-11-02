@@ -15,6 +15,14 @@ fn pinned_path() -> PathBuf {
     files::config_dir().join("monitor-pinned.json")
 }
 
+/// The app of this id as the monitor document has it, with the document's `env`: what `{"$monitor": id}` stands for.
+pub fn app_of(id: &Value) -> Value {
+    let doc = crate::store::global().get("monitor");
+    let Some(mut app) = list(get(&doc, "apps")).iter().find(|a| text(get(a, "id")) == text(id)).cloned() else { return Value::Null };
+    app["env"] = get(&doc, "env").clone();
+    app
+}
+
 pub fn open_url(ctx: &mut Ctx, args: &[Value]) -> Res {
     inbox::open_url(ctx, args)
 }

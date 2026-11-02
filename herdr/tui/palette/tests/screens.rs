@@ -66,3 +66,21 @@ fn a_found_item_goes_into_the_claude_session() {
     let unnamed = Over { session: None, ..claude() };
     assert_eq!(into_session('f', &unnamed, &pr, &none, &none), None);
 }
+
+#[test]
+fn over_a_claude_session_it_forks_it_and_opens_its_folder() {
+    let mut app = App::new(commands(&[]), Some(claude()), None);
+    for _ in 0..3 {
+        app.event(press(KeyCode::Down));
+    }
+    assert!(app.event(press(KeyCode::Enter)));
+    assert_eq!(app.then, Some(Then::Fork { session: "4f1c-77".into(), cwd: "/repos/api".into(), title: "Google sign-in".into(), prompt: String::new() }));
+    let mut app = App::new(commands(&[]), Some(claude()), None);
+    for _ in 0..4 {
+        app.event(press(KeyCode::Down));
+    }
+    assert!(app.event(press(KeyCode::Enter)));
+    assert_eq!(app.then, Some(Then::Editor("/repos/api".into())));
+    let shell = Over { is_claude: false, session: None, ..claude() };
+    assert_eq!(cockpit_palette::session_commands(&shell), [Command::Editor("/repos/api".into())]);
+}

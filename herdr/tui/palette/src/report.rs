@@ -83,6 +83,24 @@ impl Report {
         true
     }
 
+    /// The page for the Herdr app: {title, running, rows: [{mark, tone, text, url}]}, tone good, bad, warn or dim.
+    pub fn json(&self) -> Value {
+        let tone = |c: Color| match c {
+            GREEN => "good",
+            RED => "bad",
+            ORANGE => "warn",
+            DIM => "dim",
+            _ => "",
+        };
+        let rows: Vec<Value> = self.rows.iter().map(|r| serde_json::json!({"mark": r.mark, "tone": tone(r.color), "text": r.text, "url": r.url})).collect();
+        serde_json::json!({"title": self.title, "running": self.running.is_some(), "rows": rows})
+    }
+
+    /// The doctor's page once `cockpit doctor` printed `out`.
+    pub fn doctor_done(out: &str) -> Report {
+        Report { title: "Cockpit doctor".into(), rows: doctor_rows(out), state: ListState::default(), running: None }
+    }
+
     pub fn selected_url(&self) -> Option<String> {
         self.rows.get(self.state.selected()?)?.url.clone()
     }

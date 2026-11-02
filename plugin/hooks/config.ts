@@ -264,6 +264,20 @@ export async function cacheDir($: $) {
   return `${await home($)}/.cache/cockpit`
 }
 
+// The cockpit command: the herdr plugin's cockpit.sh through its link, else the binary `cockpit app install` noted in
+// the Herdr app's home, else the copy of the herdr folder the Claude plugin's marketplace holds.
+export async function cockpitCommand($: $): Promise<string[] | undefined> {
+  const dir = await home($)
+  const exists = (path: string) => $.fs.stat(path).then(() => true, () => false)
+  const linked = `${dir}/.config/cockpit/herdr/cockpit.sh`
+  if (await exists(linked)) return ['sh', linked]
+  const appHome = (await $.env.get('HERDR_APP_HOME')) || `${dir}/.config/herdr-app`
+  const bin = (JSON.parse(await $.fs.read(`${appHome}/cockpit.json`).catch(() => '{}')) as { bin?: string }).bin
+  if (bin && (await exists(bin))) return [bin]
+  const shipped = `${dir}/.claude/plugins/marketplaces/cockpit/herdr/cockpit.sh`
+  return (await exists(shipped)) ? ['sh', shipped] : undefined
+}
+
 // Read at most every 30 s, so a setup change reaches running sessions without a restart.
 export async function loadConfig($: $): Promise<Config> {
   if (cached && Date.now() - cached.at < 30_000) return cached.config
@@ -334,10 +348,14 @@ async function shareConfig($: $, config: Config) {
 async function herdrPluginRoot($: $) {
   try {
     const plugins = JSON.parse(await $.fs.read(`${await home($)}/.config/herdr/plugins.json`)) as { plugin_id: string; plugin_root: string }[]
-    return plugins.find(p => p.plugin_id === 'cockpit')?.plugin_root ?? ''
+    const root = plugins.find(p => p.plugin_id === 'cockpit')?.plugin_root
+    if (root) return root
   } catch {
-    return ''
+    // No herdr: the Herdr app alone.
   }
+  // Without the herdr plugin, its scripts come from the Claude plugin's marketplace, which holds the whole repo.
+  const shipped = `${await home($)}/.claude/plugins/marketplaces/cockpit/herdr`
+  return (await $.fs.stat(`${shipped}/cockpit.sh`).then(() => true, () => false)) ? shipped : ''
 }
 
 // Fills `{name}` placeholders of a URL template; an empty template gives no URL.

@@ -55,6 +55,36 @@ pub fn icon(name: &str) -> &'static str {
         "team" => "\u{f4fd}",
         "work" => "\u{f502}",
         "backlog" => "\u{f4a5}",
+        "worktree" => "\u{f418}",
+        "merge" => "\u{f419}",
         _ => "·",
     }
+}
+
+/// A glyph's lucide icon name, for the Herdr app's rows: the glyphs the rows lead with, by what they mean.
+pub fn lucide(glyph: &str) -> &'static str {
+    const NAMES: [(&str, &str); 21] = [
+        ("inbox", "inbox"),
+        ("review", "eye"),
+        ("work", "briefcase"),
+        ("pr", "git-pull-request"),
+        ("today", "sun"),
+        ("alert", "triangle-alert"),
+        ("mute", "volume-x"),
+        ("fold", "chevrons-up-down"),
+        ("ok", "circle-check"),
+        ("fail", "circle-x"),
+        ("running", "hourglass"),
+        ("approved", "check"),
+        ("changes", "message-square"),
+        ("waiting", "clock"),
+        ("user", "user"),
+        ("team", "users"),
+        ("progress", "circle-dot"),
+        ("backlog", "circle-dashed"),
+        ("rocket", "rocket"),
+        ("worktree", "folder-git"),
+        ("ci", "activity"),
+    ];
+    NAMES.iter().find(|(name, _)| icon(name) == glyph).map(|(_, lucide)| *lucide).unwrap_or("circle")
 }

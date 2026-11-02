@@ -5,6 +5,44 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.26.0 (2026-11-02)
+
+- cockpit runs in the Herdr desktop app: a `cockpit` layout and mod drawn natively by Herdr, on the same hub as the
+  herdr half, both at once. `cockpit app install` puts them in place (setup and update do it), merges the keys and
+  switches the window to the layout once.
+- The hub also listens on 127.0.0.1 with a token (`~/.cache/cockpit/hub.json`) and serves each app's view model, built
+  by the app's own Rust code, so both halves show the same rows; requests name their frontend, and everything that
+  opens, focuses or types into a window goes to the right one.
+- Sidebar in place of Herdr's lists: agents that need you, answered in place (single, multi or free text), agents by
+  ticket with PR, CI and changes, Claude quota bars with a pace tick, spaces, and the apps with their counts.
+- Home: today's numbers, the next move, the agents and PRs by whose move it is (Needs you, Working, Ready to land,
+  Done), the week's delivery. A status bar, a bell, a side panel (Show, Review, Runbook, Files, Changes) and the
+  focused agent alone (⌘⌥A).
+- Every app as a GUI view with all of its TUI keys and actions, plus buttons, hover cards, right-click menus, drag to
+  reorder, sortable tables and side panels; Monitor and Routines as dashboards.
+- Inbox: merge readiness and merge, auto-merge, ready and draft, a ticket or PR started in a worktree with an agent
+  after safety checks, Linear status and assignee, PR alerts by diff, uncommitted work and merged worktrees to clean.
+- Agents: the hub's `agents` view (question, recap, whose move, ticket, PR, CI, cost) with answer, recap, snooze, seen
+  and fork; an agent-time ledger per ticket; a recap popup (⌘R) by stage; a prompt queue per agent; agents resumed
+  after a restart, in both halves.
+- Review: the focused agent's changes (uncommitted, branch or PR) commented line by line and sent back as one
+  message, or read as a guided walkthrough.
+- The palette in the app (⌘⇧P) is Herdr's plus cockpit's, on Herdr's own geometry: every command with its key,
+  layouts, spaces, tabs and agents, cockpit's commands, the doctor's report and today's brief, and the hub's search.
+  Over a Claude agent a found item goes into its prompt, is asked about or looked into by a fork; the session itself
+  forks to a tab or the right, and its folder opens in your editor (`editor` in the config; Remote-SSH for a remote
+  space).
+- Notifications in the app are Herdr's toast while the window is in front and the system's otherwise; either click
+  opens the row the notification is about (a PR or ticket in the inbox, a runbook, a routine), where its buttons are.
+- `cockpit focus inbox:<PR url|ticket id>` selects that row in the inbox, in both halves.
+- An agent's recap is asked of haiku a minute after its turn ends when nobody looked at it (`agents.recap: "manual"`
+  turns that off).
+- herdr: `prefix+shift+a` opens the agents popup, `prefix+shift+q` the prompt queue of the agent in view and
+  `prefix+shift+u` resumes the agents a restart stopped; a diff in a show pane sends several comments as one review
+  (`S`).
+- With both halves running, a notification about no session goes to the one in front.
+- `docs/screenshots/app_shots.sh` shoots the app's screens in a sandbox window, dark and light, normal and narrow.
+
 ## 0.25.0 (2026-10-29)
 
 - Lightest routines no longer give up when their MCP server is still connecting at the start: their system prompt names

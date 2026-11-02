@@ -20,6 +20,10 @@ static CACHE: Mutex<Option<HashMap<String, (Instant, Value)>>> = Mutex::new(None
 
 /// The answer for this kind and arguments, from the cache while it is fresh; an error is never kept.
 pub fn fetch(kind: &str, args: &Value) -> Value {
+    // A start's checks look at the world as it is now.
+    if kind == "start_plan" {
+        return answer(kind, args).unwrap_or_else(|error| json!({"error": error}));
+    }
     let key = format!("{kind} {args}");
     if let Ok(mut cache) = CACHE.lock()
         && let Some((at, answer)) = cache.get_or_insert_default().get(&key)
@@ -37,6 +41,13 @@ pub fn fetch(kind: &str, args: &Value) -> Value {
     answer
 }
 
+/// Drops the kept answers of a kind, after a change made them stale.
+pub fn forget(kind: &str) {
+    if let Ok(mut cache) = CACHE.lock() {
+        cache.get_or_insert_default().retain(|key, _| !key.starts_with(&format!("{kind} ")));
+    }
+}
+
 fn answer(kind: &str, args: &Value) -> Result<Value, String> {
     let config = config::load();
     match kind {
@@ -44,6 +55,9 @@ fn answer(kind: &str, args: &Value) -> Result<Value, String> {
         "pr_files" => pr_files(&full_repo(&config, args)?, &number(args)?),
         "failed_tests" => Ok(failed_tests(args)),
         "ci_log" => ci_log(&config, args),
+        "pr_merge" => crate::act::pr_merge(args),
+        "ticket_card" => crate::act::ticket_card(args),
+        "start_plan" => Ok(crate::act::start_plan(&config, args.get("target").unwrap_or(args))),
         _ => Err(format!("unknown fetch kind {kind}")),
     }
 }

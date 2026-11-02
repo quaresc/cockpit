@@ -161,7 +161,11 @@ impl App {
             Item::Routine(_) => spans.extend(self.routine_cells(doc, r, room)),
             Item::Run(slug, id) => {
                 let Some(run) = doc.run(slug, id) else { return Line::from(spans) };
-                spans.extend(self.run_cells(run, room));
+                let unread = doc.is_unread(run);
+                if unread {
+                    spans.push(Span::styled("● ", fg(ORANGE)));
+                }
+                spans.extend(self.run_cells(run, room.saturating_sub(if unread { 2 } else { 0 })));
             }
         }
         Line::from(spans)
@@ -176,6 +180,7 @@ impl App {
             State::Over => ("\u{f155}".into(), ORANGE),
             State::Paused => ("\u{f04c}".into(), DIM),
             State::Failed => ("\u{f00d}".into(), RED),
+            State::Missed => ("\u{f05e}".into(), ORANGE),
             State::Ok => ("\u{f00c}".into(), GREEN),
             State::Never => ("\u{f10c}".into(), DIM),
         }
@@ -232,7 +237,12 @@ impl App {
 
     /// A run's cells: how it ended, when, how long, its cost, why it ran and what it said.
     fn run_cells(&self, run: &Run, room: usize) -> Vec<Span<'static>> {
-        let (glyph, color) = if run.ok { ("\u{f00c}", GREEN) } else if run.stopped { ("\u{f04d}", DIM) } else { ("\u{f00d}", RED) };
+        let (glyph, color) = match run.word() {
+            "ok" => ("\u{f00c}", GREEN),
+            "missed" => ("\u{f05e}", ORANGE),
+            "stopped" => ("\u{f04d}", DIM),
+            _ => ("\u{f00d}", RED),
+        };
         let when = self.clock.when(run.started);
         let cost = run.cost.map(estimate).unwrap_or_default();
         let facts = format!("{:<12}{:<8}{:<9}", when, run.took(), cost);
@@ -279,7 +289,12 @@ impl App {
             Item::Run(slug, id) => doc.run(slug, id).cloned(),
         };
         if let Some(run) = run {
-            let (word, color) = if run.ok { ("ran", GREEN) } else if run.stopped { ("stopped", DIM) } else { ("failed", RED) };
+            let (word, color) = match run.word() {
+                "ok" => ("ran", GREEN),
+                "missed" => ("missed", ORANGE),
+                "stopped" => ("stopped", DIM),
+                _ => ("failed", RED),
+            };
             let mut facts = vec![format!("{word} {}", self.clock.ago(run.started)), format!("took {}", run.took())];
             if let Some(cost) = run.cost {
                 facts.push(estimate(cost));
@@ -289,6 +304,9 @@ impl App {
             }
             facts.push(run.why.clone());
             lines.push(Line::styled(facts.join(" · "), fg(color)));
+            if let Some(wt) = run.worktree.as_ref().filter(|w| w.kept()) {
+                lines.push(Line::styled(format!("\u{e725} worktree kept: {} · b opens it", wt.describe()), fg(ORANGE)));
+            }
             let left = room.saturating_sub(lines.len());
             let output = self.output(&r.slug, &run.id);
             let mut shown = Vec::new();
@@ -343,7 +361,7 @@ impl App {
 }
 
 /// "Claude · sonnet · acceptEdits · in ~/work · Read, Grep · ≤ $0.50", "shell · in ~/notes".
-fn settings(r: &Routine) -> String {
+pub(crate) fn settings(r: &Routine) -> String {
     let home = cockpit_core::files::home().to_string_lossy().into_owned();
     let cwd = match (r.cwd.is_empty(), r.run == "shell") {
         (false, _) => format!("in {}", r.cwd.replacen(&home, "~", 1)),
@@ -360,6 +378,9 @@ fn settings(r: &Routine) -> String {
         parts.extend([model, r.mode.clone()].into_iter().filter(|p| !p.is_empty()));
     }
     parts.push(cwd);
+    if r.worktree {
+        parts.push("a worktree per run".into());
+    }
     if !r.tools.is_empty() {
         parts.push(r.tools.join(", "));
     }

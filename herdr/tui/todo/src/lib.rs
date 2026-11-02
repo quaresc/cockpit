@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod doc;
+pub mod gui;
 mod keys;
 pub mod links;
 pub mod pinned;

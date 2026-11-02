@@ -3,15 +3,19 @@
 
 mod book;
 mod inbox;
+mod land;
 mod meetings;
 mod monitor;
 mod routines;
 mod runbook;
 mod show;
 mod space;
+mod tickets;
 mod todo;
 
 pub use book::{read_books, runbooks_dir};
+pub use land::{plan as start_plan, pr_merge};
+pub use tickets::card as ticket_card;
 
 use std::collections::HashMap;
 
@@ -73,6 +77,17 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("inbox", "run") => inbox::run,
         ("inbox", "dismiss_brief") => inbox::dismiss_brief,
         ("inbox", "request_refresh") => inbox::request_refresh,
+        ("inbox", "merge") => land::merge,
+        ("inbox", "automerge") => land::automerge,
+        ("inbox", "ready") => land::ready,
+        ("inbox", "draft") => land::draft,
+        ("inbox", "dequeue") => land::dequeue,
+        ("inbox", "start") => land::start,
+        ("inbox", "remove_worktree") => land::remove_worktree,
+        ("inbox", "open_worktree") => land::open_worktree,
+        ("inbox", "set_state") => tickets::set_state,
+        ("inbox", "assign") => tickets::assign,
+        ("inbox", "file_issue") => tickets::file_issue,
         ("runbook", "run_step") => runbook::run_step,
         ("runbook", "mark_done") => runbook::mark_done,
         ("runbook", "open_pr") => runbook::open_pr,
@@ -106,13 +121,18 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("routines", "output") => routines::output,
         ("routines", "talk") => routines::talk,
         ("routines", "request_refresh") => routines::request_refresh,
+        ("routines", "update") => routines::update,
+        ("routines", "read") => routines::read,
+        ("routines", "read_all") => routines::read_all,
+        ("routines", "open_worktree") => routines::open_worktree,
+        ("routines", "cleanup") => routines::cleanup,
         _ => return None,
     };
     Some(found)
 }
 
 /// The arguments' markers: {"$book": slug} for that runbook, {"$handoff": id} for that handoff, {"$inbox": true} for the
-/// inbox cache.
+/// inbox cache, {"$monitor": id} for that app of the monitor document.
 fn resolve(arg: Value) -> Value {
     if let Some(slug) = arg.get("$book") {
         return read_books(&runbooks_dir()).into_iter().find(|b| &b["slug"] == slug).unwrap_or(Value::Null);
@@ -123,6 +143,9 @@ fn resolve(arg: Value) -> Value {
     if arg.get("$inbox").is_some_and(crate::value::truthy) {
         return config::read_inbox();
     }
+    if let Some(id) = arg.get("$monitor") {
+        return monitor::app_of(id);
+    }
     arg
 }
 
@@ -132,7 +155,10 @@ pub fn act(app: &str, name: &str, args: Vec<Value>, armed: Option<String>, env: 
         return json!({"unknown": true});
     };
     let mut ctx = Ctx::new(armed, env);
-    let args: Vec<Value> = args.into_iter().map(resolve).collect();
+    let mut args: Vec<Value> = args.into_iter().map(resolve).collect();
+    if app == "inbox" {
+        args = land::shorthand(name, args);
+    }
     let error = run(&mut ctx, &args).err().map(|err| format!("{name}: {err}"));
     json!({"note": ctx.note, "pending": ctx.pending, "refreshing": ctx.refreshing, "error": error})
 }

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <rect width="320" height="200" rx="10" fill="#0f1012"/>
+  <rect x="0" y="0" width="76" height="200" rx="10" fill="#16171a"/>
+  <rect x="66" y="0" width="10" height="200" fill="#16171a"/>
+  <line x1="76" y1="0" x2="76" y2="200" stroke="#26282c"/>
+  <circle cx="10" cy="10" r="2.6" fill="#ff5f57"/><circle cx="18" cy="10" r="2.6" fill="#febc2e"/><circle cx="26" cy="10" r="2.6" fill="#28c840"/>
+  <rect x="6" y="20" width="64" height="9" rx="2.5" fill="none" stroke="#2e3035"/>
+  <rect x="6" y="33" width="64" height="9" rx="2.5" fill="#24262a"/>
+  <g font-family="Geist, Helvetica, sans-serif" font-size="5.5" fill="#9ba0a8">
+    <text x="11" y="39.5" fill="#e8e9eb">Home</text><text x="11" y="51">Work</text><text x="11" y="61">Inbox</text>
+    <text x="11" y="71">To-do</text><text x="11" y="81">Runbook</text><text x="11" y="91">Meetings</text>
+  </g>
+  <rect x="60" y="35" width="7" height="5.5" rx="2" fill="#e0707f"/>
+  <line x1="6" y1="98" x2="70" y2="98" stroke="#26282c"/>
+  <rect x="6" y="103" width="64" height="22" rx="3" fill="#2a1d1f" stroke="#5a3135" stroke-width="0.6"/>
+  <rect x="10" y="107" width="40" height="2.5" rx="1.2" fill="#c9cbcf"/><rect x="10" y="112" width="52" height="2" rx="1" fill="#9ba0a8"/>
+  <rect x="10" y="117" width="14" height="5" rx="1.5" fill="#3a2a2d" stroke="#e0707f" stroke-width="0.5"/><rect x="26" y="117" width="18" height="5" rx="1.5" fill="none" stroke="#3a3d42" stroke-width="0.5"/>
+  <g fill="#4b4e54"><rect x="12" y="132" width="36" height="2.5" rx="1.2"/><rect x="12" y="140" width="44" height="2.5" rx="1.2"/><rect x="12" y="148" width="30" height="2.5" rx="1.2"/></g>
+  <circle cx="8.5" cy="133.2" r="1.6" fill="#e6c35c"/><circle cx="8.5" cy="141.2" r="1.6" fill="#e6c35c"/><circle cx="8.5" cy="149.2" r="1.6" fill="#6fb3f2"/>
+  <rect x="80" y="5" width="48" height="10" rx="3" fill="#1d1e22" stroke="#2e3035" stroke-width="0.6"/><rect x="85" y="8.8" width="30" height="2.4" rx="1.2" fill="#c9cbcf"/>
+  <path d="M306 7.5a3.2 3.2 0 0 0-3.2 3.2c0 2.4-0.8 3.2-1.5 3.9h9.4c-0.7-0.7-1.5-1.5-1.5-3.9a3.2 3.2 0 0 0-3.2-3.2z" fill="none" stroke="#9ba0a8" stroke-width="0.8"/>
+  <circle cx="310" cy="7" r="2.6" fill="#e0707f"/>
+  <line x1="76" y1="20" x2="320" y2="20" stroke="#26282c"/>
+  <text x="84" y="31" font-family="Geist, sans-serif" font-size="7.5" font-weight="600" fill="#e8e9eb">Good morning</text>
+  <g stroke="#26282c" stroke-width="0.6">
+    <rect x="84" y="37" width="42" height="22" rx="3" fill="#122019" stroke="#2c5a40"/>
+    <rect x="130" y="37" width="42" height="22" rx="3" fill="#141518"/><rect x="176" y="37" width="42" height="22" rx="3" fill="#141518"/>
+    <rect x="222" y="37" width="42" height="22" rx="3" fill="#141518"/><rect x="268" y="37" width="44" height="22" rx="3" fill="#141518"/>
+  </g>
+  <g font-family="Geist, sans-serif" font-size="8" font-weight="600">
+    <text x="88" y="51" fill="#53cf91">3</text><text x="134" y="51" fill="#e0707f">2</text><text x="180" y="51" fill="#e6c35c">3</text>
+    <text x="226" y="51" fill="#53cf91">1</text><text x="272" y="51" fill="#e8e9eb">$4</text>
+  </g>
+  <g fill="#53cf91"><rect x="96" y="53" width="3" height="3" opacity="0.35"/><rect x="101" y="52" width="3" height="4" opacity="0.35"/><rect x="106" y="54" width="3" height="2" opacity="0.35"/><rect x="111" y="51" width="3" height="5" opacity="0.35"/><rect x="116" y="50" width="3" height="6"/></g>
+  <rect x="84" y="63" width="228" height="16" rx="3" fill="#2a1d1f" stroke="#7a3d43" stroke-width="0.7"/>
+  <text x="88" y="73" font-family="Geist, sans-serif" font-size="4.5" font-weight="600" fill="#e0707f">NEXT MOVE</text>
+  <rect x="113" y="68" width="118" height="2.6" rx="1.3" fill="#e8e9eb"/><rect x="113" y="73.5" width="70" height="2" rx="1" fill="#9ba0a8"/>
+  <rect x="280" y="67" width="28" height="8" rx="2" fill="#e0707f"/>
+  <g font-family="Geist, sans-serif" font-size="4.2" font-weight="600" fill="#9ba0a8">
+    <text x="84" y="88">NEEDS YOU</text><text x="141" y="88">WORKING</text><text x="198" y="88">READY TO LAND</text><text x="255" y="88">DONE</text>
+  </g>
+  <g fill="#141518" stroke="#26282c" stroke-width="0.6">
+    <rect x="84" y="91" width="53" height="30" rx="3" fill="#1d1617" stroke="#5a3135"/><rect x="84" y="124" width="53" height="22" rx="3" fill="#1d1617" stroke="#5a3135"/>
+    <rect x="141" y="91" width="53" height="20" rx="3"/><rect x="141" y="114" width="53" height="20" rx="3"/><rect x="141" y="137" width="53" height="20" rx="3"/>
+    <rect x="198" y="91" width="53" height="24" rx="3"/><rect x="255" y="91" width="57" height="20" rx="3"/><rect x="255" y="114" width="57" height="20" rx="3"/>
+  </g>
+  <g><rect x="84" y="91" width="1.6" height="30" fill="#e0707f"/><rect x="84" y="124" width="1.6" height="22" fill="#e0707f"/>
+    <rect x="141" y="91" width="1.6" height="20" fill="#e6c35c"/><rect x="141" y="114" width="1.6" height="20" fill="#e6c35c"/><rect x="141" y="137" width="1.6" height="20" fill="#e6c35c"/>
+    <rect x="198" y="91" width="1.6" height="24" fill="#53cf91"/><rect x="255" y="91" width="1.6" height="20" fill="#6fb3f2"/><rect x="255" y="114" width="1.6" height="20" fill="#6fb3f2"/></g>
+  <g fill="#c9cbcf"><rect x="89" y="96" width="34" height="2.4" rx="1.2"/><rect x="89" y="129" width="30" height="2.4" rx="1.2"/><rect x="146" y="96" width="36" height="2.4" rx="1.2"/>
+    <rect x="146" y="119" width="30" height="2.4" rx="1.2"/><rect x="146" y="142" width="34" height="2.4" rx="1.2"/><rect x="203" y="96" width="36" height="2.4" rx="1.2"/>
+    <rect x="260" y="96" width="38" height="2.4" rx="1.2"/><rect x="260" y="119" width="32" height="2.4" rx="1.2"/></g>
+  <rect x="88" y="101" width="45" height="9" rx="2" fill="#2e1f21"/><rect x="88" y="113" width="12" height="5" rx="1.5" fill="#3a2a2d" stroke="#e0707f" stroke-width="0.5"/>
+  <rect x="203" y="107" width="14" height="5" rx="1.5" fill="#53cf91"/><rect x="219" y="107" width="14" height="5" rx="1.5" fill="none" stroke="#3a3d42" stroke-width="0.5"/>
+  <rect x="84" y="161" width="228" height="27" rx="3" fill="#141518" stroke="#26282c" stroke-width="0.6"/>
+  <text x="88" y="168" font-family="Geist, sans-serif" font-size="4.2" font-weight="600" fill="#9ba0a8">YOUR DELIVERY</text>
+  <text x="88" y="182" font-family="Geist, sans-serif" font-size="10" font-weight="600" fill="#e8e9eb">7</text>
+  <g fill="#7aa2f7"><rect x="130" y="178" width="5" height="6"/><rect x="138" y="174" width="5" height="10"/><rect x="146" y="180" width="5" height="4"/><rect x="154" y="172" width="5" height="12"/><rect x="162" y="177" width="5" height="7"/><rect x="170" y="182" width="5" height="2" opacity="0.4"/><rect x="178" y="182" width="5" height="2" opacity="0.4"/><rect x="186" y="175" width="5" height="9" fill="#53cf91"/></g>
+  <g fill="#4b4e54"><rect x="236" y="168" width="40" height="2.4" rx="1.2"/><rect x="236" y="175" width="32" height="2.4" rx="1.2"/><rect x="236" y="182" width="44" height="2.4" rx="1.2"/></g>
+  <line x1="76" y1="191" x2="320" y2="191" stroke="#26282c"/>
+  <circle cx="83" cy="195.5" r="1.4" fill="#e0707f"/><rect x="86" y="194.5" width="16" height="2" rx="1" fill="#e0707f"/>
+  <circle cx="108" cy="195.5" r="1.4" fill="#e6c35c"/><rect x="111" y="194.5" width="16" height="2" rx="1" fill="#6b6f76"/>
+  <rect x="140" y="194.5" width="26" height="2" rx="1" fill="#6b6f76"/><rect x="296" y="194.5" width="16" height="2" rx="1" fill="#6b6f76"/>
+  <rect x="309" y="140" width="11" height="22" rx="3" fill="#1d1e22" stroke="#2e3035" stroke-width="0.6"/>
+  <rect x="311.5" y="146" width="6" height="1.2" fill="#6fb3f2"/><rect x="311.5" y="149" width="6" height="1.2" fill="#6fb3f2"/><rect x="311.5" y="152" width="6" height="1.2" fill="#6fb3f2"/>
+</svg>

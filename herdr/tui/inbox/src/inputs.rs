@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use cockpit_agents::ledger;
 use cockpit_core::files;
 use cockpit_core::hub::Docs;
 use serde_json::{Value, json};
@@ -17,6 +18,10 @@ pub struct Inputs {
     pub muted: Vec<String>,
     /// What each ticket cost, in US dollars, summed over the sessions that worked on it.
     pub costs: HashMap<String, f64>,
+    /// The linked worktrees of the repos: {path, repo, branch, changes}.
+    pub worktrees: Vec<Value>,
+    /// Seconds agents spent on each ticket this week, from the agent-time ledger.
+    pub secs: HashMap<String, u64>,
 }
 
 /// The documents the inbox follows through the hub.
@@ -24,14 +29,28 @@ pub const DOCS: [&str; 3] = ["inbox", "ci", "brief"];
 
 impl Inputs {
     pub fn read(docs: &Docs) -> Self {
+        Self::of(docs.get("inbox").cloned(), docs.get("ci").cloned(), docs.get("brief").cloned())
+    }
+
+    /// The documents given, with what the inbox reads on disk beside them.
+    pub fn of(data: Option<Value>, ci: Option<Value>, brief: Option<Value>) -> Self {
         Self {
-            data: docs.get("inbox").cloned(),
-            ci: docs.get("ci").cloned().unwrap_or_else(|| json!({"runs": []})),
-            brief: docs.get("brief").cloned(),
+            data,
+            ci: ci.unwrap_or_else(|| json!({"runs": []})),
+            brief,
             muted: muted(),
             costs: ticket_costs(),
+            worktrees: crate::worktrees::scan(&files::config()),
+            secs: ticket_week(crate::worktrees::now_ms()),
         }
     }
+}
+
+/// Seconds agents spent on each ticket since Monday 00:00 local, from the agents' ledger.
+pub fn ticket_week(now: u64) -> HashMap<String, u64> {
+    let (_, monday) = ledger::day_and_week_start(now);
+    let totals = ledger::totals(&ledger::read(&ledger::path(), monday), now);
+    totals.tickets.into_iter().map(|(ticket, (_, week))| (ticket.to_uppercase(), week)).collect()
 }
 
 fn muted() -> Vec<String> {
@@ -63,6 +82,25 @@ pub fn json_files(dir: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ticket_rows_read_the_agents_ledger() {
+        crate::test_home::home();
+        let path = ledger::path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let now = crate::worktrees::now_ms();
+        let lines = [
+            json!({"start": now - 3_600_000, "end": now - 1_800_000, "ticket": "ENG-1", "terminal": "app:t1"}),
+            json!({"start": now - 2_700_000, "end": now - 900_000, "ticket": "ENG-1", "terminal": "app:t2"}),
+            json!({"start": now - 600_000, "end": now, "ticket": "eng-2", "terminal": "app:t3"}),
+        ];
+        std::fs::write(&path, lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n")).unwrap();
+        let week = ticket_week(now);
+        // Stretches that started before Monday count from Monday on: early in a week ENG-1 may hold less.
+        assert!(week.get("ENG-1").is_some_and(|s| *s <= 2700));
+        assert!(week.get("ENG-2").is_some_and(|s| *s <= 600));
+        assert_eq!(week.len(), 2);
+    }
 
     #[test]
     fn ticket_costs_sum_every_session() {

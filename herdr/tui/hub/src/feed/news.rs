@@ -27,7 +27,13 @@ fn is_failing(pr: &Value) -> bool {
     matches!(pr["ci"].as_str(), Some("FAILURE" | "ERROR"))
 }
 
-/// A new direct review request, a PR of mine newly failing, approved or sent back.
+/// Approved, green and not a draft: GitHub would merge it.
+fn is_ready(pr: &Value) -> bool {
+    pr["review"] == "APPROVED" && pr["ci"] == "SUCCESS" && pr["isDraft"] != true
+}
+
+/// A new direct review request, a PR of mine newly failing, approved, sent back, fixed, ready to merge or with new
+/// review threads.
 pub fn pr_changes(prev: &Value, next: &Value) -> Vec<News> {
     let mut out = Vec::new();
     let known: HashSet<&str> = list(&prev["direct"]).iter().map(|p| s(p, "url")).collect();
@@ -56,6 +62,18 @@ pub fn pr_changes(prev: &Value, next: &Value) -> Vec<News> {
         }
         if pr["review"] != was["review"] && pr["review"] == "CHANGES_REQUESTED" {
             out.push(news(format!("❌ Changes requested: {name}"), format!("{url}/files"), &[]));
+        }
+        if is_failing(was) && pr["ci"] == "SUCCESS" {
+            out.push(news(format!("🟢 CI fixed: {name}"), format!("{url}/checks"), &[]));
+        }
+        if is_ready(pr) && !is_ready(was) {
+            out.push(news(format!("🚀 Ready to merge: {name}"), url.into(), &[("Merge", format!("act:merge:{url}"))]));
+        }
+        if let (Some(now), Some(before)) = (pr["threads"].as_u64(), was["threads"].as_u64())
+            && now > before
+        {
+            let n = now - before;
+            out.push(news(format!("💬 {n} new review thread{}: {name}", if n == 1 { "" } else { "s" }), format!("{url}/files"), &[]));
         }
     }
     out
@@ -160,6 +178,20 @@ mod tests {
         assert_eq!(texts, ["👀 Review requested: web#9 Dark mode", "🔴 CI failing: api#4", "✅ Approved: api#4"]);
         assert_eq!(pr_changes(&next, &next), []);
         assert_eq!(pr_changes(&prev, &next)[1].buttons[1], ("Rerun".into(), "act:rerun:https://github.com/acme/api/pull/4".into()));
+    }
+
+    #[test]
+    fn a_pr_fixed_ready_to_merge_or_with_new_threads() {
+        let url = "https://github.com/acme/api/pull/4";
+        let mut was = pr(url, "FAILURE", json!("APPROVED"));
+        was["threads"] = json!(1);
+        let mut now = pr(url, "SUCCESS", json!("APPROVED"));
+        now["threads"] = json!(3);
+        let news = pr_changes(&json!({"mine": [was]}), &json!({"mine": [now.clone()]}));
+        let texts: Vec<&str> = news.iter().map(|n| n.text.as_str()).collect();
+        assert_eq!(texts, ["🟢 CI fixed: api#4", "🚀 Ready to merge: api#4", "💬 2 new review threads: api#4"]);
+        assert_eq!(news[1].buttons, [("Merge".to_string(), format!("act:merge:{url}"))]);
+        assert_eq!(pr_changes(&json!({"mine": [now.clone()]}), &json!({"mine": [now]})), []);
     }
 
     #[test]

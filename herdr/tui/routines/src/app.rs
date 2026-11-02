@@ -36,6 +36,11 @@ pub enum Cmd {
     Fold(String),
     Refresh,
     GoTo(String),
+    /// A run's worktree, opened in a tab.
+    Worktree(String, String),
+    ReadAll,
+    /// The run worktrees whose work landed, removed.
+    Cleanup,
 }
 
 /// A call to the hub, as the app sent it: the action, its arguments and the confirmation it carries.
@@ -282,6 +287,9 @@ impl App {
             Cmd::Refresh => self.call("request_refresh", vec![], None),
             Cmd::Fold(slug) => self.toggle(&slug),
             Cmd::GoTo(key) => self.focus(&key),
+            Cmd::Worktree(slug, run) => self.call("open_worktree", vec![slug.into(), run.into()], None),
+            Cmd::ReadAll => self.call("read_all", vec![], None),
+            Cmd::Cleanup => self.call("cleanup", vec![], None),
         }
     }
 

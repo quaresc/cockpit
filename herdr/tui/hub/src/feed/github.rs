@@ -49,12 +49,12 @@ pub fn query(org: &str, merged_since: &str) -> String {
         r#"query {{
   review: search(query: "is:pr is:open archived:false review-requested:@me", type: ISSUE, first: 60) {{ nodes {{ __typename ... on PullRequest {{ {PR_BASE} commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }} }} }}
   direct: search(query: "is:pr is:open archived:false user-review-requested:@me", type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ url }} }} }}
-  mine: search(query: "is:pr is:open archived:false author:@me{scope}", type: ISSUE, first: 30) {{ nodes {{ __typename ... on PullRequest {{ {PR_BASE}
+  mine: search(query: "is:pr is:open archived:false author:@me{scope}", type: ISSUE, first: 30) {{ nodes {{ __typename ... on PullRequest {{ {PR_BASE} reviewThreads(first: 50) {{ nodes {{ isResolved }} }}
     commits(last: 1) {{ nodes {{ commit {{ oid committedDate statusCheckRollup {{ state contexts(first: 30) {{ nodes {{
       ... on CheckRun {{ databaseId name status conclusion detailsUrl checkSuite {{ workflowRun {{ databaseId }} }} }}
       ... on StatusContext {{ context state targetUrl }} }} }} }} }} }} }} }} }} }}
   merged: search(query: "is:pr is:merged author:@me{scope} merged:>={merged_since}", type: ISSUE, first: 50) {{
-    nodes {{ ... on PullRequest {{ number url headRefName mergedAt repository {{ name nameWithOwner }} mergeCommit {{ oid }} }} }} }}
+    nodes {{ ... on PullRequest {{ number url headRefName createdAt mergedAt repository {{ name nameWithOwner }} mergeCommit {{ oid }} }} }} }}
 }}"#
     )
 }
@@ -120,6 +120,9 @@ fn to_pr(node: &Value, direct: &[&str]) -> Value {
         "ci": rollup["state"],
         "failedChecks": failed,
     });
+    if let Some(threads) = node["reviewThreads"]["nodes"].as_array() {
+        pr["threads"] = json!(threads.iter().filter(|t| t["isResolved"] != true).count());
+    }
     for (field, key) in [("branch", "headRefName"), ("base", "baseRefName")] {
         if let Some(value) = node[key].as_str() {
             pr[field] = json!(value);
@@ -143,7 +146,7 @@ pub fn parse(data: &Value) -> Github {
             .iter()
             .filter(|n| !n["mergeCommit"].is_null() && n["headRefName"].as_str().is_some_and(|b| !b.is_empty()))
             .map(|n| {
-                json!({
+                let mut pr = json!({
                     "repo": or(&n["repository"]["name"], json!("?")),
                     "slug": or(&n["repository"]["nameWithOwner"], json!("?")),
                     "url": or(&n["url"], json!("")),
@@ -151,7 +154,11 @@ pub fn parse(data: &Value) -> Github {
                     "branch": n["headRefName"],
                     "mergeSha": or(&n["mergeCommit"]["oid"], json!("")),
                     "mergedAt": or(&n["mergedAt"], json!("")),
-                })
+                });
+                if let Some(created) = n["createdAt"].as_str() {
+                    pr["createdAt"] = json!(created);
+                }
+                pr
             })
             .collect(),
         mine_nodes,

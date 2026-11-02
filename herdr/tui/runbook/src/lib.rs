@@ -9,6 +9,7 @@ pub mod app;
 pub mod book;
 pub mod edit;
 pub mod filter;
+pub mod gui;
 pub mod handoff;
 pub mod keys;
 pub mod pinned;

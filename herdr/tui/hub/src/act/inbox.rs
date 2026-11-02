@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cockpit_core::files;
+use cockpit_core::{files, frontend};
 use serde_json::{Value, json};
 
 use super::{Ctx, arg, opt, space};
@@ -38,6 +38,10 @@ pub fn open_url(ctx: &mut Ctx, args: &[Value]) -> Res {
 pub fn details(ctx: &mut Ctx, args: &[Value]) -> Res {
     let pr = arg(args, 0)?;
     let url = s(pr, "url")?;
+    if frontend::current() == frontend::Frontend::App {
+        // The cockpit mod opens its own peek window; asked through the hub, the browser shows the PR.
+        return open_url(ctx, &[Value::from(url)]);
+    }
     let env = format!("PEEK_URL={url}");
     let result = herdr::run(&["plugin", "pane", "open", "--plugin", "cockpit", "--entrypoint", "peek", "--placement", "popup", "--env", &env]);
     if !result.ok() {
@@ -47,18 +51,25 @@ pub fn details(ctx: &mut Ctx, args: &[Value]) -> Res {
 }
 
 /// A Claude session in a new space; when a space of that label already runs, it comes into view instead.
-fn start_space(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[String]) {
-    if let Some(running) = herdr::spaces().into_iter().find(|w| w["label"].as_str() == Some(label)) {
-        herdr::run(&["workspace", "focus", &text(&running["workspace_id"])]);
+pub(super) fn start_space(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[String]) {
+    if frontend::focus_space_named(label) {
         ctx.note(format!("\"{label}\" already runs: focused it"));
         return;
     }
-    let created = herdr::run(&["workspace", "create", "--cwd", cwd, "--label", label, "--focus"]);
-    let Some(pane) = herdr::result_of(&created).and_then(|r| r["root_pane"]["pane_id"].as_str().map(str::to_string)) else {
-        ctx.note(format!("herdr workspace create failed: {}", created.stderr.trim()));
-        return;
+    let pane = match frontend::current() {
+        frontend::Frontend::App => frontend::new_space(cwd, label).ok_or_else(|| "the Herdr app opened no space".to_string()),
+        frontend::Frontend::Tui => {
+            let created = herdr::run(&["workspace", "create", "--cwd", cwd, "--label", label, "--focus"]);
+            herdr::result_of(&created)
+                .and_then(|r| r["root_pane"]["pane_id"].as_str().map(str::to_string))
+                .ok_or_else(|| format!("herdr workspace create failed: {}", created.stderr.trim()))
+        }
     };
-    herdr::run(&["pane", "run", &pane, &claude_line(flags, prompt)]);
+    let pane = match pane {
+        Ok(pane) => pane,
+        Err(note) => return ctx.note(note),
+    };
+    frontend::run_in(&pane, &claude_line(flags, prompt));
     ctx.note(format!("started \"{label}\" in a new space"));
 }
 
@@ -80,7 +91,7 @@ pub(crate) fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, 
         start_space(ctx, cwd, label, prompt, flags);
         return;
     };
-    herdr::run(&["pane", "run", &pane, &claude_line(flags, prompt)]);
+    frontend::run_in(&pane, &claude_line(flags, prompt));
     ctx.note(format!("started \"{label}\" in the actions space"));
 }
 
@@ -90,13 +101,18 @@ pub(crate) fn repo_dir(ctx: &Ctx, repo: &str) -> String {
 }
 
 /// Where the branch is checked out: the repo's main checkout or one of its worktrees; None when nowhere.
-fn checkout_of(ctx: &Ctx, repo: &str, branch: &Value) -> Option<String> {
+pub(super) fn checkout_of(ctx: &Ctx, repo: &str, branch: &Value) -> Option<String> {
     let main = format!("{}/{repo}", ctx.repos());
     if !truthy(branch) || !is_dir(&main) {
         return None;
     }
-    let wanted = format!("branch refs/heads/{}", text(branch));
-    let listed = proc::run15(&proc::strings(&["git", "-C", &main, "worktree", "list", "--porcelain"]));
+    checkout_in(&main, &text(branch))
+}
+
+/// Where the main checkout `main` or one of its worktrees has the branch checked out.
+pub(super) fn checkout_in(main: &str, branch: &str) -> Option<String> {
+    let wanted = format!("branch refs/heads/{branch}");
+    let listed = proc::run15(&proc::strings(&["git", "-C", main, "worktree", "list", "--porcelain"]));
     let mut path = None;
     for line in listed.stdout.lines() {
         if let Some(found) = line.strip_prefix("worktree ") {
@@ -113,8 +129,15 @@ fn real(path: &str) -> PathBuf {
 }
 
 /// The herdr space open on a checkout, if any.
-fn space_on(path: &str) -> Option<Value> {
+pub(super) fn space_on(path: &str) -> Option<Value> {
     let wanted = real(path);
+    if frontend::current() == frontend::Frontend::App {
+        return frontend::app_spaces().into_iter().find(|w| w["folder"].as_str().is_some_and(|p| !p.is_empty() && real(p) == wanted)).map(|mut w| {
+            w["workspace_id"] = json!(format!("{}{}", frontend::APP, text(&w["id"])));
+            w["label"] = w["name"].clone();
+            w
+        });
+    }
     herdr::spaces().into_iter().find(|w| w["worktree"]["checkout_path"].as_str().is_some_and(|p| !p.is_empty() && real(p) == wanted))
 }
 
@@ -122,7 +145,7 @@ fn space_on(path: &str) -> Option<Value> {
 fn new_worktree(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res<bool> {
     let main = format!("{}/{}", ctx.repos(), s(pr, "repo")?);
     let branch = get(pr, "branch");
-    if !truthy(branch) || !is_dir(&main) {
+    if !truthy(branch) || !is_dir(&main) || frontend::current() == frontend::Frontend::App {
         return Ok(false);
     }
     let branch = text(branch);
@@ -144,7 +167,7 @@ fn on_branch(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res {
     let repo = s(pr, "repo")?;
     if let Some(path) = checkout_of(ctx, &repo, branch) {
         if let Some(open) = space_on(&path) {
-            herdr::run(&["workspace", "focus", &text(&open["workspace_id"])]);
+            focus_space(&text(&open["workspace_id"]));
             ctx.note(format!("{} is already open in \"{}\": focused it", text(branch), text(&open["label"])));
             return Ok(());
         }
@@ -452,8 +475,13 @@ pub fn close_space(ctx: &mut Ctx, args: &[Value]) -> Res {
         return Ok(());
     }
     if let Some(tab) = space.strip_prefix("tab:") {
-        let result = herdr::run(&["tab", "close", tab]);
-        ctx.note(if result.ok() { format!("closed {label}") } else { format!("herdr tab close failed: {}", result.stderr.trim()) });
+        let closed = frontend::close_tab(tab);
+        ctx.note(if closed { format!("closed {label}") } else { format!("closing {label} failed") });
+        return Ok(());
+    }
+    if space.starts_with(frontend::APP) {
+        let closed = frontend::close_space(&space);
+        ctx.note(if closed { format!("closed {label}") } else { format!("closing {label} failed") });
         return Ok(());
     }
     if is_worktree {
@@ -468,6 +496,17 @@ pub fn close_space(ctx: &mut Ctx, args: &[Value]) -> Res {
     let result = herdr::run(&["workspace", "close", &space]);
     ctx.note(if result.ok() { format!("closed {label}") } else { format!("herdr workspace close failed: {}", result.stderr.trim()) });
     Ok(())
+}
+
+/// A space brought into view by its id: `app:<id>` in the Herdr app, a herdr workspace id in the TUI.
+pub(super) fn focus_space(id: &str) {
+    match id.strip_prefix(frontend::APP) {
+        Some(id) => {
+            frontend::app_show_work();
+            frontend::app_do("space.select", &json!({"id": id}));
+        }
+        None => _ = herdr::run(&["workspace", "focus", id]),
+    }
 }
 
 /// A command the row hands over as argv, such as herdr's focus of a space: run in the background, no note.

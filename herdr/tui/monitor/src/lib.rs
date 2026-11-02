@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod data;
+pub mod gui;
 mod keys;
 pub mod pinned;
 pub mod rows;

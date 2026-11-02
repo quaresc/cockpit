@@ -41,4 +41,4 @@ expression: "screen(&mut app, 120)"
                                                                        │ session
 
 
- q hide  ^p palette  tab focus  j/k line  [ ] file  c comment  s split  enter fold  esc leave
+ q hide  ^p palette  tab focus  j/k line  [ ] file  c comment  S send comments  s split  enter fold  esc leave

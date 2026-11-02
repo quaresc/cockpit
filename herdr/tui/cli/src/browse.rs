@@ -1,10 +1,12 @@
 //! `cockpit browse`: opens a page in terminal-browser, split right of a pane, else in the default browser, for an
 //! agent's E2E tests and browser views. terminal-browser is used when it is installed and the pane is in herdr; a page
-//! already open beside the pane comes to the front instead of opening twice, and the keyboard stays where it was.
+//! already open beside the pane comes to the front instead of opening twice, and the keyboard stays where it was. In
+//! the Herdr app the browser is a terminal split right of the agent's, found again by its tty.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use cockpit_core::frontend::{self, Frontend};
 use serde_json::{Value, json};
 
 use crate::proc::{self, Out, dumps, fail, open_url, quote};
@@ -13,7 +15,8 @@ const USAGE: &str = "Opens a page in terminal-browser, split right of a pane, el
 
     cockpit browse [--size <fraction>] [--reload] <url> [<Claude session id>]   beside the session's pane, else the calling one
     cockpit browse --beside [<Claude session id>]                               the browser beside it, as JSON ({} when none)
-    cockpit browse --external [<Claude session id>]                             its page, opened in the default browser";
+    cockpit browse --external [<Claude session id>]                             its page, opened in the default browser
+    cockpit browse --browsers [<Claude session id>]                             every browser beside it, as JSON";
 
 /// herdr sends a picture of at most 16 MiB through a file, a larger one inline through the terminal, which is far slower.
 const MAX_FRAME: f64 = 16.0 * 1024.0 * 1024.0;
@@ -25,6 +28,11 @@ pub fn main(args: &[String]) {
     match args.first().map(String::as_str) {
         Some("--beside") => {
             println!("{}", beside_json(&beside(args.get(1).map(String::as_str))));
+            return;
+        }
+        Some("--browsers") => {
+            let browsers = terminal_browser().map(|tb| browsers_of(&tb, args.get(1).map(String::as_str))).unwrap_or_default();
+            println!("{}", Value::Array(browsers));
             return;
         }
         Some("--external") => {
@@ -47,7 +55,7 @@ pub fn main(args: &[String]) {
     }
     let Some(url) = args.first() else { fail(USAGE) };
     let session = args.get(1).map(String::as_str);
-    let opened = terminal_browser().is_some_and(|tb| pane_of(session).is_some_and(|pane| open_beside(&tb, &pane, url, size, reload)));
+    let opened = terminal_browser().is_some_and(|tb| open_for(&tb, session, url, size, reload));
     if !opened {
         open_url(&if url.starts_with('/') { format!("file://{url}") } else { url.clone() });
     }
@@ -76,6 +84,120 @@ pub fn terminal_browser() -> Option<String> {
         _ => proc::which("terminal-browser"),
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The Herdr app
+
+/// The app terminal of a Claude session (as the agents document has it), else the calling one; None in the herdr TUI.
+fn app_terminal(session: Option<&str>) -> Option<String> {
+    if frontend::current() != Frontend::App {
+        return None;
+    }
+    let by_session = session.and_then(|s| {
+        let doc = cockpit_core::hub::request(&json!({"op": "store.get", "name": "agents"}), TIMEOUT).ok()?["value"].clone();
+        doc.as_object()?.values().find(|f| f["session"] == s)?["terminal"].as_str().map(str::to_string)
+    });
+    by_session.or_else(|| std::env::var("HC_TERMINAL_ID").ok().filter(|t| !t.is_empty()))
+}
+
+/// The other terminals in the terminal's tab, each with its app pane.
+fn tab_mates(terminal: &str) -> Vec<(String, String)> {
+    for space in frontend::app_spaces() {
+        for tab in space["tabs"].as_array().into_iter().flatten() {
+            let terminals = tab["terminals"].as_array().cloned().unwrap_or_default();
+            if terminals.iter().any(|t| t["terminal"] == terminal) {
+                return terminals.iter().filter(|t| t["terminal"] != terminal).filter_map(|t| Some((t["terminal"].as_str()?.into(), t["pane"].as_str()?.into()))).collect();
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// The tty a terminal's program runs on, when it is a terminal-browser.
+fn browser_tty(terminal: &str) -> Option<String> {
+    let found = frontend::hc(&["get", terminal])?;
+    if !found["foreground"]["name"].as_str().is_some_and(|n| n.contains("terminal-browser")) {
+        return None;
+    }
+    let pid = found["foreground"]["pid"].as_u64()?.to_string();
+    let tty = run(&["ps", "-o", "tty=", "-p", &pid], TIMEOUT)?.stdout.trim().to_string();
+    (!tty.is_empty() && tty != "??").then(|| format!("/dev/{}", tty.trim_start_matches("/dev/")))
+}
+
+/// The terminal-browsers in the app terminal's tab, each with the app `pane` showing it.
+pub fn app_browsers(tb: &str, terminal: &str) -> Vec<Value> {
+    let ttys: Vec<(String, String)> = tab_mates(terminal).into_iter().filter_map(|(t, pane)| Some((browser_tty(&t)?, pane))).collect();
+    if ttys.is_empty() {
+        return Vec::new();
+    }
+    let out = run(&[tb, "ls", "--all", "--json"], TIMEOUT).filter(Out::ok);
+    let all = out.and_then(|o| serde_json::from_str::<Value>(&o.stdout).ok()).and_then(|v| v["browsers"].as_array().cloned()).unwrap_or_default();
+    all.into_iter()
+        .filter_map(|mut b| {
+            let pane = ttys.iter().find(|(tty, _)| b["tty"].as_str() == Some(tty))?.1.clone();
+            b["app_pane"] = json!(pane);
+            Some(b)
+        })
+        .collect()
+}
+
+/// The page beside a session, in whichever frontend it runs; false outside both.
+pub fn open_for(tb: &str, session: Option<&str>, url: &str, size: f64, reload: bool) -> bool {
+    match app_terminal(session) {
+        Some(terminal) => app_open_beside(tb, &terminal, url, reload),
+        None => pane_of(session).is_some_and(|pane| open_beside(tb, &pane, url, size, reload)),
+    }
+}
+
+/// Whether the session sits in a window terminal-browser can open beside: a herdr pane or a Herdr app terminal.
+pub fn has_place(session: Option<&str>) -> bool {
+    app_terminal(session).is_some() || pane_of(session).is_some()
+}
+
+/// The browsers beside a session, in whichever frontend it runs.
+pub fn browsers_of(tb: &str, session: Option<&str>) -> Vec<Value> {
+    match app_terminal(session) {
+        Some(terminal) => app_browsers(tb, &terminal),
+        None => pane_of(session).map(|pane| browsers_beside(tb, &pane)).unwrap_or_default(),
+    }
+}
+
+/// The page in a browser already beside the terminal, else a terminal-browser split right of it; the keyboard stays.
+fn app_open_beside(tb: &str, terminal: &str, url: &str, reload: bool) -> bool {
+    let browsers = app_browsers(tb, terminal);
+    if let Some(done) = reuse(tb, &browsers, url, reload) {
+        return done;
+    }
+    let Some((_, pane)) = app_pane_of(terminal) else { return false };
+    let opened = frontend::app_do("pane.split", &json!({"direction": "right", "pane": pane, "argv": [tb, "open", url]})).is_some();
+    frontend::app_do("pane.focus", &json!({"terminal": terminal}));
+    opened
+}
+
+fn app_pane_of(terminal: &str) -> Option<(String, String)> {
+    frontend::app_spaces().iter().flat_map(|s| s["tabs"].as_array().cloned().unwrap_or_default()).flat_map(|t| t["terminals"].as_array().cloned().unwrap_or_default()).find(|t| t["terminal"] == terminal).and_then(|t| Some((terminal.to_string(), t["pane"].as_str()?.to_string())))
+}
+
+/// A page already open in one of the browsers comes to the front (reloaded when asked), else a new tab in the first
+/// one; None when there is no browser.
+fn reuse(tb: &str, browsers: &[Value], url: &str, reload: bool) -> Option<bool> {
+    for browser in browsers {
+        let key = field(browser, "key");
+        for tab in browser["tabs"].as_array().into_iter().flatten() {
+            if same_page(&field(tab, "url"), url) {
+                let id = field(tab, "id");
+                let mut argv = vec![tb, "action", "--browser", &key, "--tab", &id, "--follow", "--"];
+                argv.extend(if reload { &["reload"][..] } else { &["get", "url"][..] });
+                return Some(run(&argv, TIMEOUT).is_some_and(|o| o.ok()));
+            }
+        }
+    }
+    let first = browsers.first()?;
+    Some(run(&[tb, "new-tab", "--browser", &field(first, "key"), url], TIMEOUT).is_some_and(|o| o.ok()))
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// herdr
 
 /// The pane of a Claude session, else the calling one, with its tab and space; None outside herdr.
 pub fn pane_of(session: Option<&str>) -> Option<Value> {
@@ -158,19 +280,8 @@ fn round2(x: f64) -> f64 {
 
 pub fn open_beside(tb: &str, pane: &Value, url: &str, size: f64, reload: bool) -> bool {
     let browsers = browsers_beside(tb, pane);
-    for browser in &browsers {
-        let key = field(browser, "key");
-        for tab in browser["tabs"].as_array().into_iter().flatten() {
-            if same_page(&field(tab, "url"), url) {
-                let id = field(tab, "id");
-                let mut argv = vec![tb, "action", "--browser", &key, "--tab", &id, "--follow", "--"];
-                argv.extend(if reload { &["reload"][..] } else { &["get", "url"][..] });
-                return run(&argv, TIMEOUT).is_some_and(|o| o.ok());
-            }
-        }
-    }
-    if let Some(first) = browsers.first() {
-        return run(&[tb, "new-tab", "--browser", &field(first, "key"), url], TIMEOUT).is_some_and(|o| o.ok());
+    if let Some(done) = reuse(tb, &browsers, url, reload) {
+        return done;
     }
     // The split is herdr's own, so the keyboard stays where it is; its ratio is what the first pane keeps.
     let ratio = round2(1.0 - split_size(pane, size)).to_string();
@@ -186,8 +297,7 @@ pub fn open_beside(tb: &str, pane: &Value, url: &str, size: f64, reload: bool) -
 /// The active tab of the browser beside the pane: its browser key, tab id, URL and title.
 pub fn beside(session: Option<&str>) -> Option<Value> {
     let tb = terminal_browser()?;
-    let pane = pane_of(session)?;
-    browsers_beside(&tb, &pane).iter().find_map(|browser| {
+    browsers_of(&tb, session).iter().find_map(|browser| {
         let tab = browser["tabs"].as_array()?.iter().find(|t| t["active"].as_bool() == Some(true))?;
         Some(json!({"key": browser["key"], "tab": tab["id"], "url": tab.get("url").cloned().unwrap_or(json!("")), "title": tab.get("title").cloned().unwrap_or(json!(""))}))
     })

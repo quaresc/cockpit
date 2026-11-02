@@ -89,6 +89,14 @@ impl Doc {
         }
     }
 
+    /// The line at `from` moved to take the place of the line at `to`, the lines between shifting by one.
+    pub fn place(&mut self, from: usize, to: usize) {
+        if from < self.lines.len() && to < self.lines.len() && from != to {
+            let line = self.lines.remove(from);
+            self.lines.insert(to, line);
+        }
+    }
+
     /// Open items first, done ones after, each kept in its order, in the lines the items already take.
     pub fn order(&mut self) {
         let items = self.items();

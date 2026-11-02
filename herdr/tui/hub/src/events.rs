@@ -182,6 +182,7 @@ fn routines(before: &Value, after: &Value) -> Vec<Value> {
             let summary = s(run, "summary");
             let (kind, line) = match run["ok"].as_bool() {
                 Some(true) => ("routine_ok", format!("✅ {name}: {summary}")),
+                _ if run["missed"] == true => ("routine_missed", format!("⏭ {name} {summary}")),
                 _ if run["stopped"] == true => ("routine_failed", format!("⏹ {name} stopped")),
                 _ => ("routine_failed", format!("❌ {name} failed: {summary}")),
             };

@@ -45,11 +45,11 @@ expression: "render(&mut app, 90, HEIGHT)"
  │     └─ ▼   api#2219                feat: count exports in t…  image           19h
  │        └─ ▼   api#2224               feat: ask again when a…  image           18h
  │           └─     api#2223             feat: remove the old …  image           18h
- ├─ ▼ Maintenance  1
 ──────────────────────────────────────────────────────────────────────────────────────────
  web#1866  feat(quota): link the quota banners to the help center [ENG-414]
  dev/eng-414-quota-banner-know-more → dev/eng-413-preview-on-demand · updated 22h ago
  review approved   ci failure
+ Blocked: CI is failing
   test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides when
  dismissed
   translations
@@ -64,5 +64,5 @@ expression: "render(&mut app, 90, HEIGHT)"
    Tests: 2 failed, 41 passed
    exit code 1
 
-   fix ci  f     rerun  r     open  o
+   fix ci  f     rerun  r     open  o     merge  M     auto-merge  U     to draft  T
  q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

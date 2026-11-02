@@ -18,6 +18,8 @@ test('a diff line comment reads as the person speaking', async () => {
   expect(answerText('quota', comment, { type: 'diff' })).toBe('In the quota pane I commented on src/quota.rs:3: keep 100 for pro')
   const pick = { block: 1, type: 'choice', value: 'free', label: 'Free' }
   expect(answerText('quota', pick, { type: 'choice', prompt: 'Which plan?' })).toBe('In the quota pane I picked "Free" for: Which plan.')
+  const review = { block: 0, type: 'review', value: { comments: [] }, label: '1) src/quota.rs:3: keep 100 2) src/plan.rs:9: rename' }
+  expect(answerText('quota', review, { type: 'diff' })).toBe('In the quota pane I commented on the diff: 1) src/quota.rs:3: keep 100 2) src/plan.rs:9: rename')
 })
 
 test('each comment reaches the session and leaves the diff as it was', async () => {

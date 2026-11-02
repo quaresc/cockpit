@@ -1,5 +1,6 @@
-//! The form that adds a routine: its name, when it runs (read back in words as you type, with its next run), the prompt
-//! or script, the folder it runs in, whether Claude or the shell runs it, and Claude's model.
+//! The form that adds a routine: its name, when it runs (read back in words as you type, with its next three runs), the
+//! prompt or script, the folder it runs in, whether Claude or the shell runs it, Claude's model, and whether each run
+//! gets a worktree of its own.
 
 use chrono::Local;
 use cockpit_core::input::Input;
@@ -21,6 +22,7 @@ pub const PROMPT: usize = 2;
 pub const FOLDER: usize = 3;
 pub const KIND: usize = 4;
 pub const MODEL: usize = 5;
+pub const WORKTREE: usize = 6;
 /// The model switch's choices, as the hub's `add` takes them: Claude's default first.
 const MODELS: [(&str, &str); 5] = [("", "default"), ("lightest", "lightest"), ("haiku", "haiku"), ("sonnet", "sonnet"), ("opus", "opus")];
 const LABELS: [&str; 4] = ["name", "when", "prompt", "folder"];
@@ -33,13 +35,15 @@ pub struct Form {
     pub shell: bool,
     /// Which of MODELS.
     pub model: usize,
+    pub worktree: bool,
 }
 
 /// What a key did to the form.
 pub enum Outcome {
     Stay,
     Cancel,
-    /// Name, when, prompt, folder and "claude" or "shell", as the hub's `add` takes them.
+    /// Name, when, prompt, folder, "claude" or "shell", the model and "true" for a worktree per run, as the hub's `add`
+    /// takes them.
     Submit(Vec<String>),
 }
 
@@ -67,11 +71,13 @@ impl Form {
         match When::parse(self.text(WHEN)) {
             Ok(when) => {
                 let mut hint = when.describe(self.text(WHEN));
-                if let Some(next) = when.next_after(clock.local(clock.now)) {
-                    let ms = next.and_local_timezone(clock.zone.unwrap_or(*Local::now().offset())).earliest().map(|t| t.timestamp_millis() as u64);
-                    if let Some(ms) = ms {
-                        hint.push_str(&format!(" · next {}", clock.until(ms)));
-                    }
+                let zone = clock.zone.unwrap_or(*Local::now().offset());
+                let next: Vec<String> = std::iter::successors(when.next_after(clock.local(clock.now)), |at| when.next_after(*at))
+                    .take(3)
+                    .filter_map(|at| at.and_local_timezone(zone).earliest().map(|t| clock.until(t.timestamp_millis() as u64)))
+                    .collect();
+                if !next.is_empty() {
+                    hint.push_str(&format!(" · next {}", next.join(", ")));
                 }
                 (hint, true)
             }
@@ -83,9 +89,9 @@ impl Form {
         let shift_tab = key.code == KeyCode::BackTab || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT));
         match key.code {
             KeyCode::Esc => return Outcome::Cancel,
-            _ if shift_tab => self.at = (self.at + MODEL) % (MODEL + 1),
+            _ if shift_tab => self.at = (self.at + WORKTREE) % (WORKTREE + 1),
             KeyCode::Up => self.at = self.at.saturating_sub(1),
-            KeyCode::Tab | KeyCode::Down => self.at = (self.at + 1) % (MODEL + 1),
+            KeyCode::Tab | KeyCode::Down => self.at = (self.at + 1) % (WORKTREE + 1),
             KeyCode::Enter if self.at < FOLDER => self.at += 1,
             KeyCode::Enter => {
                 if self.problem().is_none() {
@@ -93,12 +99,14 @@ impl Form {
                     let mut values: Vec<String> = (0..4).map(|f| self.text(f).to_string()).collect();
                     values.push(kind.into());
                     values.push(if self.shell { String::new() } else { MODELS[self.model].0.to_string() });
+                    values.push(if self.worktree { "true".into() } else { String::new() });
                     return Outcome::Submit(values);
                 }
             }
             KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if self.at == KIND => self.shell = !self.shell,
             KeyCode::Left if self.at == MODEL => self.model = (self.model + MODELS.len() - 1) % MODELS.len(),
             KeyCode::Char(' ') | KeyCode::Right if self.at == MODEL => self.model = (self.model + 1) % MODELS.len(),
+            KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if self.at == WORKTREE => self.worktree = !self.worktree,
             _ if self.at < KIND => {
                 self.fields[self.at].key(key);
             }
@@ -106,7 +114,7 @@ impl Form {
         }
         // A script has no model to pick.
         if self.shell && self.at == MODEL {
-            self.at = if shift_tab || key.code == KeyCode::Up { KIND } else { NAME };
+            self.at = if shift_tab || key.code == KeyCode::Up { KIND } else { WORKTREE };
         }
         Outcome::Stay
     }
@@ -155,6 +163,8 @@ impl Form {
                 lines.push(Line::styled(format!("{:label_w$}haiku with nothing loaded but the tools it lists", ""), dim()));
             }
         }
+        let worktree_label = Span::styled(format!("{:<label_w$}", "worktree"), if self.at == WORKTREE { fg(ORANGE) } else { dim() });
+        lines.push(Line::from(vec![worktree_label, pill(!self.worktree, "no"), Span::raw(" "), pill(self.worktree, "one per run")]));
         lines.push(Line::raw(""));
         let help = match self.problem() {
             Some(problem) => Line::styled(problem, fg(RED)),

@@ -106,7 +106,7 @@ fn end_hours(m: &Meeting, clock: &Clock) -> f64 {
 }
 
 /// Spans (top, bottom) by start, each with its lane and how many lanes its overlapping group takes.
-fn lanes(spans: &[(f64, f64)]) -> Vec<(usize, usize)> {
+pub fn lanes(spans: &[(f64, f64)]) -> Vec<(usize, usize)> {
     let mut out = vec![(0, 1); spans.len()];
     let mut group: Vec<usize> = Vec::new();
     let mut ends: Vec<f64> = Vec::new();

@@ -358,6 +358,10 @@ pub struct Routine {
     pub timeout: u64,
     pub notify: Notify,
     pub paused: bool,
+    /// Each run in a git worktree of its own, on a branch `auto/<slug>-<id>`, so its changes stay apart.
+    pub worktree: bool,
+    /// Minutes a scheduled run missed while the hub was down may still start late; 0 runs only on time.
+    pub catch_up: u64,
 }
 
 /// The `key: value` lines between two `---` lines at the top, and what follows.
@@ -417,6 +421,16 @@ fn dollars(text: &str) -> Option<f64> {
     text[..end].parse().ok().filter(|b: &f64| *b > 0.0)
 }
 
+/// Minutes a late run may still start: `2h`, `90m`, `30`; `never`, `no` or `-1` for only on time; 12 hours by default.
+fn catch_up(text: &str) -> u64 {
+    let text = text.trim().to_lowercase();
+    match text.as_str() {
+        "" => 12 * 60,
+        "never" | "no" | "off" | "-1" | "0" => 0,
+        _ => interval(&text).or_else(|| interval(&format!("{text}m"))).map_or(12 * 60, |s| s / 60),
+    }
+}
+
 fn expand(path: &str) -> String {
     match path.strip_prefix('~') {
         Some(rest) => format!("{}{rest}", files::home().to_string_lossy()),
@@ -450,6 +464,8 @@ impl Routine {
                 _ => Notify::Always,
             },
             paused: truthy("paused"),
+            worktree: truthy("worktree"),
+            catch_up: catch_up(&get("catch-up")),
         }
     }
 
@@ -584,6 +600,10 @@ mod tests {
         assert_eq!([dollars("2"), dollars("$1.5 a week"), dollars("0"), dollars("lots")], [Some(2.0), Some(1.5), None, None]);
         let bare = Routine::parse("fetch-all", Path::new("/r/fetch-all.md"), "git fetch --all");
         assert_eq!((bare.name.as_str(), bare.when.clone(), bare.body.as_str()), ("fetch all", Ok(When::Manual), "git fetch --all"));
+        assert_eq!((bare.worktree, bare.catch_up), (false, 12 * 60));
+        let isolated = Routine::parse("x", Path::new("/r/x.md"), "---\nworktree: yes\ncatch-up: 2h\n---\nfix it");
+        assert_eq!((isolated.worktree, isolated.catch_up), (true, 120));
+        assert_eq!([catch_up("never"), catch_up("90"), catch_up("1d")], [0, 90, 1440]);
     }
 
     #[test]

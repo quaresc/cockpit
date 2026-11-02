@@ -6,6 +6,7 @@
 mod reference;
 mod report;
 mod then;
+pub mod gui;
 
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
@@ -69,6 +70,10 @@ pub enum Command {
     RefreshInbox,
     Doctor,
     Brief,
+    /// The folder of the pane below, in the person's editor.
+    Editor(String),
+    /// The Claude session below, forked to a tab of the actions space.
+    Fork { session: String, cwd: String, title: String },
 }
 
 impl Command {
@@ -78,6 +83,8 @@ impl Command {
             Command::RefreshInbox => ("Refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
             Command::Doctor => ("Check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
             Command::Brief => ("Today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
+            Command::Editor(cwd) => (format!("Open {} in your editor", folder_name(cwd)), cwd.clone()),
+            Command::Fork { title, .. } => ("Fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
         };
         Entry { text, help, featured: true, id }
     }
@@ -110,6 +117,22 @@ pub fn into_session(key: char, over: &Over, found: &Found, inbox: &Value, config
     })
 }
 
+fn folder_name(cwd: &str) -> &str {
+    cwd.trim_end_matches('/').rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or(cwd)
+}
+
+/// What the pane below adds: its folder in the editor, and a fork of its Claude session.
+pub fn session_commands(over: &Over) -> Vec<Command> {
+    let mut out = Vec::new();
+    if let Some(session) = over.session.clone().filter(|_| over.is_claude) {
+        out.push(Command::Fork { session, cwd: over.cwd.clone(), title: over.title.clone() });
+    }
+    if !over.cwd.is_empty() {
+        out.push(Command::Editor(over.cwd.clone()));
+    }
+    out
+}
+
 pub struct App {
     palette: Palette,
     commands: Vec<Command>,
@@ -136,7 +159,8 @@ impl App {
         App::new(commands(&actions::pinned()), None, asking)
     }
 
-    pub fn new(commands: Vec<Command>, over: Option<Over>, asking: Option<Receiver<Option<Over>>>) -> App {
+    pub fn new(mut commands: Vec<Command>, over: Option<Over>, asking: Option<Receiver<Option<Over>>>) -> App {
+        commands.extend(over.iter().flat_map(session_commands));
         let mut palette = Palette::default();
         palette.app = "palette".into();
         palette.open(commands.iter().enumerate().map(|(n, c)| c.entry(n)).collect());
@@ -193,6 +217,8 @@ impl App {
         match self.commands.get(id).cloned() {
             Some(Command::Space(name)) => self.then = Some(Then::Space(name)),
             Some(Command::RefreshInbox) => self.then = Some(Then::RefreshInbox),
+            Some(Command::Editor(cwd)) => self.then = Some(Then::Editor(cwd)),
+            Some(Command::Fork { session, cwd, title }) => self.then = Some(Then::Fork { session, cwd, title, prompt: String::new() }),
             Some(Command::Doctor) => {
                 self.report = Some(Report::doctor());
                 return false;
@@ -233,8 +259,12 @@ impl App {
         if let Some(rx) = &self.asking
             && let Ok(over) = rx.try_recv()
         {
+            self.commands.extend(over.iter().flat_map(session_commands));
             self.over = over;
             self.asking = None;
+            if self.report.is_none() {
+                self.palette.replace(self.commands.iter().enumerate().map(|(n, c)| c.entry(n)).collect());
+            }
             changed = true;
         }
         if let Some(report) = &mut self.report {

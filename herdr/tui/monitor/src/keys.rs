@@ -57,7 +57,7 @@ impl App {
 
     /// What the palette says under a row's entries: the app's tag, the monitor's state, the error's message or the
     /// release's verdict.
-    fn row_help(&self, item: &Item) -> String {
+    pub(crate) fn row_help(&self, item: &Item) -> String {
         let Some(app) = self.doc.as_ref().and_then(|d| d.app(item.app())) else { return String::new() };
         match item {
             Item::App(_) => format!("{} · {}", app.tag, app.health),
@@ -179,7 +179,7 @@ impl App {
         self.acts_for(&Item::Release(app.clone(), release.clone())).into_iter().find_map(|(a, c)| (c == *cmd).then_some(a.confirm).flatten())
     }
 
-    fn question(&self, cmd: &Cmd) -> String {
+    pub(crate) fn question(&self, cmd: &Cmd) -> String {
         let Cmd::RollBack(app, release, previous) = cmd else { return "sure?".into() };
         let name = self.row_name(&Item::Release(app.clone(), release.clone()));
         format!("roll back {name} to {previous}? A Claude session checks {previous} and asks before any deploy.")

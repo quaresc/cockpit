@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use cockpit_core::hub;
-use cockpit_core::theme::{DIM, FG, ORANGE, RED, dim, fg};
+use cockpit_core::theme::{DIM, FG, GREEN, ORANGE, RED, dim, fg};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use serde_json::{Value, json};
@@ -27,6 +27,8 @@ pub struct Fetched {
     pub threads: Vec<(String, String, String)>,
     pub tests: Vec<String>,
     pub log: Vec<String>,
+    /// GitHub's own word on merging: the line and its tone (bad, warn, good, dim).
+    pub ready: Option<(String, String)>,
     pub error: Option<String>,
 }
 
@@ -108,6 +110,15 @@ impl Details {
 fn render(fetched: &Fetched) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let title = |text: String, color| Line::styled(text, Style::new().fg(color).add_modifier(Modifier::BOLD));
+    if let Some((text, tone)) = &fetched.ready {
+        let color = match tone.as_str() {
+            "bad" => RED,
+            "warn" => ORANGE,
+            "good" => GREEN,
+            _ => DIM,
+        };
+        lines.push(Line::styled(format!("GitHub: {text}"), fg(color)));
+    }
     if !fetched.threads.is_empty() {
         lines.push(title(format!("{} unresolved review thread{}", fetched.threads.len(), if fetched.threads.len() == 1 { "" } else { "s" }), FG));
         for (place, author, body) in fetched.threads.iter().take(THREADS) {
@@ -134,10 +145,12 @@ fn render(fetched: &Fetched) -> Vec<Line<'static>> {
 /// Everything the panel shows of a PR, asked of the hub in turn; the first failure to reach it stops the rest.
 fn fetch(args: &Value, failing: bool) -> Fetched {
     let mut fetched = Fetched::default();
-    let kinds: &[&str] = if failing { &["review_threads", "failed_tests", "ci_log"] } else { &["review_threads"] };
+    let kinds: &[&str] = if failing { &["pr_merge", "review_threads", "failed_tests", "ci_log"] } else { &["pr_merge", "review_threads"] };
     for kind in kinds {
         match hub::fetch(kind, args.clone()) {
             Ok(answer) => fetched.absorb(kind, &answer),
+            // Without GitHub's word on merging, the panel still shows the rest.
+            Err(_) if *kind == "pr_merge" => {}
             Err(error) => {
                 fetched.error = Some(error);
                 break;
@@ -174,6 +187,12 @@ impl Fetched {
                     let line = text(thread, "line");
                     let place = if line.is_empty() { s(thread, "path").to_string() } else { format!("{}:{line}", s(thread, "path")) };
                     self.threads.push((place, author.to_string(), first_line(body)));
+                }
+            }
+            "pr_merge" => {
+                let ready = &answer["ready"];
+                if let Some(text) = ready["text"].as_str() {
+                    self.ready = Some((text.to_string(), ready["tone"].as_str().unwrap_or("dim").to_string()));
                 }
             }
             "failed_tests" => {

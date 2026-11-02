@@ -1,0 +1,69 @@
+{
+  "about": "Made-up agents of the acme world, for the sandbox and the screenshots (COCKPIT_AGENTS_DEMO=<this file>). Ages are minutes before now.",
+  "agents": [
+    {
+      "terminal": "app:t41", "space": {"id": "sp-api", "name": "api"}, "tab": {"id": "tb-412", "name": "quotas"},
+      "title": "Enforce daily quotas", "program": "claude", "status": "blocked", "since_min": 6,
+      "cwd": "/Users/me/code/api", "repo": "api", "branch": "me/eng-412-daily-quotas", "session": "demo-412", "context": 41, "cost": 1.84,
+      "changes": {"files": 3, "add": 214, "del": 38, "ahead": 2, "behind": 0},
+      "recap": "Wrote the per-account quota store and the middleware that rejects over-limit requests; two edge-case tests left before it is ready for review.",
+      "screen": "⏺ Old accounts have no quota row yet. Before I backfill 48,210 accounts I need one decision.\n\n ☐ Backfill\n\nWhich limit should existing accounts start with?\n\n❯ 1. The plan's default\n     Matches what new accounts get\n  2. Their last 30 days' peak\n     Nobody gets rejected on day one\n  3. Type something.\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel"
+    },
+    {
+      "terminal": "app:t42", "space": {"id": "sp-web", "name": "web"}, "tab": {"id": "tb-413", "name": "banner"},
+      "title": "Quota banner and disabled state", "program": "claude", "status": "blocked", "since_min": 2,
+      "cwd": "/Users/me/code/web", "repo": "web", "branch": "me/eng-413-quota-ui", "session": "demo-413", "context": 63, "cost": 0.92,
+      "changes": {"files": 5, "add": 133, "del": 27, "ahead": 3, "behind": 1},
+      "screen": "⏺ The banner is in; the disabled state needs the platforms list.\n\nWhich platforms should show the banner?\n\n  1. [✔] Web\n❯ 2. [✔] iOS\n  3. [ ] Android\n     needs the 4.12 release\n  4. [ ] Type something\n     Submit\n"
+    },
+    {
+      "terminal": "app:t43", "space": {"id": "sp-web", "name": "web"}, "tab": {"id": "tb-414", "name": "copy"},
+      "title": "Settings page copy for quotas", "program": "claude", "status": "done", "since_min": 9,
+      "cwd": "/Users/me/code/web-copy", "repo": "web", "branch": "me/eng-414-quota-copy", "session": "demo-414", "context": 22, "cost": 0.31,
+      "changes": {"files": 2, "add": 18, "del": 6, "ahead": 1, "behind": 0},
+      "recap": "Rewrote the quota settings copy and fixed the lint error the last CI run tripped on; ready for you to look over before pushing.",
+      "screen": "⏺ The copy is updated and eslint passes locally. Want me to push?"
+    },
+    {
+      "terminal": "app:t44", "space": {"id": "sp-billing", "name": "billing"}, "tab": {"id": "tb-398", "name": "csv"},
+      "title": "Invoice CSV export", "program": "claude", "status": "working", "since_min": 3,
+      "cwd": "/Users/me/code/billing", "repo": "billing", "branch": "me/eng-398-invoice-csv", "session": "demo-398", "context": 35, "cost": 2.40,
+      "changes": {"files": 4, "add": 96, "del": 12, "ahead": 4, "behind": 0},
+      "recap": "Addressing the review: amounts move to cents and the export streams by month.",
+      "screen": "⏺ Reading the review comments on billing#375"
+    },
+    {
+      "terminal": "app:t45", "space": {"id": "sp-api", "name": "api"}, "tab": {"id": "tb-405", "name": "flaky e2e"},
+      "title": "Flaky checkout e2e test", "program": "claude", "status": "working", "since_min": 14,
+      "cwd": "/Users/me/code/api-e2e", "repo": "api", "branch": "me/eng-405-flaky-checkout", "session": "demo-405", "context": 52, "cost": 1.12,
+      "changes": {"files": 1, "add": 9, "del": 3, "ahead": 0, "behind": 0},
+      "screen": "⏺ Running the checkout suite 20 times to catch the flake"
+    },
+    {
+      "terminal": "app:t46", "space": {"id": "sp-infra", "name": "infra"}, "tab": {"id": "tb-ttl", "name": "preview ttl"},
+      "title": "Preview environments: shorter default lifetime", "program": "claude", "status": "idle", "since_min": 180,
+      "cwd": "/Users/me/code/infra", "repo": "infra", "branch": "me/infra-ttl", "session": "demo-ttl", "context": 18, "cost": 0.44,
+      "changes": {"files": 0, "add": 0, "del": 0, "ahead": 0, "behind": 0},
+      "recap": "Lowered the default preview lifetime to 48 hours; the PR waits for review.",
+      "screen": "⏺ Opened infra#955."
+    },
+    {
+      "terminal": "app:t47", "space": {"id": "sp-api", "name": "api"}, "tab": {"id": "tb-410", "name": "model"},
+      "title": "Quota model", "program": "claude", "status": "idle", "since_min": 1300,
+      "cwd": "/Users/me/code/api-model", "repo": "api", "branch": "me/eng-412-quota-model", "session": "demo-model", "context": 12, "cost": 0.88,
+      "changes": {"files": 0, "add": 0, "del": 0, "ahead": 0, "behind": 0},
+      "recap": "The quota model shipped in v2026.10.22.",
+      "screen": "⏺ Merged api#2190."
+    }
+  ],
+  "limits": {"limits": [{"name": "5h", "percent": 64, "resets_in_min": 95}, {"name": "7d", "percent": 38, "resets_in_min": 5800}]},
+  "ledger": [
+    {"ticket": "ENG-412", "terminal": "app:t41", "start_min": 180, "end_min": 6},
+    {"ticket": "ENG-413", "terminal": "app:t42", "start_min": 95, "end_min": 2},
+    {"ticket": "ENG-414", "terminal": "app:t43", "start_min": 60, "end_min": 9},
+    {"ticket": "ENG-398", "terminal": "app:t44", "start_min": 40, "end_min": 0},
+    {"ticket": "ENG-412", "terminal": "app:t41", "start_min": 1500, "end_min": 1380},
+    {"ticket": "ENG-398", "terminal": "app:t44", "start_min": 2900, "end_min": 2700},
+    {"ticket": "ENG-410", "terminal": "app:t47", "start_min": 4300, "end_min": 4080}
+  ]
+}

@@ -91,6 +91,36 @@ pub fn needs_me(pr: &Value) -> bool {
     is_failing(pr) || s(pr, "review") == "CHANGES_REQUESTED"
 }
 
+/// Whether the PR can merge as the cache tells it: (ready | blocked | waiting | draft, the line saying so, its tone
+/// bad | warn | good | dim). GitHub's own answer (`pr_merge`) is exact; this one needs no call.
+pub fn readiness(pr: &Value, run: Option<&Value>) -> (&'static str, &'static str, &'static str) {
+    let finished = run.filter(|r| !flag(r, "isRunning"));
+    let running = run.is_some_and(|r| flag(r, "isRunning"));
+    if flag(pr, "isDraft") {
+        ("draft", "Draft: mark it ready for review before it can merge", "dim")
+    } else if is_failing(pr) || finished.is_some_and(|r| s(r, "outcome") == "failed") {
+        ("blocked", "Blocked: CI is failing", "bad")
+    } else if s(pr, "review") == "CHANGES_REQUESTED" {
+        ("blocked", "Blocked: changes requested", "bad")
+    } else if running || !matches!(s(pr, "ci"), "SUCCESS" | "") {
+        ("waiting", "Waiting on checks", "warn")
+    } else if s(pr, "review") == "APPROVED" {
+        ("ready", "Ready to merge", "good")
+    } else {
+        ("waiting", "Waiting for review", "dim")
+    }
+}
+
+/// Seconds as "1h 20m", "45m", "under a minute".
+pub fn duration(secs: u64) -> String {
+    match (secs / 3600, secs / 60 % 60) {
+        (0, 0) => "under a minute".into(),
+        (0, m) => format!("{m}m"),
+        (h, 0) => format!("{h}h"),
+        (h, m) => format!("{h}h {m}m"),
+    }
+}
+
 /// CI: green check circle, red cross circle, orange hourglass while running, dot when none.
 pub fn ci_glyph(pr: &Value) -> (&'static str, Style) {
     if is_failing(pr) {

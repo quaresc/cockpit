@@ -64,5 +64,5 @@ expression: "render(&mut app, 90, HEIGHT)"
    api#2219 feat: count exports in the daily quota [ENG-412]
    api#2207 chore: drop the legacy filter columns [ENG-421]
 
-   ArgoCD  A     open  o
+   ArgoCD  A     open  o     merge  M     auto-merge  U     to draft  T     work on it  n
  v pick  V all alike  esc drop picks                                           ^p palette

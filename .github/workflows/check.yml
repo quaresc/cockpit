@@ -12,6 +12,17 @@ jobs:
       - uses: actions/checkout@v4
       - run: shellcheck -S warning herdr/*.sh herdr/notifier/build.sh
 
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Herdr is not on CI: the layout, keys and manifest must parse, and every module of the mod must be valid JavaScript.
+      - run: for f in app/layouts/*.json app/keys.json app/mods/cockpit/mod.json; do jq empty "$f" || exit 1; done
+      - run: for f in app/mods/cockpit/*.js; do node --input-type=module --check < "$f" || { echo "$f"; exit 1; }; done
+
   plugin:
     runs-on: ubuntu-latest
     steps:

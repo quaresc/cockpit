@@ -58,12 +58,12 @@ pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static
     if let Some(today) = inputs.brief.as_ref().and_then(today) {
         top.push(today);
     }
-    let alerts = alerts(data, &ci, ctx.config, local);
+    let alerts = alerts(data, &ci, ctx.config, local, &inputs.worktrees);
     if !alerts.children.is_empty() {
         top.push(alerts);
     }
     top.push(review(data, &inputs.muted, ctx.compact));
-    let (work, other) = work::rows(data, &ci, ctx, &inputs.costs);
+    let (work, other) = work::rows(data, &ci, ctx, &inputs.costs, &inputs.secs);
     top.push(work);
     top.push(other);
     (head, top)
@@ -99,8 +99,9 @@ fn alert(key: String, text: &str, style: Style) -> Row {
     Row::text(key, Line::styled(format!(" {}  {text}", icon("alert")), style)).name(text).section("Alerts").kind(Kind::Alert)
 }
 
-/// Previews expiring, unhealthy or running a merged branch, red CI of the last hours, sessions left on merged branches.
-fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
+/// Previews expiring, unhealthy or running a merged branch, red CI of the last hours, sessions left on merged branches,
+/// worktrees of merged branches and uncommitted work no session holds.
+fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktrees: &[Value]) -> Row {
     let mut alerts = Row::text("alerts", heading("alert", "Alerts", ""));
     let previews = list(data, "previews");
     let mut ids: Vec<&str> = previews.iter().map(|b| s(b, "id")).collect::<HashSet<_>>().into_iter().collect();
@@ -165,12 +166,45 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
         let close = RowAct::new(verb, 'c', call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
         alerts.add(row.acts(vec![close, RowAct::new("go", 'o', call("run", vec![go]))]));
     }
+    for row in worktree_rows(worktrees, &merged, list(data, "mine"), local) {
+        alerts.add(row);
+    }
     if !alerts.children.is_empty()
         && let crate::row::Body::Text(line) = &mut alerts.body
     {
         line.spans.push(Span::styled(alerts.children.len().to_string(), dim()));
     }
     alerts
+}
+
+/// A merged branch's worktree to remove, or uncommitted changes in one no live session works on.
+fn worktree_rows(worktrees: &[Value], merged: &HashSet<(String, String)>, mine: &[Value], local: &mut Local) -> Vec<Row> {
+    let open: HashSet<(String, String)> = mine.iter().map(|pr| (s(pr, "repo").into(), s(pr, "branch").into())).collect();
+    let live: HashSet<(String, String)> = local.agents().into_iter().map(|(repo, branch, _)| (repo, branch)).collect();
+    let mut rows = Vec::new();
+    for tree in worktrees {
+        let key = (s(tree, "repo").to_string(), s(tree, "branch").to_string());
+        let (path, changes) = (s(tree, "path"), tree["changes"].as_u64().unwrap_or(0));
+        let place = format!("{} {}", key.0, key.1);
+        let changed = format!("{changes} uncommitted change{}", if changes == 1 { "" } else { "s" });
+        let go = RowAct::new("go", 'o', call("open_worktree", vec![json!(path)]));
+        let (text, style, acts) = if merged.contains(&key) && !open.contains(&key) {
+            if changes == 0 {
+                let remove = RowAct::new("remove", 'c', call("remove_worktree", vec![json!(path)])).main().confirm(format!("remove-{path}"));
+                (format!("worktree of merged {place}: nothing left in it"), dim(), vec![remove, go])
+            } else {
+                (format!("worktree of merged {place} holds {changed}"), fg(ORANGE), vec![go.main()])
+            }
+        } else if changes > 0 && !live.contains(&key) {
+            (format!("{changed} in {place}, no session on them"), fg(ORANGE), vec![go.main()])
+        } else {
+            continue;
+        };
+        let line = Line::styled(format!(" {}  {text}", icon("worktree")), style);
+        let info = vec![Line::styled(text.clone(), style), Line::styled(path.to_string(), dim())];
+        rows.push(Row::text(format!("worktree:{path}"), line).name(text).info(info).acts(acts).section("Alerts").kind(Kind::Worktree).item(tree));
+    }
+    rows
 }
 
 fn review_row(pr: &Value) -> Row {

@@ -120,8 +120,10 @@ def run(mins, took, ok, why, summary, cost=None, session="", code=0):
             "session": session, "cost": cost, "summary": summary}
 runs = {
     "morning-sweep": [run(70, 72, True, "scheduled for 09:00", "3 PRs wait for review, CI green on all of them", 0.18, "s-sweep-1"),
+                      dict(run(2950, 0, False, "scheduled for 09:00", "missed Fri 09:00: cockpit was not running then", code=None), missed=True),
                       run(1510, 58, True, "scheduled for 09:00", "2 PRs wait for review, billing#375 fails lint", 0.15, "s-sweep-0")],
-    "fix-lint": [run(130, 210, True, "🔴 CI failed: billing me/eng-398-invoice-csv · lint", "Fixed 2 lint errors in billing#375 and pushed", 0.31, "s-lint-0")],
+    "fix-lint": [dict(run(130, 210, True, "🔴 CI failed: billing me/eng-398-invoice-csv · lint", "Fixed 2 lint errors in billing#375 and pushed", 0.31, "s-lint-0"),
+                      worktree={"path": os.path.join(home, ".herdr/worktrees/billing/auto/fix-lint-1"), "branch": "auto/fix-lint-1", "repo": os.path.join(home, "code/billing"), "base": "0" * 40, "commits": 1, "dirty": False})],
     "notes-pull": [run(12, 2, True, "every 30 min", "fetched"), run(42, 2, False, "every 30 min", "fatal: unable to access github.com", code=128)]}
 for slug, rs in runs.items():
     os.makedirs(os.path.join(cache, "routines", slug), exist_ok=True)
@@ -130,7 +132,7 @@ with open(os.path.join(cache, "routines", "morning-sweep", runs["morning-sweep"]
             "- web#413 Quota banner · Maya asked for changes yesterday, answered\n- billing#375 Invoice CSV export · approved by Lin, needs a second review\n\n"
             "## Can merge\n- api#409 Search rate limit · approved, CI green\n")
 with open(os.path.join(cache, "routines.json"), "w") as f:
-    json.dump({"version": 1, "at": ms(minutes=1), "cursor": ms(minutes=1), "routines": [], "running": {}, "queued": [], "runs": runs, "marks": {
+    json.dump({"version": 1, "at": ms(minutes=1), "cursor": ms(minutes=1), "inboxFrom": ms(minutes=180), "routines": [], "running": {}, "queued": [], "runs": runs, "marks": {
         slug: {"seen": ms(days=3), "fired": ms(minutes=70) if slug == "morning-sweep" else ms(minutes=12)} for slug in runs}}, f)
 
 # Past Claude sessions, for the palette's search by words and by meaning.
@@ -156,6 +158,10 @@ session("-code-billing", "s-csv", "Invoice CSV export", 7000, [
 with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox, f)
 with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
+# What the sessions cost, per ticket: Home's agent spend and the tickets' cost read these books.
+os.makedirs(os.path.join(cache, "costs"), exist_ok=True)
+for session, spent in {"demo-412": {"ENG-412": 1.84}, "demo-413": {"ENG-413": 0.92}, "demo-398": {"ENG-398": 2.31}, "demo-405": {"ENG-405": 1.12}}.items():
+    with open(os.path.join(cache, "costs", f"{session}.json"), "w") as f: json.dump(spent, f)
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
     json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "name": "Linear", "keys": ["ENG"]}, "ci": {"name": "GitHub", "imageJob": "docker"},

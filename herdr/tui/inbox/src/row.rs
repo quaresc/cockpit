@@ -74,6 +74,7 @@ pub enum Kind {
     Alert,
     Brief,
     Muted,
+    Worktree,
 }
 
 impl Kind {
@@ -86,6 +87,7 @@ impl Kind {
             Kind::Alert => ("alert", "alerts"),
             Kind::Brief => ("brief line", "brief lines"),
             Kind::Muted => ("muted repo", "muted repos"),
+            Kind::Worktree => ("worktree", "worktrees"),
             Kind::Plain => ("row", "rows"),
         };
         format!("{n} {}", if n == 1 { one } else { many })

@@ -22,6 +22,8 @@ pub enum Key {
     Answer(Value, String),
     /// A diff line's comment: the block stays open for more.
     Comment(Value, String),
+    /// Several diff comments sent as one review: {comments: [{path, line, text}]} and "1) a.rs:12: text 2) …".
+    Review(Value, String),
 }
 
 /// A row of a box with a tall border: thick left edge, thin right one, the top and bottom as eighth blocks.

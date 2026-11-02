@@ -53,7 +53,7 @@ proptest! {
 
     #[test]
     fn the_model_never_panics(data in prop_oneof![inbox(), any_json()], ci in any_json(), brief in any_json(), compact in any::<bool>(), width in 8u16..140) {
-        let inputs = Inputs { data: Some(data), ci, brief: Some(brief), muted: vec!["api".into()], costs: HashMap::new() };
+        let inputs = Inputs { data: Some(data), ci, brief: Some(brief), muted: vec!["api".into()], costs: HashMap::new(), ..Inputs::default() };
         let mut app = App::fixture(inputs, json!({}), compact, Local::fixed(HashMap::new(), Vec::new()), HashMap::new());
         render(&mut app, width, 30);
     }

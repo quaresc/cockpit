@@ -49,6 +49,12 @@ impl Palette {
         self.filter();
     }
 
+    /// New entries under what is typed already: commands that only now apply.
+    pub fn replace(&mut self, entries: Vec<Entry>) {
+        self.entries = entries;
+        self.filter();
+    }
+
     /// Asks the hub in the background, so typing never waits on it; the answer shows when it lands (see `arrived`).
     fn ask_hub(&mut self) {
         if self.query.chars().count() < 2 {

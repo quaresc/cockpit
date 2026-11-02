@@ -15,10 +15,12 @@ use crate::rows::Item;
 impl App {
     /// Adding and refreshing, then every row's actions and a jump to each; the main actions first.
     fn palette_entries(&mut self) -> Vec<Entry> {
-        let mut cmds = vec![Cmd::Add, Cmd::Refresh];
+        let mut cmds = vec![Cmd::Add, Cmd::Refresh, Cmd::ReadAll, Cmd::Cleanup];
         let mut entries = vec![
             Entry { text: "add a routine".into(), help: "a".into(), featured: true, id: 0 },
             Entry { text: "read the routines again".into(), help: "R".into(), featured: true, id: 1 },
+            Entry { text: "mark every run read".into(), help: "X".into(), featured: false, id: 2 },
+            Entry { text: "clean up the run worktrees whose work landed".into(), help: "C".into(), featured: false, id: 3 },
         ];
         // Every routine's runs, folded or not, so the palette finds them all.
         let opened = self.opened.clone();
@@ -149,6 +151,8 @@ impl App {
             }
             KeyCode::Char('a') => self.run(Cmd::Add, None),
             KeyCode::Char('R') => self.run(Cmd::Refresh, None),
+            KeyCode::Char('X') => self.run(Cmd::ReadAll, None),
+            KeyCode::Char('C') => self.run(Cmd::Cleanup, None),
             KeyCode::Char(' ') => self.fold(),
             KeyCode::Enter => match acts.iter().find(|(a, _)| a.main) {
                 Some((act, cmd)) => self.press(Some(&act.clone()), cmd.clone()),
@@ -177,7 +181,7 @@ impl App {
         self.acts_for(&Item::Routine(slug.clone())).into_iter().find_map(|(a, c)| (c == *cmd).then_some(a.confirm).flatten())
     }
 
-    fn question(&self, cmd: &Cmd) -> String {
+    pub(crate) fn question(&self, cmd: &Cmd) -> String {
         let Cmd::Delete(slug) = cmd else { return "sure?".into() };
         format!("Delete the routine \u{201c}{}\u{201d}, its file and its runs?", self.row_name(&Item::Routine(slug.clone())))
     }

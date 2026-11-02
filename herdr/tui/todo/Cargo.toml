@@ -16,3 +16,4 @@ regex.workspace = true
 [dev-dependencies]
 insta.workspace = true
 proptest = "1"
+tempfile = "3"

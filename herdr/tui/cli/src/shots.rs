@@ -6,14 +6,14 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::browse::{self, DEFAULT_SIZE, browsers_beside, open_beside, pane_of, terminal_browser};
+use crate::browse::{self, DEFAULT_SIZE, browsers_of, has_place, open_for, terminal_browser};
 use crate::proc::{dumps, fail};
 
 const USAGE: &str = "Screenshots of a page at phone, tablet and desktop sizes, taken in the terminal-browser beside a pane.
 
     cockpit shots <url> <out dir> [--sizes mobile,tablet,desktop] [--full] [--session <Claude session id>]
 
-Prints the screenshots as JSON, {size: path}. Without terminal-browser beside a pane in herdr, it exits 2 and says so.";
+Prints the screenshots as JSON, {size: path}. Without terminal-browser beside a pane in herdr or the Herdr app, it exits 2 and says so.";
 
 const SIZES: [(&str, &[&str]); 3] =
     [("mobile", &["set", "device", "iPhone 16"]), ("tablet", &["set", "device", "iPad"]), ("desktop", &["set", "viewport", "1440", "900"])];
@@ -62,17 +62,16 @@ pub fn main(args: &[String]) {
     }
     let [url, out] = rest.as_slice() else { fail(USAGE) };
     let out = std::path::absolute(out).unwrap_or_else(|_| PathBuf::from(out));
-    let tb = terminal_browser();
-    let pane = tb.as_ref().and_then(|_| pane_of(session.as_deref()));
-    let (Some(tb), Some(pane)) = (tb, pane) else {
-        eprintln!("terminal-browser is not beside a pane in herdr: take these screenshots in Chrome instead");
+    let session = session.as_deref();
+    let Some(tb) = terminal_browser().filter(|_| has_place(session)) else {
+        eprintln!("terminal-browser is not beside a pane in herdr or the Herdr app: take these screenshots in Chrome instead");
         std::process::exit(2);
     };
-    if browsers_beside(&tb, &pane).is_empty() && !open_beside(&tb, &pane, url, DEFAULT_SIZE, false) {
+    if browsers_of(&tb, session).is_empty() && !open_for(&tb, session, url, DEFAULT_SIZE, false) {
         fail("could not open terminal-browser beside the pane");
     }
     // A browser just split in takes a moment to start.
-    let browsers = wait_for(|| Some(browsers_beside(&tb, &pane)).filter(|b| !b.is_empty())).unwrap_or_else(|| fail("terminal-browser did not start beside the pane"));
+    let browsers = wait_for(|| Some(browsers_of(&tb, session)).filter(|b| !b.is_empty())).unwrap_or_else(|| fail("terminal-browser did not start beside the pane"));
     let key = match &browsers[0]["key"] {
         Value::String(s) => s.clone(),
         other => other.to_string(),

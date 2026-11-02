@@ -1,0 +1,27 @@
+{
+  "layout:cockpit": {
+    "cmd-shift-p": "cockpit.palette",
+    "cmd-alt-0": "cockpit.home",
+    "cmd-alt-1": "cockpit.go:inbox",
+    "cmd-alt-2": "cockpit.go:runbook",
+    "cmd-alt-3": "cockpit.go:todo",
+    "cmd-alt-4": "cockpit.go:meetings",
+    "cmd-alt-5": "cockpit.go:monitor",
+    "cmd-alt-6": "cockpit.go:routines",
+    "cmd-alt-a": "cockpit.agent-view",
+    "cmd-alt-b": "cockpit.panel",
+    "ctrl-cmd-1": "cockpit.panel:show",
+    "ctrl-cmd-2": "cockpit.panel:review",
+    "ctrl-cmd-3": "cockpit.panel:runbook",
+    "ctrl-cmd-4": "cockpit.panel:files",
+    "ctrl-cmd-5": "cockpit.panel:changes",
+    "cmd-j": "cockpit.next-waiting",
+    "cmd-shift-j": "cockpit.next:blocked",
+    "cmd-shift-u": "cockpit.next:done",
+    "cmd-alt-q": "cockpit.queue",
+    "cmd-alt-r": "cockpit.resume",
+    "cmd-r": "cockpit.recap",
+    "cmd-g": "cockpit.pr",
+    "cmd-l": "cockpit.ticket"
+  }
+}

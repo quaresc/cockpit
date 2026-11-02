@@ -3,13 +3,16 @@ import type { EngineInterface } from 'claude-code'
 import type { ViewChip } from '../types'
 
 import { browse } from './browser'
-import { cacheDir, loadConfig } from './config'
+import { cacheDir, cockpitCommand, loadConfig } from './config'
+import { appDo } from './herdr'
+import type { Here } from './herdr'
 import { PAGE_BLOCKS, pageBlocks, pageHtml } from './page'
 import { fetchSource } from './sources'
 
 type $ = EngineInterface
 
-// The show tool: a view built from a fixed catalog of blocks, drawn by herdr/show.py in a pane split from the session's.
+// The show tool: a view built from a fixed catalog of blocks, drawn in a pane split from the session's: `cockpit show`
+// in herdr, the cockpit mod's show view in the Herdr app.
 // A later call with the same pane name rewrites the view and the open pane redraws.
 export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
@@ -67,6 +70,8 @@ export type Spec = {
   placement?: Placement
   cwd?: string
   url?: string
+  // The Herdr app terminal of the session (`t3`), so the app's right panel shows the focused agent's views.
+  terminal?: string
 }
 
 const isText = (v: unknown): v is string => typeof v === 'string'
@@ -227,8 +232,22 @@ async function showDir($: $) {
   return `${await cacheDir($)}/show`
 }
 
-// Whether the pane showing this view still runs: show.py keeps its pid in <name>.pid while it does.
+// The Herdr app's show views open now, as the hub knows them from their subscriptions; kept a few seconds.
+let shownSeen: { at: number; names: Set<string> } | undefined
+
+async function appShown($: $) {
+  if (shownSeen && Date.now() - shownSeen.at < 2_500) return shownSeen.names
+  const cockpit = await cockpitCommand($)
+  const listed = cockpit ? await $.process.run([...cockpit, 'hub', 'shown', 'show'], { timeoutMs: 5_000 }) : undefined
+  const args = listed?.exitCode === 0 ? (JSON.parse(listed.stdout || '[]') as { name?: string }[]) : []
+  shownSeen = { at: Date.now(), names: new Set(args.map(a => a?.name).filter((n): n is string => typeof n === 'string')) }
+  return shownSeen.names
+}
+
+// Whether the pane showing this view still runs: `cockpit show` keeps its pid in <name>.pid while it does, the app's
+// view follows the hub while it is drawn.
 async function isOpen($: $, dir: string, name: string) {
+  if (await $.fs.stat(`${dir}/${name}.app`).then(() => true, () => false)) return (await appShown($)).has(name)
   const pid = (await $.fs.read(`${dir}/${name}.pid`).catch(() => '')).trim()
   return /^\d+$/.test(pid) && (await $.process.run(['kill', '-0', pid])).exitCode === 0
 }
@@ -238,6 +257,7 @@ const openSeen = new Map<string, { at: number; mtime: number; isOpen: boolean }>
 
 // isOpen for the polls: kept until the pid file changes or 30 s pass, since a pane that quits removes its pid file.
 async function isOpenSoon($: $, dir: string, name: string, pidMtime: number) {
+  if (await $.fs.stat(`${dir}/${name}.app`).then(() => true, () => false)) return (await appShown($)).has(name)
   const seen = openSeen.get(name)
   if (seen && seen.mtime === pidMtime && Date.now() - seen.at < PID_RECHECK_MS) return seen.isOpen
   const value = pidMtime > 0 && (await isOpen($, dir, name))
@@ -245,7 +265,23 @@ async function isOpenSoon($: $, dir: string, name: string, pidMtime: number) {
   return value
 }
 
-async function openPane($: $, here: { pane: string }, name: string, placement: Placement) {
+// In the app the view is the cockpit mod's, split beside the session's pane; the pane it got is kept in <name>.app.
+async function openAppPane($: $, here: Here, name: string, placement: Placement) {
+  const props = { app: 'show', name, session: await $.session.id() }
+  const made = await appDo($, 'pane.split', { direction: placement === 'down' ? 'down' : 'right', pane: here.paneId, mod: 'cockpit', props })
+  const pane = made?.pane as string | undefined
+  if (!pane) return 'herdr-app pane.split failed: is the cockpit mod installed? (cockpit app install)'
+  await $.fs.write(`${await showDir($)}/${name}.app`, JSON.stringify({ pane, terminal: here.terminal }))
+  shownSeen = undefined
+  if (placement === 'zoomed') await appDo($, 'pane.zoom', { pane })
+  // The keyboard stays with the conversation.
+  else await appDo($, 'pane.focus', { terminal: here.terminal })
+  return undefined
+}
+
+async function openPane($: $, here: Here, name: string, placement: Placement) {
+  if (here.frontend === 'app') return openAppPane($, here, name, placement)
+  await $.process.run(['rm', '-f', `${await showDir($)}/${name}.app`])
   const script = `${(await loadConfig($)).herdrPluginRoot}/app.sh`
   if (!(await $.fs.stat(script).then(() => true, () => false))) return `the cockpit herdr plugin has no ${script} yet: update it`
   const split = await $.process.run(['herdr', 'pane', 'split', here.pane, '--direction', placement === 'down' ? 'down' : 'right'], { timeoutMs: 10_000 })
@@ -282,16 +318,16 @@ async function presentPage($: $, name: string, spec: Spec) {
 }
 
 // Writes a view and makes sure a pane shows it: the open one redraws, else one opens beside the session.
-export async function present($: $, name: string, spec: Spec, here: { pane: string } | undefined) {
+export async function present($: $, name: string, spec: Spec, here: Here | undefined) {
   await writeSpec($, name, spec)
   if (spec.placement === 'browser') return presentPage($, name, spec)
   if (await isOpen($, await showDir($), name)) return { result: `Updated the ${name} pane.` }
-  if (!here) return { result: `Wrote the view to ${await showDir($)}/${name}.json, but this session is not in herdr, so no pane opened.` }
+  if (!here) return { result: `Wrote the view to ${await showDir($)}/${name}.json, but this session is in neither herdr nor the Herdr app, so no pane opened.` }
   const failure = await openPane($, here, name, spec.placement ?? 'right')
   return failure ? { deny: failure } : { result: `Opened the ${name} pane beside this session; q hides it, its footer chip brings it back.` }
 }
 
-export async function show($: $, input: Record<string, unknown>, here: { pane: string } | undefined, cwd: string | undefined): Promise<{ result: string } | { deny: string }> {
+export async function show($: $, input: Record<string, unknown>, here: Here | undefined, cwd: string | undefined): Promise<{ result: string } | { deny: string }> {
   const error = viewError(input)
   if (error) return { deny: error }
   const name = input.pane as string
@@ -303,6 +339,7 @@ export async function show($: $, input: Record<string, unknown>, here: { pane: s
     placement: (input.placement as Placement | undefined) ?? 'right',
     cwd,
     url: input.url as string | undefined,
+    terminal: here?.terminal,
   }
   // A block with a source gets its first rows before the pane opens.
   spec.blocks = await Promise.all(spec.blocks.map(b => (b.source ? refreshed($, b) : b)))
@@ -355,9 +392,15 @@ export async function viewsOf($: $, session: string): Promise<ViewChip[]> {
 }
 
 // A chip's press: an open view's pane closes, a hidden one opens again where it was. Returns whether it opened.
-export async function toggleView($: $, name: string, here: { pane: string } | undefined) {
+export async function toggleView($: $, name: string, here: Here | undefined) {
   const dir = await showDir($)
   if (await isOpen($, dir, name)) {
+    const app = JSON.parse(await $.fs.read(`${dir}/${name}.app`).catch(() => 'null')) as { pane?: string } | null
+    if (app?.pane) {
+      await appDo($, 'pane.close', { pane: app.pane })
+      shownSeen = undefined
+      return false
+    }
     const pid = (await $.fs.read(`${dir}/${name}.pid`)).trim()
     await $.process.run(['kill', pid])
     return false
@@ -406,6 +449,7 @@ export function answerText(name: string, answer: Answer, block: Block | undefine
     const { path, line, text } = answer.value as Comment
     return `In the ${name} pane I commented on ${path}:${line}: ${text}`
   }
+  if (answer.type === 'review') return `In the ${name} pane I commented on the diff: ${answer.label}`
   const asked = (block?.prompt ?? block?.summary ?? block?.title ?? '') as string
   return answer.type === 'confirm'
     ? `In the ${name} pane I ${answer.value ? 'confirmed' : 'declined'}${asked ? `: ${asked.split('\n')[0]}` : ''}.`
@@ -428,7 +472,7 @@ export async function collectAnswers($: $, session: string) {
     if (!answer) continue
     const spec = await readSpec($, found[1]!)
     const block = spec?.blocks[answer.block]
-    if (spec && block && answer.type !== 'comment') {
+    if (spec && block && answer.type !== 'comment' && answer.type !== 'review') {
       spec.blocks[answer.block] = { ...block, answered: answer.label }
       await writeSpec($, found[1]!, spec)
     }

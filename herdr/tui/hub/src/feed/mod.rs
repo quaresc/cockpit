@@ -7,7 +7,7 @@
 mod circleci;
 mod github;
 mod github_ci;
-mod http;
+pub(crate) mod http;
 mod linear;
 pub mod merge;
 mod news;

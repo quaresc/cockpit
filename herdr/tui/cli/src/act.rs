@@ -12,6 +12,7 @@ const USAGE: &str = "What a notification's button does, with the inbox app's own
     cockpit act ci <PR url>           a Claude investigation of the PR's failing CI in a new space
     cockpit act rerun <PR url>        the PR's failed CI jobs rerun, by the next Claude session
     cockpit act plan <ticket id>      a Claude plan for the ticket in the actions space
+    cockpit act merge <PR url>        the PR merged (or queued) by its repo's preferred method
     cockpit act routine <slug>        the routine's last Claude run resumed in the actions space";
 
 pub fn main(args: &[String]) {
@@ -47,6 +48,7 @@ fn press(args: &[String]) -> Result<String, String> {
             act("inbox", "rerun", vec![pr, run], Some(format!("rerun-{}", text(&workflow))))
         }
         "routine" => act("routines", "talk", vec![json!(reference), Value::Null], None),
+        "merge" => act("inbox", "merge", vec![pr_of(reference)?], None),
         "plan" => act("inbox", "plan", vec![json!({"id": reference.to_uppercase(), "url": ticket_url(reference).unwrap_or_default()})], None),
         _ => Err(USAGE.into()),
     }

@@ -14,10 +14,13 @@ mod proc;
 mod routines;
 mod search;
 mod server;
-mod store;
+pub mod store;
 mod value;
+pub mod views;
 
-use std::os::unix::fs::MetadataExt;
+use std::io::Write;
+use std::net::TcpListener;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -55,6 +58,7 @@ pub fn run() {
         return;
     };
     let inode = std::fs::metadata(&socket).map(|m| m.ino()).unwrap_or_default();
+    let _ = cockpit_core::notify::GUI.set(views::notify);
     // The store opens before the first request, waiting out a hub that hands over to this one.
     drop(store::global());
     let last = Arc::new(AtomicU64::new(server::now_secs()));
@@ -65,19 +69,69 @@ pub fn run() {
     std::thread::spawn(watch);
     std::thread::spawn(search::sessions::keep);
     std::thread::spawn(routines::keep);
+    std::thread::spawn(cockpit_core::resume::keep);
     std::thread::spawn(move || {
         let dir = files::herdr_dir();
         cockpit_update::keep_current(&dir, |binary| hand_over(&dir, binary, &socket, inode));
     });
+    tcp(last.clone());
+    let gate = server::Gate { token: None, frontend: None };
     for stream in listener.incoming().flatten() {
         last.store(server::now_secs(), Ordering::SeqCst);
-        let last = last.clone();
-        std::thread::spawn(move || server::serve(stream, last));
+        let (last, gate) = (last.clone(), gate.clone());
+        std::thread::spawn(move || server::serve(stream, last, gate));
+    }
+}
+
+/// Where the TCP side is: {port, token, pid}, readable by the user alone.
+pub fn tcp_file() -> PathBuf {
+    files::cache().join("hub.json")
+}
+
+/// A random token from the system's source, as hex.
+fn token() -> String {
+    let mut bytes = [0u8; 16];
+    if let Ok(mut random) = std::fs::File::open("/dev/urandom") {
+        let _ = std::io::Read::read_exact(&mut random, &mut bytes);
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The same protocol on 127.0.0.1, for the Herdr app's mod (it opens TCP, not unix sockets); each request carries the
+/// token written to hub.json.
+fn tcp(last: Arc<AtomicU64>) {
+    let Ok(listener) = TcpListener::bind("127.0.0.1:0") else { return };
+    let Ok(port) = listener.local_addr().map(|a| a.port()) else { return };
+    let token = token();
+    let info = serde_json::json!({"port": port, "token": token, "pid": std::process::id()});
+    let path = tcp_file();
+    let tmp = path.with_extension("tmp");
+    let _ = std::fs::remove_file(&tmp);
+    let written = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp).and_then(|mut f| f.write_all(info.to_string().as_bytes()));
+    if written.and_then(|_| std::fs::rename(&tmp, &path)).is_err() {
+        return;
+    }
+    let gate = server::Gate { token: Some(token), frontend: Some(cockpit_core::frontend::Frontend::App) };
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            last.store(server::now_secs(), Ordering::SeqCst);
+            let (last, gate) = (last.clone(), gate.clone());
+            std::thread::spawn(move || server::serve(stream, last, gate));
+        }
+    });
+}
+
+/// Takes hub.json away when it names this hub.
+fn drop_tcp_file() {
+    let path = tcp_file();
+    if files::load(&path).is_some_and(|v| v["pid"] == std::process::id()) {
+        let _ = std::fs::remove_file(path);
     }
 }
 
 /// A newer binary went into bin/: a hub run from it takes the socket over, the space apps restart on it, this one ends.
 fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
+    drop_tcp_file();
     if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
         let _ = std::fs::remove_file(socket);
     }
@@ -101,7 +155,8 @@ fn exit_when_idle(socket: &Path, inode: u64, last: &AtomicU64) {
     loop {
         std::thread::sleep(Duration::from_secs((limit / 10).clamp(1, 30)));
         let is_idle = server::now_secs().saturating_sub(last.load(Ordering::SeqCst)) >= limit;
-        if is_idle && !store::global().has_subscribers() && !space_apps_running() && !routines::wanted() {
+        if is_idle && !store::global().has_subscribers() && !views::has_subscribers() && !space_apps_running() && !routines::wanted() {
+            drop_tcp_file();
             // Only our own socket goes: a newer hub may have taken the path.
             if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
                 let _ = std::fs::remove_file(socket);

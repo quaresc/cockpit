@@ -4,7 +4,9 @@ import type { EngineInterface, SessionMeasureInput } from 'claude-code'
 import { clashWith } from './activity'
 import { ciMark, notify, readCi } from './ci'
 import { cacheDir, home, loadConfig } from './config'
-import { browsersBeside, herdr, hereSoon, inboxSpace, placeHere, placeOf } from './herdr'
+import { reportFacts } from './facts'
+import { appDo, appSpaces, browsersBeside, findTerminal, herdr, hereSoon, inboxSpace, placeHere, placeOf } from './herdr'
+import type { Here } from './herdr'
 import { isDeploying, isFailing, isOldReview, ticketKey } from './match'
 import { siteMark } from './sites'
 import { ICON } from './icons'
@@ -21,7 +23,7 @@ const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 type Limit = { name: string; percent: number; resetsAt?: string }
 
 // What the herdr sidebar shows: counts and limits on the inbox space's row, and on this agent's rows its context,
-// its repo and branch, and the page beside it.
+// its repo and branch, and the page beside it. The same facts go to the hub for the Herdr app's `agents` view.
 
 const tokenArgs = (args: string[], tokens: [string, string | undefined][]) => {
   for (const [name, value] of tokens) args.push(...(value === undefined ? ['--clear-token', name] : ['--token', `${name}=${value}`]))
@@ -147,10 +149,23 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
   const other = current && branch ? await clashWith($, current.repo, branch, here) : undefined
   const otherLabel = other ? (await placeOf($, other))?.label ?? other.space : undefined
   tokens.push(['clash', otherLabel ? `⚠ same branch as ${otherLabel}` : undefined])
+  await reportFacts($, here, {
+    context: ctx === undefined ? null : Math.round(ctx),
+    cost: e.cost?.usd ?? null,
+    cwd: current?.dir ?? null,
+    repo: current?.repo ?? null,
+    branch: branch ?? null,
+    ticket: (branch && ticketKey(branch, data, tickets.keys)) || null,
+    pr: pr ? { number: pr.number, url: pr.url, failing: isFailing(pr) } : null,
+    ci: run ? { running: run.isRunning, done: run.done, total: run.total } : null,
+    clash: other ? { label: otherLabel ?? other.space, space: other.space, tab: other.tab ?? null } : null,
+  }).catch(() => undefined)
+  if (here.frontend === 'app') return
   await herdr($, tokenArgs(['pane', 'report-metadata', here.pane, '--source', 'cockpit'], tokens))
 }
 
 export function clearRows($: $, pane: string) {
+  if (pane.startsWith('app:')) return Promise.resolve(undefined)
   const names = ['ctx_ok', 'ctx_warn', 'ctx_hot', 'work', 'work_run', 'work_ok', 'work_fail', 'clash', 'agent', 'side_sep', 'side']
   return herdr($, tokenArgs(['pane', 'report-metadata', pane, '--source', 'cockpit'], names.map(name => [name, undefined])))
 }
@@ -175,6 +190,7 @@ type Pane = { pane_id: string; tab_id: string; tokens?: Record<string, string> }
 export async function reportSide($: $) {
   const here = await hereSoon($)
   if (!here) return
+  if (here.frontend === 'app') return reportAppSide($, here)
   const listed = await herdr($, ['pane', 'list', '--workspace', here.space])
   const panes = ((JSON.parse(listed.stdout || '{}')?.result?.panes ?? []) as Pane[]).filter(p => p.tab_id === here.tab)
   const topic = panes.find(p => p.pane_id === here.pane)?.tokens?.topic || ((await placeOf($, here))?.label ?? '')
@@ -191,9 +207,20 @@ export async function reportSide($: $) {
   const tokens: [string, string | undefined][] = right
     ? [['agent', clip(topic, 12)], ['side_sep', '│'], ['side', extra > 0 ? `${right} +${extra}` : right]]
     : [['agent', fitWords(topic, (await sidebarWidth($)) - 2 - ctxCells)], ['side_sep', undefined], ['side', undefined]]
+  await reportFacts($, here, { task: topic || null, page: shown?.url ?? null, pageTitle: shown?.title || null, views: (await read($, views)).map(v => ({ name: v.name, open: v.isOpen })) }).catch(() => undefined)
   const key = JSON.stringify(tokens)
   if (key === lastRow) return
   if ((await herdr($, tokenArgs(['pane', 'report-metadata', here.pane, '--source', 'cockpit'], tokens))).exitCode === 0) lastRow = key
+}
+
+// The app draws the agent's row from the hub's facts: the page beside it and its views.
+async function reportAppSide($: $, here: Here) {
+  const tabs = (await browsersBeside($, here)).flatMap(b => b.tabs ?? [])
+  const page = tabs.find(t => t.active) ?? tabs[0]
+  const shown = page ? { url: page.url, title: page.title ?? '' } : null
+  if (JSON.stringify(shown) !== JSON.stringify(await read($, sidePage))) await update($, sidePage, () => shown)
+  const open = (await read($, views)).map(v => ({ name: v.name, open: v.isOpen }))
+  await reportFacts($, here, { page: shown?.url ?? null, pageTitle: shown?.title || null, views: open })
 }
 
 let seenAt = Date.now()
@@ -205,8 +232,9 @@ export async function closeIdleBrowsers($: $) {
   const place = await placeHere($)
   const here = await hereSoon($)
   if (!place || !here) return
-  const self = await herdr($, ['pane', 'get', here.pane])
+  const self = here.frontend === 'app' ? { stdout: '' } : await herdr($, ['pane', 'get', here.pane])
   const isWorking = JSON.parse(self.stdout || '{}')?.result?.pane?.agent_status === 'working'
+  if (here.frontend === 'app') return closeIdleAppBrowsers($, here, place.isFocused, browserIdleMinutes)
   if (place.isFocused || isWorking || !browserIdleMinutes) {
     seenAt = Date.now()
     return
@@ -224,13 +252,32 @@ export async function closeIdleBrowsers($: $) {
   if (closed > 0) await reportSide($)
 }
 
+// The app's terminal-browsers are terminals of their own in the session's tab, closed like any pane.
+async function closeIdleAppBrowsers($: $, here: Here, isFocused: boolean, idleMinutes: number) {
+  const found = findTerminal(await appSpaces($), here.terminal ?? '')
+  if (isFocused || found?.terminal.status === 'working' || !idleMinutes) {
+    seenAt = Date.now()
+    return
+  }
+  if (Date.now() - seenAt < idleMinutes * 60_000) return
+  let closed = 0
+  for (const t of found?.tab.terminals ?? []) {
+    if (t.terminal === here.terminal || !isBrowserTerminal(t)) continue
+    if (await appDo($, 'pane.close', { pane: t.pane })) closed++
+  }
+  if (closed > 0) await reportSide($)
+}
+
+export const isBrowserTerminal = (t: { app: string | null; name: string | null }) => /terminal-browser/.test(`${t.app ?? ''} ${t.name ?? ''}`)
+
 const FINISHED_AFTER_MS = 30_000
 
 // A long turn that ended while its space, or its tab in a pinned space, was out of view: a notification whose click leads back to it.
 export async function notifyFinished($: $, durationMs: number, answer: string) {
+  const line = answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? 'Done.'
+  void hereSoon($).then(here => reportFacts($, here, { last: { at: Date.now(), durationMs, text: line.slice(0, 200) } })).catch(() => undefined)
   if (durationMs < FINISHED_AFTER_MS) return
   const place = await placeHere($)
   if (!place || place.isFocused) return
-  const line = answer.split('\n').map(l => l.replace(/[*`#>_]/g, '').trim()).find(l => l.length > 0) ?? 'Done.'
   await notify($, `✓ ${place.label}`, line.length > 140 ? `${line.slice(0, 139)}…` : line, place.target)
 }

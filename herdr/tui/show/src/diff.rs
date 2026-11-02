@@ -1,6 +1,7 @@
 //! A diff: a patch given whole, or a repo's working tree read again every few seconds in the background. Each file
 //! folds; lines carry their syntax colours and changed words, wrap rather than get cut, and show unified or side by side
-//! (`s`). Focused, the diff has a line cursor (j/k, `[`/`]` between files) and `c` comments on the line under it.
+//! (`s`). Focused, the diff has a line cursor (j/k, `[`/`]` between files), `c` comments on the line under it and `S`
+//! sends the comments written.
 
 use std::collections::{BTreeSet, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -57,7 +58,9 @@ pub struct Diff {
     cursor: (usize, Option<usize>),
     side_by_side: bool,
     comment: Option<Input>,
-    /// Comments sent from here: path, line, whether on the old side, text; shown under their line.
+    /// Comments written and not sent yet (`S` sends them), then those sent: path, line, whether on the old side, text;
+    /// both shown under their line.
+    drafts: Vec<(String, usize, bool, String)>,
     sent: Vec<(String, usize, bool, String)>,
 }
 
@@ -173,6 +176,7 @@ impl Diff {
             cursor: (0, None),
             side_by_side: false,
             comment: None,
+            drafts: Vec::new(),
             sent: Vec::new(),
         }
     }
@@ -275,14 +279,35 @@ impl Diff {
         }
     }
 
-    fn send_comment(&mut self) -> Key {
+    fn add_comment(&mut self) -> Key {
         let text = self.comment.take().map(|i| i.text.trim().to_string()).unwrap_or_default();
         let file = &self.files[self.cursor.0];
         let line = self.cursor.1.and_then(|l| file.lines.get(l)).and_then(number);
         let Some(line) = line.filter(|_| !text.is_empty()) else { return Key::Used };
         let old = self.cursor.1.and_then(|l| file.lines.get(l)).is_some_and(|l| l.kind == Kind::Del);
-        self.sent.push((file.path.clone(), line, old, text.clone()));
-        Key::Comment(json!({"path": file.path, "line": line, "text": text}), format!("{}:{line}", file.path))
+        self.drafts.push((file.path.clone(), line, old, text));
+        Key::Used
+    }
+
+    #[cfg(test)]
+    fn drafts(&self) -> usize {
+        self.drafts.len()
+    }
+
+    /// The comments written so far, to the session: one as a comment, several as one review.
+    fn send_comments(&mut self) -> Key {
+        let drafts = std::mem::take(&mut self.drafts);
+        let key = match drafts.as_slice() {
+            [] => Key::Used,
+            [(path, line, _, text)] => Key::Comment(json!({"path": path, "line": line, "text": text}), format!("{path}:{line}")),
+            many => {
+                let comments: Vec<Value> = many.iter().map(|(path, line, old, text)| json!({"path": path, "line": line, "old": old, "text": text})).collect();
+                let label = many.iter().enumerate().map(|(i, (path, line, _, text))| format!("{}) {path}:{line}: {}", i + 1, text.split_whitespace().collect::<Vec<_>>().join(" "))).collect::<Vec<_>>().join(" ");
+                Key::Review(json!({"comments": comments}), label)
+            }
+        };
+        self.sent.extend(drafts);
+        key
     }
 
     pub fn act(&mut self, act: &Act) {
@@ -297,7 +322,7 @@ impl Diff {
     pub fn key(&mut self, key: KeyEvent) -> Key {
         if let Some(input) = self.comment.as_mut() {
             return match input.key(key) {
-                Edit::Submit => self.send_comment(),
+                Edit::Submit => self.add_comment(),
                 Edit::Cancel => {
                     self.comment = None;
                     Key::Used
@@ -313,6 +338,7 @@ impl Diff {
             KeyCode::Char(']') => self.jump_file(true),
             KeyCode::Char('[') => self.jump_file(false),
             KeyCode::Char('s') => self.side_by_side = !self.side_by_side,
+            KeyCode::Char('S') => return self.send_comments(),
             KeyCode::Enter if self.cursor.1.is_none() => self.fold(self.cursor.0),
             KeyCode::Char('c') | KeyCode::Enter => self.start_comment(),
             _ => return Key::Unused,
@@ -476,18 +502,21 @@ impl Diff {
         }
     }
 
-    /// Under a line: the comments sent on it, and the comment being typed when the cursor is on it.
+    /// Under a line: the comments sent on it (✓), those waiting for `S` (•), and the comment being typed when the cursor
+    /// is on it.
     fn after_line(&self, file: &File, line: &Line, l: usize, f: usize, cols: usize, out: &mut Vec<Row>) {
         let Some(n) = number(line) else { return };
         let old = line.kind == Kind::Del;
-        for (_, _, _, text) in self.sent.iter().filter(|(p, at, side, _)| *p == file.path && *at == n && *side == old) {
+        let here = |(p, at, side, _): &&(String, usize, bool, String)| *p == file.path && *at == n && *side == old;
+        let marked = self.sent.iter().filter(here).map(|c| ("    ✓ ", GREEN, &c.3)).chain(self.drafts.iter().filter(here).map(|c| ("    • ", ORANGE, &c.3)));
+        for (mark, color, text) in marked {
             for (k, piece) in cockpit_core::text::wrap(text, cols.saturating_sub(8)).into_iter().enumerate() {
-                out.push(Row::text(if k == 0 { "    ✓ " } else { "      " }, fg(GREEN)).add(piece, dim().add_modifier(Modifier::ITALIC)).target(Target::Diff));
+                out.push(Row::text(if k == 0 { mark } else { "      " }, fg(color)).add(piece, dim().add_modifier(Modifier::ITALIC)).target(Target::Diff));
             }
         }
         if let (Some(input), true) = (&self.comment, self.cursor == (f, Some(l))) {
             let mut row = input.line("    ✎ ");
-            row.spans.push(ratatui::text::Span::styled("   enter sends to the session · esc cancels", dim()));
+            row.spans.push(ratatui::text::Span::styled("   enter adds it · S sends them all · esc cancels", dim()));
             out.push(Row::from_line(row).target(Target::Diff).here(true));
         }
     }
@@ -510,12 +539,32 @@ mod tests {
         for code in [KeyCode::Char('j'), KeyCode::Char('j'), KeyCode::Char('j'), KeyCode::Char('c'), KeyCode::Char('o'), KeyCode::Char('k')] {
             press(&mut diff, code);
         }
-        match press(&mut diff, KeyCode::Enter) {
+        assert!(matches!(press(&mut diff, KeyCode::Enter), Key::Used));
+        match press(&mut diff, KeyCode::Char('S')) {
             Key::Comment(value, label) => {
                 assert_eq!(value, json!({"path": "a.py", "line": 2, "text": "ok"}));
                 assert_eq!(label, "a.py:2");
             }
             _ => panic!("no comment sent"),
         }
+    }
+
+    #[test]
+    fn several_comments_go_as_one_review() {
+        let patch = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n x = 1\n-y = 2\n+y = 3\n";
+        let mut diff = Diff::new(&json!({"patch": patch}));
+        diff.arrived(1, Some(crate::patch::prepare(patch)), None);
+        for code in [KeyCode::Char('j'), KeyCode::Char('c'), KeyCode::Char('a'), KeyCode::Enter, KeyCode::Char('j'), KeyCode::Char('j'), KeyCode::Char('c'), KeyCode::Char('b'), KeyCode::Enter] {
+            press(&mut diff, code);
+        }
+        assert_eq!(diff.drafts(), 2);
+        match press(&mut diff, KeyCode::Char('S')) {
+            Key::Review(value, label) => {
+                assert_eq!(value["comments"].as_array().map(Vec::len), Some(2));
+                assert_eq!(label, "1) a.py:1: a 2) a.py:2: b");
+            }
+            _ => panic!("no review sent"),
+        }
+        assert_eq!(diff.drafts(), 0);
     }
 }

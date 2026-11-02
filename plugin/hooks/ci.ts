@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { CiFailure, CiRun, CiState, DeployedPr, Inbox, MergedPr, Preview } from '../types'
 
-import { cacheDir, fill, home, loadConfig, writeAtomic } from './config'
+import { cacheDir, cockpitCommand, fill, home, loadConfig, writeAtomic } from './config'
 import { appFor, call, callMapped, can, createPreview, dashboardName, deployedApps, extendPreview, listAt, listPreviews, pick, previewUrl, text } from './platform'
 import { hubOwnsCi } from './feed'
 import { ciChanges, hasTicket } from './match'
@@ -25,10 +25,9 @@ const RESULTS_TTL_MS = 86_400_000
 // runbook:<slug>, and each button, [label, action], runs its own.
 export async function notify($: $, title: string, body: string, action = '', buttons: [string, string][] = []) {
   if (!(await loadConfig($)).notifications) return
-  const script = `${await home($)}/.config/cockpit/herdr/cockpit.sh`
-  const isLinked = await $.fs.stat(script).then(() => true, () => false)
-  const command = isLinked
-    ? ['sh', script, 'notify', title, body, action, ...buttons.map(([label, target]) => `${label}=${target}`)]
+  const cockpit = await cockpitCommand($)
+  const command = cockpit
+    ? [...cockpit, 'notify', title, body, action, ...buttons.map(([label, target]) => `${label}=${target}`)]
     : ['herdr', 'notification', 'show', title, '--body', body, '--sound', 'request']
   await $.process.run(command, { timeoutMs: 30_000 })
 }

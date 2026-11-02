@@ -3,11 +3,11 @@
 
 use std::path::Path;
 
-use cockpit_core::{actions, files, focus};
+use cockpit_core::{actions, focus, frontend};
 use serde_json::{Value, json};
 
-use crate::value::{cut, join, list};
-use crate::{config, herdr};
+use crate::config;
+use crate::value::{cut, join};
 
 /// The pinned space an app runs in; show views live beside their session, in no space of their own.
 fn space_of(app: &str) -> Option<&'static str> {
@@ -30,17 +30,9 @@ pub fn go(target: &Value) -> Value {
         return session(target);
     }
     focus::request(app, target);
-    if let Some(space) = space_of(app)
-        && let Some(listed) = files::herdr(&["workspace", "list"])
-    {
-        let suffix = format!("  {space}");
-        let found = list(&listed["result"]["workspaces"])
-            .iter()
-            .find(|w| w["label"].as_str().is_some_and(|l| l.ends_with(&suffix)))
-            .and_then(|w| w["workspace_id"].as_str());
-        if let Some(id) = found {
-            files::herdr(&["workspace", "focus", id]);
-        }
+    crate::views::focus(app, target);
+    if let Some(space) = space_of(app) {
+        frontend::show_app(if app == "to-do" { "todo" } else { app }, space);
     }
     json!({"ok": true})
 }
@@ -66,13 +58,10 @@ fn session(target: &Value) -> Value {
                   stood: what was done, what was decided, what was left open. Then wait for my questions. Change nothing (no \
                   edits, commits, pushes or ticket updates) unless I ask.";
     let line = join(&["claude", "--resume", id, "--fork-session", prompt].map(str::to_string));
-    let pane = actions::open_tab(&config::load().space_names(), cwd, &label, Some(&key)).or_else(|| {
-        let created = herdr::run(&["workspace", "create", "--cwd", cwd, "--label", &label, "--focus"]);
-        herdr::result_of(&created).and_then(|r| r["root_pane"]["pane_id"].as_str().map(str::to_string))
-    });
+    let pane = actions::open_tab(&config::load().space_names(), cwd, &label, Some(&key)).or_else(|| frontend::new_space(cwd, &label));
     let Some(pane) = pane else {
         return json!({"error": "herdr opened no tab for the session"});
     };
-    herdr::run(&["pane", "run", &pane, &line]);
+    frontend::run_in(&pane, &line);
     json!({"ok": true, "note": format!("opened a fork of \"{title}\"")})
 }

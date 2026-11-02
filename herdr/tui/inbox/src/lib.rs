@@ -20,6 +20,8 @@ pub mod sessions;
 mod test_home;
 mod tree;
 mod work;
+pub mod worktrees;
+pub mod gui;
 
 /// `cockpit inbox`: the inbox in the terminal until it quits.
 pub fn run() -> std::io::Result<()> {

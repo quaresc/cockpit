@@ -43,14 +43,20 @@ struct Doctor {
     herdr: String,
     path: String,
     now: i64,
+    /// herdr answers its --version: the terminal half is there.
+    has_herdr: bool,
+    /// The Herdr desktop app's command, when it is installed.
+    app: Option<PathBuf>,
 }
 
 pub fn main(_: &[String]) {
     let doctor = Doctor::new();
     doctor.tools();
     doctor.installs();
+    doctor.herdr_app();
     let installed = doctor.claude_plugin();
     doctor.sessions(&installed);
+    doctor.app_sessions(&installed);
     doctor.caches();
     doctor.spaces();
     doctor.notifications();
@@ -83,7 +89,10 @@ impl Doctor {
         let settings = load(&settings_path);
         let herdr = std::env::var("HERDR_BIN_PATH").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "herdr".into());
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or_default();
-        Doctor { root, link, registered, cache: files::cache(), settings, settings_path, config: load(&config_path), herdr, path, now }
+        let mut doctor = Doctor { root, link, registered, cache: files::cache(), settings, settings_path, config: load(&config_path), herdr, path, now, has_herdr: false, app: None };
+        doctor.has_herdr = !doctor.output(&[&doctor.herdr, "--version"]).is_empty();
+        doctor.app = doctor.which("herdr-app");
+        doctor
     }
 
     fn set(&self) -> &Value {
@@ -132,7 +141,9 @@ impl Doctor {
         let said = self.output(&[&self.herdr, "--version"]);
         let v = said.lines().map(|l| l.split_whitespace().nth(1).unwrap_or_default()).collect::<Vec<_>>().join("\n");
         let v = v.trim_end_matches('\n');
-        if v.is_empty() || glob("0.[0-8].*", v) {
+        if v.is_empty() && self.app.is_some() {
+            ok("herdr not installed: cockpit runs in the Herdr app alone");
+        } else if v.is_empty() || glob("0.[0-8].*", v) {
             fail(&format!("herdr {}: cockpit needs 0.9 or later → herdr update", if v.is_empty() { "missing" } else { v }));
         } else {
             ok(&format!("herdr {v}"));
@@ -190,6 +201,17 @@ impl Doctor {
 
     fn installs(&self) {
         let registered = &self.registered;
+        if !self.has_herdr {
+            // The Herdr app alone runs the scripts the Claude plugin's marketplace copy holds.
+            let shipped = files::home().join(".claude/plugins/marketplaces/cockpit/herdr");
+            let linked = readlink(&self.link);
+            if Path::new(&linked).join("cockpit.sh").is_file() {
+                ok(&format!("link ~/.config/cockpit/herdr → {linked}"));
+            } else {
+                fail(&format!("no ~/.config/cockpit/herdr link → ln -sfn {} ~/.config/cockpit/herdr", shipped.display()));
+            }
+            return;
+        }
         if !registered.is_empty() && Path::new(registered).is_dir() {
             ok(&format!("herdr plugin at {registered}"));
         } else {
@@ -208,6 +230,64 @@ impl Doctor {
             let old =
                 std::fs::read_dir(installs).into_iter().flatten().flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && e.path() != install).count();
             if old == 0 { ok("no old herdr installs") } else { warn(&format!("{old} old herdr installs → sh {registered}/ensure-spaces.sh prunes them")) }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // The Herdr app half: the layout and mod in its home, on this binary's version, loading cleanly
+
+    fn herdr_app(&self) {
+        let Some(app) = &self.app else {
+            ok("Herdr app not installed: the herdr half alone (https://herdr.dev installs the app)");
+            return;
+        };
+        let home = cockpit_core::frontend::app_home();
+        let fix = format!("sh {}/cockpit.sh app install", self.link.display());
+        if !home.join("layouts/cockpit.json").is_file() || !home.join("mods/cockpit/main.js").is_file() {
+            warn(&format!("Herdr app without the cockpit layout and mod → {fix}"));
+            return;
+        }
+        let noted = load(&home.join("cockpit.json")).unwrap_or(Value::Null);
+        let bin = raw(&noted["bin"]);
+        let ours = env!("CARGO_PKG_VERSION");
+        if bin.is_empty() || !proc::executable(Path::new(&bin)) {
+            fail(&format!("the cockpit mod names no cockpit binary that runs ({}) → {fix}", if bin.is_empty() { "none" } else { &bin }));
+        } else if raw(&noted["version"]) != ours {
+            warn(&format!("the cockpit mod is from {}, this cockpit is {ours} → {fix}", raw(&noted["version"])));
+        } else {
+            ok(&format!("Herdr app: cockpit layout and mod {ours}"));
+        }
+        let checked = self.run(&[&app.to_string_lossy(), "check", &home.join("mods/cockpit").to_string_lossy()], Duration::from_secs(30));
+        match checked {
+            Some(o) if o.ok() => ok("Herdr app: the cockpit mod loads"),
+            Some(o) => fail(&format!("Herdr app: the cockpit mod does not load: {} → {fix}", o.stderr.lines().chain(o.stdout.lines()).find(|l| !l.trim().is_empty()).unwrap_or("no reason given"))),
+            None => warn("Herdr app: herdr-app check did not answer"),
+        }
+    }
+
+    /// Each Claude session in a Herdr app terminal should beat with the installed version, as `app:<terminal>`.
+    fn app_sessions(&self, installed: &str) {
+        let Some(app) = &self.app else { return };
+        let listed: Value = serde_json::from_str(&self.output(&[&app.to_string_lossy(), "ls"])).unwrap_or(Value::Null);
+        let all = beats(&self.cache.join("sessions"));
+        for space in values(&listed["spaces"]) {
+            for tab in values(&space["tabs"]) {
+                for terminal in values(&tab["terminals"]) {
+                    let address = raw(&terminal["terminal"]);
+                    let program = cockpit_core::frontend::hc(&["get", &address]).map(|t| raw(&t["foreground"]["name"])).unwrap_or_default();
+                    if !program.contains("claude") {
+                        continue;
+                    }
+                    let label = format!("{} / {}", raw(&space["name"]), raw(&tab["name"]));
+                    let handle = format!("app:{address}");
+                    let beat = max_by_at(&all.iter().filter(|b| b["pane"] == handle.as_str()).collect::<Vec<_>>()).cloned();
+                    match beat.map(|b| raw(&b["version"])) {
+                        None => warn(&format!("session \"{label}\" ({address}) runs no cockpit → /reload-plugins in it, or restart it")),
+                        Some(v) if !installed.is_empty() && v != installed => warn(&format!("session \"{label}\" runs cockpit {v}, {installed} is installed → /reload-plugins in it")),
+                        Some(v) => ok(&format!("session \"{label}\" on cockpit {v}")),
+                    }
+                }
+            }
         }
     }
 
@@ -339,6 +419,9 @@ impl Doctor {
     // Pinned spaces and their apps
 
     fn spaces(&self) {
+        if !self.has_herdr {
+            return;
+        }
         let listed = self.herdr_json(&["workspace", "list"]);
         let labels: Vec<String> = values(&listed["result"]["workspaces"]).map(|w| raw(&w["label"])).collect();
         let herdr_config = std::fs::read_to_string(files::home().join(".config/herdr/config.toml")).ok();
@@ -395,6 +478,9 @@ impl Doctor {
             ok("notify-send");
         } else {
             warn("notify-send missing: herdr's toasts are used instead");
+        }
+        if !self.has_herdr {
+            return;
         }
         let herdr_config = std::fs::read_to_string(files::home().join(".config/herdr/config.toml")).unwrap_or_default();
         let delivery = toast_delivery(&herdr_config);

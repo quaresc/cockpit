@@ -8,19 +8,19 @@ expression: "render(&mut app, 90, 30)"
  ▶  Fix CI on checkout  on CI failing · checkout  ~$0.41 last  over its weekly budget
     Standup notes       when?                                  never ran
  ▶  Morning sweep       weekdays at 09:00         ~$0.18 last  ran 1 h ago
-    Ping the team       daily at 10:00                         never ran
-    We╭──────────────────────────────────────────────────────────────────────────╮
-       │                                                                          │
+    Pi╭──────────────────────────────────────────────────────────────────────────╮
+    We│                                                                          │
        │  New routine                                                             │
        │                                                                          │
        │  name    Review digest                                                   │
        │  when    mon,thu 14:30                                                   │
-       │          → Mon, Thu at 14:30 · next 14:30                                │
+       │          → Mon, Thu at 14:30 · next 14:30, Mon 14:30, 5 Nov 14:30        │
        │  prompt  List the PRs waiting for my review, oldest first.               │
        │  folder  a folder of its own                                             │
        │  runs     Claude   shell                                                 │
        │  model    default   lightest   haiku   sonnet   opus                     │
        │          haiku with nothing loaded but the tools it lists                │
+       │  worktree no   one per run                                               │
        │                                                                          │
        │  tab moves · enter from the folder on adds it · esc cancels              │
        │                                                                          │

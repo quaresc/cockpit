@@ -111,7 +111,7 @@ fn diff_side_by_side_with_a_comment() {
         press(&mut app, &[KeyCode::Char(c)]);
     }
     insta::assert_snapshot!("diff_side_by_side_typing_120", screen(&mut app, 120));
-    press(&mut app, &[KeyCode::Enter]);
+    press(&mut app, &[KeyCode::Enter, KeyCode::Char('S')]);
     insta::assert_snapshot!("diff_side_by_side_sent_120", screen(&mut app, 120));
     let answer: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root().join("comment-diff-120-Comfortable/view.0.answer")).unwrap()).unwrap();
     assert_eq!(answer["type"], "comment");

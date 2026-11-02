@@ -49,3 +49,4 @@ similar = { version = "3.2.1", features = ["unicode"] }
 [dev-dependencies]
 insta.workspace = true
 proptest = "1.12.0"
+tempfile = "3"

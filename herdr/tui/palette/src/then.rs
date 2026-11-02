@@ -3,7 +3,7 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use cockpit_core::{actions, files, hub};
+use cockpit_core::{actions, files, frontend, hub};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,11 +14,13 @@ pub enum Then {
     Space(String),
     RefreshInbox,
     Open(String),
+    /// A folder in the person's editor.
+    Editor(String),
     /// Typed at the session's prompt, not sent.
     Insert { pane: String, text: String },
     /// Sent to the session as a prompt.
     Ask { pane: String, text: String },
-    /// A fork of the session in a tab of the actions space, asked to look into an item.
+    /// A fork of the session in a tab of the actions space, asked to look into an item (no prompt: just the fork).
     Fork { session: String, cwd: String, title: String, prompt: String },
 }
 
@@ -36,8 +38,15 @@ impl Then {
                 files::open_url(url);
                 Ok(())
             }
-            Then::Insert { pane, text } => herdr(&["pane", "send-text", pane, text]),
-            Then::Ask { pane, text } => herdr(&["agent", "prompt", pane, text]),
+            Then::Editor(cwd) => editor(cwd),
+            Then::Insert { pane, text } => match pane.strip_prefix(frontend::APP) {
+                Some(terminal) => frontend::app_type(terminal, text).then_some(()).ok_or_else(|| format!("could not type into {terminal}")),
+                None => herdr(&["pane", "send-text", pane, text]),
+            },
+            Then::Ask { pane, text } => match pane.strip_prefix(frontend::APP) {
+                Some(terminal) => frontend::app_prompt(terminal, text).then_some(()).ok_or_else(|| format!("could not send to {terminal}")),
+                None => herdr(&["agent", "prompt", pane, text]),
+            },
             Then::Fork { session, cwd, title, prompt } => fork(session, cwd, title, prompt),
         }
     }
@@ -72,9 +81,29 @@ fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\"'\"'"))
 }
 
-/// The command line that resumes the session as a fork and asks it the prompt.
+/// The command line that resumes the session as a fork and asks it the prompt, if any.
 pub fn fork_line(session: &str, prompt: &str) -> String {
-    ["claude", "--resume", session, "--fork-session", prompt].map(quote).join(" ")
+    let line = ["claude", "--resume", session, "--fork-session"].map(quote).join(" ");
+    if prompt.is_empty() { line } else { format!("{line} {}", quote(prompt)) }
+}
+
+/// The config's `editor` (code, cursor, zed, ...), else VS Code: its command line, else the macOS app of that name.
+fn editor(cwd: &str) -> Result<(), String> {
+    let config = files::config();
+    let name = config["editor"].as_str().filter(|e| !e.is_empty()).unwrap_or("code");
+    if Command::new(name).arg(cwd).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success()) {
+        return Ok(());
+    }
+    let app = match name {
+        "code" => "Visual Studio Code",
+        "cursor" => "Cursor",
+        "zed" => "Zed",
+        "windsurf" => "Windsurf",
+        "subl" => "Sublime Text",
+        other => other,
+    };
+    let opened = Command::new("open").args(["-a", app, cwd]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    if opened.is_ok_and(|s| s.success()) { Ok(()) } else { Err(format!("{app} is not installed (set \"editor\" in the cockpit config)")) }
 }
 
 fn fork(session: &str, cwd: &str, title: &str, prompt: &str) -> Result<(), String> {
@@ -83,13 +112,11 @@ fn fork(session: &str, cwd: &str, title: &str, prompt: &str) -> Result<(), Strin
     }
     let short: String = title.chars().take(28).collect();
     let label = if short.len() < title.len() { format!("⑂ {short}…") } else { format!("⑂ {title}") };
-    let pane = actions::open_tab(&actions::pinned(), cwd, &label, None)
-        .or_else(|| {
-            let created = actions::herdr(&["workspace", "create", "--cwd", cwd, "--label", &label, "--focus"])?;
-            created["root_pane"]["pane_id"].as_str().map(str::to_string)
-        })
-        .ok_or("herdr opened no tab for the fork")?;
-    herdr(&["pane", "run", &pane, &fork_line(session, prompt)])
+    let pane = actions::open_tab(&actions::pinned(), cwd, &label, None).or_else(|| frontend::new_space(cwd, &label)).ok_or("herdr opened no tab for the fork")?;
+    match pane.strip_prefix(frontend::APP) {
+        Some(_) => frontend::run_in(&pane, &fork_line(session, prompt)).then_some(()).ok_or_else(|| "the fork's tab took no command".to_string()),
+        None => herdr(&["pane", "run", &pane, &fork_line(session, prompt)]),
+    }
 }
 
 #[cfg(test)]
@@ -99,5 +126,6 @@ mod tests {
     #[test]
     fn the_fork_line_quotes_its_prompt() {
         assert_eq!(fork_line("4f1c-77", "look at it's state"), "claude --resume 4f1c-77 --fork-session 'look at it'\"'\"'s state'");
+        assert_eq!(fork_line("4f1c-77", ""), "claude --resume 4f1c-77 --fork-session");
     }
 }

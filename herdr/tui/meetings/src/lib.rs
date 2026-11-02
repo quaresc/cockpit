@@ -2,6 +2,7 @@
 //! the next one about to start pulsing, briefs prepared and folded open, and the same week drawn as a picture.
 
 pub mod app;
+pub mod gui;
 mod keys;
 pub mod picture;
 pub mod pinned;

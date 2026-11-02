@@ -17,3 +17,4 @@ resvg.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+tempfile = "3"

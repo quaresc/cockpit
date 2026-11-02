@@ -22,8 +22,8 @@ use crate::value::{cut, list};
 
 pub const DOC: &str = "routines";
 const TICK: Duration = Duration::from_secs(5);
-/// A run missed while the hub was down still happens when it comes back within this long.
-const CATCH_UP_MS: u64 = 12 * 3_600_000;
+/// A scheduled run this late still counts as on time.
+const ON_TIME_MS: u64 = 120_000;
 const KEEP_RUNS: usize = 20;
 const AT_ONCE: usize = 3;
 /// One routine runs once per row an event touches in this long: a PR's CI failing and its run failing are one failure.
@@ -77,12 +77,15 @@ pub struct Setup {
     pub runs: PathBuf,
     pub claude: String,
     pub repos: String,
+    /// Where runs' worktrees go: ~/.herdr/worktrees, as the Herdr apps put theirs.
+    pub worktrees: PathBuf,
 }
 
 impl Setup {
     pub fn live() -> Setup {
         let claude = crate::proc::which("claude").unwrap_or_else(|| files::home().join(".claude/local/claude")).to_string_lossy().into_owned();
-        Setup { routines: routines::dir(), runs: files::cache().join("routines"), claude, repos: crate::config::load().repos() }
+        let worktrees = files::home().join(".herdr/worktrees");
+        Setup { routines: routines::dir(), runs: files::cache().join("routines"), claude, repos: crate::config::load().repos(), worktrees }
     }
 
     fn run_file(&self, slug: &str, id: &str, ext: &str) -> PathBuf {
@@ -150,7 +153,7 @@ fn current(store: &Store, now: u64) -> Value {
     if doc["version"] == 1 {
         return doc;
     }
-    json!({"version": 1, "cursor": now, "routines": [], "running": {}, "queued": [], "runs": {}, "marks": {}})
+    json!({"version": 1, "cursor": now, "inboxFrom": now, "routines": [], "running": {}, "queued": [], "runs": {}, "marks": {}})
 }
 
 /// Writes the document when it says something new; `at` alone changing writes nothing.
@@ -173,6 +176,9 @@ pub fn round(store: &mut Store, setup: &Setup, now: u64, notify: Notifier) {
         return;
     }
     let mut doc = current(store, now);
+    if doc["inboxFrom"].is_null() {
+        doc["inboxFrom"] = json!(now);
+    }
     finish(&mut doc, setup, &all, now, notify);
     for r in &all {
         let marks = &mut doc["marks"][&r.slug];
@@ -180,7 +186,11 @@ pub fn round(store: &mut Store, setup: &Setup, now: u64, notify: Notifier) {
             *marks = json!({"seen": now, "fired": 0});
         }
     }
-    schedule(&mut doc, &all, now);
+    for (r, due) in schedule(&mut doc, &all, now) {
+        let run = missed(due);
+        tell(r, &run, notify);
+        record(&mut doc, setup, &r.slug, run);
+    }
     let cursor = doc["cursor"].as_u64().unwrap_or(now);
     let mut events = store.events(cursor + 1, 500);
     events.reverse();
@@ -205,9 +215,18 @@ fn queue(doc: &mut Value, slug: &str, why: String, event: Value) {
     }
 }
 
+/// The record of a scheduled run that did not happen: the hub was down at its time, past its catch-up window.
+fn missed(due: NaiveDateTime) -> Value {
+    let at = epoch_ms(due);
+    let summary = format!("missed {}: cockpit was not running then", due.format("%a %H:%M"));
+    json!({"id": at.to_string(), "started": at, "ended": at, "ok": false, "missed": true, "code": null, "why": format!("scheduled for {}", due.format("%H:%M")), "summary": summary})
+}
+
 /// Queues the routines whose time came: an interval once it passed since the last run, a schedule at its time, or late
-/// when the hub was down then, unless that was too long ago.
-fn schedule(doc: &mut Value, all: &[Routine], now: u64) {
+/// when the hub was down then, within the routine's catch-up window. The scheduled runs missed past it come back, with
+/// their time, to be recorded as missed.
+fn schedule<'a>(doc: &mut Value, all: &'a [Routine], now: u64) -> Vec<(&'a Routine, NaiveDateTime)> {
+    let mut gone = Vec::new();
     for r in all.iter().filter(|r| !r.paused) {
         let base = mark(doc, &r.slug, "seen").max(mark(doc, &r.slug, "fired"));
         match &r.when {
@@ -221,14 +240,26 @@ fn schedule(doc: &mut Value, all: &[Routine], now: u64) {
                 let Some(due) = when.last_due(local(base), local(now)) else { continue };
                 let due_ms = epoch_ms(due);
                 doc["marks"][&r.slug]["fired"] = json!(due_ms.max(base));
-                if now.saturating_sub(due_ms) <= CATCH_UP_MS && !is_busy(doc, &r.slug) {
-                    let late = if now.saturating_sub(due_ms) > 120_000 { ", run late" } else { "" };
-                    queue(doc, &r.slug, format!("scheduled for {}{late}", due.format("%H:%M")), Value::Null);
+                let late = now.saturating_sub(due_ms);
+                if is_busy(doc, &r.slug) {
+                    continue;
+                }
+                if late <= (r.catch_up * 60_000).max(ON_TIME_MS) {
+                    let words = if late > ON_TIME_MS { ", run late" } else { "" };
+                    queue(doc, &r.slug, format!("scheduled for {}{words}", due.format("%H:%M")), Value::Null);
+                    if late > ON_TIME_MS
+                        && let Some(last) = doc["queued"].as_array_mut().and_then(|q| q.last_mut())
+                    {
+                        last["late"] = json!(true);
+                    }
+                } else {
+                    gone.push((r, due));
                 }
             }
             _ => {}
         }
     }
+    gone
 }
 
 /// Queues the routines the events set off, oldest event first, and moves the cursor past them; the routines' own
@@ -294,6 +325,7 @@ fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notif
         match start(setup, r, why, &q["event"], now, left_this_week) {
             Ok(mut run) => {
                 run["retry"] = q["retry"].clone();
+                run["late"] = q["late"].clone();
                 doc["running"][slug] = run;
             }
             Err(err) => record(doc, setup, slug, failed_to_start(now, why, &err)),
@@ -415,6 +447,8 @@ fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Op
     if !Path::new(&cwd).is_dir() {
         return Err(format!("no folder {cwd}"));
     }
+    let worktree = if r.worktree { Some(worktree(&setup.worktrees, &cwd, &r.slug, &id)?) } else { None };
+    let cwd = worktree.as_ref().and_then(|w| w["cwd"].as_str()).map_or(cwd.clone(), str::to_string);
     let exit = setup.run_file(&r.slug, &id, "exit");
     let mut argv = vec!["sh".to_string(), "-c".into(), "\"$@\"; echo \"$?\" > \"$0\"".into(), exit.to_string_lossy().into_owned()];
     argv.extend(command);
@@ -437,7 +471,76 @@ fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Op
     let pid = child.id();
     // Reaped as soon as it ends; its end is read from its exit file.
     std::thread::spawn(move || child.wait());
-    Ok(json!({"id": id, "pid": pid, "started": now, "why": why, "session": session, "event": event, "timeout": r.timeout}))
+    Ok(json!({"id": id, "pid": pid, "started": now, "why": why, "session": session, "event": event, "timeout": r.timeout, "worktree": worktree}))
+}
+
+/// git in a folder, never taking its index lock: its output, or what it said on failing.
+fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let out = Command::new("git").arg("-C").arg(dir).args(["--no-optional-locks", "-c", "core.fsmonitor=false"]).args(args).output().map_err(|e| e.to_string())?;
+    let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
+    if out.status.success() { Ok(text(&out.stdout)) } else { Err(text(&out.stderr)) }
+}
+
+/// A git worktree of the folder's repository for one run, on a new branch `auto/<slug>-<id>`, at
+/// `<root>/<repo>/<branch>`: {path, cwd (the folder's place in it), branch, repo, base}.
+fn worktree(root: &Path, cwd: &str, slug: &str, id: &str) -> Result<Value, String> {
+    let folder = std::fs::canonicalize(cwd).map_err(|e| e.to_string())?;
+    let top = git(&folder, &["rev-parse", "--show-toplevel"]).map_err(|_| format!("worktree: {cwd} is in no git repository"))?;
+    let top = PathBuf::from(top);
+    let name = top.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let branch = format!("auto/{slug}-{id}");
+    let path = root.join(&name).join(&branch);
+    let base = git(&top, &["rev-parse", "HEAD"]).map_err(|e| format!("worktree: {e}"))?;
+    git(&top, &["worktree", "add", "-q", "-b", &branch, &path.to_string_lossy(), "HEAD"]).map_err(|e| format!("worktree: {e}"))?;
+    let inside = folder.strip_prefix(std::fs::canonicalize(&top).unwrap_or(top.clone())).map(|rel| path.join(rel)).unwrap_or(path.clone());
+    Ok(json!({"path": path, "cwd": inside, "branch": branch, "repo": top, "base": base}))
+}
+
+/// What a run left in its worktree: commits past where it started and changes not committed. One that left nothing
+/// is removed with its branch at once.
+pub fn settle(wt: &Value) -> Value {
+    let mut wt = wt.clone();
+    let path = PathBuf::from(wt["path"].as_str().unwrap_or_default());
+    if !path.is_dir() {
+        wt["removed"] = json!(true);
+        return wt;
+    }
+    let dirty = git(&path, &["status", "--porcelain"]).map(|s| !s.is_empty()).unwrap_or(true);
+    let commits: u64 = git(&path, &["rev-list", "--count", &format!("{}..HEAD", wt["base"].as_str().unwrap_or("HEAD"))]).ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+    wt["dirty"] = json!(dirty);
+    wt["commits"] = json!(commits);
+    if !dirty && commits == 0 && remove_worktree(&wt).is_ok() {
+        wt["removed"] = json!(true);
+    }
+    wt
+}
+
+/// Whether a kept run worktree's work landed: nothing uncommitted and its branch inside the repository's default one.
+pub fn landed(wt: &Value) -> bool {
+    let (path, repo) = (PathBuf::from(wt["path"].as_str().unwrap_or_default()), PathBuf::from(wt["repo"].as_str().unwrap_or_default()));
+    if !path.is_dir() {
+        return true;
+    }
+    if git(&path, &["status", "--porcelain"]).map_or(true, |s| !s.is_empty()) {
+        return false;
+    }
+    let default = git(&repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).ok().filter(|d| !d.is_empty());
+    let branch = wt["branch"].as_str().unwrap_or_default();
+    let into: Vec<String> = default.into_iter().chain(["main".to_string(), "master".to_string()]).collect();
+    into.iter().any(|d| git(&repo, &["merge-base", "--is-ancestor", branch, d]).is_ok())
+}
+
+/// The worktree and its branch removed as git allows: never forced, so uncommitted work or unmerged commits stay.
+pub fn remove_worktree(wt: &Value) -> Result<(), String> {
+    let (path, repo) = (wt["path"].as_str().unwrap_or_default(), PathBuf::from(wt["repo"].as_str().unwrap_or_default()));
+    if Path::new(path).is_dir() {
+        git(&repo, &["worktree", "remove", path])?;
+    }
+    let branch = wt["branch"].as_str().unwrap_or_default();
+    let base = wt["base"].as_str().unwrap_or_default();
+    // A branch with no commits of its own is deleted as it is; one with commits only once merged.
+    let own: u64 = git(&repo, &["rev-list", "--count", &format!("{base}..{branch}")]).ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+    if own == 0 { git(&repo, &["branch", "-D", branch]).map(|_| ()) } else { git(&repo, &["branch", "-d", branch]).map(|_| ()) }
 }
 
 fn alive(pid: u64) -> bool {
@@ -512,6 +615,12 @@ fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, r: Option<&R
     let mut record = json!({
         "id": id, "started": run["started"], "ended": now, "code": code, "why": run["why"], "session": run["session"], "ok": code == Some(0),
     });
+    if run["late"] == true {
+        record["late"] = json!(true);
+    }
+    if !run["worktree"].is_null() {
+        record["worktree"] = settle(&run["worktree"]);
+    }
     let events: Vec<Value> = if kind == Run::Claude { out.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect() } else { Vec::new() };
     let answer = events.iter().rev().find(|e| e["type"] == "result").cloned();
     let called: Vec<&str> = events
@@ -598,7 +707,11 @@ fn tell(r: &Routine, run: &Value, notify: Notifier) {
     if r.notify == Notify::Never || (r.notify == Notify::Failed && ok) {
         return;
     }
-    let title = if ok { format!("✅ {}", r.name) } else { format!("❌ {}", r.name) };
+    let title = match (ok, run["missed"] == true) {
+        (true, _) => format!("✅ {}", r.name),
+        (false, true) => format!("⏭ {}", r.name),
+        (false, false) => format!("❌ {}", r.name),
+    };
     let mut buttons = vec![format!("Open=routine:{}", r.slug)];
     if run["session"].as_str().is_some_and(|s| !s.is_empty()) {
         buttons.push(format!("Talk=act:routine:{}", r.slug));
@@ -615,6 +728,11 @@ fn shown(r: &Routine, doc: &Value, now: u64, servers: &[String]) -> Value {
         Ok(when @ When::Cron(_)) => when.next_after(local(base.max(now))).map(epoch_ms),
         _ => None,
     };
+    let next_runs = next.map_or_else(Vec::new, |first| match &r.when {
+        Ok(When::Every(secs)) => (0..3).map(|n| first + n * secs * 1000).collect(),
+        Ok(when) => std::iter::successors(Some(first), |at| when.next_after(local(*at)).map(epoch_ms)).take(3).collect(),
+        Err(_) => Vec::new(),
+    });
     let trigger = match &r.when {
         Ok(When::Manual) => "manual",
         Ok(When::Every(_)) => "every",
@@ -632,6 +750,7 @@ fn shown(r: &Routine, doc: &Value, now: u64, servers: &[String]) -> Value {
         "tools": r.tools, "mode": r.mode, "budget": r.budget, "timeout": r.timeout, "paused": r.paused, "prompt": prompt, "next": next,
         "spentWeek": spent(doc, &r.slug, now), "lastCost": last_cost(doc, &r.slug), "problems": problems(r, servers), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
         "notify": match r.notify { Notify::Always => "always", Notify::Failed => "failed", Notify::Never => "never" },
+        "worktree": r.worktree, "catchUp": r.catch_up, "nextRuns": next_runs,
     })
 }
 
@@ -696,6 +815,7 @@ mod tests {
                 runs: dir.path().join("runs"),
                 claude: dir.path().join("claude").to_string_lossy().into_owned(),
                 repos: dir.path().to_string_lossy().into_owned(),
+                worktrees: dir.path().join("worktrees"),
             };
             std::fs::create_dir_all(&setup.routines).unwrap();
             // A Claude that answers like `claude -p --output-format stream-json --verbose`, keeping what it was asked.
@@ -758,8 +878,43 @@ mod tests {
         w.settle(ms("2026-10-30 18:00"));
         let doc = w.settle(ms("2026-10-30 18:01"));
         assert_eq!(doc["runs"]["hello"][0]["why"], "scheduled for 09:00, run late");
+        // Down far longer than its catch-up window: the last time it was due is recorded as missed, and told.
         let doc = w.settle(ms("2026-11-02 08:00"));
-        assert_eq!(doc["runs"]["hello"].as_array().unwrap().len(), 2);
+        let missed = &doc["runs"]["hello"][0];
+        assert_eq!((doc["runs"]["hello"].as_array().unwrap().len(), &missed["missed"], &missed["ok"]), (3, &json!(true), &json!(false)));
+        assert_eq!(missed["summary"], "missed Sun 09:00: cockpit was not running then");
+        assert!(w.told.last().unwrap().starts_with("⏭ hello | missed Sun 09:00"));
+        assert_eq!(doc["runs"]["hello"][1]["late"], true);
+        // With no catch-up, a run late by more than two minutes is missed rather than run.
+        w.write("on-time", "---\nwhen: daily 09:00\nrun: shell\ncatch-up: never\n---\ntrue");
+        w.settle(ms("2026-11-02 08:01"));
+        let doc = w.settle(ms("2026-11-02 09:10"));
+        assert_eq!(doc["runs"]["on-time"][0]["missed"], true);
+    }
+
+    #[test]
+    fn a_run_in_its_own_worktree_leaves_it_only_with_work_in_it() {
+        let mut w = World::new();
+        let repo = w.setup.repos.clone() + "/repo";
+        let git = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "start"]);
+        w.write("look", &format!("---\nrun: shell\ncwd: {repo}\nworktree: true\n---\npwd"));
+        w.write("work", &format!("---\nrun: shell\ncwd: {repo}\nworktree: true\n---\necho x > new.txt"));
+        run_now(&mut w.store, &w.setup, "look", 1_000, &mut |_, _, _, _| {});
+        run_now(&mut w.store, &w.setup, "work", 1_000, &mut |_, _, _, _| {});
+        let doc = w.settle(2_000);
+        let (look, work) = (&doc["runs"]["look"][0], &doc["runs"]["work"][0]);
+        assert!(look["summary"].as_str().unwrap().contains("worktrees/repo/auto/look-1000"), "{look}");
+        assert_eq!((&look["worktree"]["removed"], &look["worktree"]["branch"]), (&json!(true), &json!("auto/look-1000")));
+        assert_eq!((&work["worktree"]["removed"], &work["worktree"]["dirty"]), (&Value::Null, &json!(true)));
+        assert!(!landed(&work["worktree"]), "uncommitted work has not landed");
+        assert!(Path::new(work["worktree"]["path"].as_str().unwrap()).join("new.txt").is_file());
+        std::fs::remove_file(Path::new(work["worktree"]["path"].as_str().unwrap()).join("new.txt")).unwrap();
+        assert!(landed(&work["worktree"]));
+        remove_worktree(&work["worktree"]).unwrap();
+        assert!(!Path::new(work["worktree"]["path"].as_str().unwrap()).exists());
     }
 
     #[test]

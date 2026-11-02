@@ -5,6 +5,7 @@ import { activityOf, logActivity } from './activity'
 import { maybeBrief } from './brief'
 import { processRequests, refreshCi } from './ci'
 import { recordCost, startCosts } from './costs'
+import { forgetFacts, reportFacts } from './facts'
 import { home } from './config'
 import { CHANGES_SPEC, CHANGES_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, searchArgs } from './find'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
@@ -68,7 +69,9 @@ export const register: Register = on => {
     fetch(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
     const beat = async () => {
       const current = await read($, work)
-      await heartbeat($, await hereSoon($), current ? { repo: current.repo, branch: await branchOf($, current) } : undefined)
+      const here = await hereSoon($)
+      await heartbeat($, here, current ? { repo: current.repo, branch: await branchOf($, current) } : undefined)
+      await reportFacts($, here).catch(() => undefined)
     }
     every(60_000, () => void beat().catch(() => undefined))
     void beat().catch(() => undefined)
@@ -183,6 +186,7 @@ export const register: Register = on => {
     }
     const here = await herdrHere($).catch(() => undefined)
     if (here) void clearRows($, here.pane)
+    await forgetFacts($, here?.pane).catch(() => undefined)
     return next(e)
   })
 }

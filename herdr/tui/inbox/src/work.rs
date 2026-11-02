@@ -49,6 +49,7 @@ struct Build<'a> {
     linked: HashMap<String, Vec<&'a Value>>,
     costs: &'a HashMap<String, f64>,
     series: &'a HashMap<String, Vec<f64>>,
+    secs: &'a HashMap<String, u64>,
 }
 
 /// Cells a ticket's cost sparkline takes in its notes, and the points it needs before it shows.
@@ -56,7 +57,7 @@ const SPARK: usize = 8;
 const SPARK_MIN: usize = 3;
 
 impl<'a> Build<'a> {
-    fn new(data: &'a Value, ci: &'a Value, config: &'a Config, costs: &'a HashMap<String, f64>, series: &'a HashMap<String, Vec<f64>>) -> Self {
+    fn new(data: &'a Value, ci: &'a Value, config: &'a Config, costs: &'a HashMap<String, f64>, series: &'a HashMap<String, Vec<f64>>, secs: &'a HashMap<String, u64>) -> Self {
         let mine = list(data, "mine");
         let by_key: HashSet<Key> = mine.iter().map(pr_key).collect();
         let mut pr_children: HashMap<Key, Vec<&Value>> = HashMap::new();
@@ -79,7 +80,7 @@ impl<'a> Build<'a> {
         }
         let runs = list(ci, "runs").iter().map(|r| (pr_key(r), r)).collect();
         let linked = tickets.iter().map(|t| (s(t, "id").to_string(), mine.iter().filter(|pr| has_ticket(s(pr, "branch"), s(t, "id"))).collect())).collect();
-        Self { data, config, mine, tickets, runs, pr_children, pr_parent, t_children, linked, costs, series }
+        Self { data, config, mine, tickets, runs, pr_children, pr_parent, t_children, linked, costs, series, secs }
     }
 
     fn kids(&self, pr: &Value) -> &[&'a Value] {
@@ -172,7 +173,20 @@ impl<'a> Build<'a> {
         if let Some(url) = links["workflow"]["url"].as_str() {
             acts.push(RowAct::new("deploy", 'W', open(url)));
         }
-        acts.push(RowAct::new("open", 'o', open(s(pr, "url"))).main_if(acts.is_empty()));
+        let (ready, ready_text, ready_tone) = facts::readiness(pr, run);
+        let merge_first = ready == "ready" && acts.is_empty();
+        acts.push(RowAct::new("open", 'o', open(s(pr, "url"))).main_if(acts.is_empty() && !merge_first));
+        if !flag(pr, "isDraft") {
+            let method = |label: &'static str, how: &str| (label, call("merge", vec![pr.clone(), json!(how)]));
+            let merge = RowAct::pick("merge", 'M', vec![method("squash and merge", "squash"), method("create a merge commit", "merge"), method("rebase and merge", "rebase")]);
+            acts.push(merge.main_if(merge_first));
+            let auto = |label: &'static str, how: &str| (label, call("automerge", vec![pr.clone(), json!(how)]));
+            acts.push(RowAct::pick("auto-merge", 'U', vec![auto("squash when ready", "squash"), auto("merge commit when ready", "merge"), auto("rebase when ready", "rebase"), auto("turn auto-merge off", "off")]));
+            acts.push(RowAct::new("to draft", 'T', call("draft", vec![pr.clone()])));
+        } else {
+            acts.push(RowAct::new("mark ready", 'Y', call("ready", vec![pr.clone()])));
+        }
+        acts.push(RowAct::new("work on it", 'n', call("start", vec![pr.clone()])).confirm(format!("start-{}", s(pr, "url"))));
         let review = if s(pr, "review").is_empty() { "no review".to_string() } else { s(pr, "review").to_lowercase().replace('_', " ") };
         let ci_state = match running {
             Some(r) => format!("running {}/{}", text(r, "done"), text(r, "total")),
@@ -185,6 +199,7 @@ impl<'a> Build<'a> {
             Line::from(vec![Span::styled(format!("{}  ", reference(pr)), dim()), Span::styled(s(pr, "title").to_string(), strong())]),
             Line::styled(format!("{} → {}{draft} · updated {} ago", s(pr, "branch"), s(pr, "base"), ago(s(pr, "updatedAt"))), dim()),
             Line::from(vec![Span::styled("review ", dim()), Span::styled(review, rv_s), Span::styled("   ci ", dim()), Span::styled(ci_state, ci_s), Span::styled(preview, dim())]),
+            Line::styled(ready_text.to_string(), tone_style(ready_tone)),
         ];
         let mut kids = Vec::new();
         if let Some(r) = run.filter(|r| r["failed"].is_object() && !flag(r, "isRunning")) {
@@ -282,6 +297,7 @@ impl<'a> Build<'a> {
             acts.push(RowAct::new("continue", 'p', call("continue_ticket", vec![ticket.clone(), json!(prs)])).main());
         } else {
             acts.push(RowAct::new("plan", 'p', call("plan", vec![ticket.clone()])).main());
+            acts.push(RowAct::new("start", 'n', call("start", vec![ticket.clone()])).confirm(format!("start-{id}")));
         }
         if deploying && let Some(first) = deployed.first() {
             let links = self.links(s(first, "repo"));
@@ -293,9 +309,14 @@ impl<'a> Build<'a> {
             }
         }
         acts.push(RowAct::new("talk", 't', call("talk", vec![ticket.clone(), json!(prs), json!({"$inbox": true})])));
+        let state = |name: &'static str| (name, call("set_state", vec![ticket.clone(), json!(name)]));
+        acts.push(RowAct::pick("status", 'i', vec![state("Todo"), state("In Progress"), state("In Review"), state("Done")]));
         acts.push(RowAct::new("open", 'o', open(s(ticket, "url"))));
         let project = if s(ticket, "project").is_empty() { "no project" } else { s(ticket, "project") };
-        let spent = usd.map(|u| format!(" · ${u:.2} in Claude usage")).unwrap_or_default();
+        let mut spent = usd.map(|u| format!(" · ${u:.2} in Claude usage")).unwrap_or_default();
+        if let Some(secs) = self.secs.get(&id.to_uppercase()) {
+            spent += &format!(" · {} by agents this week", facts::duration(*secs));
+        }
         let mut info = vec![
             Line::from(vec![Span::styled(format!("{id}  "), dim()), Span::styled(s(ticket, "title").to_string(), strong())]),
             Line::styled(format!("{} · {project} · {} PRs{spent}", s(ticket, "status"), prs.len()), dim()),
@@ -434,13 +455,22 @@ impl<'a> Build<'a> {
     }
 }
 
+fn tone_style(tone: &str) -> Style {
+    match tone {
+        "bad" => fg(RED),
+        "warn" => fg(ORANGE),
+        "good" => fg(GREEN),
+        _ => dim(),
+    }
+}
+
 fn join(values: &[Value]) -> String {
     values.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect::<Vec<_>>().join(", ")
 }
 
 /// The Work section and the Other PRs section.
-pub fn rows(data: &Value, ci: &Value, ctx: &Ctx, costs: &HashMap<String, f64>) -> (Row, Row) {
-    let build = Build::new(data, ci, ctx.config, costs, ctx.series);
+pub fn rows(data: &Value, ci: &Value, ctx: &Ctx, costs: &HashMap<String, f64>, secs: &HashMap<String, u64>) -> (Row, Row) {
+    let build = Build::new(data, ci, ctx.config, costs, ctx.series, secs);
     let claimed = build.claimed();
     (build.work(ctx.by_status, claimed.len()), build.other(&claimed))
 }

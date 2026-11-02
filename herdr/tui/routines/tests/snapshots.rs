@@ -108,7 +108,7 @@ fn the_form_reads_when_back_and_adds_the_routine() {
     let sent = last(&app);
     let args: Vec<&str> = sent.args.iter().map(|a| a.as_str().unwrap()).collect();
     assert_eq!(sent.action, "add");
-    assert_eq!(args, ["Review digest", "mon,thu 14:30", "List the PRs waiting for my review, oldest first.", "", "claude", "lightest"]);
+    assert_eq!(args, ["Review digest", "mon,thu 14:30", "List the PRs waiting for my review, oldest first.", "", "claude", "lightest", ""]);
 }
 
 #[test]

@@ -410,10 +410,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "cockpit-cli"
-version = "0.25.0"
+name = "cockpit-agents"
+version = "0.26.0"
 dependencies = [
  "chrono",
+ "cockpit-core",
+ "regex",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "cockpit-cli"
+version = "0.26.0"
+dependencies = [
+ "chrono",
+ "cockpit-agents",
  "cockpit-core",
  "cockpit-hub",
  "cockpit-inbox",
@@ -427,6 +439,7 @@ dependencies = [
  "cockpit-update",
  "libc",
  "mimalloc",
+ "notify",
  "regex",
  "serde",
  "serde_json",
@@ -436,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-core"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "crossterm",
@@ -453,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-hub"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -475,9 +488,10 @@ dependencies = [
 
 [[package]]
 name = "cockpit-inbox"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
+ "cockpit-agents",
  "cockpit-core",
  "cockpit-show",
  "crossterm",
@@ -492,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-meetings"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -504,11 +518,12 @@ dependencies = [
  "ratatui-image",
  "resvg",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
 name = "cockpit-monitor"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -521,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-palette"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -529,13 +544,14 @@ dependencies = [
  "insta",
  "ratatui",
  "serde_json",
+ "tempfile",
  "textwrap",
  "unicode-width",
 ]
 
 [[package]]
 name = "cockpit-routines"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -548,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-runbook"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -561,11 +577,12 @@ dependencies = [
  "regex",
  "serde_json",
  "tachyonfx",
+ "tempfile",
 ]
 
 [[package]]
 name = "cockpit-show"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -585,6 +602,7 @@ dependencies = [
  "signal-hook",
  "similar 3.2.1",
  "tachyonfx",
+ "tempfile",
  "textwrap",
  "tree-sitter",
  "tree-sitter-bash",
@@ -613,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-todo"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -624,11 +642,12 @@ dependencies = [
  "ratatui",
  "regex",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
 name = "cockpit-update"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "cockpit-core",
  "flate2",

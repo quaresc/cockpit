@@ -13,6 +13,7 @@ use super::book::{handoffs_dir, read_books, read_handoffs, runbooks_dir};
 use super::{Ctx, arg, inbox, opt};
 use crate::config;
 use crate::herdr;
+use cockpit_core::frontend;
 use crate::proc;
 use crate::value::{Res, get, key, list, now, now_ms, s, text, truthy};
 
@@ -129,13 +130,8 @@ pub fn focus_session(ctx: &mut Ctx, args: &[Value]) -> Res {
         ctx.note("its session has not picked the step up yet");
         return Ok(());
     }
-    let got = proc::run(&[herdr::bin(), "pane".into(), "get".into(), s(handoff, "pane")?], Duration::from_secs(5), None);
-    if !got.started {
-        ctx.note("herdr did not answer: try again");
-        return Ok(());
-    }
-    let tab = herdr::result_of(&got).and_then(|r| r["pane"].get("tab_id").cloned());
-    let Some(tab) = tab else {
+    let pane = s(handoff, "pane")?;
+    let Some(tab) = frontend::tab_of(&pane) else {
         // The session is gone with the step: the row offers run again.
         let mut gone = handoff.clone();
         gone["state"] = json!("unreported");
@@ -143,8 +139,11 @@ pub fn focus_session(ctx: &mut Ctx, args: &[Value]) -> Res {
         ctx.note("its session's pane is gone: run the step again");
         return Ok(());
     };
-    let focused = proc::run(&[herdr::bin(), "tab".into(), "focus".into(), text(&tab)], Duration::from_secs(5), None);
-    if !focused.started {
+    let focused = match pane.starts_with(frontend::APP) {
+        true => frontend::focus(&pane),
+        false => proc::run(&[herdr::bin(), "tab".into(), "focus".into(), tab], Duration::from_secs(5), None).started,
+    };
+    if !focused {
         ctx.note("herdr did not answer: try again");
     }
     Ok(())

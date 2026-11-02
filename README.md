@@ -27,6 +27,34 @@ Setup installs the herdr half for your machine, asks which features you want and
 
 **Needs** macOS (Linux untested), herdr 0.9+, `gh` signed in, `jq`, Xcode command line tools and a Nerd Font.
 
+## Herdr app
+
+cockpit also runs in the [Herdr desktop app](https://herdr.dev), drawn natively by Herdr on the same hub and data as the
+terminal half: both can run at once. `/cockpit:setup` installs it when the app is there (or run `cockpit app install`),
+and the window switches once to the **cockpit** layout (⌘⇧L switches layouts).
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/app/home-dark.png"><img src="docs/app/home-light.png" alt="Home in the Herdr app: today's numbers, the next move with its choices, the agents by whose move it is"></picture></p>
+
+- **Sidebar** in place of Herdr's spaces and agents: the agents that need you, with their question answered in place,
+  every agent by ticket with its PR, CI and quota, the spaces, and the apps with their counts.
+- **Home**: today's numbers, the next move, the agents and PRs by whose move it is, the week's delivery.
+- **Work**: the tabs, or the focused agent alone (⌘⌥A), with a side panel (⌘⌥B): Show, Review, the ticket's runbook,
+  Files, Changes.
+- **Apps**: Inbox (merge, auto-merge, start a ticket in a worktree), Runbook, To-do, Meetings, Monitor and Routines as
+  dashboards, with buttons, hover cards, right-click menus and drag where the terminal had keys.
+- **Palette** (⌘⇧P), Herdr's own plus cockpit's: every command with its key, layouts, spaces, tabs and agents, and the
+  hub's search. Over a Claude agent, put what you found in its prompt, ask it, fork it, or open its folder in your
+  editor.
+- **Notifications**: Herdr's toast while the window is in front, the system's otherwise; a click opens the row it is
+  about, where its buttons are.
+- **Recap** (⌘R) of every agent by whose move it is, a **prompt queue** per agent (⌘⌥Q), the bell and the status bar,
+  agents resumed after a restart (⌘⌥R).
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/app/work-dark.png"><img src="docs/app/work-light.png" width="49%" alt="Work: the agent's terminal with the Show panel beside it"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/app/inbox-dark.png"><img src="docs/app/inbox-light.png" width="49%" alt="Inbox: tiles, alerts, reviews and work, with details beside the list"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/app/monitor-dark.png"><img src="docs/app/monitor-light.png" width="49%" alt="Monitor: production's verdict, releases, alerts and new errors, each app's history"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/app/palette-dark.png"><img src="docs/app/palette-light.png" width="49%" alt="Palette over a Claude agent: fork the session, open its folder, every cockpit command"></picture></p>
+
+[`app/README.md`](app/README.md) is how it is built; `docs/screenshots/app_shots.sh` shoots its screens.
+
 ## Features
 
 ### Beside each agent
@@ -103,8 +131,9 @@ talk a run over from the space. `a` adds one,
 
 **🔎 Palette** · `prefix+space` (or Cmd+K in Ghostty) over any pane, ctrl+p in every app. Finds tickets, PRs, runbook
 steps, meetings, releases, the week's history and past sessions, by what was said or what they were about ("the session
-where we fixed quotas"). Over a Claude session, put what you found in its prompt, ask it about it or fork it. Claude
-searches the same way.
+where we fixed quotas"). Over a Claude session, put what you found in its prompt, ask it about it or fork it; fork the
+session itself to a tab, or open its folder in your editor (`editor` in the config, else VS Code). Claude searches the
+same way.
 
 <p align="center"><img src="docs/palette.svg" width="561" alt="Palette over a Claude session: spaces and commands, a ticket found with its PR, runbook and history, then a past session found by a plain question"></p>
 
@@ -170,9 +199,11 @@ session. Everything else comes through a session's connectors, unless you give t
 | `metabase`, `datadog` | Connectors for live panes; Datadog also feeds the monitor. |
 | `monitor` | `env`; the Datadog `queries` per service (`errors`, `hits`, `p95`, with `{service}` and `{env}`); when a release counts as `moved` (`errorPoints`, `p95Ratio`, `p95Ms`, `minHits`); whose releases `notify` (`mine`, `all`, `none`). |
 | `brief`, `meetingBrief`, `recap`, `deployWatch` | When they run and which tools they may use. |
+| `agents.recap` | `auto` (default): an agent's recap is asked of haiku a minute after its turn ends, when nobody looked at it; `manual`: only when you ask. |
 | `e2eBrowser` | `terminal-browser` (beside the agent) or `chrome` (Claude in Chrome). |
 | `spaces` | Pinned spaces in sidebar order: `inbox`, `terminal`, `actions` (a tab per review, plan or talk started from the inbox or runbook), `to-do`, `runbook`, `meetings`, the opt-in `monitor` and `routines`, and your own, as a name or `{ "name": "notes", "cwd": "~/notes", "icon": "", "key": "prefix+n" }`. An open space with that name becomes the pinned one. |
 | `density` | `comfortable` (default, actions in a panel under the list) or `compact` (buttons on the row). `/cockpit` switches it. |
+| `editor` | The editor Open in editor uses: `code` (default), `cursor`, `zed`, or any command that takes a folder. |
 
 Tokens stay in this file only.
 
@@ -186,14 +217,15 @@ Tokens stay in this file only.
 | `prefix` + `i` `t` `a` `d` `u` `m` `o` `y` | Inbox, terminal, actions, to-do, runbook, meetings, monitor, routines (and each own space's `key`) |
 | `prefix+f` | The page beside the agent, in your browser |
 | `prefix+space` | The palette, over any pane |
+| `prefix+shift+a` · `prefix+shift+q` · `prefix+shift+u` | Every agent (answer, recap, go, snooze) · the prompt queue of the agent in view · resume the agents a restart stopped |
 | `j` `k` · `g` `G` · `[` `]` | Rows · ends · groups, in every app |
 | Enter · `o` · `/` · `v` · `R` | Main action · open · filter · pick · refresh |
 | ctrl+p | The palette, from inside an app |
 
 In the palette, Enter goes to what it found. Over a Claude session, `ctrl+r` types its reference at the prompt (a PR's
 URL, a ticket and its URL, a release and its verdict), `ctrl+a` asks the session about it, `ctrl+f` forks the session
-into the actions space to look into it. It also jumps to a pinned space, refreshes the inbox and shows the doctor's
-report or today's brief.
+into the actions space to look into it. It also jumps to a pinned space, refreshes the inbox, shows the doctor's
+report or today's brief, forks the session below to a tab and opens its folder in your editor.
 
 **Cmd+K in Ghostty**: make the key type herdr's prefix then a space. With the default ctrl+b, in
 `~/.config/ghostty/config`:

@@ -19,7 +19,7 @@ pub fn fixture(name: &str) -> Value {
 pub fn inputs() -> Inputs {
     let costs = fixture("costs.json").as_object().expect("costs by ticket").iter().map(|(k, v)| (k.clone(), v.as_f64().unwrap_or(0.0))).collect();
     let muted = fixture("muted.json").as_array().expect("muted repos").iter().filter_map(|r| r.as_str().map(str::to_string)).collect();
-    Inputs { data: Some(fixture("inbox.json")), ci: fixture("ci.json"), brief: Some(fixture("brief.json")), muted, costs }
+    Inputs { data: Some(fixture("inbox.json")), ci: fixture("ci.json"), brief: Some(fixture("brief.json")), muted, costs, ..Inputs::default() }
 }
 
 pub fn series() -> HashMap<String, Vec<f64>> {

@@ -70,6 +70,27 @@ type = "shell"
 command = "sh ~/.config/cockpit/herdr/palette.sh"
 description = "cockpit palette"
 
+# Every agent: who needs you, answered from the popup, with recap, go and snooze.
+[[keys.command]]
+key = "prefix+shift+a"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/popup.sh agents"
+description = "agents"
+
+# The prompt queue of the agent in view: follow-ups sent once it is free.
+[[keys.command]]
+key = "prefix+shift+q"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/popup.sh queue"
+description = "prompt queue"
+
+# The agents a restart stopped, resumed where they were.
+[[keys.command]]
+key = "prefix+shift+u"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/cockpit.sh resume all"
+description = "resume agents"
+
 # The page of the terminal-browser beside the focused pane, in the default browser.
 [[keys.command]]
 key = "prefix+f"

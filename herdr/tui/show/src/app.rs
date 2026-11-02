@@ -315,7 +315,7 @@ impl ShowApp {
     fn answer(&mut self, n: usize, kind: &str, value: Value, label: String) {
         let at = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
         let mut answer = json!({"block": n, "type": kind, "value": value, "label": label, "at": at});
-        if kind != "comment" {
+        if !matches!(kind, "comment" | "review") {
             answer["id"] = self.views[n].spec.get("id").cloned().unwrap_or(Value::Null);
             self.focus = None;
         }
@@ -337,6 +337,11 @@ impl ShowApp {
             Key::Comment(value, label) => {
                 self.answer(n, "comment", value, label.clone());
                 self.toasts.push(format!("comment on {label} sent to the session"), Kind::Good);
+            }
+            Key::Review(value, label) => {
+                let count = value["comments"].as_array().map_or(0, Vec::len);
+                self.answer(n, "review", value, label);
+                self.toasts.push(format!("{count} comments sent to the session"), Kind::Good);
             }
         }
         self.reveal = true;
@@ -532,9 +537,9 @@ impl ShowApp {
             keys.extend([("^p", "palette"), ("tab", "focus")]);
         }
         match self.focus.as_ref().map(|(_, t)| t) {
-            _ if typing => keys.extend([("enter", "send the comment"), ("esc", "cancel")]),
+            _ if typing => keys.extend([("enter", "add the comment"), ("esc", "cancel")]),
             Some(Target::Table) => keys.extend([("←→", "scroll"), ("↑↓", "rows"), ("1-9", "sort"), ("esc", "leave")]),
-            Some(Target::Diff) => keys.extend([("j/k", "line"), ("[ ]", "file"), ("c", "comment"), ("s", "split"), ("enter", "fold"), ("esc", "leave")]),
+            Some(Target::Diff) => keys.extend([("j/k", "line"), ("[ ]", "file"), ("c", "comment"), ("S", "send comments"), ("s", "split"), ("enter", "fold"), ("esc", "leave")]),
             Some(Target::Log) => keys.extend([("j/k", "scroll"), ("g/G", "top/follow"), ("esc", "leave")]),
             Some(Target::Chart) => keys.extend([("←→", "point"), ("+/-", "zoom"), ("0", "all"), ("esc", "leave")]),
             Some(Target::Compare) => keys.extend([("h/l", "split"), ("s", "side by side"), ("esc", "leave")]),

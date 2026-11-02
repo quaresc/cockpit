@@ -12,6 +12,7 @@ path = "src/main.rs"
 cockpit-core.workspace = true
 cockpit-update.workspace = true
 cockpit-hub = { path = "../hub" }
+cockpit-agents = { path = "../agents" }
 cockpit-inbox = { path = "../inbox" }
 cockpit-meetings = { path = "../meetings" }
 cockpit-monitor = { path = "../monitor" }
@@ -24,6 +25,7 @@ chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 libc = "0.2"
+notify.workspace = true
 signal-hook = "0.3.18"
 mimalloc = { version = "0.1.52", default-features = false }
 

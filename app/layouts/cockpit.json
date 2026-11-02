@@ -1,0 +1,160 @@
+{
+  "id": "root",
+  "type": "row",
+  "titlebar": "none",
+  "traffic_lights": [12, 16],
+  "background": "canvas",
+  "terminal_padding": [14, 12],
+  "divider": { "width": 1, "color": "border" },
+  "preview": "layouts/cockpit.svg",
+  "floating": [
+    { "id": "queue", "content": { "mod": "cockpit", "props": { "app": "queue" } }, "edge": "right", "align": "center", "peek": 44 }
+  ],
+  "children": [
+    {
+      "id": "sidebar",
+      "type": "column",
+      "size": { "px": 268 },
+      "min": 44,
+      "max": 480,
+      "background": "chrome",
+      "resizable": false,
+      "children": [
+        { "id": "brand", "type": "block", "size": { "px": 46 }, "window_drag": true, "content": { "mod": "workspace-chrome" } },
+        { "id": "cockpit-sidebar", "type": "block", "size": { "weight": 1 }, "min": 120, "content": { "mod": "cockpit", "props": { "app": "sidebar" } } },
+        { "id": "sidebar-footer", "type": "block", "size": { "px": 69 }, "content": { "mod": "workspace-chrome", "props": { "footer": true } } }
+      ]
+    },
+    {
+      "id": "main-area",
+      "type": "column",
+      "resizable": false,
+      "children": [
+        {
+          "id": "topbar",
+          "type": "row",
+          "size": { "px": 42 },
+          "resizable": false,
+          "children": [
+            { "id": "tabs", "type": "block", "window_drag": true, "content": { "mod": "tabs" } },
+            { "id": "bell", "type": "block", "size": { "px": 52 }, "window_drag": true, "content": { "mod": "cockpit", "props": { "app": "bell" } } }
+          ]
+        },
+        {
+          "id": "center",
+          "type": "stack",
+          "active": "home",
+          "children": [
+            {
+              "id": "home",
+              "type": "row",
+              "children": [
+                { "id": "home-board", "type": "block", "content": { "mod": "cockpit", "props": { "app": "home" } } },
+                {
+                  "id": "home-agent",
+                  "type": "column",
+                  "hidden": true,
+                  "size": { "px": 600 },
+                  "min": 360,
+                  "max": 1100,
+                  "padding": 8,
+                  "children": [
+                    {
+                      "id": "home-agent-card",
+                      "type": "column",
+                      "radius": 10,
+                      "border": { "width": 1, "color": "border" },
+                      "background": "background",
+                      "resizable": false,
+                      "children": [
+                        { "id": "home-agent-head", "type": "block", "size": { "px": 34 }, "content": { "mod": "cockpit", "props": { "app": "agent-head", "place": "home" } } },
+                        { "id": "home-agent-term", "type": "block", "content": { "agent": "focused" } }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "work",
+              "type": "row",
+              "padding": 8,
+              "gap": 8,
+              "children": [
+                {
+                  "id": "view",
+                  "type": "stack",
+                  "active": "main",
+                  "children": [
+                    {
+                      "id": "main",
+                      "type": "block",
+                      "content": {
+                        "tab": "active",
+                        "pane": {
+                          "gap": 8,
+                          "radius": 10,
+                          "background": "background",
+                          "lone": true,
+                          "border": { "width": 1, "color": "border" },
+                          "focus": { "width": 1, "color": "accent" },
+                          "header": { "content": { "mod": "cockpit", "props": { "app": "pane" } }, "height": 30, "position": "top", "reveal": "always" }
+                        }
+                      }
+                    },
+                    {
+                      "id": "agent",
+                      "type": "column",
+                      "radius": 10,
+                      "border": { "width": 1, "color": "border" },
+                      "background": "background",
+                      "resizable": false,
+                      "children": [
+                        { "id": "agent-head", "type": "block", "size": { "px": 34 }, "content": { "mod": "cockpit", "props": { "app": "agent-head", "place": "work" } } },
+                        { "id": "agent-term", "type": "block", "content": { "agent": "focused" } }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "panel",
+                  "type": "row",
+                  "hidden": true,
+                  "size": { "px": 420 },
+                  "min": 280,
+                  "max": 900,
+                  "radius": 10,
+                  "border": { "width": 1, "color": "border" },
+                  "background": "background",
+                  "resizable": false,
+                  "children": [
+                    {
+                      "id": "panel-body",
+                      "type": "stack",
+                      "active": "show",
+                      "children": [
+                        { "id": "show", "type": "block", "content": { "mod": "cockpit", "props": { "app": "show" } } },
+                        { "id": "review", "type": "block", "content": { "mod": "cockpit", "props": { "app": "review" } } },
+                        { "id": "runbook-panel", "type": "block", "content": { "mod": "cockpit", "props": { "app": "runbook", "scope": "focused" } } },
+                        { "id": "files", "type": "block", "content": { "mod": "files" } },
+                        { "id": "changes", "type": "block", "content": { "mod": "changes" } }
+                      ]
+                    },
+                    { "id": "activity", "type": "block", "size": { "px": 44 }, "content": { "mod": "cockpit", "props": { "app": "activity", "stack": "panel-body" } } }
+                  ]
+                }
+              ]
+            },
+            { "id": "inbox", "type": "block", "padding": 0, "content": { "mod": "cockpit", "props": { "app": "inbox" } } },
+            { "id": "runbook", "type": "block", "padding": 0, "content": { "mod": "cockpit", "props": { "app": "runbook" } } },
+            { "id": "todo", "type": "block", "padding": 0, "content": { "mod": "cockpit", "props": { "app": "todo" } } },
+            { "id": "meetings", "type": "block", "padding": 0, "content": { "mod": "cockpit", "props": { "app": "meetings" } } },
+            { "id": "monitor", "type": "block", "padding": 0, "content": { "mod": "cockpit", "props": { "app": "monitor" } } },
+            { "id": "routines", "type": "block", "padding": 0, "content": { "mod": "cockpit", "props": { "app": "routines" } } }
+          ]
+        },
+        { "id": "status", "type": "block", "size": { "px": 28 }, "content": { "mod": "cockpit", "props": { "app": "status" } } }
+      ]
+    }
+  ]
+}

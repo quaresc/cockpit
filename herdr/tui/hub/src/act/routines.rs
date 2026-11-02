@@ -1,5 +1,6 @@
-//! The routines space's actions: add one, run, stop, pause or delete it, edit its file or read a run's output in a tab
-//! of the actions space, and talk a Claude run over by resuming its session there.
+//! The routines space's actions: add or change one, run, stop, pause or delete it, edit its file or read a run's output
+//! in a tab of the actions space, talk a Claude run over by resuming its session there, mark runs read, and look at or
+//! clean up the worktrees runs left.
 
 use std::path::Path;
 
@@ -9,10 +10,10 @@ use serde_json::{Value, json};
 use super::inbox::start_action;
 use super::space;
 use super::{Ctx, arg, opt};
-use crate::herdr;
+use cockpit_core::frontend;
 use crate::routines::{self as runner, Setup, now_ms};
 use crate::store::{self, Store};
-use crate::value::{Res, cut, quote, text};
+use crate::value::{Res, cut, quote, text, truthy};
 
 fn slug(args: &[Value]) -> Res<String> {
     let slug = text(arg(args, 0)?);
@@ -29,7 +30,8 @@ fn routine(setup: &Setup, slug: &str) -> Res<routines::Routine> {
     Ok(routines::Routine::parse(slug, &path, &text))
 }
 
-/// A new routine from the app's form: name, when, prompt (or script), folder, "shell" for a script, and its model.
+/// A new routine from the app's form: name, when, prompt (or script), folder, "shell" for a script, its model, whether
+/// each run gets a worktree, and when it notifies (always, failed, never).
 pub fn add(ctx: &mut Ctx, args: &[Value]) -> Res {
     let note = create(&Setup::live(), args)?;
     ctx.note(note);
@@ -53,9 +55,48 @@ fn create(setup: &Setup, args: &[Value]) -> Res<String> {
     } else if !field(5).is_empty() {
         file = routines::set_field(&file, "model", &model(&field(5))?);
     }
+    if truthy(opt(args, 6)) {
+        file = routines::set_field(&file, "worktree", "true");
+    }
+    if let notify @ ("failed" | "never") = field(7).as_str() {
+        file = routines::set_field(&file, "notify", notify);
+    }
     let path = setup.routines.join(format!("{slug}.md"));
     std::fs::write(&path, file).map_err(|e| e.to_string())?;
     Ok(format!("added {name}: e edits its file"))
+}
+
+/// A routine changed from the app's form: the slug, then the fields `add` takes; the file's other fields stay.
+pub fn update(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let note = rewrite(&Setup::live(), &slug(args)?, &args[1..])?;
+    ctx.note(note);
+    runner::poke();
+    Ok(())
+}
+
+fn rewrite(setup: &Setup, slug: &str, fields: &[Value]) -> Res<String> {
+    let r = routine(setup, slug)?;
+    let field = |n: usize| opt(fields, n).as_str().unwrap_or_default().trim().to_string();
+    let (name, when, body, cwd, shell) = (field(0), field(1), field(2), field(3), field(4) == "shell");
+    if body.is_empty() {
+        return Err("a routine needs a prompt".into());
+    }
+    When::parse(&when)?;
+    let model = if shell { String::new() } else { model(&field(5))? };
+    let notify = match field(7).as_str() {
+        n @ ("failed" | "never") => n.to_string(),
+        _ => "always".to_string(),
+    };
+    let mut text = std::fs::read_to_string(&r.path).map_err(|e| e.to_string())?;
+    let name = if name.is_empty() { r.name.clone() } else { name };
+    let worktree = if truthy(opt(fields, 6)) { "true" } else { "false" };
+    for (key, value) in [("name", name.as_str()), ("when", &when), ("cwd", &cwd), ("run", if shell { "shell" } else { "claude" }), ("model", &model), ("worktree", worktree), ("notify", &notify)] {
+        text = routines::set_field(&text, key, value);
+    }
+    let (head, _) = routines::front_matter(&text);
+    let head: Vec<String> = head.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+    std::fs::write(&r.path, format!("---\n{}\n---\n\n{}\n", head.join("\n"), body)).map_err(|e| e.to_string())?;
+    Ok(format!("saved {name}"))
 }
 
 /// One of the models a routine picks from.
@@ -152,12 +193,9 @@ fn in_tab(ctx: &mut Ctx, cwd: &str, label: &str, line: &str) -> Res {
         ctx.note(format!("\"{label}\" is already open: focused its tab"));
         return Ok(());
     }
-    let pane = space::open_tab(&ctx.cfg, cwd, label, Some(label)).or_else(|| {
-        let created = herdr::run(&["workspace", "create", "--cwd", cwd, "--label", label, "--focus"]);
-        herdr::result_of(&created).and_then(|r| r["root_pane"]["pane_id"].as_str().map(str::to_string))
-    });
+    let pane = space::open_tab(&ctx.cfg, cwd, label, Some(label)).or_else(|| frontend::new_space(cwd, label));
     let Some(pane) = pane else { return Err("herdr opened no tab".into()) };
-    herdr::run(&["pane", "run", &pane, line]);
+    frontend::run_in(&pane, line);
     Ok(())
 }
 
@@ -175,6 +213,7 @@ pub fn output(ctx: &mut Ctx, args: &[Value]) -> Res {
     let slug = slug(args)?;
     let setup = Setup::live();
     let run = run_of(&store::global().get(runner::DOC), &slug, opt(args, 1))?;
+    mark_read(&mut store::global(), Some(&slug), run["id"].as_str(), now_ms());
     let path = runner::output(&setup, &slug, run["id"].as_str().unwrap_or_default());
     if !Path::new(&path).is_file() {
         return Err(format!("{slug}'s run left no output"));
@@ -201,6 +240,7 @@ pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let setup = Setup::live();
     let doc = store::global().get(runner::DOC);
     let run = run_of(&doc, &slug, opt(args, 1))?;
+    mark_read(&mut store::global(), Some(&slug), run["id"].as_str(), now_ms());
     let Some(session) = run["session"].as_str().filter(|s| !s.is_empty()) else {
         ctx.note(format!("{slug} runs a script: no Claude session to talk to"));
         return Ok(());
@@ -211,6 +251,106 @@ pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let flags = vec!["--resume".to_string(), session.to_string()];
     start_action(ctx, &cwd, &format!("⟳ {}", cut(&name, 28)), "Where did this run get to? Sum it up in a few lines, then wait for me.", &flags);
     Ok(())
+}
+
+/// Marks runs read, as the run inbox has them: this routine's (only this run of it, given its id).
+pub fn read(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let slug = slug(args)?;
+    mark_read(&mut store::global(), Some(&slug), opt(args, 1).as_str(), now_ms());
+    ctx.note("");
+    Ok(())
+}
+
+/// Every run read: the inbox empties.
+pub fn read_all(ctx: &mut Ctx, _: &[Value]) -> Res {
+    let n = mark_read(&mut store::global(), None, None, now_ms());
+    ctx.note(if n == 1 { "1 run marked read".to_string() } else { format!("{n} runs marked read") });
+    Ok(())
+}
+
+/// The runs read, of every routine or one, every run of it or one: how many were not yet.
+fn mark_read(store: &mut Store, slug: Option<&str>, id: Option<&str>, now: u64) -> usize {
+    let mut marked = 0;
+    runner::change(store, now, |doc| {
+        for (s, runs) in doc["runs"].as_object_mut().into_iter().flatten() {
+            if slug.is_some_and(|want| want != s) {
+                continue;
+            }
+            for run in runs.as_array_mut().into_iter().flatten() {
+                if id.is_some_and(|want| run["id"] != want) || run["read"] == true {
+                    continue;
+                }
+                run["read"] = json!(true);
+                marked += 1;
+            }
+        }
+    });
+    marked
+}
+
+/// A run's worktree in a tab of the actions space, its commits and changes listed.
+pub fn open_worktree(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let slug = slug(args)?;
+    let run = run_of(&store::global().get(runner::DOC), &slug, opt(args, 1))?;
+    let wt = &run["worktree"];
+    let path = wt["path"].as_str().filter(|p| Path::new(p).is_dir()).ok_or_else(|| format!("{slug}'s run left no worktree"))?;
+    let line = format!("git log --oneline --stat {}..HEAD; git status --short", wt["base"].as_str().unwrap_or("HEAD"));
+    in_tab(ctx, path, &format!("⎇ {}", wt["branch"].as_str().unwrap_or(&slug)), &line)?;
+    Ok(())
+}
+
+/// Removes run worktrees, never by force: given a run, its own; else every one whose work landed (nothing uncommitted,
+/// its branch merged).
+pub fn cleanup(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let (only, id) = (opt(args, 0).as_str().map(str::to_string), opt(args, 1).as_str().map(str::to_string));
+    let note = clean(&mut store::global(), only.as_deref(), id.as_deref(), now_ms())?;
+    ctx.note(note);
+    Ok(())
+}
+
+fn clean(store: &mut Store, only: Option<&str>, id: Option<&str>, now: u64) -> Res<String> {
+    let doc = store.get(runner::DOC);
+    let (mut removed, mut kept, mut errors) = (Vec::new(), 0, Vec::new());
+    for (slug, runs) in doc["runs"].as_object().into_iter().flatten() {
+        for run in runs.as_array().into_iter().flatten() {
+            let wt = &run["worktree"];
+            let picked = only.is_none_or(|s| s == slug) && id.is_none_or(|i| run["id"] == i);
+            if wt.is_null() || wt["removed"] == true || !picked || doc["running"][slug]["id"] == run["id"] {
+                continue;
+            }
+            if id.is_none() && !runner::landed(wt) {
+                kept += 1;
+                continue;
+            }
+            match runner::remove_worktree(wt) {
+                Ok(()) => removed.push((slug.clone(), run["id"].clone())),
+                Err(err) if !Path::new(wt["path"].as_str().unwrap_or_default()).is_dir() => {
+                    removed.push((slug.clone(), run["id"].clone()));
+                    errors.push(format!("branch {} kept: {err}", text(&wt["branch"])));
+                }
+                Err(err) => errors.push(err),
+            }
+        }
+    }
+    runner::change(store, now, |doc| {
+        for (slug, id) in &removed {
+            for run in doc["runs"][slug].as_array_mut().into_iter().flatten().filter(|r| &r["id"] == id) {
+                run["worktree"]["removed"] = json!(true);
+            }
+        }
+    });
+    if id.is_some() && !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+    let mut note = match removed.len() {
+        0 => "no run worktree to remove".to_string(),
+        1 => "removed 1 run worktree".to_string(),
+        n => format!("removed {n} run worktrees"),
+    };
+    if kept > 0 {
+        note.push_str(&format!(" · {kept} kept: their work has not landed"));
+    }
+    Ok(note)
 }
 
 pub fn request_refresh(ctx: &mut Ctx, _: &[Value]) -> Res {
@@ -228,7 +368,13 @@ mod tests {
     fn world() -> (tempfile::TempDir, Store, Setup) {
         let dir = tempfile::tempdir().unwrap();
         let setup =
-            Setup { routines: dir.path().join("routines"), runs: dir.path().join("runs"), claude: "claude".into(), repos: dir.path().to_string_lossy().into_owned() };
+            Setup {
+                routines: dir.path().join("routines"),
+                runs: dir.path().join("runs"),
+                claude: "claude".into(),
+                repos: dir.path().to_string_lossy().into_owned(),
+                worktrees: dir.path().join("worktrees"),
+            };
         let store = Store::open(&dir.path().join("cache"), Duration::ZERO);
         (dir, store, setup)
     }
@@ -264,6 +410,33 @@ mod tests {
         let doc = store.get(runner::DOC);
         assert!(doc["routines"].as_array().unwrap().is_empty() && doc["marks"]["tick"].is_null());
         assert!(!setup.routines.join("tick.md").exists());
+    }
+
+    #[test]
+    fn a_routine_changed_from_the_form_keeps_its_other_fields() {
+        let (_dir, _, setup) = world();
+        create(&setup, &[json!("Sweep"), json!("hourly"), json!("Sum up."), json!(""), json!(""), json!("haiku"), json!(true), json!("failed")]).unwrap();
+        let path = setup.routines.join("sweep.md");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("worktree: true\nnotify: failed\n"), "{text}");
+        std::fs::write(&path, routines::set_field(&text, "tools", "Read")).unwrap();
+        let fields = [json!("Sweep PRs"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/w"), json!("claude"), json!("sonnet"), json!(false), json!("")];
+        assert_eq!(rewrite(&setup, "sweep", &fields).unwrap(), "saved Sweep PRs");
+        let r = routine(&setup, "sweep").unwrap();
+        assert_eq!((r.name.as_str(), r.when_text.as_str(), r.body.as_str(), r.model.as_str()), ("Sweep PRs", "weekdays 09:00", "Sum up my PRs.", "sonnet"));
+        assert_eq!((r.worktree, r.notify, r.tools.clone()), (false, routines::Notify::Always, vec!["Read".to_string()]));
+        assert!(rewrite(&setup, "sweep", &[json!("x"), json!("when?"), json!("y")]).is_err());
+    }
+
+    #[test]
+    fn runs_are_marked_read_one_routine_or_all_at_once() {
+        let (_dir, mut store, _) = world();
+        store.update(runner::DOC, |_| json!({"version": 1, "runs": {"a": [{"id": "2"}, {"id": "1", "read": true}], "b": [{"id": "3"}]}}));
+        assert_eq!(mark_read(&mut store, Some("a"), Some("2"), 5), 1);
+        assert_eq!(mark_read(&mut store, None, None, 6), 1);
+        let doc = store.get(runner::DOC);
+        assert!([&doc["runs"]["a"][0]["read"], &doc["runs"]["b"][0]["read"]].iter().all(|r| **r == json!(true)));
+        assert_eq!(clean(&mut store, None, None, 7).unwrap(), "no run worktree to remove");
     }
 
     #[test]

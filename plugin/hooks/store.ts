@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-import { cacheDir, home } from './config'
+import { cacheDir, cockpitCommand } from './config'
 
 type $ = EngineInterface
 
@@ -10,11 +10,11 @@ type $ = EngineInterface
 const LEASE_TTL_S = 120
 const LEASE_BEAT_MS = 30_000
 
-export type Doc = 'inbox' | 'ci' | 'meetings' | 'brief' | 'monitor'
+export type Doc = 'inbox' | 'ci' | 'meetings' | 'brief' | 'monitor' | 'agents'
 
 async function store($: $, args: string[]) {
-  const command = `${await home($)}/.config/cockpit/herdr/cockpit.sh`
-  const { exitCode, stdout, stderr } = await $.process.run(['sh', command, 'store', ...args], { timeoutMs: 20_000 })
+  const command = (await cockpitCommand($)) ?? ['false']
+  const { exitCode, stdout, stderr } = await $.process.run([...command, 'store', ...args], { timeoutMs: 20_000 })
   // cockpit.sh says nothing when the plugin has no binary yet: /cockpit:doctor tells why.
   if (exitCode !== 0 || stdout.trim() === '') throw new Error(`cockpit store ${args[0]}: ${stderr.trim() || 'no cockpit binary'}`)
   return stdout.trim()
