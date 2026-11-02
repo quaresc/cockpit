@@ -3,8 +3,8 @@
 <h1 align="center">cockpit</h1>
 
 <p align="center">Your Claude Code agents, beside their ticket, PR, CI and deploy.<br>
-<a href="https://quaresc.github.io/cockpit/desktop.html">Herdr app</a> ·
-<a href="https://quaresc.github.io/cockpit/terminal.html">Terminal</a> ·
+<a href="https://quaresc.github.io/cockpit/desktop.html">Herdr APP</a> ·
+<a href="https://quaresc.github.io/cockpit/terminal.html">Herdr TUI</a> ·
 <a href="https://github.com/quaresc/cockpit/releases">Changelog</a></p>
 
 ![The cockpit Home in the Herdr app](docs/app/home-dark.png)
