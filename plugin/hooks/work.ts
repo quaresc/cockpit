@@ -78,7 +78,15 @@ export async function seedWork($: $, cwd: string) {
   if (cwd !== reposDir && cwd !== dir) await follow($, cwd)
 }
 
+// A review session works on the PR it was opened for, whatever branch its checkout has.
+export async function reviewFocus($: $) {
+  const url = await $.env.get('COCKPIT_REVIEW_PR')
+  return url ? { url, number: Number(url.split('/').pop()), branch: (await $.env.get('COCKPIT_REVIEW_BRANCH')) || undefined } : null
+}
+
 export async function branchOf($: $, current: Work) {
+  const focus = await reviewFocus($)
+  if (focus) return focus.branch
   const { exitCode, stdout } = await $.process.run(['git', '-C', current.dir, 'branch', '--show-current'])
   const branch = exitCode === 0 ? stdout.trim() : ''
   return ['main', 'master', 'develop', ''].includes(branch) ? undefined : branch

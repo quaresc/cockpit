@@ -238,14 +238,12 @@ export default class Sidebar {
       .when(rail, (e) =>
         e
           .child(navItem("home", "Home", "layout-dashboard", counts.unread || null, "⌘⌥0", counts.needs_you ? k.blocked : null))
-          .child(navItem("work", "Work", "terminal", null, null))
           .children(apps.map((a) => navItem(a.child, a.label, a.icon, badge(a.child)?.count || null, a.key, tone(a.child)))),
       )
       .when(!rail, (e) =>
         e.child(
           this.appStrip(k, active, [
             { child: "home", label: "Home", icon: "layout-dashboard", key: "⌘⌥0", count: counts.unread || null, tone: counts.needs_you ? k.blocked : null },
-            { child: "work", label: "Work", icon: "terminal" },
             ...apps.map((a) => ({ ...a, count: badge(a.child)?.count || null, tone: tone(a.child) })),
           ]),
         ),

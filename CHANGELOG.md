@@ -5,6 +5,15 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.28.0 (2026-11-02)
+
+- Reviewing a PR keeps to that PR: its session's branch, PR and ticket are the reviewed PR's, not those of the checkout it
+  runs in.
+- In the Herdr app, an action (review, plan, talk, fix CI) opens a tab in the space of its repo, else a space named
+  after it, instead of an `actions` space.
+- Home: one short line per pinned app (inbox, next meeting, runbooks, to-do, prod, routines), each a click away.
+- The sidebar drops the work tile: a space or an agent brings the work area back.
+
 ## 0.27.1 (2026-11-02)
 
 - A background job (it has a job folder) never fetches: its MCP calls cannot run there, and it filled the inbox with

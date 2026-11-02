@@ -55,7 +55,7 @@
         "pane",
         "run",
         "wT:p1",
-        "claude '/code-review 4'"
+        "COCKPIT_REVIEW_PR=https://github.com/acme/api/pull/4 COCKPIT_REVIEW_BRANCH=me/eng-401-login claude '/code-review 4'"
       ],
       "cmd": "herdr",
       "stdin": null

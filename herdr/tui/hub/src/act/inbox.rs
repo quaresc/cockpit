@@ -73,8 +73,12 @@ pub(super) fn start_space(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, f
     ctx.note(format!("started \"{label}\" in a new space"));
 }
 
+/// `claude <flags> <prompt>` as a shell line; leading `NAME=value` flags are the session's environment, put first.
 fn claude_line(flags: &[String], prompt: &str) -> String {
-    let words: Vec<String> = std::iter::once("claude".to_string()).chain(flags.iter().cloned()).chain([prompt.to_string()]).collect();
+    let is_env = |f: &String| f.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(|c| c.is_ascii_uppercase() || c == '_'));
+    let env = flags.iter().take_while(|f| is_env(f)).cloned();
+    let rest = flags.iter().skip_while(|f| is_env(f)).cloned();
+    let words: Vec<String> = env.chain(std::iter::once("claude".to_string())).chain(rest).chain([prompt.to_string()]).collect();
     join(&words)
 }
 
@@ -185,9 +189,15 @@ fn on_branch(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res {
 pub fn review(ctx: &mut Ctx, args: &[Value]) -> Res {
     let pr = arg(args, 0)?;
     let (repo, number) = (s(pr, "repo")?, s(pr, "number")?);
-    let target = if is_dir(&format!("{}/{repo}", ctx.repos())) { number.clone() } else { s(pr, "url")? };
+    let url = s(pr, "url")?;
+    let target = if is_dir(&format!("{}/{repo}", ctx.repos())) { number.clone() } else { url.clone() };
     let dir = repo_dir(ctx, &repo);
-    start_action(ctx, &dir, &format!("review {repo}#{number}"), &format!("/code-review {target}"), &[]);
+    // The session reviews this PR, not whatever branch the checkout it runs in has: its links and facts follow the PR.
+    let mut focus = vec![format!("COCKPIT_REVIEW_PR={url}")];
+    if let Some(branch) = get(pr, "branch").as_str().filter(|b| !b.is_empty()) {
+        focus.push(format!("COCKPIT_REVIEW_BRANCH={branch}"));
+    }
+    start_action(ctx, &dir, &format!("review {repo}#{number}"), &format!("/code-review {target}"), &focus);
     Ok(())
 }
 

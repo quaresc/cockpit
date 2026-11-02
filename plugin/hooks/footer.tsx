@@ -14,7 +14,7 @@ import { reportSide } from './sidebar'
 import { chipsFor, citedIn } from './sites'
 import { ticketUrl } from './tickets'
 import { ICON } from './icons'
-import { branchOf } from './work'
+import { branchOf, reviewFocus } from './work'
 
 type $ = EngineInterface
 
@@ -56,7 +56,7 @@ export async function refreshLinks($: $, prompt = '') {
   // Without the ticket itself, its URL comes from the template or an assigned ticket's.
   const guessed = id ? (ticketUrl(tickets, id, data?.tickets) ?? '') : ''
   const fromTicket = id ? ((await linksFor($, id, data).catch(() => null)) ?? { id, title: '', url: guessed, at: 0 }) : null
-  const pr = lastMatch(text, GITHUB_PR)
+  const pr = lastMatch(text, GITHUB_PR) ?? (await reviewFocus($))?.url
   const found: TicketLinks = {
     id: id ?? '',
     title: fromTicket?.title ?? '',

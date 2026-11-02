@@ -5,7 +5,8 @@
 
 import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, spaces, exec, knownAgents, setShared, layout } from "herdr";
+import { run, spaces, exec, knownAgents, setShared, layout, readTextFile } from "herdr";
+import { show } from "./sidebar.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct } from "./fleet.js";
@@ -13,6 +14,33 @@ import {
   tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
   Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton,
 } from "./ui.js";
+
+const DEFAULT_PINNED = ["inbox", "to-do", "runbook", "meetings"];
+const many = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Home's overview: each pinned app in a few words, from the view the app itself draws. */
+const OVERVIEW = [
+  {
+    view: "inbox", space: "inbox", label: "Inbox", icon: "inbox",
+    line: (v) => {
+      const c = v.counts ?? {};
+      if (c.failing) return { text: `${many(c.failing, "PR")} failing`, tone: "destructive" };
+      return { text: c.direct ? `${many(c.direct, "review")} for you` : "nothing for you" };
+    },
+  },
+  { view: "meetings", space: "meetings", label: "Next", icon: "calendar", line: (v) => ({ text: v.banner?.title ? `${v.banner.title} · ${v.banner.when}` : "no meeting", tone: v.banner?.soon ? "warning" : null }) },
+  { view: "runbook", space: "runbook", label: "Runbooks", icon: "book", line: (v) => (v.books?.length ? { text: `${many(v.left ?? 0, "step")} left` } : null) },
+  { view: "todo", space: "to-do", label: "To-do", icon: "list-todo", line: (v) => ({ text: v.open ? `${v.open} open` : "all done" }) },
+  { view: "monitor", space: "monitor", label: "Prod", icon: "activity", line: (v) => (v.headline ? { text: v.headline, tone: v.bad ? "destructive" : null } : null) },
+  {
+    view: "routines", space: "routines", label: "Routines", icon: "clock",
+    line: (v) => {
+      const t = v.tiles ?? {};
+      if (t.unread) return { text: `${many(t.unread, "run")} to look at`, tone: t.failing ? "destructive" : "warning" };
+      return { text: t.next ? `next ${t.next}` : "none scheduled" };
+    },
+  },
+];
 
 const COLUMNS = [
   { stage: "needs", label: "Needs you", tone: "blocked", pulse: true },
@@ -57,10 +85,22 @@ export default class Home {
       this.now = Date.now();
       cx.notify();
     });
+    this.apps = {};
+    this.pinned = null;
+    cx.spawn(async (cx) => {
+      try {
+        const { cache, home } = await hub.install();
+        const text = (await readTextFile(`${cache}/config.json`)) ?? (await readTextFile(`${home}/.config/cockpit/config.json`));
+        const spaces = text ? JSON.parse(text).spaces : null;
+        if (Array.isArray(spaces)) this.pinned = spaces.map((s) => (typeof s === "string" ? s : s.name));
+      } catch {}
+      cx.notify();
+    });
     this.sub = hub.subscribe(
       cx,
-      { views: ["agents", "home", "queue"] },
+      { views: ["agents", "home", "queue", ...OVERVIEW.map((o) => o.view)] },
       (m, cx) => {
+        if (OVERVIEW.some((o) => o.view === m.view)) this.apps[m.view] = m.value;
         if (m.view === "agents") this.rows = m.value;
         if (m.view === "home") this.home = m.value;
         if (m.view === "queue") this.queue = m.value;
@@ -422,6 +462,7 @@ export default class Home {
               .pb(28)
               .gap(18)
               .child(this.header(all, cols, narrow))
+              .when(!loading, (e) => e.child(this.overview()))
               .when(loading, (e) => e.child(this.skeleton()))
               .when(Boolean(this.home?.lost?.length), (e) => e.child(this.lostBanner(narrow)))
               .child(this.nextMove(cols, narrow))
@@ -490,6 +531,38 @@ export default class Home {
               onClick: (_e, cx) => this.toggleFocus(cx, cols),
             }),
           ),
+      );
+  }
+
+  /** One short line per pinned app, a click away. */
+  overview() {
+    const k = tokens();
+    const items = OVERVIEW.filter((o) => (this.pinned ?? DEFAULT_PINNED).includes(o.space))
+      .map((o) => ({ ...o, line: this.apps[o.view] ? o.line(this.apps[o.view]) : null }))
+      .filter((o) => o.line);
+    return h_flex()
+      .id("home-overview")
+      .flex_wrap()
+      .gap(8)
+      .children(
+        items.map((o) =>
+          h_flex()
+            .id(`ov-${o.view}`)
+            .h(30)
+            .px(10)
+            .gap(7)
+            .items_center()
+            .rounded(RADIUS.md)
+            .border_1()
+            .border_color(k.border)
+            .cursor_pointer()
+            .hover((s) => s.bg(k.accent))
+            .on_click(() => show(o.view))
+            .tooltip(`Open ${o.label}`)
+            .child(Icon(o.icon, { size: 14, color: o.line.tone ? k[o.line.tone] : k.mutedFg }))
+            .child(div().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(o.label))
+            .child(div().text_size(TEXT.sm).text_color(o.line.tone ? k[o.line.tone] : k.mutedFg).child(o.line.text)),
+        ),
       );
   }
 

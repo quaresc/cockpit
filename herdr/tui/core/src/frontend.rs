@@ -314,13 +314,17 @@ pub fn focus_space_named(label: &str) -> bool {
     }
 }
 
-/// A new tab in the actions space (made when the app has none), in view: its handle. The TUI needs `actions` pinned.
+/// A new tab for a one-off action, in view: its handle. In the TUI it goes to the pinned `actions` space; the Herdr app
+/// has none, so it goes beside the folder's own work: the space open on that folder, else a new one named after it.
 pub fn actions_tab(pinned: &[String], cwd: &str, label: &str) -> Option<String> {
     match current() {
         Frontend::App => {
-            let space = match app_space_named("actions") {
-                Some(id) => id,
-                None => return new_space(cwd, "actions").inspect(|h| rename_tab(h, label)),
+            let name = std::path::Path::new(cwd).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| label.to_string());
+            let spaces = app_spaces();
+            let found = spaces.iter().find(|s| s["folder"].as_str() == Some(cwd)).or_else(|| spaces.iter().find(|s| s["name"].as_str() == Some(name.as_str())));
+            let space = match found.and_then(|s| s["id"].as_str()) {
+                Some(id) => id.to_string(),
+                None => return new_space(cwd, &name).inspect(|h| rename_tab(h, label)),
             };
             let made = app_do("tab.new", &json!({"space": space, "folder": cwd, "name": label}))?;
             app_show_work();

@@ -66,7 +66,8 @@ fn an_action_runs_in_a_tab_of_the_actions_space() {
     let (reply, calls) = act(&sandbox, "review", &format!("[{PR4}]"));
     let tab = find(&calls, &["tab", "create"]);
     assert_eq!((after(tab, "--workspace"), after(tab, "--label")), ("w3", "review api#4"));
-    assert!(calls.contains(&vec!["pane".into(), "run".into(), "wT:p1".into(), "claude '/code-review 4'".into()]), "{calls:?}");
+    let line = "COCKPIT_REVIEW_PR=https://github.com/acme/api/pull/4 COCKPIT_REVIEW_BRANCH=me/eng-4-login claude '/code-review 4'";
+    assert!(calls.contains(&vec!["pane".into(), "run".into(), "wT:p1".into(), line.into()]), "{calls:?}");
     assert_eq!(reply["note"], "started \"review api#4\" in the actions space");
     let kept = std::fs::read_to_string(sandbox.home().join(".cache/cockpit/actions.json")).unwrap();
     assert_eq!(serde_json::from_str::<Value>(&kept).unwrap()["review api#4"], "wT:p1");

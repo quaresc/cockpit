@@ -34,7 +34,7 @@
         "pane",
         "run",
         "wT:p1",
-        "claude '/code-review https://github.com/acme/docs/pull/3'"
+        "COCKPIT_REVIEW_PR=https://github.com/acme/docs/pull/3 claude '/code-review https://github.com/acme/docs/pull/3'"
       ],
       "cmd": "herdr",
       "stdin": null

@@ -80,7 +80,8 @@ the tab, `agent` = the focused agent alone), the apps · the `status` bar; in `w
 `panel-body`: `show`, `review`, `runbook-panel` (`runbook {scope: "focused"}`), `files`, `changes`, then the `activity`
 bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown only while prompts are queued).
 
-- **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): a greeting with one line of counts, the NEXT MOVE
+- **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): a greeting with one line of counts, one chip per pinned
+  app saying in a few words where it stands (from that app's own view, a click opens it), the NEXT MOVE
   callout (the longest-waiting question with its choices as buttons and a reply field, else a PR to fix, else one to
   land, else all clear), the restart banner, and the columns Needs you · Working · Ready to land · Done (agents from view
   `agents` joined with Herdr's live list in `fleet.js`; my PRs to fix and to land that no agent works on). With no card

@@ -10,7 +10,7 @@ import type { Here } from './herdr'
 import { isDeploying, isFailing, isOldReview, ticketKey } from './match'
 import { siteMark } from './sites'
 import { ICON } from './icons'
-import { branchOf } from './work'
+import { branchOf, reviewFocus } from './work'
 
 type $ = EngineInterface
 
@@ -149,6 +149,7 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
   const other = current && branch ? await clashWith($, current.repo, branch, here) : undefined
   const otherLabel = other ? (await placeOf($, other))?.label ?? other.space : undefined
   tokens.push(['clash', otherLabel ? `⚠ same branch as ${otherLabel}` : undefined])
+  const focus = await reviewFocus($)
   await reportFacts($, here, {
     context: ctx === undefined ? null : Math.round(ctx),
     cost: e.cost?.usd ?? null,
@@ -156,7 +157,7 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
     repo: current?.repo ?? null,
     branch: branch ?? null,
     ticket: (branch && ticketKey(branch, data, tickets.keys)) || null,
-    pr: pr ? { number: pr.number, url: pr.url, failing: isFailing(pr) } : null,
+    pr: pr ? { number: pr.number, url: pr.url, failing: isFailing(pr) } : focus ? { number: focus.number, url: focus.url, failing: false } : null,
     ci: run ? { running: run.isRunning, done: run.done, total: run.total } : null,
     clash: other ? { label: otherLabel ?? other.space, space: other.space, tab: other.tab ?? null } : null,
   }).catch(() => undefined)
