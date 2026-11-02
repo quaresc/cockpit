@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contributing · cockpit</title>
+  <meta name="description" content="How cockpit is built: the hub, the herdr half, the Herdr app half and the Claude Code plugin.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="index.html">Home</a>
+      <a href="features.html">Features</a>
+      <a href="shortcuts.html">Shortcuts</a>
+      <a href="configuration.html">Configuration</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="contributing.html" aria-current="page">Contributing</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="page-head">
+      <h1>Contributing</h1>
+      <p class="lead">How cockpit is built, in short. The full contributor guide to the Herdr app half, with every view's
+        model and action, is <a href="https://github.com/quaresc/cockpit/blob/main/app/README.md"><code>app/README.md</code></a>.</p>
+      <ul class="toc">
+        <li><a href="#layout">The repo</a></li>
+        <li><a href="#hub">The hub</a></li>
+        <li><a href="#app">The Herdr app half</a></li>
+        <li><a href="#testing">Testing</a></li>
+        <li><a href="#screenshots">Screenshots</a></li>
+        <li><a href="#releases">Releases</a></li>
+        <li><a href="#credits">Credits</a></li>
+      </ul>
+    </div>
+
+    <h2 id="layout">The repo</h2>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td><a href="https://github.com/quaresc/cockpit/tree/main/plugin"><code>plugin/</code></a></td><td class="wrap-ok">The Claude Code half: hooks, commands, the side-browser skill and their tests. It fetches from your sessions' connectors, one session at a time, and hands the result to the hub.</td></tr>
+          <tr><td><a href="https://github.com/quaresc/cockpit/tree/main/herdr"><code>herdr/</code></a></td><td class="wrap-ok">The herdr half. <code>herdr/tui</code> is one <code>cockpit</code> binary in Rust: the space apps and the hub.</td></tr>
+          <tr><td><a href="https://github.com/quaresc/cockpit/tree/main/app"><code>app/</code></a></td><td class="wrap-ok">The Herdr app half: a layout (<code>layouts/cockpit.json</code>), one mod (<code>mods/cockpit/</code>) drawn natively by Herdr from JavaScript, and its keys.</td></tr>
+          <tr><td><a href="https://github.com/quaresc/cockpit/tree/main/docs/screenshots"><code>docs/screenshots</code></a></td><td class="wrap-ok">The tooling that regenerates every screenshot on made-up data.</td></tr>
+          <tr><td><a href="https://github.com/quaresc/cockpit/tree/main/site"><code>site/</code></a></td><td class="wrap-ok">This site: plain HTML and one stylesheet, deployed by <code>.github/workflows/pages.yml</code> with the screenshots from <code>docs/</code> and the changelog copied in.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="hub">The hub</h2>
+    <p>The hub is the only writer. It keeps the data and a week of history in <code>~/.cache/cockpit/store.redb</code>
+      (mirrored as JSON), pushes each change to the apps, and queues their button presses for the next session to carry
+      out. It listens on a unix socket for the herdr apps and on 127.0.0.1 with a token for the Herdr app.</p>
+<pre><code>Herdr window ── mods/cockpit (JS) ── TCP 127.0.0.1 (hub.json: port, token) ──┐
+herdr TUI ───── cockpit apps (Rust) ── unix socket ────────────────────────────┤── cockpit hub ── store, views, actions
+Claude Code ─── plugin hooks ─────────── cockpit CLI / socket ─────────────────┘</code></pre>
+
+    <h2 id="app">The Herdr app half</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>One mod, many views</h3>
+        <p>Herdr refuses imports outside a mod's folder, so every place uses the <code>cockpit</code> mod with
+          <code>props.app</code>; <code>main.js</code> maps names to view classes.</p>
+      </div>
+      <div class="card">
+        <h3>Rust keeps the logic, JS draws</h3>
+        <p>A view's model is built by its app crate and served by the hub; edits are hub actions. The terminal and the
+          GUI never drift.</p>
+      </div>
+      <div class="card">
+        <h3>Two frontends</h3>
+        <p><code>cockpit_core::frontend</code> picks herdr or the Herdr app per request, so anything that opens, focuses
+          or types into a window goes to the right one.</p>
+      </div>
+    </div>
+    <p><b>Adding an app's view</b> takes three steps: a <code>gui.rs</code> in the app crate with <code>view</code>,
+      <code>act</code> and <code>dirs</code>, registered in <code>herdr/tui/cli/src/gui.rs</code>; a JS class in
+      <code>mods/cockpit/&lt;app&gt;.js</code> added to <code>VIEWS</code> in <code>main.js</code>; and every terminal key
+      and action as a visible button with its key hint. <code>cockpit_todo::gui</code> and <code>todo.js</code> are the
+      references. Build every screen from the design kit in <code>ui.js</code> (shadcn/ui's components on Herdr's
+      theme). <a href="https://github.com/quaresc/cockpit/blob/main/app/README.md">app/README.md</a> has the details.</p>
+
+    <h2 id="testing">Testing</h2>
+    <p>The Herdr app sandbox is a separate Herdr window on a fake HOME with the acme demo world and its own hub, with the
+      mod copied again on every save in <code>app/</code>:</p>
+<pre><code>COCKPIT_SANDBOX=$TMPDIR/cockpit-gui-inbox sh app/sandbox.sh start
+sh app/sandbox.sh show todo; sh app/sandbox.sh key j; sh app/sandbox.sh shot /tmp/x.png; sh app/sandbox.sh check
+sh app/sandbox.sh light; sh app/sandbox.sh stop</code></pre>
+    <p><code>herdr-app check</code> must pass and a screenshot must look right in both themes before a view is done;
+      <code>cargo test</code> for the crates touched. CI (<code>.github/workflows/check.yml</code>) runs shellcheck,
+      parses the app's layout, keys and modules, validates and tests the plugin, and runs clippy and the Rust tests.</p>
+
+    <h2 id="screenshots">Screenshots</h2>
+    <p>The screenshots are the real apps on made-up data.
+      <a href="https://github.com/quaresc/cockpit/tree/main/docs/screenshots"><code>docs/screenshots</code></a>
+      regenerates the terminal ones; <code>sh docs/screenshots/app_shots.sh [view ...]</code> shoots each Herdr app view
+      in the sandbox window, dark and light, into <code>docs/app/</code>.</p>
+
+    <h2 id="releases">Releases</h2>
+    <p>Both halves share one version with the apps: <code>plugin/.claude-plugin/plugin.json</code>,
+      <code>herdr/herdr-plugin.toml</code> and <code>herdr/tui/Cargo.toml</code>, with a section for it in
+      <a href="changelog.html"><code>CHANGELOG.md</code></a>. Once the new version reaches main, the release workflow tags
+      it, makes the GitHub release with its changelog section as notes, and builds the <code>cockpit</code> binary for
+      macOS and Linux, with the Herdr app half beside it, as release assets.</p>
+
+    <h2 id="credits">Credits</h2>
+    <p>Many pieces follow or port other herdr plugins: herdr-relevo, herdr-recap, herdr-vitals, herdr-automations,
+      jkuepker's herdr-layouts, herdr-claude-resume, herdr-revive, herdr-todo, herdr-whitby, herdr-github, herdr-linear,
+      herdr-gh-board, herdr-blueprint-app and herdr-walkthrough. What comes from where, with its license, is in
+      <a href="https://github.com/quaresc/cockpit/blob/main/app/README.md#credits">app/README.md</a>.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>cockpit · MIT license</span>
+    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+  </div>
+</footer>
+</body>
+</html>

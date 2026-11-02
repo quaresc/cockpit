@@ -5,6 +5,17 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.27.0 (2026-11-02)
+
+- Inbox, quieter: no tiles, one line per PR and review like the TUI, each person in their own color, the reference a
+  link that opens it, and the details beside the list only on demand (tab).
+- Home keeps the greeting, the next move and the board; the stat tiles, project chips and weekly delivery are gone.
+- Status bar: the focused agent's links on the right (branch, ticket, CI, PR); no quota, clock or hub unless it is
+  offline.
+- Every pinned app shows a bubble in the sidebar: inbox (needs you), meetings (left today), monitor (alerts), routines
+  (runs to look at), to-do.
+- A website, quaresc.github.io/cockpit, holds the features, shortcuts, configuration and changelog; the README is short.
+
 ## 0.26.2 (2026-11-02)
 
 - An update stops the hub only once the link names the new folder: a Herdr window reconnecting at once restarted it on

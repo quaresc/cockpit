@@ -422,12 +422,10 @@ export default class Home {
               .pb(28)
               .gap(18)
               .child(this.header(all, cols, narrow))
-              .child(loading ? this.skeleton() : this.metrics(all, narrow))
+              .when(loading, (e) => e.child(this.skeleton()))
               .when(Boolean(this.home?.lost?.length), (e) => e.child(this.lostBanner(narrow)))
               .child(this.nextMove(cols, narrow))
-              .child(this.chips(all, narrow))
-              .child(this.board(cols, wide, narrow))
-              .when(Boolean(this.home), (e) => e.child(this.weekCard(narrow))),
+              .child(this.board(cols, wide, narrow)),
           ),
       )
       .when(Boolean(this.confirm), (e) =>
@@ -497,23 +495,6 @@ export default class Home {
 
   skeleton() {
     return h_flex().w_full().gap(12).children([0, 1, 2, 3, 4].map(() => v_flex().flex_1().gap(8).p(16).rounded(RADIUS.lg).child(Skeleton({ h: 12, w: 80 })).child(Skeleton({ h: 28, w: 48 }))));
-  }
-
-  metrics(all, narrow) {
-    const k = tokens();
-    const h = this.home;
-    const count = (stage) => all.filter((c) => c.stage === stage && !(stage === "done" && c.archived)).length;
-    const days = (h?.landed?.days ?? []).map((d) => d.count);
-    const spend = h?.spend ?? {};
-    const tiles = [
-      Metric("m-landed", { label: "Landed today", value: h?.landed?.today ?? "–", tone: k.success, tint: true, bars: days.length ? days : null, tooltip: (h?.landed?.days ?? []).map((d) => `${d.day} ${d.count}`).join("  ·  ") || "Your PRs merged today" }),
-      Metric("m-needs", { label: "Needs you", value: count("needs"), tone: count("needs") ? k.blocked : k.foreground, icon: "hand", hint: count("needs") ? "answer from the cards below" : "all clear" }),
-      Metric("m-working", { label: "Working", value: count("working"), tone: k.working, spin: count("working") > 0, icon: "bot", hint: "agents on it now" }),
-      Metric("m-ready", { label: "Ready to land", value: count("ready"), tone: count("ready") ? k.success : k.foreground, icon: "git-merge", hint: "approved, checks green" }),
-      Metric("m-spend", { label: "Agent spend", value: money(spend.today), icon: "dollar", hint: `${money(spend.week)} these 7 days` }),
-    ];
-    if (narrow) return v_flex().w_full().gap(10).child(div().w_full().flex().flex_row().gap(10).children(tiles.slice(0, 2))).child(div().w_full().flex().flex_row().gap(10).children(tiles.slice(2, 4))).child(tiles[4]);
-    return div().w_full().flex().flex_row().gap(12).children(tiles);
   }
 
   lostBanner(narrow) {
@@ -656,57 +637,6 @@ export default class Home {
       )
       .when(multi, (e) =>
         e.child(ToneButton(`${prefix}-submit-${a.address}`, { label: `Submit · ${picked.size}`, tone: k.blocked, onClick: (_e, cx) => this.answer(cx, a, { choices: [...picked] }) })),
-      );
-  }
-
-  chips(all, narrow) {
-    const k = tokens();
-    const projects = [...new Set(all.map((c) => c.project).filter(Boolean))].sort();
-    const chip = (key, label, n, needs) => {
-      const on = this.filter === key;
-      return h_flex()
-        .id(`proj-${label}`)
-        .h(26)
-        .px(10)
-        .gap(6)
-        .flex_none()
-        .items_center()
-        .rounded(13)
-        .border_1()
-        .border_color(on ? k.ring : k.border)
-        .bg(on ? k.selected : k.background)
-        .cursor_pointer()
-        .hover((s) => s.bg(k.accent))
-        .on_click((_e, cx) => {
-          this.filter = on ? null : key;
-          cx.notify();
-        })
-        .child(div().text_size(TEXT.sm).font_medium().text_color(on ? k.foreground : k.mutedFg).child(label))
-        .child(Mono(n, { color: k.dim }))
-        .when(Boolean(needs), (e) => e.child(div().size(6).rounded(3).bg(k.blocked)));
-    };
-    return h_flex()
-      .w_full()
-      .gap(6)
-      .items_center()
-      .child(
-        h_flex()
-          .flex_1()
-          .min_w(0)
-          .gap(6)
-          .flex_wrap()
-          .child(chip(null, "all", all.length, false))
-          .children(projects.map((p) => chip(p, p, all.filter((c) => c.project === p).length, all.some((c) => c.project === p && c.stage === "needs")))),
-      )
-      .when(!narrow, (e) =>
-        e.child(
-          h_flex()
-            .flex_none()
-            .gap(12)
-            .text_size(TEXT.xs)
-            .text_color(k.mutedFg)
-            .children([["j k h l", "move"], ["⏎", "go"], ["1–9", "answer"], ["m", "merge"], ["a", "archive"]].map(([key, what]) => h_flex().gap(5).items_center().child(Kbd(key)).child(what))),
-        ),
       );
   }
 
@@ -893,113 +823,5 @@ export default class Home {
       .child(body);
     if (flash) el = el.child(div().id(`card-${card.key}-flash`).absolute().inset_0().bg(alpha(flash.color ?? tone, 0.25)).opacity(flash.on ? 1 : 0).transition("opacity", { duration: 1400, easing: "ease-out" }));
     return this.hover.track(el, card.key);
-  }
-
-  weekCard(narrow) {
-    const k = tokens();
-    const w = this.home?.week ?? {};
-    const before = w.last_to_date ?? w.last ?? 0;
-    const delta = (w.merged ?? 0) - before;
-    const recent = w.recent ?? [];
-    const top = Math.max(1, ...recent.map((d) => d.count));
-    const stat = (id, icon, label, value, hint) =>
-      h_flex()
-        .id(id)
-        .gap(10)
-        .items_center()
-        .child(h_flex().size(30).flex_none().rounded(RADIUS.md).items_center().justify_center().bg(k.muted).child(Icon(icon, { size: 15, color: k.mutedFg })))
-        .child(v_flex().min_w(0).child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(label)).child(h_flex().gap(6).items_end().child(div().text_size(TEXT.lg).font_semibold().text_color(k.foreground).child(String(value))).when(Boolean(hint), (e) => e.child(div().pb(1).text_size(TEXT.xs).text_color(k.dim).child(hint ?? "")))));
-    const repos = (w.repos ?? []).slice(0, 4);
-    const topRepo = Math.max(1, ...repos.map((r) => r.count));
-    const big = v_flex()
-      .gap(6)
-      .min_w(150)
-      .child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("THIS WEEK"))
-      .child(h_flex().gap(8).items_end().child(div().text_size(40).font_semibold().text_color(k.foreground).child(String(w.merged ?? 0))).child(div().pb(8).text_size(TEXT.base).text_color(k.mutedFg).child(`PR${w.merged === 1 ? "" : "s"} merged`)))
-      .child(
-        h_flex()
-          .gap(6)
-          .items_center()
-          .child(Badge(`${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}`, delta > 0 ? "success" : delta < 0 ? "destructive" : "secondary"))
-          .child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(`vs ${before} by now last week · ${w.last ?? 0} in all`)),
-      )
-      .when(repos.length > 0, (e) =>
-        e.child(
-          v_flex()
-            .pt(8)
-            .gap(5)
-            .children(
-              repos.map((r) =>
-                h_flex()
-                  .gap(8)
-                  .items_center()
-                  .child(div().w(64).truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(r.repo))
-                  .child(div().flex_1().child(Progress(r.count / topRepo, { color: k.ring, h: 5 })))
-                  .child(Mono(r.count)),
-              ),
-            ),
-        ),
-      );
-    const H = 96;
-    const chart = v_flex()
-      .flex_1()
-      .min_w(220)
-      .gap(8)
-      .child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("THESE TWO WEEKS"))
-      .child(
-        h_flex()
-          .h(H + 34)
-          .gap(6)
-          .items_end()
-          .children(
-            recent.map((d, i) =>
-              v_flex()
-                .id(`day-${i}`)
-                .flex_1()
-                .min_w(0)
-                .gap(4)
-                .items_center()
-                .tooltip(`${d.day} ${d.date}: ${plural(d.count, "PR")} merged`)
-                .child(div().h(14).text_size(TEXT.xs).text_color(d.count ? k.foreground : k.dim).child(d.count ? String(d.count) : ""))
-                .child(
-                  div()
-                    .w_full()
-                    .rounded(RADIUS.sm)
-                    .bg(d.today ? k.success : d.weekend ? alpha(k.ring, 0.35) : k.ring)
-                    .opacity(d.count ? 1 : 0.35)
-                    .h(d.count ? Math.max(6, Math.round((d.count / top) * H)) : 2),
-                )
-                .child(div().text_size(10).text_color(d.today ? k.foreground : k.dim).child(d.today ? "today" : d.day.slice(0, 2))),
-            ),
-          ),
-      );
-    const stats = v_flex()
-      .gap(14)
-      .min_w(190)
-      .child(stat("w-median", "timer", "Median time to merge", hours(w.median_hours), "30 days"))
-      .child(stat("w-open", "git-pull-request", "Open PRs", w.open ?? 0, (this.home?.waiting?.length ?? 0) ? `${this.home.waiting.length} waiting on review` : null))
-      .child(stat("w-reviews", "users", "Reviews asked of you", w.reviews ?? 0, null))
-      .child(stat("w-spend", "dollar", "Agent spend", money(this.home?.spend?.week), "7 days"));
-    const content = narrow ? v_flex().gap(20).child(big).child(chart).child(stats) : h_flex().gap(32).items_start().child(big).child(chart).child(div().w(1).h(150).bg(k.border)).child(stats);
-    return v_flex()
-      .id("home-week")
-      .w_full()
-      .p(20)
-      .gap(14)
-      .rounded(RADIUS.lg)
-      .border_1()
-      .border_color(k.border)
-      .bg(k.card)
-      .child(
-        h_flex()
-          .gap(8)
-          .items_center()
-          .child(Icon("trending-up", { size: 15, color: k.mutedFg }))
-          .child(div().text_size(TEXT.base).font_semibold().text_color(k.foreground).child("Your delivery"))
-          .child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("· from your merged PRs"))
-          .child(div().flex_1())
-          .child(Button("week-inbox", { label: "Inbox", iconRight: "chevron-right", variant: "ghost", size: "sm", onClick: () => run("cockpit.go:inbox", {}) })),
-      )
-      .child(content);
   }
 }

@@ -925,15 +925,20 @@ export class Reorder {
   }
 }
 
+/** A person's own color, the same wherever their name shows (avatar, author, attendee). */
+export function personColor(name) {
+  const palette = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6"];
+  const hash = [...(name ?? "?")].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  return theme()[palette[hash % palette.length]];
+}
+
 /** A round avatar: initials on a color taken from the name, or an image. */
 export function Avatar(name, { size = 24, image: src } = {}) {
-  const palette = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6"];
-  const t = theme();
-  const hash = [...(name ?? "?")].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const color = personColor(name);
   const initials = (name ?? "?").split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   const el = h_flex().size(size).flex_none().rounded(size / 2).items_center().justify_center().overflow_hidden();
   if (src) return el.child(svg(src).size(size));
-  return el.bg(alpha(t[palette[hash % palette.length]], 0.25)).text_color(t[palette[hash % palette.length]]).text_size(Math.round(size * 0.42)).font_semibold().child(initials);
+  return el.bg(alpha(color, 0.25)).text_color(color).text_size(Math.round(size * 0.42)).font_semibold().child(initials);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

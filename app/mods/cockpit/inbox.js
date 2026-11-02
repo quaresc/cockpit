@@ -10,11 +10,11 @@ import { settings } from "herdr";
 import * as hub from "./hub.js";
 import {
   tokens, TEXT, RADIUS, Icon, Spinner, Badge, Button, Kbd, PageHeader, SearchField, TextField, KeyHints, Empty, ErrorState,
-  Skeleton, Command, Toaster, Flashes, Scroller, Hover, HoverCard, openMenu, alpha, Chip, Mono, Metric, ToneButton, Pills,
-  SegBar, Avatar, Separator, CountPill, Overline,
+  Skeleton, Command, Toaster, Flashes, Scroller, Hover, HoverCard, openMenu, alpha, Chip, Mono, ToneButton, Pills,
+  SegBar, Avatar, personColor, Separator, CountPill, Overline,
 } from "./ui.js";
 
-const H = { heading: 40, pr: 52, ticket: 40, group: 30, line: 26, text: 34 };
+const H = { heading: 40, pr: 34, ticket: 34, group: 30, line: 26, text: 32 };
 const KIND_NAME = { pr: ["PR", "PRs"], review: ["review request", "review requests"], ticket: ["ticket", "tickets"], alert: ["alert", "alerts"], brief: ["brief line", "brief lines"], muted: ["muted repo", "muted repos"], worktree: ["worktree", "worktrees"] };
 const FRESH_MS = 120_000;
 
@@ -659,6 +659,9 @@ export default class Inbox {
       case "enter":
         this.primary(cx, row);
         break;
+      case "tab":
+        this.showDetails = !this.showDetails;
+        break;
       case "v":
         this.pick(row);
         break;
@@ -928,32 +931,41 @@ export default class Inbox {
   prBody(row, k) {
     const c = row.cells;
     const it = row.item ?? {};
-    const lead = h_flex().gap(4).flex_none().children(c.lead.map((l) => Icon(l.icon, { size: 15, color: this.tone(l.tone, k) ?? k.mutedFg })));
-    const chips = [];
-    if (row.kind === "pr") {
-      if (it.branch) chips.push(Chip(it.branch, { mono: true, icon: "git-branch" }));
-      const ready = this.readyChip(row, k);
-      if (ready) chips.push(ready);
-    } else {
-      chips.push(Chip(it.isDirect ? "asked of you" : "asked of your team", { icon: it.isDirect ? "user" : "users", color: it.isDirect ? k.warning : undefined }));
-      if (it.authorName || it.author) chips.push(h_flex().gap(4).items_center().child(Avatar(it.authorName || it.author, { size: 16 })).child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(it.authorName || it.author)));
-    }
-    if (c.notes && row.kind === "pr") chips.push(div().text_size(TEXT.xs).text_color(this.tone(c.notes_tone, k) ?? k.mutedFg).child(c.notes));
+    const lead = h_flex().gap(4).flex_none().children(c.lead.map((l) => Icon(l.icon, { size: 14, color: this.tone(l.tone, k) ?? k.mutedFg })));
+    const who = it.authorName || it.author;
+    let trail = null;
+    if (row.kind === "review" && who) trail = div().flex_none().max_w(160).truncate().text_size(TEXT.sm).text_color(personColor(who)).child(who);
+    else if (row.kind === "pr") trail = this.readyChip(row, k) ?? (c.notes ? div().flex_none().text_size(TEXT.xs).text_color(this.tone(c.notes_tone, k) ?? k.mutedFg).child(c.notes) : null);
     return h_flex()
       .flex_1()
       .min_w(0)
       .gap(10)
       .items_center()
       .child(lead)
-      .child(
-        v_flex()
-          .flex_1()
-          .min_w(0)
-          .gap(4)
-          .child(h_flex().gap(8).items_center().min_w(0).child(Mono(c.ref)).child(div().flex_1().min_w(0).truncate().text_color(c.title_tone === "dim" ? k.mutedFg : k.foreground).child(c.title)))
-          .child(h_flex().gap(6).items_center().overflow_hidden().children(chips)),
-      )
+      .child(this.refLink(row, c.ref, k))
+      .child(div().flex_1().min_w(0).truncate().text_color(c.title_tone === "dim" ? k.mutedFg : k.foreground).child(c.title))
+      .when(row.kind === "review" && Boolean(it.isDirect), (e) => e.child(div().id(`you-${row.path}`).flex_none().tooltip("Asked of you").child(Icon("user", { size: 13, color: k.warning }))))
+      .when(Boolean(trail), (e) => e.child(trail))
       .child(div().w(36).flex_none().text_right().text_size(TEXT.xs).text_color(k.mutedFg).child(c.age ?? ""));
+  }
+
+  /** A PR's or ticket's reference as a link: a click opens it in the browser. */
+  refLink(row, text, k, { color } = {}) {
+    const url = row.item?.url ?? (row.kind === "ticket" ? (this.model?.tickets ?? []).find((t) => t.id === row.key)?.url : null);
+    const el = Mono(text, { size: TEXT.sm, color: color ?? k.mutedFg });
+    if (!url) return el;
+    return div()
+      .id(`ref-${row.path}`)
+      .flex_none()
+      .cursor_pointer()
+      .hover((s) => s.underline().text_color(k.foreground))
+      .tooltip(`Open ${url}`)
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.select(row);
+        cx.spawn(async (cx) => this.call(cx, { fn: "open_url", args: [url] }, { quiet: true }));
+      })
+      .child(el);
   }
 
   ticketBody(row, k) {
@@ -968,7 +980,7 @@ export default class Inbox {
       .gap(10)
       .items_center()
       .child(Icon(lead?.icon ?? "circle", { size: 15, color: this.tone(lead?.tone, k) ?? k.mutedFg }))
-      .child(Mono(id, { size: TEXT.sm, color: k.foreground }))
+      .child(this.refLink(row, id, k, { color: k.foreground }))
       .child(div().flex_1().min_w(0).truncate().child(c.title))
       .when(Boolean(statusText), (e) => e.child(Badge(statusText, lead?.tone === "warn" ? "warning" : "outline")))
       .when(Boolean(this.timeChip(row.key, k)), (e) => e.child(this.timeChip(row.key, k)))
@@ -1268,26 +1280,6 @@ export default class Inbox {
     return v_flex().mx(24).mt(12).px(12).py(8).gap(2).flex_none().rounded(RADIUS.md).bg(alpha(k.destructive, 0.1)).children(lines.map((x) => h_flex().gap(8).items_center().child(Icon("triangle-alert", { size: 13, color: k.destructive })).child(div().truncate().text_size(TEXT.sm).text_color(k.destructive).child(x))));
   }
 
-  tiles(k) {
-    const c = this.model?.counts ?? {};
-    const jump = (pred) => (_e, cx) => {
-      const row = this.all().find(pred);
-      if (row) this.goTo(row.key, cx);
-      cx.notify();
-    };
-    const prs = this.model?.prs ?? [];
-    return h_flex()
-      .px(24)
-      .pt(16)
-      .gap(12)
-      .flex_none()
-      .child(Metric("m-needs", { label: "Needs you", value: c.needs_you ?? 0, tone: c.needs_you ? k.destructive : k.foreground, tint: Boolean(c.needs_you), icon: "triangle-alert", tooltip: "failing, sent back or asked of you", onClick: jump((r) => (r.kind === "pr" && prs.find((p) => p.url === r.key)?.needs_you) || (r.kind === "review" && r.item?.isDirect)) }))
-      .child(Metric("m-reviews", { label: "Reviews", value: c.reviews ?? 0, icon: "eye", tooltip: `${c.direct ?? 0} for you`, onClick: jump((r) => r.kind === "review") }))
-      .child(Metric("m-ready", { label: "Ready to land", value: c.ready ?? 0, tone: c.ready ? k.success : k.foreground, icon: "git-merge", tooltip: "approved and green", onClick: jump((r) => r.kind === "pr" && prs.find((p) => p.url === r.key)?.ready?.state === "ready") }))
-      .child(Metric("m-work", { label: "In progress", value: c.in_progress ?? 0, icon: "briefcase", tooltip: `${c.tickets ?? 0} tickets · ${c.prs ?? 0} PRs`, onClick: jump((r) => r.kind === "ticket") }))
-      .child(Metric("m-clean", { label: "To clean up", value: c.cleanup ?? 0, tone: c.cleanup ? k.warning : k.foreground, icon: "folder-git", tooltip: `${c.worktrees ?? 0} worktrees`, onClick: jump((r) => r.kind === "worktree") }));
-  }
-
   list(k, cx) {
     const m = this.model;
     if (!m) {
@@ -1311,8 +1303,6 @@ export default class Inbox {
     const changed = m?.state === "ok" ? this.changedCount() : 0;
     const parts = [];
     if (m?.updated) parts.push(`updated ${m.updated}`);
-    if (m?.counts?.needs_you) parts.push(`${m.counts.needs_you} need you`);
-    if (m?.counts?.ready) parts.push(`${m.counts.ready} ready to land`);
     if (changed) parts.push(`${changed} changed since you looked`);
     const root = v_flex()
       .id("inbox")
@@ -1341,13 +1331,13 @@ export default class Inbox {
           title: "Inbox",
           description: m ? parts.join(" · ") || "Nothing waiting" : "Loading…",
           actions: [
-            Button("file-issue", { label: "File issue", icon: "file-plus", variant: "outline", size: "sm", kbd: "I", onClick: (_e, cx) => this.openFile(cx) }),
+            Button("details", { icon: "panel-right", variant: this.showDetails ? "secondary" : "ghost", size: "icon", tooltip: "Details beside the list  tab", onClick: (_e, cx) => ((this.showDetails = !this.showDetails), cx.notify()) }),
+            Button("file-issue", { label: "File issue", icon: "file-plus", variant: "ghost", size: "sm", kbd: "I", onClick: (_e, cx) => this.openFile(cx) }),
             Button("commands", { icon: "command", variant: "ghost", size: "icon", tooltip: "Commands  ctrl+p", onClick: (_e, cx) => this.openPalette(cx) }),
-            Button("refresh", { label: "Refresh", icon: "refresh-cw", variant: "outline", size: "sm", kbd: "R", onClick: (_e, cx) => this.refresh(cx) }),
+            Button("refresh", { icon: "refresh-cw", variant: "ghost", size: "icon", tooltip: "Refresh  R", onClick: (_e, cx) => this.refresh(cx) }),
           ],
         }),
       )
-      .when(m?.state === "ok" && !narrow, (e) => e.child(this.tiles(k)))
       .when(Boolean(m?.errors?.length), (e) => e.child(this.errorsEl(m.errors, k)))
       .child(
         h_flex()
@@ -1366,12 +1356,12 @@ export default class Inbox {
           .flex_1()
           .min_h(0)
           .child(v_flex().flex_1().min_w(0).min_h(0).h_full().px(16).child(this.list(k, cx)))
-          .when(m?.state === "ok" && Boolean(this.current() || this.picked.size), (e) => {
+          .when(m?.state === "ok" && Boolean((this.showDetails && this.current()) || this.picked.size), (e) => {
             const panel = this.panel(k, cx, { narrow });
             return panel ? e.child(panel) : e;
           }),
       )
-      .child(KeyHints([["j k", "move"], ["⏎", "main"], ["space", "fold"], ["v V", "pick"], ["/", "filter"], ["w", "group"], ["R", "refresh"], ["ctrl p", "commands"]]));
+      .child(KeyHints([["j k", "move"], ["⏎", "main"], ["space", "fold"], ["tab", "details"], ["/", "filter"], ["ctrl p", "commands"]]));
     let out = root;
     const toasts = this.toasts.render();
     if (toasts) out = out.child(toasts);

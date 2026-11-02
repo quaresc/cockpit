@@ -22,6 +22,25 @@ const APPS = {
 };
 const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
 
+/** An app's bubble from its view: what waits on you there, {count, tone} or null. */
+function appBadge(app, v) {
+  if (!v) return null;
+  const of = (count, tone) => (count ? { count, tone } : null);
+  if (app === "todo") return of(v.open, null);
+  if (app === "inbox") return of(v.counts?.needs_you, "destructive");
+  if (app === "monitor") {
+    const t = v.tiles ?? {};
+    return of((t.alerts ?? 0) + (t.failed ?? 0), "destructive") ?? of(t.newErrors, "warning");
+  }
+  if (app === "routines") return of(v.tiles?.unread, v.tiles?.failing ? "destructive" : "warning");
+  if (app === "meetings") {
+    const now = Date.now();
+    const left = (v.meetings ?? []).filter((m) => m.day === v.today && (m.end ?? 0) > now).length;
+    return of(left, v.banner?.soon ? "warning" : "info");
+  }
+  return null;
+}
+
 /** Shows a block of the cockpit layout, `work` or an app's, and gives that app the keyboard. */
 export function show(child) {
   run("layout.select", { stack: "center", child });
@@ -58,8 +77,8 @@ export default class Sidebar {
       } catch {}
       cx.notify();
     });
-    this.sub = hub.subscribe(cx, { views: ["todo"], notify: true }, (m, cx) => {
-      if (m.view === "todo") this.counts.todo = m.value?.open || null;
+    this.sub = hub.subscribe(cx, { views: ["todo", "inbox", "monitor", "routines", "meetings"], notify: true }, (m, cx) => {
+      if (m.view) this.counts[m.view] = appBadge(m.view, m.value);
       if (m.notify) this.toast(m.notify, cx);
       cx.notify();
     });
@@ -173,6 +192,7 @@ export default class Sidebar {
     };
     const apps = this.spaces.filter((s) => APPS[s]).map((s) => ({ ...APPS[s], child: APPS[s].child ?? s }));
     const badge = (child) => this.counts[child] ?? shared(`badge.${child}`) ?? null;
+    const tone = (child) => { const t = badge(child)?.tone; return t ? k[t] ?? t : null; };
     const counts = model.value?.counts ?? {};
 
     return v_flex()
@@ -219,14 +239,14 @@ export default class Sidebar {
         e
           .child(navItem("home", "Home", "layout-dashboard", counts.unread || null, "⌘⌥0", counts.needs_you ? k.blocked : null))
           .child(navItem("work", "Work", "terminal", null, null))
-          .children(apps.map((a) => navItem(a.child, a.label, a.icon, badge(a.child), a.key))),
+          .children(apps.map((a) => navItem(a.child, a.label, a.icon, badge(a.child)?.count || null, a.key, tone(a.child)))),
       )
       .when(!rail, (e) =>
         e.child(
           this.appStrip(k, active, [
             { child: "home", label: "Home", icon: "layout-dashboard", key: "⌘⌥0", count: counts.unread || null, tone: counts.needs_you ? k.blocked : null },
             { child: "work", label: "Work", icon: "terminal" },
-            ...apps.map((a) => ({ ...a, count: badge(a.child) })),
+            ...apps.map((a) => ({ ...a, count: badge(a.child)?.count || null, tone: tone(a.child) })),
           ]),
         ),
       )

@@ -1,0 +1,46 @@
+name: pages
+
+# The site in site/ on GitHub Pages, with the screenshots from docs/ and CHANGELOG.md copied in, so neither is kept
+# twice in the repo.
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/*.svg
+      - docs/*.png
+      - docs/app/**
+      - CHANGELOG.md
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Assemble the site
+        run: |
+          cp -R site _site
+          mkdir -p _site/img/app
+          cp docs/*.svg docs/*.png _site/img/
+          cp docs/app/*.png _site/img/app/
+          cp CHANGELOG.md _site/changelog.md
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

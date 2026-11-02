@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuration · cockpit</title>
+  <meta name="description" content="cockpit's config.json: every key, the pinned spaces, tokens and routines.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="index.html">Home</a>
+      <a href="features.html">Features</a>
+      <a href="shortcuts.html">Shortcuts</a>
+      <a href="configuration.html" aria-current="page">Configuration</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="contributing.html">Contributing</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="page-head">
+      <h1>Configuration</h1>
+      <p class="lead"><code>~/.config/cockpit/config.json</code>, written by <code>/cockpit:setup</code>, re-read every 30
+        seconds. <code>/cockpit</code> flips what you change day to day.</p>
+      <ul class="toc">
+        <li><a href="#data">Where data comes from</a></li>
+        <li><a href="#keys">Keys</a></li>
+        <li><a href="#spaces">Pinned spaces</a></li>
+        <li><a href="#example">Example</a></li>
+        <li><a href="#routines">Routines</a></li>
+      </ul>
+    </div>
+
+    <h2 id="data">Where data comes from</h2>
+    <p>The hub fetches GitHub every minute with <code>gh</code>'s token (or <code>GH_TOKEN</code>), so PRs and checks stay
+      fresh without a Claude session. Everything else comes through a session's connectors, unless you give the hub a
+      token: <code>tickets.token</code> (a Linear API key) or <code>ci.token</code> (a CircleCI personal API token). Tokens
+      stay in this file only.</p>
+
+    <h2 id="keys">Keys</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th class="wrap-ok"></th></tr></thead>
+        <tbody>
+          <tr><td><code>reposDir</code></td><td class="wrap-ok">Where your checkouts live; new agent spaces start there.</td></tr>
+          <tr><td><code>github.org</code></td><td class="wrap-ok">Only list your PRs from this org.</td></tr>
+          <tr><td><code>tickets</code></td><td class="wrap-ok">Ticket connector: <code>server</code>, <code>keys</code> (prefixes such as <code>ENG</code>), <code>urlTemplate</code>, and the mapping for anything but Linear.</td></tr>
+          <tr><td><code>tickets.token</code></td><td class="wrap-ok">Optional Linear API key (Settings → Security &amp; access): the hub fetches tickets itself.</td></tr>
+          <tr><td><code>ci</code></td><td class="wrap-ok">GitHub checks when <code>server</code> is empty, else a CI connector and its mapping. <code>imageJob</code>: the job that builds a preview's image.</td></tr>
+          <tr><td><code>ci.token</code></td><td class="wrap-ok">Optional CircleCI personal API token: the hub fetches runs itself.</td></tr>
+          <tr><td><code>calendar</code></td><td class="wrap-ok">Google Calendar, or another connector and its mapping.</td></tr>
+          <tr><td><code>platform</code></td><td class="wrap-ok">Deploy and preview connector, and its mapping: <code>previewPrefix</code> (how a preview's id starts), <code>previewDashboardUrl</code> (with <code>{preview}</code>), <code>workflowUrl</code> (with <code>{namespace}</code> and <code>{name}</code>), <code>tools</code> and <code>fields</code>.</td></tr>
+          <tr><td><code>metabase</code>, <code>datadog</code></td><td class="wrap-ok">Connectors for live panes; Datadog also feeds the monitor.</td></tr>
+          <tr><td><code>monitor</code></td><td class="wrap-ok"><code>env</code>; the Datadog <code>queries</code> per service (<code>errors</code>, <code>hits</code>, <code>p95</code>, with <code>{service}</code> and <code>{env}</code>); when a release counts as <code>moved</code> (<code>errorPoints</code>, <code>p95Ratio</code>, <code>p95Ms</code>, <code>minHits</code>); whose releases <code>notify</code> (<code>mine</code>, <code>all</code>, <code>none</code>).</td></tr>
+          <tr><td><code>brief</code>, <code>meetingBrief</code>, <code>recap</code>, <code>deployWatch</code></td><td class="wrap-ok">When they run and which tools they may use.</td></tr>
+          <tr><td><code>agents.recap</code></td><td class="wrap-ok"><code>auto</code> (default): an agent's recap is asked of haiku a minute after its turn ends, when nobody looked at it; <code>manual</code>: only when you ask.</td></tr>
+          <tr><td><code>e2eBrowser</code></td><td class="wrap-ok"><code>terminal-browser</code> (beside the agent) or <code>chrome</code> (Claude in Chrome).</td></tr>
+          <tr><td><code>browserIdleMinutes</code></td><td class="wrap-ok">A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; <code>0</code> keeps it.</td></tr>
+          <tr><td><code>spaces</code></td><td class="wrap-ok">Pinned spaces in sidebar order. See <a href="#spaces">below</a>.</td></tr>
+          <tr><td><code>runbookTools</code></td><td class="wrap-ok">Extra tools the background runbook refresh may use, e.g. a read-only database MCP.</td></tr>
+          <tr><td><code>worktrees</code></td><td class="wrap-ok"><code>true</code>: the inbox opens a branch checked out nowhere in a new herdr worktree instead of the main checkout.</td></tr>
+          <tr><td><code>density</code></td><td class="wrap-ok"><code>comfortable</code> (default, actions in a panel under the list) or <code>compact</code> (buttons on the row). <code>/cockpit</code> switches it.</td></tr>
+          <tr><td><code>editor</code></td><td class="wrap-ok">The editor Open in editor uses: <code>code</code> (default), <code>cursor</code>, <code>zed</code>, or any command that takes a folder.</td></tr>
+          <tr><td><code>herdrPluginRoot</code></td><td class="wrap-ok">Left empty: cockpit finds the herdr plugin in herdr's registry, which follows its updates.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="spaces">Pinned spaces</h2>
+    <p><code>spaces</code> lists the pinned spaces in sidebar order: <code>inbox</code>, <code>terminal</code>,
+      <code>actions</code> (a tab per review, plan or talk started from the inbox or runbook), <code>to-do</code>,
+      <code>runbook</code>, <code>meetings</code>, the opt-in <code>monitor</code> and <code>routines</code>, and your own,
+      as a name or an object:</p>
+<pre><code>"spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "routines",
+           { "name": "notes", "cwd": "~/notes", "icon": "", "key": "prefix+n" }]</code></pre>
+    <p><code>icon</code> is a Nerd Font glyph, <code>key</code> a free <code>prefix+&lt;letter&gt;</code>. An open space
+      with that name becomes the pinned one.</p>
+
+    <h2 id="example">Example</h2>
+    <p>From <a href="https://github.com/quaresc/cockpit/blob/main/config.example.json"><code>config.example.json</code></a>:</p>
+<pre><code>{
+  "reposDir": "~/code",
+  "github": { "enabled": true, "org": "my-org" },
+  "tickets": { "enabled": true, "name": "Linear", "server": "claude.ai Linear", "keys": ["ENG"], "urlTemplate": "" },
+  "ci": { "enabled": true, "name": "GitHub", "server": "", "imageJob": "docker_build" },
+  "platform": {
+    "enabled": false,
+    "server": "platform",
+    "previewPrefix": "preview-",
+    "previewDashboardUrl": "https://dashboard.example.com/previews/{preview}",
+    "workflowUrl": "https://dashboard.example.com/runs/{namespace}/{name}",
+    "previewDefaults": {},
+    "tools": {
+      "deployStatus": { "tool": "deploys_status", "args": { "env": "production" } },
+      "deployHistory": { "tool": "deploys_history", "args": { "env": "production", "app": "{appId}" } },
+      "listPreviews": { "tool": "previews_list", "args": { "owner": "{login}" } },
+      "previewStatus": { "tool": "previews_get", "args": { "id": "{preview}" } },
+      "createPreview": { "tool": "previews_create", "args": { "app": "{app}", "branch": "{branch}" } },
+      "redeployPreview": { "tool": "previews_redeploy", "args": { "id": "{preview}", "app": "{app}" } },
+      "stopPreview": { "tool": "previews_stop", "args": { "id": "{preview}" } },
+      "startPreview": { "tool": "previews_start", "args": { "id": "{preview}" } },
+      "extendPreview": { "tool": "previews_extend", "args": { "id": "{preview}", "days": "{days}" } }
+    },
+    "fields": { "apps": "apps", "appId": "id", "...": "..." }
+  },
+  "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
+  "recap": { "enabled": true, "awayMinutes": 10 },
+  "agents": { "recap": "auto" },
+  "meetingBrief": { "enabled": true, "model": "sonnet", "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
+  "calendar": { "enabled": true, "name": "Google Calendar", "server": "claude.ai Google Calendar" },
+  "metabase": { "server": "metabase" },
+  "datadog": { "server": "claude.ai Datadog" },
+  "monitor": { "env": "production", "notify": "mine", "moved": { "errorPoints": 0.5, "p95Ratio": 1.5, "p95Ms": 100, "minHits": 50 } },
+  "brief": { "enabled": true, "at": "08:30", "weekends": false },
+  "notifications": true,
+  "e2eBrowser": "terminal-browser",
+  "browserIdleMinutes": 60,
+  "herdrPluginRoot": "",
+  "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
+  "runbookTools": [],
+  "worktrees": false,
+  "density": "comfortable",
+  "editor": "code"
+}</code></pre>
+
+    <h2 id="routines">Routines</h2>
+    <p>Each routine is a file in <code>~/.config/cockpit/routines/</code>: <code>key: value</code> lines between two
+      <code>---</code> lines, then the prompt Claude runs (or the script, with <code>run: shell</code>).
+      <code>/routine &lt;when and what&gt;</code> writes one for you, <kbd>a</kbd> in the routines space adds one in a
+      form.</p>
+<pre><code>---
+name: Morning sweep
+when: weekdays 09:00
+model: sonnet
+tools: Read, Grep, Bash(gh pr list:*)
+notify: failed
+---
+
+Sum up my open PRs: which wait for review, which fail CI, which can merge.</code></pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Key</th><th class="wrap-ok"></th></tr></thead>
+        <tbody>
+          <tr><td><code>when</code></td><td class="wrap-ok"><code>manual</code>, <code>every 30m</code> (or <code>2h</code>, <code>1d</code>), <code>hourly</code>, <code>daily 09:00</code>, <code>weekdays 9:00,17:30</code>, <code>weekends 10:00</code>, <code>mon,thu 14:00</code>, <code>tue-fri 08:15</code>, <code>cron &lt;minute hour day month weekday&gt;</code>, or <code>on &lt;trigger&gt; [words]</code>. Triggers: <code>review</code>, <code>approved</code>, <code>changes</code>, <code>opened</code>, <code>merged</code>, <code>ci-failed</code>, <code>ci-passed</code>, <code>ticket</code>, <code>assigned</code>, <code>live</code>, <code>release</code>, <code>release-ok</code>, <code>release-moved</code>, <code>release-failed</code>, <code>alert</code>, <code>error</code>, <code>any</code>. Times are local.</td></tr>
+          <tr><td><code>cwd</code></td><td class="wrap-ok">Where it runs. Left out, a Claude routine runs in a folder of its own, so no project's CLAUDE.md or memory is read.</td></tr>
+          <tr><td><code>run: shell</code></td><td class="wrap-ok">Runs the body with <code>sh -c</code> instead of Claude, with <code>$COCKPIT_EVENT</code>, <code>$COCKPIT_EVENT_KEY</code> and <code>$COCKPIT_EVENT_KIND</code> when an event set it off.</td></tr>
+          <tr><td><code>model</code></td><td class="wrap-ok"><code>lightest</code> (haiku at low effort, nothing loaded but the tools it lists: the cheapest run), <code>haiku</code>, <code>sonnet</code>, <code>opus</code>, or left out for your default.</td></tr>
+          <tr><td><code>tools</code></td><td class="wrap-ok">Comma-separated allow rules, MCP tools by their full <code>mcp__…</code> name.</td></tr>
+          <tr><td><code>budget</code></td><td class="wrap-ok">Dollars a week, as Claude estimates its runs. Runs wait once the week's runs reach it.</td></tr>
+          <tr><td><code>timeout</code> · <code>notify</code> · <code>paused</code></td><td class="wrap-ok">Minutes (30 by default) · <code>always</code>, <code>failed</code> or <code>never</code> · <code>true</code> to pause it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>cockpit · MIT license</span>
+    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+  </div>
+</footer>
+</body>
+</html>

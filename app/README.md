@@ -80,17 +80,16 @@ the tab, `agent` = the focused agent alone), the apps · the `status` bar; in `w
 `panel-body`: `show`, `review`, `runbook-panel` (`runbook {scope: "focused"}`), `files`, `changes`, then the `activity`
 bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown only while prompts are queued).
 
-- **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): stat tiles (landed today with 7 days of bars, needs you,
-  working, ready to land, agent spend today/7d), the NEXT MOVE callout (the longest-waiting question with its choices
-  as buttons and a reply field, else a PR to fix, else one to land, else all clear), the restart banner, project chips,
-  columns Needs you · Working · Ready to land · Done (agents from view `agents` joined with Herdr's live list in
-  `fleet.js`; my PRs to fix and to land that no agent works on), and Your delivery (this week vs the same days last
-  week, two weeks of bars, median time to merge over 30 days from the feed's `createdAt`, open PRs, reviews, spend).
+- **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): a greeting with one line of counts, the NEXT MOVE
+  callout (the longest-waiting question with its choices as buttons and a reply field, else a PR to fix, else one to
+  land, else all clear), the restart banner, and the columns Needs you · Working · Ready to land · Done (agents from view
+  `agents` joined with Herdr's live list in `fleet.js`; my PRs to fix and to land that no agent works on). With no card
+  picked, the keys act on the NEXT MOVE agent.
   Keys: `j k h l` move, `⏎` go, `1–9` answer, `t` reply, `f` the agent beside the board, `m` merge, `a` archive (tab
   settled, Undo on the toast), `o` PR, `r` recap, `s` snooze, `q` queue, `n` new agent; right-click for the rest.
-- **Status bar** (`status.js`): Home's counts (`fleet.counts`, each a click), the focused agent's branch, ↑↓, files, CI
-  and PR, quota bars when view `agents` has `quota: [{label, used, elapsed, resets}]`, queued prompts, agents to resume,
-  the hub, the clock. Its copy runs the shell's keys: `cmd-alt-0` → `cockpit.home` (Home ↔ work), `cmd-alt-a`
+- **Status bar** (`status.js`): Home's counts (`fleet.counts`, each a click) on the left; on the right the focused
+  agent's links (branch, ↑↓, files, ticket, CI, PR, each opening its page), queued prompts, agents to resume, and the hub
+  only while it is offline. Its copy runs the shell's keys: `cmd-alt-0` → `cockpit.home` (Home ↔ work), `cmd-alt-a`
   `agent-view`, `cmd-alt-b` `panel`, `ctrl-cmd-1..5` `panel:<show|review|runbook|files|changes>`, `cmd-j`
   `next-waiting`, `cmd-shift-j`/`cmd-shift-u` `next:blocked`/`next:done`, `cmd-g` `pr`, `cmd-l` `ticket`, `cmd-alt-r`
   `resume`. `cmd-alt-q` → `cockpit.queue` (the queue dialog), `cmd-r` → `cockpit.recap` (view `agents`' popup).

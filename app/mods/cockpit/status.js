@@ -1,7 +1,7 @@
-// The status bar under the cockpit layout: the agents by whose move it is (each count a click), the focused agent's
-// branch, changes and CI, the queued prompts and stopped agents, quota when the agents view has it, the hub's state and
-// the clock. Always shown, it also runs the shell's window-wide keys: Home, the agent view, the side panel, next agent
-// waiting, the focused branch's PR and ticket, resume.
+// The status bar under the cockpit layout: the agents by whose move it is (each count a click), then on the right the
+// focused agent's links (branch, ticket, CI, PR), queued prompts, stopped agents, and the hub only when it is offline.
+// Always shown, it also runs the shell's window-wide keys: Home, the agent view, the side panel, next agent waiting,
+// the focused branch's PR and ticket, resume.
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
@@ -9,7 +9,7 @@ import { run, focused, shared, setShared, layout, exec } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, counts } from "./fleet.js";
 import { show } from "./sidebar.js";
-import { tokens, TEXT, RADIUS, Icon, Spinner, Mono, dur } from "./ui.js";
+import { tokens, TEXT, RADIUS, Icon, Spinner, Mono } from "./ui.js";
 
 /** A node of the shown layout by id. */
 export function findNode(node, id) {
@@ -44,11 +44,6 @@ export default class Status {
     this.home = null;
     this.queue = null;
     this.state = "connecting";
-    this.now = Date.now();
-    cx.timer.every(30000, (cx) => {
-      this.now = Date.now();
-      cx.notify();
-    });
     this.sub = hub.subscribe(
       cx,
       { views: ["agents", "home", "queue"] },
@@ -136,51 +131,29 @@ export default class Status {
       w >= 640 && item("st-done", [dot(count("done") ? k.done : k.border), div().child(`${count("done")} done`)], { onClick: (_e, cx) => this.command("next:done", cx), tooltip: "Next finished agent  ⌘⇧U" }),
     ].filter(Boolean);
 
-    const middle = [];
+    // The focused agent's links, on the right: branch, ticket, CI and PR, each opening its page.
+    const right = [];
+    const open = (url) => (url ? (_e, cx) => cx.spawn(async () => exec("open", [url])) : undefined);
     if (me) {
       const ch = me.changes ?? {};
-      middle.push(sep());
+      const repoUrl = me.pr?.url?.replace(/\/pull\/\d+.*$/, "") ?? null;
+      const branchUrl = repoUrl && me.branch ? `${repoUrl}/tree/${me.branch}` : null;
       // The branch gives way first when the bar runs out of room.
-      middle.push(item("st-branch", [Icon("git-branch", { size: 12 }), Mono(me.branch ?? me.space_name ?? me.address).flex_shrink(1).min_w(0).truncate()], { tooltip: `${me.title} · ${me.branch ?? ""}` }).flex_shrink(1).min_w(60));
-      if (w >= 900 && (ch.ahead || ch.behind)) middle.push(item("st-ahead", [Mono(`↑${ch.ahead ?? 0} ↓${ch.behind ?? 0}`)], { tooltip: "Commits ahead of and behind its base" }));
-      if (w >= 900 && ch.files) middle.push(item("st-files", [Mono(`±${ch.files}`)], { tooltip: `${ch.files} files changed`, onClick: () => togglePanel("changes") }));
+      right.push(item("st-branch", [Icon("git-branch", { size: 12 }), Mono(me.branch ?? me.space_name ?? me.address).flex_shrink(1).min_w(0).truncate()], { tooltip: branchUrl ? `Open ${me.branch} on GitHub` : `${me.title} · ${me.branch ?? ""}`, onClick: open(branchUrl) }).flex_shrink(1).min_w(60));
+      if (w >= 900 && (ch.ahead || ch.behind)) right.push(item("st-ahead", [Mono(`↑${ch.ahead ?? 0} ↓${ch.behind ?? 0}`)], { tooltip: "Commits ahead of and behind its base" }));
+      if (w >= 900 && ch.files) right.push(item("st-files", [Mono(`±${ch.files}`)], { tooltip: `${ch.files} files changed`, onClick: () => togglePanel("changes") }));
+      if (me.ticket?.key) right.push(item("st-ticket", [Icon("ticket", { size: 12 }), Mono(me.ticket.key)], { tooltip: me.ticket.title ? `${me.ticket.key} · ${me.ticket.title}` : me.ticket.key, onClick: open(me.ticket.url) }));
       const ci = me.ci;
       if (ci && w >= 720) {
         const color = ci === "SUCCESS" ? k.success : ci === "FAILURE" || ci === "ERROR" ? k.destructive : k.warning;
-        middle.push(item("st-ci", [dot(color, ci === "PENDING"), div().child("CI")], { tooltip: `CI ${String(ci).toLowerCase()}`, onClick: me.pr?.url ? (_e, cx) => cx.spawn(async () => exec("open", [me.pr.url])) : undefined }));
+        right.push(item("st-ci", [dot(color, ci === "PENDING"), div().child("CI")], { tooltip: `CI ${String(ci).toLowerCase()}: open the checks`, onClick: open(me.pr?.url ? `${me.pr.url}/checks` : null) }));
       }
-      if (w >= 720 && me.pr?.number) middle.push(item("st-pr", [Icon("git-pull-request", { size: 12 }), Mono(`#${me.pr.number}`)], { tooltip: "Open the PR  ⌘G", onClick: (_e, cx) => cx.spawn(async () => exec("open", [me.pr.url])) }));
+      if (me.pr?.number) right.push(item("st-pr", [Icon("git-pull-request", { size: 12 }), Mono(`#${me.pr.number}`)], { tooltip: "Open the PR  ⌘G", onClick: open(me.pr.url) }));
     }
-
-    const right = [];
-    const quota = Array.isArray(this.rows?.quota) && w >= 1100 ? this.rows.quota : [];
-    quota.forEach((q, i) => {
-      const used = Math.max(0, Math.min(1, (q.percent ?? (q.used ?? 0) * 100) / 100));
-      const elapsed = typeof q.elapsed === "number" ? Math.max(0, Math.min(1, q.elapsed)) : null;
-      const ahead = q.ahead ?? (elapsed !== null && used > elapsed);
-      const resets = q.resets_at ? `, resets in ${dur(q.resets_at - this.now)}` : "";
-      const name = q.name ?? q.label ?? "";
-      right.push(
-        item(`st-quota-${i}`, [
-          div().child(name),
-          div()
-            .relative()
-            .w(40)
-            .h(5)
-            .rounded(3)
-            .bg(k.muted)
-            .child(div().h_full().rounded(3).w(`${used * 100}%`).bg(used >= 0.9 ? k.destructive : used >= 0.8 ? k.warning : k.ring))
-            .when(elapsed !== null, (e) => e.child(div().absolute().top(-2).h(9).w(1).left(`${(elapsed ?? 0) * 100}%`).bg(k.foreground))),
-          Mono(`${Math.round(used * 100)}%${ahead ? " ▲" : ""}`, { color: ahead ? k.warning : k.mutedFg }),
-        ], { tooltip: `Claude ${name}: ${Math.round(used * 100)}% used${resets}${ahead ? " · ahead of pace" : ""}` }),
-      );
-    });
     if (queued) right.push(item("st-queue", [Icon("list-ordered", { size: 12, color: k.info }), div().child(w >= 800 ? `${queued} queued` : String(queued))], { tooltip: "Prompts waiting to be sent  ⌘⌥Q", onClick: () => run("cockpit.queue", {}) }));
     if (lost) right.push(item("st-lost", [Icon("rotate-ccw", { size: 12, color: k.info }), div().text_color(k.info).child(`${lost} to resume`)], { tooltip: "Agents a restart stopped: resume them  ⌘⌥R", onClick: (_e, cx) => cx.spawn(async () => hub.act("home", "resume", [])) }));
-    const live = this.state === "live";
-    right.push(item("st-hub", [dot(live ? k.success : this.state === "connecting" ? k.warning : k.destructive), div().child(live ? "hub" : this.state === "connecting" ? "connecting" : "hub offline")], { tooltip: live ? "The cockpit hub answers" : this.state }));
-    const d = new Date(this.now);
-    right.push(item("st-clock", [Mono(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`)]));
+    // The hub shows only when it does not answer.
+    if (this.state !== "live") right.push(item("st-hub", [dot(this.state === "connecting" ? k.warning : k.destructive), div().child(this.state === "connecting" ? "connecting" : "hub offline")], { tooltip: this.state }));
 
     return h_flex()
       .id("cockpit-status")
@@ -197,7 +170,6 @@ export default class Status {
       .border_t_1()
       .border_color(k.border)
       .children(left)
-      .children(middle)
       .child(div().flex_1().min_w(8))
       .children(right);
   }
