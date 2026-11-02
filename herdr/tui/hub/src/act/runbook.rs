@@ -196,7 +196,7 @@ pub fn update(ctx: &mut Ctx, args: &[Value]) -> Res {
         return Ok(());
     }
     let (_, session) = owner_of(book)?;
-    let claude = proc::which("claude").unwrap_or_else(|| files::home().join(".claude/local/claude")).to_string_lossy().into_owned();
+    let claude = files::claude();
     let memory = memory_dir(ctx);
     let mut dirs = vec!["--add-dir".to_string(), runbooks_dir().to_string_lossy().into_owned()];
     if memory.is_dir() {

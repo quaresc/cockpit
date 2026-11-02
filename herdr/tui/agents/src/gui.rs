@@ -631,7 +631,8 @@ fn fork(handle: &str, place: &str) -> Result<String, String> {
     let facts = facts_doc();
     let session = session_of(&a.live, &facts[handle]).ok_or("no Claude session known for this agent yet")?;
     let cwd = if a.live.cwd.is_empty() { files::home().to_string_lossy().into_owned() } else { a.live.cwd.clone() };
-    let argv = ["claude", "--resume", session.as_str(), "--fork-session"];
+    let claude = files::claude();
+    let argv = [claude.as_str(), "--resume", session.as_str(), "--fork-session"];
     let label = format!("fork · {}", if a.live.title.is_empty() { &a.live.tab_name } else { &a.live.title });
     let made = match handle.strip_prefix(APP) {
         Some(_) if place == "tab" => frontend::app_do("tab.new", &json!({"space": a.live.space_id, "folder": cwd, "argv": argv, "name": label})).is_some(),

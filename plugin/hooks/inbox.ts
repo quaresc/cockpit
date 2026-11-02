@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, MergedPr, Pr } from '../types'
 
-import { announcePreviews, deploysFor, notify, previewsFor, shortError, startDeployWatch, ticketAction } from './ci'
+import { announcePreviews, deploysFor, isMcpNotReady, notify, previewsFor, shortError, startDeployWatch, ticketAction } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import { requestRunbookRefresh } from './handoffs'
 import { deployLinksFor } from './links'
@@ -183,7 +183,7 @@ async function fetchInbox($: $, cached: Inbox | null) {
     hubOwns(cached, 'github') ? null : fetchGithub($).catch((err: Error) => (errors.push(err.message), null)),
     hubOwns(cached, 'tickets') ? null : myTickets($).catch(async (err: Error) => {
       const { name } = (await loadConfig($)).tickets
-      const isConnecting = err.message.includes('no connected MCP tool')
+      const isConnecting = isMcpNotReady(err)
       errors.push(isConnecting ? `${name} connector still connecting, retrying in a minute` : `${name} ${shortError(err)}`)
       return null
     }),

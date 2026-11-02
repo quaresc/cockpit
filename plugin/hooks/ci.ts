@@ -40,6 +40,10 @@ export async function ticketAction($: $, id: string, url: string | undefined, st
 }
 
 // A refused background call, said in one line that names the permission rule to add.
+// MCP is not callable yet: the connector is still connecting, or the session has not mounted (Claude Code says so at
+// startup). Another tick, or another session, does the call.
+export const isMcpNotReady = (err: Error) => err.message.includes('no connected MCP tool') || err.message.includes('is not available in this mode')
+
 export function shortError(err: Error) {
   const tool = err.message.match(/no verdict for (mcp__\S+?):/)?.[1]
   return tool ? `blocked by auto mode: allow ${tool}` : err.message.slice(0, 200)
@@ -292,7 +296,9 @@ export function refreshCi($: $, isForced = false) {
             isConnectorMissing = true
             return null
           }
-          const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}` }
+          if (isMcpNotReady(err)) return null
+          // The runs last seen stay, and stay readable as this version's, beside the error.
+          const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}`, ...(prev ? { version: CI_VERSION } : {}) }
           await writeDoc($, 'ci', failed)
           return null
         })

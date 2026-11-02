@@ -92,14 +92,9 @@ pub fn start(session: &str, cwd: &str, transcript: PathBuf, model: Option<&'stat
     true
 }
 
-fn claude() -> String {
-    let local = files::home().join(".local/bin/claude");
-    std::env::var("COCKPIT_CLAUDE").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| if local.exists() { local.to_string_lossy().into_owned() } else { "claude".into() })
-}
-
 fn run(session: &str, cwd: &str, transcript: &Path, model: Option<&str>) -> Result<(), String> {
     let (size, modified) = stamp(transcript);
-    let mut cmd = Command::new(claude());
+    let mut cmd = Command::new(files::claude());
     cmd.args(["-p", "--resume", session, "--fork-session", "--no-session-persistence", "--output-format", "json"]);
     if let Some(model) = model {
         cmd.args(["--model", model]);

@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Inbox, Meeting, MeetingsState } from '../types'
 
-import { notify } from './ci'
+import { isMcpNotReady, notify } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import { hasTicket } from './match'
 import { callMapped, listAt, pick, text } from './platform'
@@ -130,7 +130,7 @@ export function refreshMeetings($: $, isForced = false) {
           const isOff = Date.now() - calendarMissingAt < MISSING_RETRY_MS || !(await loadConfig($)).calendar.enabled
           const meetings = isOff ? null : await fetchMeetings($).catch((err: Error) => {
             // The connector may not be connected yet (at startup, or added later): try again shortly.
-            if (err.message.includes('no connected MCP tool')) calendarMissingAt = Date.now()
+            if (isMcpNotReady(err)) calendarMissingAt = Date.now()
             else state = { ...state, error: `Calendar: ${err.message.replace(/^cockpit: /, '')}` }
             return null
           })

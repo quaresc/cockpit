@@ -83,7 +83,7 @@ pub struct Setup {
 
 impl Setup {
     pub fn live() -> Setup {
-        let claude = crate::proc::which("claude").unwrap_or_else(|| files::home().join(".claude/local/claude")).to_string_lossy().into_owned();
+        let claude = files::claude();
         let worktrees = files::home().join(".herdr/worktrees");
         Setup { routines: routines::dir(), runs: files::cache().join("routines"), claude, repos: crate::config::load().repos(), worktrees }
     }

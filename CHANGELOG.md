@@ -5,6 +5,15 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.26.1 (2026-11-02)
+
+- Forks, recaps, routines, runbook refreshes and walkthroughs run the Claude Code you run (`COCKPIT_CLAUDE`, else the
+  local install, else the native one, else PATH): a stale `claude` on PATH ran them on an old version and model.
+- A session that cannot call MCP yet (still starting) no longer writes an error over CI and meetings, nor wipes the CI
+  runs: it leaves the fetch to the next tick or another session.
+- Home: `1–9`, `t` and `⏎` act on the next move's agent while no card is picked, as its hints say.
+- Release notes keep each changelog bullet on one line.
+
 ## 0.26.0 (2026-11-02)
 
 - cockpit runs in the Herdr desktop app: a `cockpit` layout and mod drawn natively by Herdr, on the same hub as the

@@ -326,7 +326,8 @@ export default class Home {
       return false;
     }
     const cols = this.columns(this.cards());
-    const card = this.selected(cols);
+    // Nothing picked yet: the keys act on the NEXT MOVE agent, as its hints say.
+    const card = this.selected(cols) ?? cols.needs.find((c) => c.agent) ?? null;
     const a = card?.agent;
     if (k === "j" || k === "down") this.move(cols, 1, 0);
     else if (k === "k" || k === "up") this.move(cols, -1, 0);

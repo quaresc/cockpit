@@ -1276,7 +1276,7 @@ export default class Runbook {
           Empty({
             icon: "book",
             title: has ? "No runbook for this agent" : "No agent focused",
-            description: has ? "Its ticket has no runbook yet: ask the agent for /runbook." : "Focus an agent working on a ticket to see its runbook here.",
+            description: has ? "Nothing it works on has a runbook yet: ask the agent for /runbook." : "Focus an agent working on a ticket to see its runbook here.",
             action: Button("panel-open-all", { label: "All runbooks", icon: "book", variant: "outline", size: "sm", onClick: () => hub.go({ app: "runbook", key: this.books()[0]?.slug ?? "" }).catch(() => {}) }),
           }),
         ),

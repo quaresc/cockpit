@@ -139,7 +139,7 @@ fn key_of(d: &Digest, model: &str) -> String {
 /// The script a job runs: claude with no tools, MCP servers, settings or skills, stopped after `$2` seconds.
 const RUN: &str = r#"#!/bin/sh
 cd "$(dirname "$0")" || exit 1
-claude -p --output-format json --tools '' --no-session-persistence --strict-mcp-config --setting-sources '' --disable-slash-commands --model "$1" --json-schema "$(cat schema.json)" --system-prompt "$(cat system.txt)" < prompt.txt > out.json 2> err.txt &
+"${COCKPIT_CLAUDE:-claude}" -p --output-format json --tools '' --no-session-persistence --strict-mcp-config --setting-sources '' --disable-slash-commands --model "$1" --json-schema "$(cat schema.json)" --system-prompt "$(cat system.txt)" < prompt.txt > out.json 2> err.txt &
 pid=$!
 echo $pid > pid
 ( waited=0
@@ -197,6 +197,7 @@ pub fn start_in(root: &Path, repo: &str, scope: &str, model: &str, patch: &str, 
     for var in ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"] {
         command.env_remove(var);
     }
+    command.env("COCKPIT_CLAUDE", files::claude());
     let mut child = command.spawn().map_err(|e| format!("the walkthrough did not start: {e}"))?;
     std::thread::spawn(move || {
         let _ = child.wait();
