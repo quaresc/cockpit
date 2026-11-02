@@ -5,6 +5,13 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.26.2 (2026-11-02)
+
+- An update stops the hub only once the link names the new folder: a Herdr window reconnecting at once restarted it on
+  the old binary.
+- What cockpit types into an app terminal (`/reload-plugins` on update, resume lines, answers, queued prompts) goes
+  untagged: run from a terminal, `hc send` prefixed it with its sender, so commands did not run.
+
 ## 0.26.1 (2026-11-02)
 
 - Forks, recaps, routines, runbook refreshes and walkthroughs run the Claude Code you run (`COCKPIT_CLAUDE`, else the

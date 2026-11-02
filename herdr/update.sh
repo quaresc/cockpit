@@ -18,14 +18,15 @@ sh "$root/fetch-apps.sh"
 # The spaces' supervisors and their apps stop, then ensure-spaces (from the new folder) moves the link, prunes old folders
 # and starts them again.
 pkill -f "(^|/)cockpit space (inbox|todo|runbook|meetings|monitor|routines)$"
-# The apps go too, and the hub, detached from them, which serves the old folder: the first app that needs it starts it again.
 pkill -f "cockpit (inbox|todo|runbook|meetings|monitor|routines) cockpit-space"
-pkill -f "(^|/)cockpit hub$"
 sleep 1
 if [ -n "$REGISTERED" ]; then
   sh "$root/ensure-spaces.sh"
   sh "$root/pin-spaces.sh"
 fi
+# The hub serves the old folder: it goes once the link names the new one, so the first app that needs it (a Herdr window
+# reconnects at once) starts the new binary.
+pkill -f "(^|/)cockpit hub$"
 
 # The Herdr app takes the new layout and mod (it reloads a mod on its own), when it has them.
 [ -f "$app_home/layouts/cockpit.json" ] && sh "$root/cockpit.sh" app install >/dev/null
@@ -39,7 +40,8 @@ if command -v herdr-app >/dev/null 2>&1 && [ -S "$app_home/herdr-app.sock" ]; th
   herdr-app ls 2>/dev/null | jq -r '.spaces[].tabs[].terminals[] | select(.status == "idle" or .status == "done") | .terminal' |
     while read -r terminal; do
       case "$("$HC" get "$terminal" --json 2>/dev/null | jq -r '.foreground.name // ""')" in
-        *claude*) "$HC" send "$terminal" "/reload-plugins" >/dev/null 2>&1 ;;
+        # Sent from a terminal, hc tags the text with its sender, and a tagged /reload-plugins is no command.
+        *claude*) env -u HC_TERMINAL_ID "$HC" send "$terminal" "/reload-plugins" >/dev/null 2>&1 ;;
       esac
     done
 fi

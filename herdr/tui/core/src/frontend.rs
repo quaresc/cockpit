@@ -140,7 +140,12 @@ pub fn program(name: &str, env: &str) -> String {
 
 /// The command's stdout parsed as JSON, 15 seconds at most; None when it fails or prints no JSON.
 fn json_of(argv: &[String]) -> Option<Value> {
-    let child = Command::new(&argv[0]).args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut command = Command::new(&argv[0]);
+    // Run from a terminal, hc tags what it sends with that sender: a shell would run the tag, Claude reads it as a note.
+    if argv[0] == program("hc", "HC_BIN") {
+        command.env_remove("HC_TERMINAL_ID");
+    }
+    let child = command.args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let pid = child.id();
     let (tx, rx) = channel();
     std::thread::spawn(move || {
@@ -347,7 +352,8 @@ pub fn run_in(handle: &str, line: &str) -> bool {
         Some(terminal) => {
             let mut argv = vec![program("hc", "HC_BIN"), "send".into(), "--force".into(), terminal.into(), line.into()];
             argv.push("--json".into());
-            Command::new(&argv[0]).args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+            // Sent from a terminal, hc tags the text with its sender: a shell would run the tag.
+            Command::new(&argv[0]).args(&argv[1..]).env_remove("HC_TERMINAL_ID").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
         }
         None => herdr(&["pane", "run", handle, line]).is_some(),
     }
@@ -372,7 +378,7 @@ pub fn app_type(terminal: &str, text: &str) -> bool {
 /// Sends text to an app terminal's agent as its next prompt.
 pub fn app_prompt(terminal: &str, text: &str) -> bool {
     let argv = [program("hc", "HC_BIN"), "send".into(), terminal.into(), text.into(), "--json".into()];
-    Command::new(&argv[0]).args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    Command::new(&argv[0]).args(&argv[1..]).env_remove("HC_TERMINAL_ID").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
 /// Whether the handle's terminal still runs an agent (the TUI) or still lives (the app).

@@ -34,7 +34,8 @@ pub struct Live {
 
 /// A program's stdout when it exits 0 within `secs`, else None.
 pub fn output(argv: &[String], secs: u64) -> Option<String> {
-    let child = Command::new(&argv[0]).args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    // hc would tag what it sends with the terminal this runs in.
+    let child = Command::new(&argv[0]).args(&argv[1..]).env_remove("HC_TERMINAL_ID").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     let pid = child.id();
     let (tx, rx) = channel();
     std::thread::spawn(move || {
