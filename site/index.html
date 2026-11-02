@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cockpit</title>
-  <meta name="description" content="One space with everything, for Claude Code users who switch context all day. A Claude Code plugin and a herdr plugin that work as one, also drawn natively in the Herdr desktop app.">
+  <meta name="description" content="cockpit: Claude Code agents beside their tickets, PRs, CI and deploys, in herdr and the Herdr app.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
@@ -15,11 +15,9 @@
     <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
     <nav class="site-nav" aria-label="Site">
       <a href="index.html" aria-current="page">Home</a>
-      <a href="features.html">Features</a>
-      <a href="shortcuts.html">Shortcuts</a>
-      <a href="configuration.html">Configuration</a>
-      <a href="changelog.html">Changelog</a>
-      <a href="contributing.html">Contributing</a>
+      <a href="desktop.html">Herdr app</a>
+      <a href="terminal.html">Terminal</a>
+      <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
       <a href="https://github.com/quaresc/cockpit">GitHub</a>
     </nav>
   </div>
@@ -30,81 +28,33 @@
     <section class="hero">
       <img class="logo" src="img/logo.svg" alt="cockpit logo" width="96" height="96">
       <h1>cockpit</h1>
-      <p class="tagline">One space with everything, for Claude Code users who switch context all day.</p>
-      <p class="lead">A Claude Code plugin and a <a href="https://herdr.dev">herdr</a> plugin that work as one, also drawn
-        natively in the Herdr desktop app.</p>
+      <p class="tagline">Your Claude Code agents, beside their ticket, PR, CI and deploy.</p>
+      <p class="lead">Plus your inbox, runbooks, to-dos, meetings, releases and routines, and one palette over all of it.</p>
       <div class="buttons">
-        <a class="button primary" href="#install">Install</a>
-        <a class="button" href="features.html">See the features</a>
-        <a class="button" href="https://github.com/quaresc/cockpit">GitHub</a>
+        <a class="button primary" href="desktop.html">Herdr app</a>
+        <a class="button" href="terminal.html">Terminal</a>
       </div>
-      <figure class="shot terminal">
-        <img src="img/overview.svg" width="1296" height="679"
-             alt="herdr with the cockpit sidebar, an agent testing its change in terminal-browser beside it, and its footer">
-      </figure>
     </section>
 
-    <h2>What it adds</h2>
-    <p>herdr runs your agents side by side but doesn't know what they work on. cockpit adds that context:</p>
-    <div class="grid">
-      <div class="card">
-        <h3>Beside each agent</h3>
-        <p>Each agent sits beside its <b>ticket, PR, CI, deploy</b> and the page it tests.</p>
-      </div>
-      <div class="card">
-        <h3>Pinned spaces</h3>
-        <p>Your <b>inbox, runbooks, to-dos, meetings, releases and routines</b>, one key away.</p>
-      </div>
-      <div class="card">
-        <h3>One palette</h3>
-        <p>Searches all of it, the week's history and your past sessions.</p>
-      </div>
-    </div>
-
     <h2 id="install">Install</h2>
-    <p>In a Claude Code session inside herdr:</p>
-<pre><code>/plugin install cockpit --marketplace quaresc/cockpit
+    <p>In a Claude Code session:</p>
+    <pre><code>/plugin install cockpit --marketplace quaresc/cockpit
 /cockpit:setup</code></pre>
-    <p>Setup installs the herdr half for your machine, asks which features you want and writes your config.
-      <code>/cockpit:doctor</code> checks everything and says how to fix it. Updates arrive as a notification.</p>
-    <p><b>Needs</b> macOS (Linux untested), herdr 0.9+, <code>gh</code> signed in, <code>jq</code>, Xcode command line
-      tools and a Nerd Font.</p>
+    <p>Setup asks what you want and installs both halves. <code>/cockpit:doctor</code> checks everything. Needs macOS,
+      <code>gh</code> signed in and <code>jq</code>.</p>
 
-    <h2>Two places to run it</h2>
-    <p class="section-lead">Both halves run on the same hub and the same data, and can run at once.</p>
+    <h2>Two ways to run it</h2>
     <div class="grid">
-      <div class="card">
-        <h3>In herdr, the terminal</h3>
-        <p>A sidebar, a footer of links under each agent, pinned spaces with their apps, and a palette over any pane.</p>
-        <p><a href="features.html#herdr">The herdr half</a></p>
-      </div>
-      <div class="card">
-        <h3>In the Herdr app</h3>
-        <p>Drawn natively by the <a href="https://herdr.dev">Herdr desktop app</a>. <code>/cockpit:setup</code> installs
-          it when the app is there (or run <code>cockpit app install</code>), and the window switches once to the
-          <b>cockpit</b> layout (<kbd>⌘⇧L</kbd> switches layouts).</p>
-        <p><a href="features.html#app">The Herdr app</a></p>
-      </div>
-      <div class="card">
-        <h3>Through Claude Code</h3>
-        <p>The plugin fetches from your sessions' connectors and gives Claude the show pane, search and history tools.</p>
-        <p><a href="features.html#plugin">The Claude Code plugin</a></p>
-      </div>
+      <a class="card" href="desktop.html">
+        <h3>Herdr app</h3>
+        <p>Drawn natively in the Herdr desktop app: Home, sidebar, every app as a view.</p>
+      </a>
+      <a class="card" href="terminal.html">
+        <h3>Terminal</h3>
+        <p>In herdr: a sidebar, a footer and pinned spaces beside your agents.</p>
+      </a>
     </div>
-
-    <figure class="shot">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="img/app/home-dark.png">
-        <img src="img/app/home-light.png" width="1600" height="1025" loading="lazy"
-             alt="Home in the Herdr app: today's numbers, the next move with its choices, the agents by whose move it is">
-      </picture>
-      <figcaption>Home in the Herdr app.</figcaption>
-    </figure>
-
-    <div class="callout">
-      <p>The screenshots are the real apps on made-up data. Go on with the <a href="features.html">features</a>, the
-        <a href="shortcuts.html">shortcuts</a> or the <a href="configuration.html">configuration</a>.</p>
-    </div>
+    <p>Both share the same hub and data, so they can run at once.</p>
   </div>
 </main>
 

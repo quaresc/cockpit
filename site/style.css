@@ -154,14 +154,6 @@ main { padding: 40px 0 80px; }
 
 .page-head { margin-bottom: 8px; }
 
-.toc {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 20px 0 8px;
-  padding: 0;
-  list-style: none;
-}
 .toc a {
   display: inline-block;
   padding: 4px 12px;
@@ -172,7 +164,6 @@ main { padding: 40px 0 80px; }
   font-size: 0.9rem;
   background: var(--surface);
 }
-.toc a:hover { border-color: var(--accent); }
 
 /* Hero */
 
@@ -225,6 +216,8 @@ main { padding: 40px 0 80px; }
   border-radius: var(--radius);
   padding: 20px;
 }
+a.card { display: block; color: inherit; text-decoration: none; transition: border-color 0.15s; }
+a.card:hover { border-color: var(--accent); }
 .card h3 { margin-top: 0; }
 .card p:last-child, .card ul:last-child { margin-bottom: 0; }
 
@@ -282,11 +275,6 @@ td.wrap-ok, th.wrap-ok { white-space: normal; }
 
 /* Changelog */
 
-.changelog h2 { font-size: 1.25rem; margin: 40px 0 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
-.changelog h2 a.anchor { color: var(--text); text-decoration: none; }
-.changelog h2 .date { color: var(--muted); font-size: 0.9rem; font-weight: 400; }
-.changelog ul { padding-left: 1.2em; }
-.changelog li { margin-bottom: 6px; }
 
 /* Footer */
 

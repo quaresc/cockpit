@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cockpit · Terminal</title>
+  <meta name="description" content="cockpit: Claude Code agents beside their tickets, PRs, CI and deploys, in herdr and the Herdr app.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="index.html">Home</a>
+      <a href="desktop.html">Herdr app</a>
+      <a href="terminal.html" aria-current="page">Terminal</a>
+      <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="page-head">
+      <h1>Terminal</h1>
+      <p class="lead">cockpit in <a href="https://herdr.dev">herdr</a>: what each agent works on, beside it.</p>
+    </div>
+      <figure class="shot terminal"><img src="img/overview.svg" alt="herdr with the cockpit sidebar, an agent testing its change in a browser beside it, and its footer"></figure>
+    <section class="feature">
+      <div>
+        <h3>Sidebar</h3>
+        <p>Each agent’s task, branch, ticket, CI and page. Red on failing CI.</p>
+      </div>
+      <figure class="shot terminal"><img src="img/sidebar.svg" alt="The sidebar"></figure>
+    </section>
+    <section class="feature">
+      <div>
+        <h3>Footer</h3>
+        <p>One click to the ticket, PR, deploy, preview and every page the conversation cites.</p>
+      </div>
+      <figure class="shot terminal"><img src="img/footer.svg" alt="The footer"></figure>
+    </section>
+    <section class="feature">
+      <div>
+        <h3>Pinned spaces</h3>
+        <p>Inbox, runbook, to-do, meetings, and opt-in monitor and routines, one key each.</p>
+      </div>
+      <figure class="shot terminal"><img src="img/inbox.svg" alt="The inbox space"></figure>
+    </section>
+    <section class="feature text-only">
+      <div>
+        <h3>Show and E2E</h3>
+        <p>Charts, tables and diffs in a pane beside the agent; the agent tests its page in a browser beside it.</p>
+      </div>
+    </section>
+    <section class="feature">
+      <div>
+        <h3>Palette</h3>
+        <p>prefix+space over any pane: tickets, PRs, runbook steps, meetings, history and past sessions.</p>
+      </div>
+      <figure class="shot terminal"><img src="img/palette.svg" alt="The palette"></figure>
+    </section>
+    <h2>Keys</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><td>prefix + space</td><td class="wrap-ok">Palette</td></tr>
+        <tr><td>prefix + i t a d u m o y</td><td class="wrap-ok">Inbox, terminal, actions, to-do, runbook, meetings, monitor, routines</td></tr>
+        <tr><td>prefix + f</td><td class="wrap-ok">The page beside the agent, in your browser</td></tr>
+        <tr><td>prefix + shift+a</td><td class="wrap-ok">Every agent</td></tr>
+        <tr><td>j k · Enter · /</td><td class="wrap-ok">Move · main action · filter, in every app</td></tr>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>cockpit · MIT license</span>
+    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cockpit · Herdr app</title>
+  <meta name="description" content="cockpit: Claude Code agents beside their tickets, PRs, CI and deploys, in herdr and the Herdr app.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="index.html">Home</a>
+      <a href="desktop.html" aria-current="page">Herdr app</a>
+      <a href="terminal.html">Terminal</a>
+      <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="page-head">
+      <h1>Herdr app</h1>
+      <p class="lead">cockpit as a layout and a mod in the Herdr desktop app. <code>/cockpit:setup</code> installs it, or
+        <code>cockpit app install</code>.</p>
+    </div>
+      <figure class="shot"><picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="Home: the next move and the agents by whose move it is"></picture></figure>
+    <section class="feature text-only">
+      <div>
+        <h3>Home</h3>
+        <p>The next move, and every agent and PR by whose move it is. Answer, merge or recap from the keyboard.</p>
+      </div>
+    </section>
+    <section class="feature text-only">
+      <div>
+        <h3>Sidebar</h3>
+        <p>The agents that need you, answered in place, every agent by ticket, and a bubble on each app.</p>
+      </div>
+    </section>
+    <section class="feature">
+      <div>
+        <h3>Inbox</h3>
+        <p>Reviews, then your tickets with their PRs, CI and deploys. A click on a reference opens it.</p>
+      </div>
+      <figure class="shot"><picture><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img src="img/app/inbox-dark.png" alt="The inbox"></picture></figure>
+    </section>
+    <section class="feature text-only">
+      <div>
+        <h3>Runbook · To-do · Meetings</h3>
+        <p>The steps left to ship a ticket, your to-do list, your week with join and prepare.</p>
+      </div>
+    </section>
+    <section class="feature text-only">
+      <div>
+        <h3>Monitor · Routines</h3>
+        <p>Each release judged on errors and latency; Claude prompts the hub runs on a schedule. Both opt-in.</p>
+      </div>
+    </section>
+    <section class="feature">
+      <div>
+        <h3>Beside each agent</h3>
+        <p>A side panel with its show panes, review, runbook, files and changes; its links in the status bar.</p>
+      </div>
+      <figure class="shot"><picture><source srcset="img/app/work-light.png" media="(prefers-color-scheme: light)"><img src="img/app/work-dark.png" alt="An agent with its side panel"></picture></figure>
+    </section>
+    <section class="feature text-only">
+      <div>
+        <h3>Palette</h3>
+        <p>⌘⇧P: Herdr’s commands plus everything cockpit knows, the week’s history and past sessions.</p>
+      </div>
+    </section>
+    <h2>Keys</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><td>⌘⇧P</td><td class="wrap-ok">Palette</td></tr>
+        <tr><td>⌘⌥0</td><td class="wrap-ok">Home ↔ work</td></tr>
+        <tr><td>⌘⌥1 … ⌘⌥6</td><td class="wrap-ok">Inbox, runbook, to-do, meetings, monitor, routines</td></tr>
+        <tr><td>⌘⌥B</td><td class="wrap-ok">Side panel</td></tr>
+        <tr><td>⌘J</td><td class="wrap-ok">Next agent waiting</td></tr>
+        <tr><td>⌘G · ⌘L</td><td class="wrap-ok">The agent’s PR · ticket</td></tr>
+        <tr><td>⌘R</td><td class="wrap-ok">Recap of every agent</td></tr>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>cockpit · MIT license</span>
+    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+  </div>
+</footer>
+</body>
+</html>
