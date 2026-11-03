@@ -7,6 +7,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { exec, focused, panes, agents, layout, props, shared, setShared } from "herdr";
 import * as hub from "./hub.js";
+import { openCode } from "./code.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Tabs, Empty, Toaster, Spinner, Overline } from "./ui.js";
 import { DiffView } from "./diff.js";
 
@@ -33,6 +34,12 @@ function shown() {
 }
 
 export default class Review {
+  /** A file of the diff opens beside the agent, in cockpit's editor. */
+  withOpen(diff) {
+    diff.onOpen = (path) => this.repo && openCode(`${this.repo}/${path}`, { terminal: this.terminal ?? undefined });
+    return diff;
+  }
+
   init(p, cx) {
     const pr = props() ?? p ?? {};
     this.fixed = pr.repo ? { repo: pr.repo, terminal: pr.terminal ?? null } : null;
@@ -55,7 +62,7 @@ export default class Review {
       this.badge();
       cx.notify();
     });
-    this.diff = new DiffView("review", this.input);
+    this.diff = this.withOpen(new DiffView("review", this.input));
     this.walkModel = "haiku";
     cx.timer.every(1000, (cx) => this.tick(cx));
   }
@@ -81,7 +88,7 @@ export default class Review {
       this.repo = cwd;
       this.model = null;
       this.error = null;
-      this.diff = new DiffView("review", this.input);
+      this.diff = this.withOpen(new DiffView("review", this.input));
       this.next = 0;
       cx.timer.after(0, (cx) => this.load(cx));
     }
@@ -127,7 +134,7 @@ export default class Review {
     this.scope = scope;
     this.model = null;
     this.error = null;
-    this.diff = new DiffView("review", this.input);
+    this.diff = this.withOpen(new DiffView("review", this.input));
     this.step = 0;
     this.next = 0;
     this.load(cx);
@@ -254,7 +261,7 @@ export default class Review {
         this.seen = this.focusFacts();
         this.model = null;
         this.error = null;
-        this.diff = new DiffView("review", this.input);
+        this.diff = this.withOpen(new DiffView("review", this.input));
         this.next = 0;
         this.load(cx);
       } else if (action === "scope") this.setScope(arg, cx);
@@ -267,6 +274,8 @@ export default class Review {
   key(e, cx) {
     const key = e.keystroke;
     if (this.diff.key(e)) return true;
+    // While a comment is being written, letters are its text: no shortcut takes them.
+    if (this.diff.composer) return false;
     switch (key) {
       case "1": case "2": case "3": this.setScope(SCOPES[Number(key) - 1].value, cx); return true;
       case "w": this.setMode(this.mode === "walk" ? "diff" : "walk", cx); return true;
@@ -336,7 +345,7 @@ export default class Review {
   footer(k, narrow) {
     const n = this.diff.review().length;
     const who = this.terminal ? this.agentName() : null;
-    const hints = this.diff.composer ? [["⏎", "add"], ["esc", "cancel"]] : [["j/k", "line"], ["c", "comment"], ["s", "split"], ["w", "walkthrough"]];
+    const hints = this.diff.composer ? [["⏎", "add"], ["esc", "cancel"]] : [["j/k", "line"], ["c", "comment"], ["e", "edit file"], ["s", "split"], ["w", "walkthrough"]];
     return h_flex().h(48).flex_none().px(12).gap(10).items_center().border_t_1().border_color(k.border)
       .when(!narrow, (e) => e.children(hints.map(([key, what]) => h_flex().flex_none().gap(4).items_center().text_size(TEXT.xs).text_color(k.mutedFg).child(Kbd(key)).child(what))))
       .child(div().flex_1())

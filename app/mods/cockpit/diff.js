@@ -214,6 +214,7 @@ export class DiffView {
         else if (this.cursor) this.compose(this.cursor.f, this.cursor.l);
         return true;
       case "c": return this.cursor?.l !== null && this.cursor ? this.compose(this.cursor.f, this.cursor.l) : false;
+      case "e": return this.openCursor();
     }
     return false;
   }
@@ -338,6 +339,14 @@ export class DiffView {
         .child(Button(`${this.id}-cancel`, { label: "Cancel", variant: "outline", size: "sm", onClick: (_e, cx) => { this.composer = null; cx.notify(); } }))
         .child(Button(`${this.id}-add`, { label: c.edit ? "Save" : "Add comment", size: "sm", onClick: (_e, cx) => { this.commit(); cx.notify(); } })));
     return stop(narrow ? card.mx(8).mb(8) : card.absolute().top(8).right(12).w(340));
+  }
+
+  /** The file under the cursor, opened beside the agent to read or edit (when the view gives `onOpen`). */
+  openCursor() {
+    const file = this.cursor ? this.files()[this.cursor.f] : null;
+    if (!file || !this.onOpen) return false;
+    this.onOpen(file.path);
+    return true;
   }
 
   /** The list, `height` px tall (flex when null), its composer over it. */

@@ -135,6 +135,7 @@ pub fn message(review: &Value) -> Result<String, String> {
         Some("branch") => "this branch's changes",
         Some("pr") => "the pull request's changes",
         Some("show") => "the diff I was shown",
+        Some("file") => "a file I was reading",
         _ => "the uncommitted changes",
     };
     let items: Vec<String> = comments

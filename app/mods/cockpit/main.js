@@ -11,6 +11,7 @@ import Palette from "./palette.js";
 import Menu from "./menu.js";
 import Kit from "./kit.js";
 import Reader from "./reader.js";
+import Code from "./code.js";
 import Placeholder from "./placeholder.js";
 import PaneHeader from "./pane.js";
 import Runbook from "./runbook.js";
@@ -27,7 +28,7 @@ import Review from "./review.js";
 import Monitor, { MonitorWindow } from "./monitor.js";
 import Routines from "./routines.js";
 
-const VIEWS = { reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader };
+const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader };
 
 export default class Cockpit extends View {
   init(p, cx) {

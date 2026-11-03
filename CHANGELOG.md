@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.32.0 (2026-11-03)
+
+- An editor beside the agent in the Herdr app: syntax highlighting, ⌘S saves (refused when the file changed on disk),
+  the agent's edits show live, Markdown with a preview. "Ask the agent" sends a note about the file or some lines.
+  `e` in Review opens the file under the cursor. Ported from yama-lei/herdr-editor-layout.
+- Review: typing a comment no longer runs the panel's shortcuts.
+- The site shows the editor, the diff, comments sent back and the walkthrough.
+
 ## 0.31.0 (2026-11-03)
 
 - Agents draw with the show tool on their own: a trend, a breakdown, a share or a process becomes a chart or a diagram

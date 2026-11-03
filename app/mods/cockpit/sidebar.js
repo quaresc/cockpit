@@ -8,6 +8,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { run, shared, setShared, focused, spaces, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
 import * as hub from "./hub.js";
 import { togglePalette } from "./palette.js";
+import { openCode } from "./code.js";
 import { deliver, follow } from "./notify.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
@@ -106,6 +107,7 @@ export default class Sidebar {
     else if (this.agents.command(c, cx)) return;
     else if (c === "kit" || c.startsWith("kit:")) openOverlay({ mod: "cockpit", props: { app: "kit", tab: c.split(":")[1] }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 });
     else if (c.startsWith("target:")) this.target(c.slice(7), cx);
+    else if (c.startsWith("code:open:")) openCode(c.slice(10));
     cx.notify();
   }
 

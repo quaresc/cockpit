@@ -94,6 +94,12 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   `agent-view`, `cmd-alt-b` `panel`, `ctrl-cmd-1..5` `panel:<show|review|runbook|files|changes>`, `cmd-j`
   `next-waiting`, `cmd-shift-j`/`cmd-shift-u` `next:blocked`/`next:done`, `cmd-g` `pr`, `cmd-l` `ticket`, `cmd-alt-r`
   `resume`. `cmd-alt-q` → `cockpit.queue` (the queue dialog), `cmd-r` → `cockpit.recap` (view `agents`' popup).
+- **Code** (`code.js`, `{app: "code", file, line?, terminal?, tab?}`): a file in a pane beside the agent, to read and edit:
+  syntax highlighting, ⌘S saves (refused when the file changed on disk since it was opened), the agent's edits show
+  as it makes them, and Markdown gets a live preview beside it (⌘⇧V). "Ask the agent" turns a note on the file, or on
+  some lines (`12-18: …`), into a one-comment review. `openCode(file, {terminal, line})` keeps one per tab; `e` in
+  Review opens the file under the cursor, and `cockpit.code:open:<path>` any file. Ported from yama-lei/herdr-editor-
+  layout's editor (Apache-2.0); no LSP.
 - **Reader** (`reader.js`): a window that reads a file or a text as rendered Markdown, selectable and copied in one click;
   `openReader({path | text, title, meta})`, and `Markdown(id, text)` for the same rendering inside a panel (a routine
   run's output uses both).
@@ -394,6 +400,8 @@ wide, into `docs/app/` (`OUT`, `WIDTHS`, `THEMES` change that). It brings the wi
   [herdr-linear](https://github.com/mrolafsson/herdr-linear) (MIT); PR alerts by diff, the agent-time ledger read on
   ticket rows and the merged-worktree cleanup follow herdr-relevo (Apache-2.0, ideas); hover cards fetched on hover
   follow [herdr-gh-board](https://github.com/meviusisback/herdr-gh-board) (MIT).
+- The code view (`mods/cockpit/code.js`) is ported from [yama-lei/herdr-editor-layout](https://github.com/yama-lei/herdr-editor-layout)'s
+  editor pane (Apache-2.0).
 - The show view's Mermaid flowchart parser and layered layout (`mods/cockpit/diagram.js`) are ported from
   [herdr-blueprint-app](https://github.com/chappse6/herdr-blueprint-app)'s `mermaid.js` and `layout.js` (MIT, Copyright
   (c) 2026 chappse6), its node drawing and done/active marks after its `main.js`; the living blueprint (a plan the
