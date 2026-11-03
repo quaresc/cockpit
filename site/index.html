@@ -14,15 +14,6 @@
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-home" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
-  <symbol id="i-agent" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
-  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
-  <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="15" width="8" height="6" rx="1.5"/><path d="M7 9v3a3 3 0 0 0 3 3h3"/></symbol>
-  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-9"/></symbol>
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
-  <symbol id="i-list" viewBox="0 0 24 24"><path d="m3 6 2 2 3-3M3 13l2 2 3-3M12 7h9M12 14h9M4 20h17"/></symbol>
-  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
-  <symbol id="i-hub" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="4.5" cy="5" r="2"/><circle cx="19.5" cy="5" r="2"/><circle cx="4.5" cy="19" r="2"/><circle cx="19.5" cy="19" r="2"/><path d="m6 6.5 3.8 3.6M18 6.5l-3.8 3.6M6 17.5l3.8-3.6M18 17.5l-3.8-3.6"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
@@ -45,7 +36,7 @@
 <main>
   <section class="hero">
     <div class="wrap">
-      <a class="pill" href="desktop.html#blueprint"><b>New</b> Live blueprints the agent keeps current →</a>
+      <a class="pill" href="desktop.html#show"><b>New in 0.31</b> Agents draw their own charts →</a>
       <h1>Every Claude Code agent, <span class="grad">beside its work</span></h1>
       <p class="sub">cockpit puts each agent next to its ticket, PR, CI and deploy, and tells you whose move it is.
         Your inbox, runbooks, meetings and releases sit one key away.</p>
@@ -99,63 +90,73 @@
       <div class="section-head">
         <span class="eyebrow">Features</span>
         <h2>Everything your agents touch, in reach</h2>
-        <p>One hub feeds every app, so the sidebar, the board and the palette always agree.</p>
+        <p>One local hub feeds both halves, so the sidebar, the board and the palette always agree.</p>
       </div>
-      <div class="features">
-        <a class="feature-card" href="desktop.html#home">
-          <span class="ico"><svg class="i"><use href="#i-home"/></svg></span>
-          <h3>Home dashboard</h3>
-          <p>KPI tiles, the next move, agents by stage, then Up next, Apps and Activity.</p>
-          <span class="where">Herdr APP</span>
-        </a>
-        <a class="feature-card" href="desktop.html#agents">
-          <span class="ico"><svg class="i"><use href="#i-agent"/></svg></span>
-          <h3>Agents beside their work</h3>
-          <p>Ticket, PR, CI, cost, CPU and memory on every agent; questions answered in place.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card" href="desktop.html#inbox">
-          <span class="ico"><svg class="i"><use href="#i-inbox"/></svg></span>
-          <h3>Inbox</h3>
-          <p>Alerts, reviews, your PRs and tickets by kind; merge, or start an agent on one.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card mint" href="desktop.html#blueprint">
-          <span class="ico"><svg class="i"><use href="#i-flow"/></svg></span>
-          <h3>Live blueprint</h3>
-          <p>The agent's plan as a diagram it keeps current. Click a box to ask for a change.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card" href="terminal.html#show">
-          <span class="ico"><svg class="i"><use href="#i-chart"/></svg></span>
-          <h3>Show panes</h3>
-          <p>Charts, tables, diffs and before/after screenshots beside the conversation.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card" href="desktop.html#palette">
-          <span class="ico"><svg class="i"><use href="#i-search"/></svg></span>
-          <h3>One palette</h3>
-          <p>Tickets, PRs, runbooks, meetings, the week's history and past sessions.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card" href="desktop.html#apps">
-          <span class="ico"><svg class="i"><use href="#i-list"/></svg></span>
-          <h3>Runbook · To-do · Meetings</h3>
-          <p>The steps left to ship, your list, your week with join and a prepared brief.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card" href="desktop.html#monitor">
-          <span class="ico"><svg class="i"><use href="#i-pulse"/></svg></span>
-          <h3>Monitor · Routines <span class="badge">opt-in</span></h3>
-          <p>Each release judged on errors and latency; Claude prompts run on a schedule.</p>
-          <span class="where">Herdr APP · Herdr TUI</span>
-        </a>
-        <a class="feature-card mint" href="#faq">
-          <span class="ico"><svg class="i"><use href="#i-hub"/></svg></span>
-          <h3>A shared, local hub</h3>
-          <p>Fetches GitHub, Linear, CircleCI and your calendar, or asks a hidden Claude session.</p>
-          <span class="where">Both halves, at once</span>
-        </a>
+      <div class="seg" role="group" aria-label="Screenshots from">
+        <button type="button" data-show="app" aria-pressed="true">Herdr APP</button>
+        <button type="button" data-show="tui" aria-pressed="false">Herdr TUI</button>
+      </div>
+      <div class="features" data-show="app">
+        <article class="fcard only-app">
+          <a class="fshot" href="desktop.html#home" data-note="App only"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="Home dashboard" width="1600" height="1025" loading="lazy"></picture></a>
+          <div class="fbody"><h3>Home dashboard</h3><p>KPI tiles, the next move, agents by stage; Up next, Apps and Activity.</p><span class="where">Herdr APP</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#agents"><picture class="half-app" style="--z:100%;--x:0%;--y:0%"><source srcset="img/app/work-light.png" media="(prefers-color-scheme: light)"><img src="img/app/work-dark.png" alt="Agents beside their work" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/sidebar.svg" alt="Agents beside their work" width="372" height="578" loading="lazy"></a>
+          <div class="fbody"><h3>Agents beside their work</h3><p>Questions answered in place; ticket, branch, PR and CI on every agent.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#show"><picture class="half-app" style="--z:170%;--x:-70%;--y:-7%"><source srcset="img/app/show-light.png" media="(prefers-color-scheme: light)"><img src="img/app/show-dark.png" alt="Charts, drawn unaskedNew" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/show.svg" alt="Charts, drawn unaskedNew" width="1296" height="679" loading="lazy"></a>
+          <div class="fbody"><h3>Charts, drawn unasked<span class="badge new">New</span></h3><p>Figure tiles, area, donut and stacked bars beside the session.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard only-app">
+          <a class="fshot" href="desktop.html#blueprint" data-note="TUI: drawn as text"><picture class="half-app" style="--z:170%;--x:-70%;--y:-28%"><source srcset="img/app/blueprint-light.png" media="(prefers-color-scheme: light)"><img src="img/app/blueprint-dark.png" alt="Live blueprint" width="1600" height="1025" loading="lazy"></picture></a>
+          <div class="fbody"><h3>Live blueprint</h3><p>The plan as a diagram the agent keeps current. Click a box to ask for a change.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#inbox"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img src="img/app/inbox-dark.png" alt="Inbox" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/inbox.svg" alt="Inbox" width="1044" height="963" loading="lazy"></a>
+          <div class="fbody"><h3>Inbox</h3><p>Alerts, reviews, your PRs and tickets by kind; merge, or start an agent on one.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#palette"><picture class="half-app" style="--z:185%;--x:-45%;--y:-6%"><source srcset="img/app/palette-light.png" media="(prefers-color-scheme: light)"><img src="img/app/palette-dark.png" alt="One palette" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/palette.svg" alt="One palette" width="876" height="557" loading="lazy"></a>
+          <div class="fbody"><h3>One palette</h3><p>Tickets, PRs, runbooks, meetings, the week's history and past sessions.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#recap"><picture class="half-app" style="--z:124%;--x:-10%;--y:-5%"><source srcset="img/app/recap-light.png" media="(prefers-color-scheme: light)"><img src="img/app/recap-dark.png" alt="Every agent at once" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/recap.svg" alt="Every agent at once" width="742" height="496" loading="lazy"></a>
+          <div class="fbody"><h3>Every agent at once</h3><p>Agents by stage with their question and recap, or what one did while you were away.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#runbook"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/runbook-light.png" media="(prefers-color-scheme: light)"><img src="img/app/runbook-dark.png" alt="Runbook" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/runbook-done.svg" alt="Runbook" width="1212" height="679" loading="lazy"></a>
+          <div class="fbody"><h3>Runbook</h3><p>The steps left to ship a ticket, each with its PR, deploy or command.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#todo"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/todo-light.png" media="(prefers-color-scheme: light)"><img src="img/app/todo-dark.png" alt="To-do" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/todo.svg" alt="To-do" width="876" height="395" loading="lazy"></a>
+          <div class="fbody"><h3>To-do</h3><p>Your list, with the tickets and links it mentions.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#meetings"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/meetings-light.png" media="(prefers-color-scheme: light)"><img src="img/app/meetings-dark.png" alt="Meetings" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/meetings.svg" alt="Meetings" width="842" height="435" loading="lazy"></a>
+          <div class="fbody"><h3>Meetings</h3><p>Your week, with join and a brief prepared before each one.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#monitor"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/monitor-light.png" media="(prefers-color-scheme: light)"><img src="img/app/monitor-dark.png" alt="Monitoropt-in" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/monitor.svg" alt="Monitoropt-in" width="1044" height="679" loading="lazy"></a>
+          <div class="fbody"><h3>Monitor<span class="badge">opt-in</span></h3><p>Each release judged on errors and latency, from Datadog.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard">
+          <a class="fshot" href="desktop.html#routines"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/routines-light.png" media="(prefers-color-scheme: light)"><img src="img/app/routines-dark.png" alt="Routinesopt-in" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/routines.svg" alt="Routinesopt-in" width="977" height="557" loading="lazy"></a>
+          <div class="fbody"><h3>Routines<span class="badge">opt-in</span></h3><p>Claude prompts and scripts on a schedule or an event.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+        </article>
+        <article class="fcard only-tui">
+          <a class="fshot" href="terminal.html#footer" data-note="In the app: the status bar"><img class="half-tui tui" src="img/footer.svg" alt="Footer links" width="960" height="395" loading="lazy"></a>
+          <div class="fbody"><h3>Footer links</h3><p>One click to the agent's ticket, PR, deploy, preview and cited pages.</p><span class="where">Herdr TUI</span></div>
+        </article>
+        <article class="fcard only-tui">
+          <a class="fshot" href="terminal.html#e2e" data-note="TUI shot"><img class="half-tui tui" src="img/e2e.svg" alt="E2E beside the agent" width="1296" height="679" loading="lazy"></a>
+          <div class="fbody"><h3>E2E beside the agent</h3><p>The agent tests its page in a browser you watch.</p><span class="where">Herdr TUI</span></div>
+        </article>
+        <article class="fcard only-tui">
+          <a class="fshot" href="terminal.html#notifications" data-note="TUI shot"><img class="half-tui zoom" style="--z:190%;--x:-84%;--y:-1%" src="img/notifications.svg" alt="Notifications" width="1296" height="679" loading="lazy"></a>
+          <div class="fbody"><h3>Notifications</h3><p>A click opens what it is about: the PR, the runbook, the routine.</p><span class="where">Herdr TUI</span></div>
+        </article>
       </div>
     </div>
   </section>
@@ -170,33 +171,40 @@
 
       <div class="tabs" role="tablist" aria-label="Screens">
         <button role="tab" id="t-home" aria-controls="p-home" aria-selected="true">Home</button>
+        <button role="tab" id="t-work" aria-controls="p-work" aria-selected="false" tabindex="-1">Work</button>
+        <button role="tab" id="t-show" aria-controls="p-show" aria-selected="false" tabindex="-1">Charts</button>
+        <button role="tab" id="t-blueprint" aria-controls="p-blueprint" aria-selected="false" tabindex="-1">Blueprint</button>
         <button role="tab" id="t-inbox" aria-controls="p-inbox" aria-selected="false" tabindex="-1">Inbox</button>
-        <button role="tab" id="t-work" aria-controls="p-work" aria-selected="false" tabindex="-1">Work &amp; palette</button>
-        <button role="tab" id="t-monitor" aria-controls="p-monitor" aria-selected="false" tabindex="-1">Monitor</button>
       </div>
 
       <div class="panel" role="tabpanel" id="p-home" aria-labelledby="t-home">
         <figure class="frame">
-          <picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/home-dark.png" alt="Home: the next move and every agent by whose move it is" width="1600" height="1025" loading="lazy"></picture>
-          <figcaption><b>Home.</b> The next move, and every agent and PR by whose move it is.</figcaption>
+          <picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/home-dark.png" alt="Home: KPI tiles, the next move and every agent by stage" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Home.</b> KPI tiles, the next move, and every agent by whose move it is.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-work" aria-labelledby="t-work">
+        <figure class="frame">
+          <picture><source srcset="img/app/work-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/work-dark.png" alt="An agent at work in its terminal card" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Work.</b> The agent in a floating card, the questions waiting on you beside it.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-show" aria-labelledby="t-show">
+        <figure class="frame">
+          <picture><source srcset="img/app/show-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/show-dark.png" alt="Figure tiles and an area chart beside the session" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Charts.</b> Drawn by the agent on its own, beside the session.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-blueprint" aria-labelledby="t-blueprint">
+        <figure class="frame">
+          <picture><source srcset="img/app/blueprint-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/blueprint-dark.png" alt="A live plan diagram in the side panel" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Blueprint.</b> The plan, done and in progress; click a box to ask for a change.</figcaption>
         </figure>
       </div>
       <div class="panel" role="tabpanel" id="p-inbox" aria-labelledby="t-inbox">
         <figure class="frame">
           <picture><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/inbox-dark.png" alt="The inbox: alerts, reviews and tickets with their PRs" width="1600" height="1025" loading="lazy"></picture>
           <figcaption><b>Inbox.</b> Alerts, reviews, then your tickets with their PRs, CI and deploys.</figcaption>
-        </figure>
-      </div>
-      <div class="panel" role="tabpanel" id="p-work" aria-labelledby="t-work">
-        <figure class="frame">
-          <picture><source srcset="img/app/palette-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/palette-dark.png" alt="An agent at work with the palette open over it" width="1600" height="1025" loading="lazy"></picture>
-          <figcaption><b>Work.</b> An agent at work, the palette open over it (<kbd>⌘⇧P</kbd>).</figcaption>
-        </figure>
-      </div>
-      <div class="panel" role="tabpanel" id="p-monitor" aria-labelledby="t-monitor">
-        <figure class="frame">
-          <picture><source srcset="img/app/monitor-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/monitor-dark.png" alt="The monitor: today's releases judged on errors and latency" width="1600" height="1025" loading="lazy"></picture>
-          <figcaption><b>Monitor.</b> Each release judged on errors and latency, with its alerts.</figcaption>
         </figure>
       </div>
     </div>
@@ -358,6 +366,19 @@
         if (v) v.play().catch(function () {});
       });
     });
+
+    // Feature screenshots: the Herdr APP or the Herdr TUI shot of each feature.
+    var grid = document.querySelector(".features");
+    var seg = document.querySelector(".seg");
+    if (grid && seg) {
+      seg.querySelectorAll("button").forEach(function (b) {
+        b.addEventListener("click", function () {
+          grid.dataset.show = b.dataset.show;
+          seg.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", x === b); });
+        });
+      });
+      seg.classList.add("ready");
+    }
 
     // Showcase tabs: without this script every screen shows, one under the other.
     var tabs = document.querySelector(".tabs");
