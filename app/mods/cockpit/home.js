@@ -715,7 +715,6 @@ export default class Home {
 
   board(cols, wide, narrow) {
     const k = tokens();
-    const per = narrow ? 1 : wide ? 4 : 2;
     const column = (c) => {
       const list = cols[c.stage];
       const dimmed = this.focusMode && c.stage !== "needs";
@@ -730,7 +729,7 @@ export default class Home {
         .gap(10)
         .when(dimmed, (e) => e.opacity(0.28))
         .child(StageHeading(`head-${c.stage}`, c.label, { color: k[c.tone], count: list.length, pulse: Boolean(c.pulse) && list.length > 0, spin: Boolean(c.spin) && list.length > 0, action: archive ?? undefined }))
-        .children(list.map((card) => this.card(card, c)))
+        .child(div().id(`cards-${c.stage}`).w_full().flex().flex_row().flex_wrap().gap(14).children(list.map((card) => div().w(narrow ? "100%" : 440).flex_none().child(this.card(card, c)))))
         .when(!list.length, (e) => e.child(this.emptyColumn(c)))
         .when(c.stage === "done" && cols.archived > 0, (e) =>
           e.child(
@@ -738,9 +737,22 @@ export default class Home {
           ),
         );
     };
-    const rows = [];
-    for (let i = 0; i < COLUMNS.length; i += per) rows.push(COLUMNS.slice(i, i + per));
-    return v_flex().w_full().gap(22).children(rows.map((r, i) => div().id(`board-row-${i}`).w_full().flex().flex_row().items_start().gap(14).children(r.map(column))));
+    // Stages with cards each get a row of them; the empty ones say so on one line, so no blank columns fill the screen.
+    const full = COLUMNS.filter((c) => cols[c.stage].length || (c.stage === "done" && cols.archived > 0));
+    const empty = COLUMNS.filter((c) => !full.includes(c));
+    const quiet = { needs: "nothing needs you", working: "nothing working", ready: "nothing to land", done: "nothing finished lately" };
+    return v_flex()
+      .w_full()
+      .gap(22)
+      .children(full.map((c) => column(c).flex_none().w_full()))
+      .when(empty.length > 0, (e) =>
+        e.child(
+          h_flex()
+            .gap(14)
+            .flex_wrap()
+            .children(empty.map((c) => h_flex().gap(6).items_center().text_size(TEXT.sm).text_color(k.dim).child(div().size(6).rounded(3).bg(alpha(k[c.tone], 0.6))).child(quiet[c.stage]))),
+        ),
+      );
   }
 
   emptyColumn(c) {

@@ -14,7 +14,30 @@ import {
   SegBar, Avatar, personColor, Separator, CountPill, Overline,
 } from "./ui.js";
 
-const H = { heading: 40, pr: 34, ticket: 34, group: 30, line: 26, text: 32 };
+/** The inbox by kind of thing rather than the TUI's tree: alerts, reviews, your PRs, tickets, then what is left. */
+function bySort(model) {
+  if (!model?.sections) return model;
+  const flat = [];
+  const walk = (row) => {
+    flat.push(row);
+    for (const kid of row.children ?? []) walk(kid);
+  };
+  model.sections.forEach(walk);
+  const section = (key, title, icon, children, extra = "") => ({ key, path: `s:${key}`, kind: "plain", name: title, title, icon, extra, expand: true, children, acts: [], text: [] });
+  const keep = (key) => model.sections.find((s) => s.key === key);
+  const prs = flat.filter((r) => r.kind === "pr");
+  const tickets = flat.filter((r) => r.kind === "ticket").map((t) => ({ ...t, children: (t.children ?? []).filter((c) => c.kind !== "pr" && c.kind !== "ticket") }));
+  const trees = flat.filter((r) => r.kind === "worktree");
+  const review = keep("review");
+  const out = [keep("today"), keep("alerts")].filter(Boolean);
+  if (review) out.push({ ...review, title: "Reviews", name: "Reviews" });
+  if (prs.length) out.push(section("prs", "Your PRs", "git-pull-request", prs));
+  if (tickets.length) out.push(section("tickets", "Tickets", "ticket", tickets));
+  if (trees.length) out.push(section("cleanup", "To clean up", "folder-git", trees));
+  return { ...model, sections: out };
+}
+
+const H = { heading: 52, pr: 34, ticket: 34, group: 30, line: 26, text: 32 };
 const KIND_NAME = { pr: ["PR", "PRs"], review: ["review request", "review requests"], ticket: ["ticket", "tickets"], alert: ["alert", "alerts"], brief: ["brief line", "brief lines"], muted: ["muted repo", "muted repos"], worktree: ["worktree", "worktrees"] };
 const FRESH_MS = 120_000;
 
@@ -127,6 +150,7 @@ export default class Inbox {
 
   take(model, cx) {
     const before = this.model;
+    model = bySort(model);
     this.model = model;
     const k = tokens();
     const was = new Map();
@@ -867,8 +891,10 @@ export default class Inbox {
       .rounded(RADIUS.md)
       .relative()
       .cursor_pointer()
-      .when(selected, (e) => e.bg(k.selected))
-      .when(!selected, (e) => e.hover((s) => s.bg(k.accent)))
+      .when(depth === 0, (e) => e.items_end().pb(8).rounded(0).when(v !== this.firstHeading, (e) => e.border_t_1().border_color(k.border)))
+      .when(selected && depth > 0, (e) => e.bg(k.selected))
+      .when(selected && depth === 0, (e) => e.text_color(k.ring))
+      .when(!selected && depth > 0, (e) => e.hover((s) => s.bg(k.accent)))
       .when(picked, (e) => e.border_1().border_color(k.ring).bg(alpha(k.ring, selected ? 0.16 : 0.08)))
       .when(Boolean(context), (e) => e.opacity(0.55));
     if (flash) el = el.child(div().id(`${id}-flash`).absolute().inset_0().rounded(RADIUS.md).bg(alpha(flash.color ?? k.ring, 0.28)).opacity(flash.on ? 1 : 0).transition("opacity", { duration: 1600, easing: "ease-out" }));
@@ -919,8 +945,7 @@ export default class Inbox {
         .when(row.key === "today", (e) =>
           e.child(Button(`dismiss-${row.path}`, { label: "Dismiss", variant: "ghost", size: "sm", kbd: "x", onClick: (_e, cx) => (cx.stop_propagation(), this.run(cx, row, row.acts[0])) })),
         )
-        .when(row.key === "work", (e) => e.child(Pills("group-pills", [["feature", "By feature"], ["status", "By status"]], this.group, (_v, cx) => this.regroup(cx))))
-        .when(row.key !== "work" && row.key !== "today", (e) => e.child(CountPill(count, { on: count > 0 })));
+        .when(row.key !== "today", (e) => e.child(CountPill(count, { on: count > 0 })));
     }
     if (row.cells && (row.kind === "pr" || row.kind === "review")) return this.prBody(row, k);
     if (row.cells && row.kind === "ticket") return this.ticketBody(row, k);
@@ -1292,6 +1317,7 @@ export default class Inbox {
     const at = vis.findIndex((v) => v.row.path === this.sel);
     // Rows are built only when the scroller draws them: a getter per row.
     const self = this;
+    this.firstHeading = vis.find((v) => v.depth === 0);
     const rows = vis.map((v) => ({ height: this.height(v), get el() { return self.rowEl(v, k, cx); } }));
     return this.scroller.view("inbox-rows", rows, at);
   }

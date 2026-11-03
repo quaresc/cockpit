@@ -49,10 +49,15 @@ pub fn light_prompt(r: &Routine) -> String {
     format!("You run one unattended task for cockpit, with only the tools it names. {load}Reply in one short line saying what you did.")
 }
 
-/// What a lightest routine's file lacks for a run that loads nothing else: its tools, and servers that have them.
+/// What a Claude routine's file lacks to do its job unattended: permissions for what needs approval, and for a lightest
+/// one its tools and servers that have them.
 fn problems(r: &Routine, servers: &[String]) -> Vec<String> {
-    if !r.is_lightest() || r.run != Run::Claude {
+    if r.run != Run::Claude {
         return Vec::new();
+    }
+    if !r.is_lightest() {
+        let unattended = r.tools.is_empty() && r.mode.is_empty();
+        return if unattended { vec!["lists no tools and no mode: nobody approves its gh, git or file calls, so they are refused".into()] } else { Vec::new() };
     }
     if r.tools.is_empty() {
         return vec!["lists no tools: a lightest run loads nothing else, so it can call nothing".into()];
@@ -1101,7 +1106,9 @@ mod tests {
             ["mcp__claude_ai_Slak__x belongs to no MCP server Claude Code connects"]
         );
         assert!(problems(&parse("---\nmodel: lightest\ntools: mcp__a__b\n---\nGo."), &[]).is_empty(), "no server known yet: nothing to say");
-        assert!(problems(&parse("---\nmodel: haiku\n---\nGo."), &servers).is_empty(), "only the lightest");
+        assert_eq!(problems(&parse("---\nmodel: haiku\n---\nGo."), &servers), ["lists no tools and no mode: nobody approves its gh, git or file calls, so they are refused"]);
+        assert!(problems(&parse("---\nmodel: haiku\nmode: auto\n---\nGo."), &servers).is_empty(), "a mode decides for it");
+        assert!(problems(&parse("---\nrun: shell\n---\necho hi"), &servers).is_empty(), "a script asks nobody");
         let prompt = light_prompt(&parse("---\nmodel: lightest\ntools: mcp__a__b, Read\n---\nGo."));
         assert!(prompt.contains("ToolSearch with query \"select:mcp__a__b\""), "{prompt}");
     }

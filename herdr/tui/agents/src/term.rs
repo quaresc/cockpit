@@ -147,8 +147,16 @@ fn app_list() -> Vec<Live> {
     for space in ls["spaces"].as_array().into_iter().flatten() {
         for tab in space["tabs"].as_array().into_iter().flatten() {
             for t in tab["terminals"].as_array().into_iter().flatten() {
-                let Some(status) = t["status"].as_str().filter(|s| !s.is_empty()) else { continue };
                 let address = t["terminal"].as_str().unwrap_or_default().to_string();
+                // Herdr reports no status for a Claude Code session attached from the background (`claude --bg`, a job):
+                // its program and its title's spinner say whether it is one and works.
+                let (status, title, program) = match t["status"].as_str().filter(|s| !s.is_empty()) {
+                    Some(status) => (status_word(status), t["name"].as_str().map(str::to_string).unwrap_or_default(), t["app"].as_str().unwrap_or("agent").to_string()),
+                    None => match attached_claude(&address) {
+                        Some((status, title)) => (status, title, "claude".to_string()),
+                        None => continue,
+                    },
+                };
                 let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
                 out.push(Live {
                     handle: format!("{APP}{address}"),
@@ -159,9 +167,9 @@ fn app_list() -> Vec<Live> {
                     space_name: s(&space["name"]),
                     tab_id: s(&tab["id"]),
                     tab_name: s(&tab["name"]),
-                    title: t["name"].as_str().map(str::to_string).unwrap_or_default(),
-                    program: t["app"].as_str().unwrap_or("agent").to_string(),
-                    status: status_word(status),
+                    title,
+                    program,
+                    status,
                     session: None,
                     context: None,
                     since: None,
@@ -170,6 +178,21 @@ fn app_list() -> Vec<Live> {
         }
     }
     out
+}
+
+/// A terminal whose foreground is Claude Code that Herdr does not track: working while its title spins (Claude puts ✳
+/// there when it waits), with the title past the glyph.
+fn attached_claude(address: &str) -> Option<(String, String)> {
+    let t = json_of(hc(&["get", address, "--json"]));
+    let name = t["foreground"]["name"].as_str().unwrap_or_default();
+    if !name.contains("claude") {
+        return None;
+    }
+    let title = t["title"].as_str().unwrap_or_default().trim();
+    let (glyph, rest) = title.split_once(' ').unwrap_or(("", title));
+    let spins = !glyph.is_empty() && glyph.chars().all(|c| !c.is_alphanumeric()) && glyph != "✳";
+    let shown = if glyph.chars().all(|c| !c.is_alphanumeric()) { rest } else { title };
+    Some((if spins { "working".into() } else { "idle".into() }, shown.to_string()))
 }
 
 fn status_word(s: &str) -> String {

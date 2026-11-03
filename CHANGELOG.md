@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.29.0 (2026-11-02)
+
+- Inbox in the Herdr app, by kind: alerts, reviews, your PRs, tickets and what to clean up, each its own section.
+- Home: a stage's cards side by side, the empty stages on one line instead of blank columns.
+- A Claude Code session attached from the background (a job) shows as an agent, working or idle from its title.
+- The routines view flags a Claude routine with no tools and no mode: unattended, its gh, git and file calls are refused.
+- `cockpit app install` finds the mod again when run through the `~/.config/cockpit/herdr` link.
+
 ## 0.28.0 (2026-11-02)
 
 - Reviewing a PR keeps to that PR: its session's branch, PR and ticket are the reviewed PR's, not those of the checkout it
