@@ -295,6 +295,9 @@ deletions, files, reviewers, checks}}`; `ticket_card` `{id}` → `{description, 
   several diff comments at once: `value.comments`, `label` = "1) a.rs:12: text 2) …"). Pictures are copied into
   `<app home>/data/cockpit/show/` (the app draws images only from its folder). Commands: `cockpit.show:go:<name>[#block]`,
   `cockpit.show:hide:<name>` (the pane closes itself), `show:copy:<n>`, `show:first:<n>`, `show:page:`.
+- **Drawing** (`plot.js`): a chart block's model is `{kind: line|area|bar|donut, labels, series, stacked, percent,
+  horizontal, show_values}`; `Chart` picks the plot (axes, stacks, areas), `Rows` (horizontal bars with their values
+  written) or `Donut` (six slices, then "Other"). A `stats` block draws its items as `StatTile`s with `Figures`.
 - **The show tool in app mode** (the plugin's side): split the agent's pane with `pane.split {direction, pane, mod:
   "cockpit", props: {app: "show", name}}`, keep `{pane, terminal}` in `<name>.app` and write `terminal:
   $HC_TERMINAL_ID` into the spec. The view is open while the hub's `shown show` lists its name (see Claude sessions);

@@ -125,6 +125,7 @@ pub fn block(n: usize, spec: &Value, caches: &Caches) -> Value {
     });
     let own = match kind {
         "markdown" => json!({"text": spec["text"]}),
+        "stats" => json!({"items": spec["items"]}),
         "table" | "chart" if spec["command"].as_str().is_some_and(|c| !c.is_empty()) => {
             json!({"live": true, "command": spec["command"], "every": spec["every"].as_f64().unwrap_or(30.0).max(1.0), "kind": spec["kind"]})
         }
@@ -211,7 +212,12 @@ fn chart(spec: &Value) -> Value {
     let labels: Vec<String> = rows.iter().map(|r| cell(at(r, xi))).collect();
     let series: Vec<Value> = ys.iter().zip(&names).map(|(&i, name)| json!({"name": name, "values": rows.iter().map(|r| number(at(r, i))).collect::<Vec<_>>()})).collect();
     let x = spec["columns"].as_array().and_then(|c| c.get(xi)).map(text).unwrap_or_default();
-    json!({"kind": if spec["kind"] == "bar" { "bar" } else { "line" }, "x": x, "labels": labels, "series": series})
+    let kind = spec["kind"].as_str().filter(|k| matches!(*k, "bar" | "area" | "donut")).unwrap_or("line");
+    let on = |key: &str| spec[key].as_bool().unwrap_or(false);
+    json!({
+        "kind": kind, "x": x, "labels": labels, "series": series,
+        "horizontal": on("horizontal"), "stacked": on("stacked") || on("percent"), "percent": on("percent"), "show_values": on("show_values"),
+    })
 }
 
 /// A branch's CI run and PR from the caches the inbox keeps.
@@ -456,6 +462,19 @@ mod tests {
         let c = block(0, &json!({"type": "chart", "kind": "line", "columns": ["week", "a", "b"], "rows": [["w1", 1, null], ["w2", 3, 4]]}), &no_caches());
         assert_eq!(c["labels"], json!(["w1", "w2"]));
         assert_eq!(c["series"][1], json!({"name": "b", "values": [null, 4.0]}));
+    }
+
+    #[test]
+    fn a_chart_keeps_its_shape_and_figures_their_items() {
+        let rows = json!([["fr", 9332, 1359], ["en", 7758, 932]]);
+        let c = block(0, &json!({"type": "chart", "kind": "bar", "horizontal": true, "percent": true, "columns": ["lang", "ok", "ko"], "rows": rows}), &no_caches());
+        assert_eq!((c["kind"].as_str(), c["horizontal"].as_bool(), c["stacked"].as_bool(), c["percent"].as_bool()), (Some("bar"), Some(true), Some(true), Some(true)));
+        let d = block(0, &json!({"type": "chart", "kind": "donut", "columns": ["lang", "n"], "rows": [["fr", 3], ["en", 1]]}), &no_caches());
+        assert_eq!(d["kind"], "donut");
+        let odd = block(0, &json!({"type": "chart", "kind": "pie", "columns": ["a", "b"], "rows": [["x", 1]]}), &no_caches());
+        assert_eq!(odd["kind"], "line");
+        let s = block(0, &json!({"type": "stats", "items": [{"label": "Sign-ups", "value": 21234, "delta": "-2%", "good": false}]}), &no_caches());
+        assert_eq!(s["items"][0]["value"], 21234);
     }
 
     #[test]

@@ -5,6 +5,7 @@ import { activityOf, logActivity } from './activity'
 import { maybeBrief } from './brief'
 import { processRequests, refreshCi } from './ci'
 import { recordCost, startCosts } from './costs'
+import { DRAWING_SECTION, artifactRefusal, freshTurn, pageRefusal } from './drawing'
 import { forgetFacts, reportFacts } from './facts'
 import { home } from './config'
 import { CHANGES_SPEC, CHANGES_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, searchArgs } from './find'
@@ -26,6 +27,9 @@ const ticket = atom({ plugin: 'cockpit', key: 'ticket' } as const, null)
 const usage = atom({ plugin: 'cockpit', key: 'usage' } as const, null)
 const views = atom({ plugin: 'cockpit', key: 'views' } as const, [])
 const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
+
+// What this turn's prompt asked for and whether show ran since: a hand-made page or an artifact is the fallback.
+let turn = freshTurn()
 
 // The session's timers: a /clear starts a new session in the same process, and the old one's must not tick on beside it.
 let timers: { cancel: () => void }[] = []
@@ -123,6 +127,7 @@ export const register: Register = on => {
   // It writes cockpit's own files and one runbook status cell, so it needs no permission prompt.
   on('tool.check', { tool: REPORT_TOOL_FULL }, async () => ({ decision: 'allow' }))
   on('tool.call', { tool: SHOW_TOOL_FULL }, async ($, e) => {
+    if (e.agentId === undefined) turn.shown = true
     const answer = await show($, e as unknown as Record<string, unknown>, await herdrHere($), await $.session.cwd())
     await refreshViews($).catch(() => undefined)
     void reportSide($).catch(() => undefined)
@@ -132,6 +137,20 @@ export const register: Register = on => {
   on('tool.check', { tool: SHOW_TOOL_FULL }, async ($, e) => {
     const commands = commandsOf((e.input ?? {}) as Record<string, unknown>)
     return commands.length > 0 ? { decision: 'ask', reason: `The pane will run, again and again: ${commands.join(' ; ')}` } : { decision: 'allow' }
+  })
+
+  // Results are drawn with show: opening a hand-made HTML page beside the session, or publishing an artifact, is held back.
+  on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
+    const reason = pageRefusal(String((e.input as { command?: unknown } | undefined)?.command ?? ''), turn)
+    return reason ? { decision: 'deny', reason } : next(e)
+  })
+  on('tool.check', { tool: 'Artifact' }, async ($, e, next) => {
+    const reason = artifactRefusal((e.input ?? {}) as Record<string, unknown>, turn)
+    return reason ? { decision: 'deny', reason } : next(e)
+  })
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    return { ...composed, sections: [...composed.sections.filter(s => s.id !== DRAWING_SECTION.id), DRAWING_SECTION] }
   })
 
   // A blueprint's .mmd file is cockpit's own, outside every repo: keeping the plan current asks nothing.
@@ -162,6 +181,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    if (!e.command) turn = freshTurn(e.text)
     void refreshLinks($, e.text).catch(() => undefined)
     void hereSoon($).then(here => bindHandoff($, e.text, here?.pane, e.origin?.kind === 'plugin')).catch(() => undefined)
     const page = e.command || e.origin?.kind !== 'composer' ? [] : await pageContext($)

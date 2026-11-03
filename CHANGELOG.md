@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.31.0 (2026-11-03)
+
+- Agents draw with the show tool on their own: a trend, a breakdown, a share or a process becomes a chart or a diagram
+  beside the session, unasked. Opening a hand-written HTML page beside it or publishing an artifact is the fallback,
+  refused until show was tried, the person asked for one, or a `COCKPIT_SHOW_FALLBACK` reason is given.
+- More to draw: `stats` figure tiles (delta, sparkline), area and donut charts, and bars stacked, to 100% or lying
+  down with their values written; native in the Herdr app, on the browser page too.
+
 ## 0.30.1 (2026-11-03)
 
 - A branch whose PR already merged, still checked out, no longer gives a session its ticket, PR or CI.

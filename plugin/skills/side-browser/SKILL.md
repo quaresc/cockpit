@@ -12,6 +12,10 @@ skill, when terminal-browser is missing, there is neither a herdr pane id nor a 
 `chrome`, or the person asks for Chrome.
 The person flips the setting with `/cockpit e2e chrome` or `/cockpit e2e terminal-browser`.
 
+**Not for showing results.** Charts, figures, tables and diagrams go through the show tool (`mcp__cockpit__show`),
+drawn natively beside the session; cockpit refuses to open a hand-made HTML file here unless show ran in the turn, the
+person asked for a page, or the command starts with `COCKPIT_SHOW_FALLBACK="<what show cannot draw>"`.
+
 **Open a page** with `sh ~/.config/cockpit/herdr/browse.sh <url>`, never with `terminal-browser open`. A URL, a
 `localhost:<port>` or an absolute path to an HTML file all work. It opens the page as a tab of the browser already beside
 you, or brings the tab to the front when that page is already open, or splits a new pane right of yours sized so herdr

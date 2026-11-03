@@ -2,7 +2,7 @@ import type { Block, Spec } from './show'
 
 // A show view as a web page, for terminal-browser beside the session: what a terminal draws poorly (wide tables, big
 // diagrams, pictures, side-by-side diffs) at full resolution. The page renders its blocks itself from the embedded spec.
-export const PAGE_BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'compare', 'diff']
+export const PAGE_BLOCKS = ['markdown', 'stats', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'compare', 'diff']
 
 const LIBS = {
   marked: 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js',
@@ -78,6 +78,11 @@ td.num { text-align: right; }
 figure { margin: 0; } figcaption { color: var(--dim); font-size: 13px; margin-top: 6px; }
 img { max-width: 100%; border-radius: 6px; }
 .chart { position: relative; height: 360px; }
+.chart.donut { height: 280px; max-width: 520px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.stat .label { color: var(--dim); font-size: 13px; } .stat .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.stat .note { color: var(--dim); font-size: 12px; } .good { color: var(--green); } .bad { color: var(--red); }
 .compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .compare figcaption { text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
 @media (max-width: 420px) { .compare { grid-template-columns: 1fr; } }
@@ -106,15 +111,29 @@ const render = {
     el('thead', {}, [el('tr', {}, b.columns.map(c => el('th', { textContent: c })))]),
     el('tbody', {}, b.rows.map(r => el('tr', {}, r.map(v => el('td', { textContent: v ?? '', className: typeof v === 'number' ? 'num' : '' }))))),
   ])]),
+  stats: b => el('div', { className: 'stats' }, b.items.map(t => el('div', { className: 'stat' }, [
+    el('div', { className: 'label', textContent: t.label }),
+    el('div', { className: 'value', textContent: typeof t.value === 'number' ? t.value.toLocaleString('en-US') : t.value }),
+    ...(t.delta !== undefined ? [el('div', { className: t.good === true ? 'good' : t.good === false ? 'bad' : 'note', textContent: String(t.delta) })] : []),
+    ...(t.note ? [el('div', { className: 'note', textContent: t.note })] : []),
+  ]))),
   chart: b => {
     const canvas = el('canvas')
     const x = b.x ?? b.columns[0], xi = b.columns.indexOf(x)
     const ys = b.y ?? b.columns.filter(c => c !== x)
+    const donut = b.kind === 'donut', stacked = Boolean(b.stacked || b.percent)
+    const totals = b.rows.map(r => ys.reduce((sum, c) => sum + (r[b.columns.indexOf(c)] ?? 0), 0))
+    const value = (r, i, c) => { const v = r[b.columns.indexOf(c)]; return b.percent && v !== null && totals[i] ? (v / totals[i]) * 100 : v }
     Chart.defaults.color = '#8B8B8B'; Chart.defaults.borderColor = '#2C2C30'
-    later.push(() => new Chart(canvas, { type: b.kind, data: { labels: b.rows.map(r => r[xi]), datasets: ys.map((c, i) => ({
-      label: c, data: b.rows.map(r => r[b.columns.indexOf(c)]), borderColor: SERIES[i % 5], backgroundColor: SERIES[i % 5], pointRadius: 0, tension: .2,
-    })) }, options: { maintainAspectRatio: false, animation: false, indexAxis: b.kind === 'bar' && b.rows.length > 12 ? 'y' : 'x' } }))
-    return el('div', { className: 'chart' }, [canvas])
+    const datasets = donut
+      ? [{ label: ys[0], data: b.rows.map(r => r[b.columns.indexOf(ys[0])]), backgroundColor: b.rows.map((_, i) => SERIES[i % 5]), borderColor: '#101010', borderWidth: 2 }]
+      : ys.map((c, i) => ({ label: c, data: b.rows.map((r, j) => value(r, j, c)), borderColor: SERIES[i % 5], backgroundColor: b.kind === 'area' ? SERIES[i % 5] + (stacked ? '99' : '33') : SERIES[i % 5],
+          fill: b.kind === 'area' ? (stacked && i > 0 ? '-1' : 'origin') : false, pointRadius: 0, tension: .2 }))
+    const scale = { stacked, ...(b.percent ? { max: 100, ticks: { callback: v => v + '%' } } : {}) }
+    const options = donut ? { maintainAspectRatio: false, animation: false, cutout: '62%', plugins: { legend: { position: 'right' } } }
+      : { maintainAspectRatio: false, animation: false, indexAxis: b.horizontal || (b.kind === 'bar' && b.rows.length > 12) ? 'y' : 'x', scales: { x: { stacked }, y: { stacked }, ...(b.horizontal ? { x: scale } : { y: scale }) } }
+    later.push(() => new Chart(canvas, { type: donut ? 'doughnut' : b.kind === 'area' ? 'line' : b.kind, data: { labels: b.rows.map(r => r[xi]), datasets }, options }))
+    return el('div', { className: donut ? 'chart donut' : 'chart' }, [canvas])
   },
   mermaid: b => el('pre', { className: 'mermaid', textContent: b.text }),
   // Before and after side by side.

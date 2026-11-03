@@ -122,13 +122,31 @@ fn fitted(line: &[crate::markdown::Segment], cols: usize) -> Vec<Row> {
     rows.into_iter().map(|row| crate::markdown::add_segments(Row::new(), row)).collect()
 }
 
+/// Figure tiles as Markdown lines: the label, the value in bold, then the delta and the note.
+fn figures(spec: &Value) -> String {
+    let items = spec["items"].as_array().into_iter().flatten();
+    let line = |t: &Value| {
+        let mut out = format!("{} **{}**", crate::value::text(&t["label"]), crate::value::cell(&t["value"]));
+        if !t["delta"].is_null() {
+            out += &format!(" ({})", crate::value::text(&t["delta"]));
+        }
+        if !t["note"].is_null() {
+            out += &format!(" · {}", crate::value::text(&t["note"]));
+        }
+        out
+    };
+    items.map(line).collect::<Vec<_>>().join("  \n")
+}
+
 fn body_for(spec: &Value) -> Body {
     let kind = spec["type"].as_str().unwrap_or_default();
     let picture = |draw| Body::Picture(Picture::new(draw, spec.clone()));
     match kind {
         "markdown" => Body::Markdown(spec["text"].as_str().unwrap_or_default().to_string(), None),
         "table" => Body::Table(Table::new(spec)),
-        "chart" => picture(if spec["kind"] == "bar" { Draw::Bar } else { Draw::Line }),
+        // The terminal draws bars and lines: a donut's slices and a stack's segments show as bars side by side.
+        "chart" => picture(if matches!(spec["kind"].as_str(), Some("bar" | "donut")) { Draw::Bar } else { Draw::Line }),
+        "stats" => Body::Markdown(figures(spec), None),
         "flow" => picture(Draw::Flow),
         "mermaid" if mermaid::is_flowchart(spec["text"].as_str().unwrap_or_default()) => picture(Draw::Flow),
         "image" => picture(Draw::Image),

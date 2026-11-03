@@ -18,8 +18,11 @@ export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
 
 const PLACEMENTS = ['right', 'down', 'zoomed', 'browser'] as const
-const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'blueprint', 'image', 'compare', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
+const BLOCKS = ['markdown', 'stats', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'blueprint', 'image', 'compare', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
 const NODE_KINDS = ['box', 'round', 'decision'] as const
+const CHART_KINDS = ['line', 'area', 'bar', 'donut'] as const
+const CHART_FLAGS = ['horizontal', 'stacked', 'percent', 'show_values'] as const
+const MAX_STATS = 8
 const MAX_NODES = 60
 const MAX_ROWS = 5000
 const MAX_PATCH = 500_000
@@ -28,10 +31,17 @@ const MIN_EVERY = 30
 export const SHOW_SPEC = {
   name: SHOW_TOOL,
   description:
-    'Shows charts, tables, diagrams, pictures, diffs, logs or a question in a terminal pane beside this session, like an ' +
-    'artifact. Use it to graph query results, draw a process or an exchange, show a screenshot or a Figma frame, a diff, a ' +
-    'live log or CI run, or to ask the person to pick an option. Never draw diagrams in ASCII inside markdown. Blocks: ' +
-    '{type:"chart", kind:"line"|"bar", columns, rows, x?, y?:[columns]} (rows as arrays; line over time, bar for categories); ' +
+    'Draws charts, figures, tables, diagrams, pictures, diffs, logs or a question in a pane beside this session, natively ' +
+    '(in the Herdr app or herdr). Reach for it on your own, unasked, whenever an answer holds a trend, a breakdown, a ' +
+    'distribution, a comparison, a share, a ranking, a funnel, a process, an architecture or an exchange: draw it here ' +
+    'instead of a markdown table or ASCII art, and keep the text answer to what it means. It replaces hand-written HTML ' +
+    'pages and claude.ai artifacts: use those only for what no block can draw, or when the person asks for a page or a ' +
+    'link to share. Blocks: {type:"stats", items:[{label, value, note?, delta?, good?, spark?:[numbers]}]} for headline ' +
+    'figures as tiles (good: whether the delta is good news); {type:"chart", kind:"line"|"area"|"bar"|"donut", ' +
+    'columns, rows, x?, y?:[columns], stacked?, percent?, horizontal?, show_values?} (rows as arrays; line or area over ' +
+    'time, bar for categories, horizontal:true for rankings and long names, stacked:true or percent:true (each row to ' +
+    '100%) for parts of a whole per category, donut for one whole split in a few parts (first y column; past six ' +
+    'slices fold into Other), show_values:true to write the values on the marks); ' +
     '{type:"table", columns, rows}; a chart or table can instead take source:{metabase:{question:<id>}|{query:<MBQL>}} or ' +
     'source:{datadog:{queries:[...], from?:"now-1h"}} to refresh itself every `every` seconds, or command:<shell printing JSON> ' +
     'with every; {type:"flow", nodes:[{id, label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], ' +
@@ -49,8 +59,8 @@ export const SHOW_SPEC = {
     '{type:"confirm", summary, consequence?, confirm_label?}, whose answer reaches you as the person\'s next message; ' +
     '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane. placement:"browser" ' +
     'draws the view as a web page in the browser beside the session instead, at full resolution: use it for tables too ' +
-    'wide for a pane, big diagrams, pictures and side-by-side diffs; it takes markdown, table, chart, flow, sequence, ' +
-    'mermaid, image, compare and diff blocks, with rows given in the call.',
+    'wide for a pane, big diagrams, pictures and side-by-side diffs; it takes markdown, stats, table, chart, flow, ' +
+    'sequence, mermaid, image, compare and diff blocks, with rows given in the call.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -118,7 +128,13 @@ function blockError(block: Block, at: string): string | undefined {
     if (block.base !== undefined && !(isText(block.base) && /^[\w.~^@{}/][\w./~^@{}-]*$/.test(block.base))) return `at ${at}/base: a git ref such as main or HEAD~3`
     return undefined
   }
-  if (type === 'chart' && block.kind !== 'line' && block.kind !== 'bar') return `at ${at}/kind: a chart is "line" or "bar"`
+  if (type === 'stats') return statsError(block, at)
+  if (type === 'chart') {
+    if (!CHART_KINDS.includes(block.kind as (typeof CHART_KINDS)[number])) return `at ${at}/kind: a chart is one of ${list(CHART_KINDS)}`
+    const flag = CHART_FLAGS.find(f => block[f] !== undefined && typeof block[f] !== 'boolean')
+    if (flag) return `at ${at}/${flag}: true or false`
+    if (block.horizontal === true && block.kind !== 'bar') return `at ${at}/horizontal: only bars lie down; use kind "bar"`
+  }
   // A table or chart gets its rows from the call, from a command, or from a source the session refreshes.
   if (block.command !== undefined || block.source !== undefined) {
     if (block.command !== undefined && block.source !== undefined) return `at ${at}: either command or source, not both`
@@ -146,6 +162,19 @@ function blockError(block: Block, at: string): string | undefined {
   const yIndexes = y.map(c => columns.indexOf(c as string))
   const textual = yIndexes.find(i => rows.some(r => (r as unknown[])[i] !== null && typeof (r as unknown[])[i] !== 'number'))
   if (textual !== undefined) return `at ${at}/y: column ${JSON.stringify(columns[textual])} holds values that are not numbers; cast them in the query`
+  return undefined
+}
+
+function statsError(block: Block, at: string): string | undefined {
+  const items = block.items
+  if (!Array.isArray(items) || items.length === 0 || items.length > MAX_STATS) return `at ${at}/items: a list of 1 to ${MAX_STATS} figures, each {label, value, note?, delta?, good?, spark?}`
+  for (const [n, item] of items.entries()) {
+    const { label, value, note, delta, good, spark } = (item ?? {}) as Block
+    if (!isText(label) || !(isText(value) || typeof value === 'number')) return `at ${at}/items/${n}: a figure is {label, value}, the label a string, the value a string or a number`
+    if ((note !== undefined && !isText(note)) || (delta !== undefined && !isText(delta) && typeof delta !== 'number')) return `at ${at}/items/${n}: note is a string, delta a string such as "+4%" or a number`
+    if (good !== undefined && typeof good !== 'boolean') return `at ${at}/items/${n}/good: true when the delta is good news, false when bad`
+    if (spark !== undefined && !(Array.isArray(spark) && spark.every(v => typeof v === 'number'))) return `at ${at}/items/${n}/spark: a list of numbers`
+  }
   return undefined
 }
 

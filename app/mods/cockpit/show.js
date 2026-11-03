@@ -1,5 +1,5 @@
 // The show view: what a Claude session shows beside itself through the MCP `show` tool, block by block, drawn natively
-// (markdown, sortable tables, charts with hover, flow and Mermaid diagrams, sequence charts, pictures, before/after
+// (markdown, figure tiles, sortable tables, charts with hover (line, area, bars, donuts), flow and Mermaid diagrams, sequence charts, pictures, before/after
 // compares, diffs with line comments, live logs, CI runs, questions, the session's living blueprint). As a pane (`props.name`) it shows that view; in
 // the right panel it follows the focused agent's views, one tab each. Answers go back through the hub.
 
@@ -8,12 +8,12 @@ import { h_flex, v_flex, v_virtual_list, Scrollbar, InputState, Input, TextView 
 import { exec, appHome, focused, panes, run, layout, shared, setShared, props, settings } from "herdr";
 import * as hub from "./hub.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
-import { Chart, zoomed, compact } from "./plot.js";
+import { Chart, Figures, zoomed, compact } from "./plot.js";
 import { parseFlowchart, flowGraph, laidOut, Graph, graphSize, Sequence, sequenceSize, fit } from "./diagram.js";
 import { DiffView } from "./diff.js";
 
 const ICON = {
-  markdown: "file-text", table: "table", chart: "chart-column", flow: "workflow", mermaid: "workflow", blueprint: "map", sequence: "list-ordered",
+  markdown: "file-text", stats: "chart-column", table: "table", chart: "chart-column", flow: "workflow", mermaid: "workflow", blueprint: "map", sequence: "list-ordered",
   image: "image", compare: "square-split", diff: "git-compare", log: "scroll-text", ci: "activity", choice: "circle-help", confirm: "shield-check",
 };
 const ROW = 32;
@@ -647,7 +647,7 @@ export default class Show {
   }
 
   typeName(b) {
-    return { markdown: "Note", table: "Table", chart: "Chart", flow: "Diagram", mermaid: "Diagram", blueprint: "Blueprint", sequence: "Sequence", image: "Picture", compare: "Before and after", diff: "Changes", log: "Log", ci: "CI", choice: "Question", confirm: "Confirm" }[b.type] ?? b.type;
+    return { markdown: "Note", stats: "Figures", table: "Table", chart: "Chart", flow: "Diagram", mermaid: "Diagram", blueprint: "Blueprint", sequence: "Sequence", image: "Picture", compare: "Before and after", diff: "Changes", log: "Log", ci: "CI", choice: "Question", confirm: "Confirm" }[b.type] ?? b.type;
   }
 
   callout(k, icon, color, text) {
@@ -663,7 +663,7 @@ export default class Show {
       case "chart": {
         const data = this.chartData(b);
         const total = data?.labels?.length ?? 0;
-        return total > 3 ? [
+        return total > 3 && data.kind !== "donut" ? [
           btn("zout", "zoom-out", "Zoom out (−)", (_e, cx) => { st.window = zoomed(st.window, total, st.hover, false); cx.notify(); }),
           btn("zin", "zoom-in", "Zoom in (+)", (_e, cx) => { st.window = zoomed(st.window, total, st.hover, true); cx.notify(); }),
         ].concat(st.window ? [btn("zall", "maximize", "Every point (0)", (_e, cx) => { st.window = null; cx.notify(); })] : []) : [];
@@ -693,6 +693,7 @@ export default class Show {
   blockBody(k, b, cx, room, narrow) {
     switch (b.type) {
       case "markdown": return TextView.markdown(`show-md-${this.liveKey(b)}`, String(b.text ?? "").slice(0, 24000)).selectable(true).text_size(TEXT.base).on_link_click((url) => this.openUrl(url));
+      case "stats": return Figures(`show-stats-${b.n}`, b.items, { narrow });
       case "table": return this.table(k, this.tableBlock(b), cx);
       case "chart": return this.chart(k, b, cx, room);
       case "flow": return this.graph(k, b, flowGraph(b), room);
