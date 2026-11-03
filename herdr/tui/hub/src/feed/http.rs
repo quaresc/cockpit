@@ -1,4 +1,4 @@
-//! JSON over HTTPS for the feed, each API's base URL overridable by env (tests serve a fake one), and failures told
+//! JSON (and the calendar's text) over HTTPS for the feed, each API's base URL overridable by env (tests serve a fake one), and failures told
 //! apart: a rate limit with when to try again, anything else with a short message. Tokens only travel in headers.
 
 use std::sync::LazyLock;
@@ -45,6 +45,24 @@ pub fn post(url: &str, headers: &[(&str, &str)], body: &Value) -> Fetched {
         request = request.header(*name, *value);
     }
     finish(request.send(body.to_string()))
+}
+
+/// A text answer (the calendar's file), up to 64 MB; a 429 waits like a rate limit.
+pub fn text(url: &str, headers: &[(&str, &str)]) -> Fetched<String> {
+    let mut request = AGENT.get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let mut response = request.call().map_err(|err| Failure::Other(err.to_string()))?;
+    let status = response.status().as_u16();
+    if status == 429 {
+        let after = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_string);
+        return Err(Failure::Limited(Retry { after, ..Retry::default() }.until()));
+    }
+    if status >= 400 {
+        return Err(Failure::Other(format!("HTTP {status}")));
+    }
+    response.body_mut().with_config().limit(64 << 20).read_to_string().map_err(|err| Failure::Other(err.to_string()))
 }
 
 fn finish(result: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Fetched {

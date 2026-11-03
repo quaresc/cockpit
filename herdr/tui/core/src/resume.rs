@@ -71,6 +71,9 @@ pub fn seen_now() -> (Option<Vec<Seen>>, Option<Vec<Seen>>) {
     (app, tui)
 }
 
+/// The name of the terminal where the hub keeps a Claude session for the MCP-only sources (`cockpit-hub`'s fetcher).
+pub const FETCHER: &str = "cockpit-fetch";
+
 /// Claude Code's registry of running sessions: pid → {sessionId, cwd, name}.
 fn claude_sessions() -> Map<String, Value> {
     let dir = files::home().join(".claude/sessions");
@@ -93,7 +96,8 @@ fn seen_in_app() -> Option<Vec<Seen>> {
     let mut out = Vec::new();
     for t in listed["terminals"].as_array().into_iter().flatten() {
         let address = t["address"].as_str().unwrap_or_default();
-        if t["state"] != "live" || address.is_empty() || !t["agent"].as_str().unwrap_or_default().contains("claude") {
+        // The hub's own fetching session is not an agent to bring back: the hub starts it again.
+        if t["state"] != "live" || address.is_empty() || !t["agent"].as_str().unwrap_or_default().contains("claude") || t["name"] == FETCHER {
             continue;
         }
         let Some(got) = frontend::hc(&["get", address]) else { continue };

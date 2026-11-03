@@ -11,6 +11,9 @@ serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
 chrono.workspace = true
+# The calendar feed: its TZID zones and its recurrences.
+chrono-tz.workspace = true
+rrule.workspace = true
 notify.workspace = true
 nucleo-matcher.workspace = true
 libc = "0.2"

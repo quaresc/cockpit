@@ -661,3 +661,20 @@ fn doctor_prints_a_line_per_check() {
     let at = |prefix: &str| lines.iter().position(|l| l.contains(prefix)).unwrap();
     assert!(at("herdr 0.8.1") < at("config.json") && at("config.json") < at("session") && at("session") < at("inbox:") && at("inbox:") < at("platform tools"));
 }
+
+#[test]
+fn doctor_tells_the_hub_fetches_the_calendar_without_printing_its_address() {
+    let sandbox = Sandbox::new();
+    let config = |enabled: bool| json!({"calendar": {"enabled": enabled, "ics": "https://calendar.acme.example/ical/private-s3cret/basic.ics"}}).to_string();
+    sandbox.write("home/.config/cockpit/config.json", &config(true));
+    sandbox.write("home/.cache/cockpit/meetings.json", r#"{"at": 1000, "meetings": [], "notified": [], "by": "hub"}"#);
+    let printed = stdout(&sandbox.cockpit(&["doctor"], &[]));
+    let lines: Vec<&str> = printed.lines().collect();
+    assert!(lines.contains(&"ok    calendar fetched by the hub from its secret iCal address"), "{printed}");
+    let stale = |l: &&str| l.starts_with("warn  meetings: last refresh") && l.contains("→ neither a cockpit app (its hub) nor");
+    assert!(lines.iter().any(stale), "{printed}");
+    assert!(!printed.contains("s3cret"), "{printed}");
+    sandbox.write("home/.config/cockpit/config.json", &config(false));
+    let printed = stdout(&sandbox.cockpit(&["doctor"], &[]));
+    assert!(printed.contains("warn  calendar.ics is set but the calendar is off"), "{printed}");
+}

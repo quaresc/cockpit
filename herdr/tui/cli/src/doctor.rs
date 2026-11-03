@@ -134,6 +134,11 @@ impl Doctor {
         self.config.as_ref().is_some_and(|c| length(&c[source]["token"]) > 0.0)
     }
 
+    /// The calendar's secret iCal address, which the hub fetches itself; never printed.
+    fn has_ics(&self) -> bool {
+        self.config.as_ref().is_some_and(|c| c["calendar"]["ics"].as_str().is_some_and(|ics| !ics.trim().is_empty()))
+    }
+
     // -----------------------------------------------------------------------------------------------------------------
     // Tools and config
 
@@ -406,8 +411,10 @@ impl Doctor {
             };
             self.check_cache("ci.json", "CI", 600, &by);
         }
+        // Meetings come from the calendar connector, in a Claude session, unless calendar.ics lets the hub fetch them.
         if self.enabled("calendar") {
-            self.check_cache("meetings.json", "meetings", 900, SESSION);
+            let by = if self.has_ics() { NO_FEED.to_string() } else { format!("{SESSION} (calendar.ics lets the hub fetch the calendar without one)") };
+            self.check_cache("meetings.json", "meetings", 900, &by);
         }
         // The monitor space is opt-in: its document is checked only when the space is pinned.
         if pinned_spaces(self.settings.as_ref()).iter().any(|s| s == "monitor") {
@@ -610,6 +617,18 @@ impl Doctor {
             }
         } else {
             ok("CI from GitHub checks");
+        }
+        // The calendar's secret iCal address, which the hub fetches instead of a session asking the connector.
+        if self.has_ics() {
+            let ics = raw(&config["calendar"]["ics"]);
+            let ics = ics.trim();
+            if !self.enabled("calendar") {
+                warn("calendar.ics is set but the calendar is off: the hub leaves it → set calendar.enabled to true");
+            } else if !ics.starts_with("https://") && !ics.starts_with("webcal://") {
+                warn("calendar.ics is not an https:// address: no meetings from the hub → paste the calendar's \"Secret address in iCal format\"");
+            } else {
+                ok("calendar fetched by the hub from its secret iCal address");
+            }
         }
 
         // Permission rules for the background MCP calls.

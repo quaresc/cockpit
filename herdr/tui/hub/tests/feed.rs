@@ -169,3 +169,39 @@ fn a_rate_limit_is_said_and_waited_out_even_when_asked() {
     std::thread::sleep(Duration::from_secs(5));
     assert_eq!(seen.lock().unwrap().len(), 1, "no call before the reset");
 }
+
+#[test]
+fn the_calendar_address_fills_meetings_json_and_keeps_what_was_notified() {
+    let day = |days: i64| (chrono::Utc::now() + chrono::Duration::days(days)).format("%Y%m%d").to_string();
+    let (series_start, today, tomorrow) = (day(-21), day(0), day(1));
+    let ics = format!(
+        "BEGIN:VCALENDAR\r\nX-WR-CALNAME:me@acme.example\r\n\
+         BEGIN:VEVENT\r\nUID:weekly@google.com\r\nDTSTART:{series_start}T080000Z\r\nDTEND:{series_start}T083000Z\r\n\
+         RRULE:FREQ=WEEKLY\r\nSUMMARY:Ledger weekly\r\n\
+         ATTENDEE;PARTSTAT=ACCEPTED;CN=Maya Lopez:mailto:maya@acme.example\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:me@acme.example\r\nEND:VEVENT\r\n\
+         BEGIN:VEVENT\r\nUID:review@google.com\r\nDTSTART:{tomorrow}T130000Z\r\nDTEND:{tomorrow}T140000Z\r\nSUMMARY:Design review\r\n\
+         ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:me@acme.example\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    );
+    let (base, seen) = serve(Box::new(move |method, path, _| match (method, path) {
+        ("GET", "/calendar/ical/me%40acme.example/private-feedtest/basic.ics") => (200, vec![], ics.clone()),
+        _ => (404, vec![], String::new()),
+    }));
+    let address = format!("{base}/calendar/ical/me%40acme.example/private-feedtest/basic.ics");
+    let sandbox = Sandbox::new(&json!({}), &json!({"github": {"enabled": false}, "calendar": {"enabled": true, "ics": address}}));
+    let cache = sandbox.home().join(".cache/cockpit");
+    let live = format!("weekly_{today}T080000Z");
+    edit(&cache.join("meetings.json"), |doc| doc["notified"] = json!(["ev1_20261028T084500Z", live]));
+    let hub = Hub::start(&sandbox, &[("COCKPIT_HUB_FEED", "on")]);
+    hub.request(&json!({"op": "ping"}));
+
+    let doc = wait_for(&cache.join("meetings.json"), |v| v["by"] == "hub");
+    let ids: Vec<&str> = doc["meetings"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+    assert!(ids.contains(&live.as_str()) && ids.contains(&"review"), "{ids:?}");
+    assert_eq!(doc["notified"], json!([live]), "a notification sent stays sent; one of a meeting gone goes");
+    let review = doc["meetings"].as_array().unwrap().iter().find(|m| m["id"] == "review").unwrap();
+    assert_eq!((&review["response"], &review["briefable"]), (&json!("needsAction"), &json!(false)));
+    assert!(doc.get("error").is_none());
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    let text = std::fs::read_to_string(cache.join("meetings.json")).unwrap();
+    assert!(!text.contains("private-feedtest"), "the secret address leaked into meetings.json");
+}

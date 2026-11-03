@@ -27,7 +27,7 @@ function appBadge(app, v) {
   if (!v) return null;
   const of = (count, tone) => (count ? { count, tone } : null);
   if (app === "todo") return of(v.open, null);
-  if (app === "inbox") return of(v.counts?.needs_you, "destructive");
+  if (app === "inbox") return of(v.counts?.direct, "warning");
   if (app === "monitor") {
     const t = v.tiles ?? {};
     return of((t.alerts ?? 0) + (t.failed ?? 0), "destructive") ?? of(t.newErrors, "warning");

@@ -49,7 +49,8 @@ pub struct ShowApp {
     dir: PathBuf,
     spec_path: PathBuf,
     spec: Option<Value>,
-    stamp: Option<(Option<SystemTime>, u64)>,
+    /// The spec's and its blueprint's (`<name>.mmd`) modified time and length, when they exist.
+    stamp: [Option<(Option<SystemTime>, u64)>; 2],
     loaded: bool,
     shown_at: Option<Value>,
     views: Vec<View>,
@@ -100,7 +101,7 @@ impl ShowApp {
             name,
             dir,
             spec: None,
-            stamp: None,
+            stamp: [None, None],
             loaded: false,
             shown_at: None,
             views: Vec::new(),
@@ -148,7 +149,8 @@ impl ShowApp {
     /// rebuilt block keeps what the one before it at that place showed (a chart's image, a log's output) until it
     /// draws its own.
     fn reload(&mut self) -> bool {
-        let stamp = std::fs::metadata(&self.spec_path).ok().map(|m| (m.modified().ok(), m.len()));
+        let of = |path: &std::path::Path| std::fs::metadata(path).ok().map(|m| (m.modified().ok(), m.len()));
+        let stamp = [of(&self.spec_path), of(&crate::blueprint::path(&self.dir, &self.name))];
         if self.loaded && stamp == self.stamp {
             return false;
         }
@@ -158,6 +160,8 @@ impl ShowApp {
         let is_new = at != self.shown_at;
         self.shown_at = at;
         let blocks: Vec<Value> = spec.as_ref().and_then(|s| s["blocks"].as_array().cloned()).unwrap_or_default();
+        // A blueprint draws here as the Mermaid flowchart its file holds now.
+        let blocks: Vec<Value> = blocks.iter().map(|b| crate::blueprint::as_mermaid(&self.dir, &self.name, b)).collect();
         let mut old: Vec<Option<View>> = std::mem::take(&mut self.views).into_iter().map(Some).collect();
         let mut fresh = Vec::new();
         for (n, block) in blocks.into_iter().enumerate() {

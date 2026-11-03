@@ -86,6 +86,12 @@ export async function cockpit(args) {
 
 /** One request: its answer, or a thrown Error with the hub's `error`. */
 export async function request(op, fields = {}) {
+  // A page opens from the window itself: macOS keeps the browser behind when a background process (the hub) asks.
+  if (op === "act" && fields.action === "open_url" && typeof fields.args?.[0] === "string") {
+    const url = fields.args[0];
+    const r = await exec("open", [url]);
+    return r.code === 0 ? { note: `opened ${url}`, pending: {}, refreshing: {} } : { error: r.stderr.trim() || `could not open ${url}`, pending: {} };
+  }
   const { socket, token } = await connect();
   try {
     await socket.write(JSON.stringify({ op, token, frontend: "app", ...fields }) + "\n");

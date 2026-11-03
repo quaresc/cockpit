@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { answerText, collectAnswers, viewError } from '../hooks/show'
+import { answerText, blueprintName, collectAnswers, isBlueprintFile, viewError } from '../hooks/show'
 
 const HOME = '/home/me'
 const DIR = `${HOME}/.cache/cockpit/show`
@@ -57,4 +57,22 @@ test('each comment reaches the session and leaves the diff as it was', async () 
   expect(said).toEqual(['In the quota pane I commented on x:1: first', 'In the quota pane I commented on x:2: second'])
   expect(written.filter(p => p.endsWith('quota.json'))).toEqual([])
   expect(files.has(`${DIR}/quota.0.answer`)).toBe(false)
+})
+
+test('a blueprint is one Mermaid flowchart per view, named after its session', async () => {
+  const plan = { type: 'blueprint', text: '---\ntitle: Quota limits\n---\nflowchart TD\n  A[Read limits] --> B[Count calls]\n  class A done' }
+  expect(viewError({ pane: 'blueprint', title: 'Plan', blocks: [plan] })).toBe(undefined)
+  expect(viewError({ pane: 'blueprint', title: 'Plan', blocks: [{ type: 'blueprint', text: 'sequenceDiagram\n A->>B: hi' }] })).toContain('flowchart')
+  expect(viewError({ pane: 'blueprint', title: 'Plan', blocks: [plan, plan] })).toContain('one blueprint')
+  expect(viewError({ pane: 'blueprint', title: 'Plan', placement: 'browser', blocks: [plan] })).toContain('in a pane')
+  expect(blueprintName('blueprint', '3F2A1C9D-0000-4000-8000-000000000000')).toBe('blueprint-3f2a1c9d')
+  const fake = { env: { get: async (name: string) => (name === 'HOME' ? HOME : undefined) } } as unknown as Parameters<typeof isBlueprintFile>[0]
+  expect(await isBlueprintFile(fake, `${DIR}/blueprint-3f2a1c9d.mmd`)).toBe(true)
+  expect(await isBlueprintFile(fake, `${DIR}/../config.mmd`)).toBe(false)
+  expect(await isBlueprintFile(fake, `${HOME}/repo/plan.mmd`)).toBe(false)
+})
+
+test('a click on a blueprint box reads as a change request about it', async () => {
+  const ask = { block: 0, type: 'blueprint', value: { node: 'B', label: 'Count calls', text: 'count per org, not per user' }, label: 'Count calls' }
+  expect(answerText('blueprint-3f2a1c9d', ask, { type: 'blueprint' })).toBe('In the blueprint, about «Count calls» (box B): count per org, not per user')
 })

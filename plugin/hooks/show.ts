@@ -18,7 +18,7 @@ export const SHOW_TOOL = 'show'
 export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
 
 const PLACEMENTS = ['right', 'down', 'zoomed', 'browser'] as const
-const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'image', 'compare', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
+const BLOCKS = ['markdown', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'blueprint', 'image', 'compare', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
 const NODE_KINDS = ['box', 'round', 'decision'] as const
 const MAX_NODES = 60
 const MAX_ROWS = 5000
@@ -36,8 +36,13 @@ export const SHOW_SPEC = {
     'source:{datadog:{queries:[...], from?:"now-1h"}} to refresh itself every `every` seconds, or command:<shell printing JSON> ' +
     'with every; {type:"flow", nodes:[{id, label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], ' +
     'direction?:"down"|"right"}; {type:"sequence", actors?:[...], messages:[{from, to, label, reply?} | {note, over}]}; ' +
-    '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"image", path|url, caption?} (an animated GIF plays, so ' +
-    'an E2E recording shows as one); {type:"compare", before, after} for two screenshots (a before/after of a front change); ' +
+    '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"blueprint", text}, the living plan of a task of ' +
+    'several steps: a Mermaid flowchart (`flowchart TD`, a `---\\ntitle: …\\n---` header for its title), one box per step, ' +
+    '`class A,B done` and `class C active` (or `A:::done`) marking progress; show it once in its own view (pane ' +
+    '"blueprint", one per session), then keep it current as the work moves by rewriting the whole flowchart into the .mmd ' +
+    'file the result names (with Write), which redraws the pane with no further show call; a box the person clicks ' +
+    'reaches you as their next message, a change request about that step; {type:"image", path|url, caption?} (an ' +
+    'animated GIF plays, so an E2E recording shows as one); {type:"compare", before, after} for two screenshots (a before/after of a front change); ' +
     '{type:"diff", repo:<absolute path>, base?} following the working tree, or {type:"diff", patch}, whose lines the person can ' +
     'comment on, each comment reaching you as their next message; {type:"log", command, every?, lines?} tailing a command; ' +
     '{type:"ci", repo, branch} for the CI run of a branch; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
@@ -75,6 +80,7 @@ export type Spec = {
 }
 
 const isText = (v: unknown): v is string => typeof v === 'string'
+const isFlowchart = (v: unknown) => isText(v) && /^(?:---\n[\s\S]*?\n---\s*)?(?:%%.*\n\s*)*(?:flowchart|graph)\b/.test(v.trim())
 const isCount = (v: unknown) => v === undefined || (typeof v === 'number' && v >= 1)
 const list = (values: readonly string[]) => values.map(v => JSON.stringify(v)).join(', ')
 
@@ -83,6 +89,7 @@ function blockError(block: Block, at: string): string | undefined {
   const type = block.type
   if (!BLOCKS.includes(type as (typeof BLOCKS)[number])) return `at ${at}: unknown block type ${JSON.stringify(type)}; allowed: ${list(BLOCKS)}`
   if (block.title !== undefined && !isText(block.title)) return `at ${at}/title: a title is a string`
+  if (type === 'blueprint') return isFlowchart(block.text) ? undefined : `at ${at}/text: a blueprint is a Mermaid flowchart: flowchart TD, then its boxes and edges (a --- title header may come first)`
   if (type === 'markdown' || type === 'mermaid') return isText(block.text) ? undefined : `at ${at}/text: ${type} needs its text as a string`
   if (type === 'flow') return flowError(block, at)
   if (type === 'sequence') return sequenceError(block, at)
@@ -209,6 +216,7 @@ export function viewError(input: Record<string, unknown>): string | undefined {
   if (input.url !== undefined && !(isText(input.url) && /^https?:\/\//.test(input.url))) return 'at /url: an http or https URL'
   if (input.placement !== undefined && !PLACEMENTS.includes(input.placement as Placement)) return `at /placement: one of ${list(PLACEMENTS)}`
   if (!Array.isArray(input.blocks) || input.blocks.length === 0) return 'at /blocks: a non-empty list of blocks'
+  if ((input.blocks as Block[]).filter(b => b?.type === 'blueprint').length > 1) return 'at /blocks: one blueprint per view'
   for (const [n, block] of (input.blocks as unknown[]).entries()) {
     if (typeof block !== 'object' || block === null) return `at /blocks/${n}: a block is an object with a type`
     const error = blockError(block as Block, `/blocks/${n}`)
@@ -327,15 +335,30 @@ export async function present($: $, name: string, spec: Spec, here: Here | undef
   return failure ? { deny: failure } : { result: `Opened the ${name} pane beside this session; q hides it, its footer chip brings it back.` }
 }
 
+// A view holding a blueprint is its session's own: the name carries the session's, so two sessions' plans never meet.
+export function blueprintName(pane: string, session: string) {
+  const own = session.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)
+  return own ? `${pane.slice(0, 31)}-${own}` : pane
+}
+
+// The blueprint files the show tool hands out: `<name>.mmd` in cockpit's show folder, outside every repo.
+export async function isBlueprintFile($: $, path: unknown) {
+  if (!isText(path) || path.includes('..')) return false
+  const dir = await showDir($)
+  return path.startsWith(`${dir}/`) && /^[a-z0-9][a-z0-9-]{0,39}\.mmd$/.test(path.slice(dir.length + 1))
+}
+
 export async function show($: $, input: Record<string, unknown>, here: Here | undefined, cwd: string | undefined): Promise<{ result: string } | { deny: string }> {
   const error = viewError(input)
   if (error) return { deny: error }
-  const name = input.pane as string
+  const session = await $.session.id()
+  const hasPlan = (input.blocks as Block[]).some(b => b.type === 'blueprint')
+  const name = hasPlan ? blueprintName(input.pane as string, session) : (input.pane as string)
   const spec: Spec = {
     title: input.title as string,
     blocks: input.blocks as Block[],
     at: Date.now(),
-    session: await $.session.id(),
+    session,
     placement: (input.placement as Placement | undefined) ?? 'right',
     cwd,
     url: input.url as string | undefined,
@@ -343,7 +366,13 @@ export async function show($: $, input: Record<string, unknown>, here: Here | un
   }
   // A block with a source gets its first rows before the pane opens.
   spec.blocks = await Promise.all(spec.blocks.map(b => (b.source ? refreshed($, b) : b)))
-  return present($, name, spec, here)
+  if (!hasPlan) return present($, name, spec, here)
+  // The call's text is the plan until the session writes the file: a new file, so Write needs no Read first.
+  const file = `${await showDir($)}/${name}.mmd`
+  await $.process.run(['rm', '-f', file])
+  const shown = await present($, name, spec, here)
+  if ('deny' in shown) return shown
+  return { result: `${shown.result} Keep the blueprint current: as steps start and finish, write the whole flowchart to ${file} with Write (class X done, class Y active); each save redraws the pane, with no further show call. A box the person clicks comes back as their next message.` }
 }
 
 async function refreshed($: $, block: Block): Promise<Block> {
@@ -376,7 +405,7 @@ async function specsOf($: $, session: string, listing?: Listing) {
       return spec && { ...spec, name: e.name.slice(0, -5) }
     }))
     // A week-old view is gone for good, chip and file.
-    for (const spec of specs) if (spec && Date.now() - spec.at > KEEP_MS) await $.process.run(['rm', '-f', `${dir}/${spec.name}.json`])
+    for (const spec of specs) if (spec && Date.now() - spec.at > KEEP_MS) await $.process.run(['rm', '-f', `${dir}/${spec.name}.json`, `${dir}/${spec.name}.mmd`])
     specsSeen = { key, specs: specs.filter((s): s is Spec & { name: string } => s !== null && Date.now() - s.at <= KEEP_MS) }
   }
   return specsSeen.specs.filter(s => s.session === session)
@@ -442,6 +471,8 @@ export async function refreshSources($: $, session: string) {
 
 type Answer = { block: number; type: string; value: unknown; label: string }
 type Comment = { path: string; line: number; text: string }
+// Answers a block takes again and again: a diff's comments, a blueprint's change requests.
+const REPEATED = ['comment', 'review', 'blueprint']
 
 // What the person's answer says to the session, in their words.
 export function answerText(name: string, answer: Answer, block: Block | undefined) {
@@ -450,6 +481,10 @@ export function answerText(name: string, answer: Answer, block: Block | undefine
     return `In the ${name} pane I commented on ${path}:${line}: ${text}`
   }
   if (answer.type === 'review') return `In the ${name} pane I commented on the diff: ${answer.label}`
+  if (answer.type === 'blueprint') {
+    const { node, text } = (answer.value ?? {}) as { node?: string; text?: string }
+    return `In the blueprint, about «${answer.label}»${node && node !== answer.label ? ` (box ${node})` : ''}: ${text ?? ''}`
+  }
   const asked = (block?.prompt ?? block?.summary ?? block?.title ?? '') as string
   return answer.type === 'confirm'
     ? `In the ${name} pane I ${answer.value ? 'confirmed' : 'declined'}${asked ? `: ${asked.split('\n')[0]}` : ''}.`
@@ -457,7 +492,7 @@ export function answerText(name: string, answer: Answer, block: Block | undefine
 }
 
 // An answer the person gave in a pane becomes their next message to the session, once. A question's answer is written
-// back into the view so a redrawn pane does not ask again; a diff's comments leave it as it is, for the next one.
+// back into the view so a redrawn pane does not ask again; a diff's comments and a blueprint's requests leave it as it is.
 export async function collectAnswers($: $, session: string) {
   const dir = await showDir($)
   const listing = await $.fs.list(dir).catch(() => [])
@@ -472,7 +507,7 @@ export async function collectAnswers($: $, session: string) {
     if (!answer) continue
     const spec = await readSpec($, found[1]!)
     const block = spec?.blocks[answer.block]
-    if (spec && block && answer.type !== 'comment' && answer.type !== 'review') {
+    if (spec && block && !REPEATED.includes(answer.type)) {
       spec.blocks[answer.block] = { ...block, answered: answer.label }
       await writeSpec($, found[1]!, spec)
     }

@@ -1,13 +1,16 @@
 //! The hub's own feed: GitHub every minute (the inbox's PR fields, and ci.json when the CI is GitHub's checks), and
 //! Linear tickets or CircleCI runs when the config gives `tickets.token` or `ci.token`, so the inbox stays fresh with no
-//! Claude session. A touch of refresh-request fetches at once; errors back off, rate limits wait for their reset.
-//! COCKPIT_HUB_FEED=off keeps it still (the hub's tests), and the APIs' base URLs follow COCKPIT_GITHUB_API,
-//! COCKPIT_LINEAR_API and COCKPIT_CIRCLECI_API.
+//! Claude session; meetings.json too, every five minutes, given the calendar's secret iCal address in `calendar.ics`.
+//! A touch of refresh-request fetches at once; errors back off, rate limits wait for their reset. COCKPIT_HUB_FEED=off
+//! keeps it still (the hub's tests), and the APIs' base URLs follow COCKPIT_GITHUB_API, COCKPIT_LINEAR_API and
+//! COCKPIT_CIRCLECI_API.
 
+mod calendar;
 mod circleci;
 mod github;
 mod github_ci;
 pub(crate) mod http;
+mod ics;
 mod linear;
 pub mod merge;
 mod news;
@@ -54,6 +57,8 @@ struct Plan {
     github_ci: bool,
     linear: Option<String>,
     circleci: Option<String>,
+    /// The calendar's secret iCal address.
+    calendar: Option<String>,
 }
 
 fn plan() -> Plan {
@@ -72,6 +77,7 @@ fn plan() -> Plan {
         github_ci: github && c["ci"]["enabled"] != false && ci_server.is_empty(),
         linear: token("tickets", "linear"),
         circleci: token("ci", "circleci").filter(|_| !ci_server.is_empty()),
+        calendar: calendar::address(&raw["calendar"]["ics"]).filter(|_| c["calendar"]["enabled"] != false),
         config,
     }
 }
@@ -81,6 +87,7 @@ struct Feed {
     github: Schedule,
     linear: Schedule,
     circleci: Schedule,
+    calendar: Schedule,
     circle: circleci::CircleCi,
     /// The latest error of each source, until it fetches again.
     errors: Vec<(&'static str, String)>,
@@ -88,7 +95,7 @@ struct Feed {
 }
 
 fn run() {
-    let mut feed = Feed::default();
+    let mut feed = Feed { calendar: Schedule::every(calendar::EVERY), ..Feed::default() };
     loop {
         feed.round(&files::cache(), &plan());
         std::thread::sleep(TICK);
@@ -148,6 +155,14 @@ impl Feed {
             let error = self.circleci.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
             self.note("CircleCI", error.clone());
             runs = Some(fetched.map_err(|_| format!("CircleCI {}", error.unwrap_or_default())));
+        }
+        if let Some(url) = &plan.calendar
+            && self.calendar.is_due(now, is_asked)
+        {
+            let fetched = calendar::fetch(url, &plan.config);
+            let error = self.calendar.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let fetched = fetched.map_err(|_| format!("Calendar: {}", error.unwrap_or_default()));
+            crate::store::global().update("meetings", |doc| calendar::merge(doc, fetched, now_ms()));
         }
         if let Some(mut part) = part {
             part.errors = self.errors.iter().map(|(_, e)| e.clone()).collect();

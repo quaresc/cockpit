@@ -15,7 +15,7 @@ import { refresh } from './inbox'
 import { refreshMeetings } from './meetings'
 import { refreshMonitor } from './monitor'
 import { registerSettings, registerSettingsCommand } from './settings'
-import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, refreshSources, show } from './show'
+import { SHOW_SPEC, SHOW_TOOL_FULL, collectAnswers, commandsOf, isBlueprintFile, refreshSources, show } from './show'
 import { clearRows, closeIdleBrowsers, notifyFinished, reportSide, reportUsage } from './sidebar'
 import { checkUpdate, forget, heartbeat } from './upkeep'
 import { branchOf, seedWork, trackWork } from './work'
@@ -133,6 +133,10 @@ export const register: Register = on => {
     const commands = commandsOf((e.input ?? {}) as Record<string, unknown>)
     return commands.length > 0 ? { decision: 'ask', reason: `The pane will run, again and again: ${commands.join(' ; ')}` } : { decision: 'allow' }
   })
+
+  // A blueprint's .mmd file is cockpit's own, outside every repo: keeping the plan current asks nothing.
+  on('tool.check', { tool: ['Write', 'Edit'] }, async ($, e, next) =>
+    (await isBlueprintFile($, (e.input as { file_path?: unknown } | undefined)?.file_path)) ? { decision: 'allow' } : next(e))
 
   on('tool.call', { tool: SEARCH_TOOL_FULL }, async ($, e) => find($, e as unknown as Record<string, unknown>, searchArgs))
   on('tool.call', { tool: CHANGES_TOOL_FULL }, async ($, e) => find($, e as unknown as Record<string, unknown>, changesArgs))

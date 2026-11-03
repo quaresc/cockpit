@@ -1,19 +1,19 @@
 // The show view: what a Claude session shows beside itself through the MCP `show` tool, block by block, drawn natively
 // (markdown, sortable tables, charts with hover, flow and Mermaid diagrams, sequence charts, pictures, before/after
-// compares, diffs with line comments, live logs, CI runs, questions). As a pane (`props.name`) it shows that view; in
+// compares, diffs with line comments, live logs, CI runs, questions, the session's living blueprint). As a pane (`props.name`) it shows that view; in
 // the right panel it follows the focused agent's views, one tab each. Answers go back through the hub.
 
-import { div, image } from "gpui-kit";
+import { div, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, v_virtual_list, Scrollbar, InputState, Input, TextView } from "gpui-base";
-import { exec, appHome, focused, panes, run, layout, shared, setShared, props } from "herdr";
+import { exec, appHome, focused, panes, run, layout, shared, setShared, props, settings } from "herdr";
 import * as hub from "./hub.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Empty, Toaster, Progress, Spinner, openMenu } from "./ui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
 import { Chart, zoomed, compact } from "./plot.js";
 import { parseFlowchart, flowGraph, laidOut, Graph, graphSize, Sequence, sequenceSize, fit } from "./diagram.js";
 import { DiffView } from "./diff.js";
 
 const ICON = {
-  markdown: "file-text", table: "table", chart: "chart-column", flow: "workflow", mermaid: "workflow", sequence: "list-ordered",
+  markdown: "file-text", table: "table", chart: "chart-column", flow: "workflow", mermaid: "workflow", blueprint: "map", sequence: "list-ordered",
   image: "image", compare: "square-split", diff: "git-compare", log: "scroll-text", ci: "activity", choice: "circle-help", confirm: "shield-check",
 };
 const ROW = 32;
@@ -22,10 +22,21 @@ const hhmm = (ms) => {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
+const ago = (ms) => (!ms ? "" : Date.now() - ms < 45000 ? "just now" : `${dur(Date.now() - ms)} ago`);
+// Answers a block takes again and again rather than once.
+const REPEATED = ["comment", "review", "blueprint"];
 const csvField = (v) => {
   const t = v === null || v === undefined ? "" : typeof v === "boolean" ? (v ? "True" : "False") : String(v);
   return /[",\n\r]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t;
 };
+
+/** The blueprint canvas's dot grid, a dot every 16 px behind the boxes; paths take raw pixels, hence the zoom. */
+function dots(k, height) {
+  const z = settings().zoom ?? 1, s = 16;
+  let grid = PathBuilder.stroke(1.6 * z).dash_array([1.6 * z, (s - 1.6) * z]);
+  for (let y = s / 2; y < height; y += s) grid = grid.move_to("0%", `${(y / height) * 100}%`).line_to("100%", `${(y / height) * 100}%`);
+  return window.paint_path(grid.build(), alpha(k.foreground, 0.1)).absolute().inset_0();
+}
 
 /** Whether the layout shows the block holding `app` (a pane copy, outside the layout, always is). */
 function shownInLayout(app) {
@@ -67,6 +78,10 @@ export default class Show {
       this.handle.focus();
       cx.notify();
     });
+    // A blueprint's change request: the box clicked (`asking`) and what should change about it.
+    this.asking = null;
+    this.ask = InputState.new({ placeholder: "What should change in this step?" });
+    this.ask.on("submit", (_e, cx) => this.sendAsk(cx));
     this.other = InputState.new({ placeholder: "Something else…" });
     this.other.on("submit", (_e, cx) => {
       const n = this.focus;
@@ -128,7 +143,7 @@ export default class Show {
     if (!view) return;
     if (!before || before.name !== view.name || before.at !== view.at) {
       this.first = 0;
-      if (before?.name !== view.name) this.focus = null;
+      if (before?.name !== view.name) [this.focus, this.asking] = [null, null];
       if (this.pendingGo?.startsWith(`${view.name}#`)) {
         const go = this.pendingGo;
         this.pendingGo = null;
@@ -170,6 +185,11 @@ export default class Show {
     const view = this.view();
     if (!view || !shownInLayout(this.panel ? "show" : "__pane__")) return;
     const now = Date.now();
+    // A blueprint's "updated 2m ago" moves on.
+    if (now - (this.aged ?? 0) >= 15000 && view.blocks.some((b) => b.type === "blueprint")) {
+      this.aged = now;
+      cx.notify();
+    }
     for (const b of view.blocks) {
       if (!b.live) continue;
       const key = this.liveKey(b);
@@ -237,8 +257,8 @@ export default class Show {
     if (!view) return;
     const b = view.blocks[n];
     const st = this.state(b);
-    if (st.sent && type !== "review" && type !== "comment") return;
-    st.sent = label;
+    if (st.sent && !REPEATED.includes(type)) return;
+    if (!REPEATED.includes(type)) st.sent = label;
     cx.spawn(async (cx) => {
       try {
         const r = await hub.act("show", "answer", [view.name, n, type, value, label]);
@@ -263,6 +283,34 @@ export default class Show {
     if (comments.length === 1) this.answer(cx, b.n, "comment", { path: comments[0].path, line: comments[0].line, text: comments[0].text }, `${comments[0].path}:${comments[0].line}`);
     else this.answer(cx, b.n, "review", { comments }, label);
     d.comments = [];
+  }
+
+  /** Opens the change request composer on a blueprint's box. */
+  askAbout(b, node, cx) {
+    this.asking = { n: b.n, id: node.id, title: node.title, sub: node.sub, status: node.status };
+    this.focus = b.n;
+    this.ask.set_value("");
+    this.ask.focus();
+    cx.notify();
+  }
+
+  /** `<block>:<box id>`: the composer on that box, as a click on it opens it. */
+  askById(arg, cx) {
+    const [n, ...id] = arg.split(":");
+    const b = this.view()?.blocks?.[Number(n)];
+    const node = b?.type === "blueprint" ? parseFlowchart(b.text).nodes.get(id.join(":")) : null;
+    if (node) this.askAbout(b, node, cx);
+  }
+
+  sendAsk(cx) {
+    const a = this.asking;
+    const text = this.ask.value().trim();
+    if (!a || !text) return;
+    this.answer(cx, a.n, "blueprint", { node: a.id, label: a.title, text }, a.title);
+    this.asking = null;
+    this.ask.set_value("");
+    this.handle.focus();
+    cx.notify();
   }
 
   openUrl(url) {
@@ -310,6 +358,7 @@ export default class Show {
       const b = this.view()?.blocks?.[Number(arg)];
       if (b) this.copyCsv(cx, b);
     } else if (action === "first") this.first = Number(arg) || 0;
+    else if (action === "ask") this.askById(arg, cx);
     else if (action === "page") this.openUrl(this.view()?.url);
     cx.notify();
   }
@@ -326,7 +375,7 @@ export default class Show {
   // Keys
 
   interactive(b) {
-    return ["table", "chart", "diff", "log", "compare", "choice", "confirm", "flow", "mermaid", "sequence"].includes(b.type);
+    return ["table", "chart", "diff", "log", "compare", "choice", "confirm", "flow", "mermaid", "blueprint", "sequence"].includes(b.type);
   }
 
   key(e, cx) {
@@ -410,6 +459,22 @@ export default class Show {
         else return false;
         return true;
       }
+      case "blueprint": {
+        if (this.asking?.n === b.n) {
+          // The composer has the keys; escape closes it.
+          if (key === "escape") {
+            this.asking = null;
+            this.handle.focus();
+          }
+          return true;
+        }
+        const scale = st.scale ?? st.fitted ?? 1;
+        if (key === "+" || key === "=" || key === "shift-=") st.scale = Math.min(2, scale * 1.2);
+        else if (key === "-") st.scale = Math.max(0.3, scale / 1.2);
+        else if (key === "0" || key === "f") st.scale = null;
+        else return false;
+        return true;
+      }
       case "flow": case "mermaid": case "sequence": {
         if (key === "+" || key === "=" || key === "shift-=") st.scale = Math.min(2, (st.scale ?? 1) * 1.2);
         else if (key === "-") st.scale = Math.max(0.3, (st.scale ?? 1) / 1.2);
@@ -445,6 +510,7 @@ export default class Show {
     for (const b of view?.blocks ?? []) {
       items.push({ label: `Go to: ${b.title ?? b.type}`, run: () => { this.first = b.n; this.focus = this.interactive(b) ? b.n : null; } });
       if (b.type === "table" && !b.live) items.push({ label: `Copy as CSV: ${b.title ?? "table"}`, run: (cx) => this.copyCsv(cx, b) });
+      if (b.type === "blueprint") for (const node of parseFlowchart(b.text).nodes.values()) items.push({ label: `Ask for a change: ${node.title}`, run: (cx) => this.askAbout(b, node, cx) });
     }
     if (view?.url) items.push({ label: "Open the view's page in the browser", run: () => this.openUrl(view.url) });
     return items;
@@ -479,8 +545,8 @@ export default class Show {
     const narrow = this.width < 520;
     let root = v_flex().id("show-root").size_full().relative().bg(k.background).text_color(k.foreground).track_focus(this.handle)
       .on_size_change((size, cx) => {
-        if (Math.abs(size.width - this.width) > 1) {
-          this.width = size.width;
+        if (Math.abs(size.width - this.width) > 1 || Math.abs(size.height - (this.height ?? 0)) > 1) {
+          [this.width, this.height] = [size.width, size.height];
           cx.notify();
         }
       })
@@ -549,7 +615,8 @@ export default class Show {
     const focused = this.focus === b.n;
     const live = this.live.get(this.liveKey(b));
     const refreshed = b.refreshed_at ?? live?.data?.at;
-    const head = h_flex().gap(8).items_center().min_h(24)
+    // A blueprint draws its own header: title, age, zoom.
+    const head = b.type === "blueprint" ? null : h_flex().gap(8).items_center().min_h(24)
       .child(Icon(ICON[b.type] ?? "layers", { size: 14, color: k.mutedFg }))
       .child(div().flex_1().min_w(0).truncate().text_size(TEXT.base).font_semibold().child(b.title ?? this.typeName(b)))
       .when(Boolean(refreshed), (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(k.mutedFg).child(`refreshed ${hhmm(refreshed)}`)))
@@ -574,13 +641,13 @@ export default class Show {
         cx.stop_propagation();
         this.menu(b);
       })
-      .child(head)
+      .when(Boolean(head), (e) => e.child(head))
       .when(Boolean(b.error), (e) => e.child(this.callout(k, "alert", k.destructive, b.error)))
       .child(body);
   }
 
   typeName(b) {
-    return { markdown: "Note", table: "Table", chart: "Chart", flow: "Diagram", mermaid: "Diagram", sequence: "Sequence", image: "Picture", compare: "Before and after", diff: "Changes", log: "Log", ci: "CI", choice: "Question", confirm: "Confirm" }[b.type] ?? b.type;
+    return { markdown: "Note", table: "Table", chart: "Chart", flow: "Diagram", mermaid: "Diagram", blueprint: "Blueprint", sequence: "Sequence", image: "Picture", compare: "Before and after", diff: "Changes", log: "Log", ci: "CI", choice: "Question", confirm: "Confirm" }[b.type] ?? b.type;
   }
 
   callout(k, icon, color, text) {
@@ -633,6 +700,7 @@ export default class Show {
         if (b.graph === "flowchart") return this.graph(k, b, parseFlowchart(b.text), room);
         if (b.graph === "sequence") return this.sequence(k, b, room);
         return this.callout(k, "info", k.mutedFg, b.error ?? "This Mermaid diagram type is not drawn here: flowchart and sequenceDiagram are.");
+      case "blueprint": return this.blueprint(k, b, room, narrow);
       case "sequence": return this.sequence(k, b, room);
       case "image": return this.picture(k, b.src, room, b.caption);
       case "compare": return this.compare(k, b, room);
@@ -746,18 +814,23 @@ export default class Show {
     }).when(Boolean(st.window), (e) => e.child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(`rows ${st.window.start + 1}–${st.window.start + st.window.len} of ${data.labels.length} · 0 shows them all`)));
   }
 
-  graph(k, b, g, room) {
-    if (!g.nodes.size) return this.callout(k, "info", k.mutedFg, "This diagram has no nodes.");
-    const st = this.state(b);
+  /** A graph's layout and the scale it draws at: fitted to `room` until zoomed. */
+  laid(b, g, st, room, min, turns) {
     const key = `${b.type}:${JSON.stringify(b.text ?? [b.nodes, b.edges, b.direction])}`;
     let L = laidOut(key, g);
     let size = graphSize(L);
     // A wide left-to-right chart in a narrow pane reads better top to bottom than shrunk.
-    if (g.dir === "LR" && st.scale == null && size.w * 0.7 > room) {
+    if (g.dir === "LR" && turns && size.w * 0.7 > room) {
       L = laidOut(`${key}:TB`, { ...g, dir: "TB" });
       size = graphSize(L);
     }
-    const scale = st.scale ?? fit(size.w, room, 0.45);
+    return { L, size, scale: st.scale ?? fit(size.w, room, min) };
+  }
+
+  graph(k, b, g, room) {
+    if (!g.nodes.size) return this.callout(k, "info", k.mutedFg, "This diagram has no nodes.");
+    const st = this.state(b);
+    const { L, scale } = this.laid(b, g, st, room, 0.45, st.scale == null);
     const drawn = Graph(`show-g-${b.n}`, L, {
       scale,
       hovered: st.hovered ?? null,
@@ -780,6 +853,94 @@ export default class Show {
     const size = sequenceSize(b);
     const scale = st.scale ?? fit(size.w, room, 0.5);
     return div().id(`show-seq-${b.n}`).w_full().overflow_x_scrollbar().child(Sequence(`show-s-${b.n}`, b, { scale }));
+  }
+
+  // Blueprint: the session's plan, which it keeps current; a click on a box asks it for a change there -----------------
+
+  blueprint(k, b, room, narrow) {
+    const g = parseFlowchart(b.text);
+    if (!g.nodes.size) return this.callout(k, "info", k.mutedFg, "This blueprint has no boxes yet.");
+    const st = this.state(b);
+    // The canvas fits the pane's height (header, legend and foot stay in view); Fit fits the plan into it both ways.
+    const tallest = Math.max(200, (this.height ?? 800) - (this.asking?.n === b.n ? (narrow ? 390 : 360) : 250));
+    const { L, size } = this.laid(b, g, st, room, 0.3, true);
+    st.fitted = Math.max(0.3, Math.min(fit(size.w, room, 0.3), (tallest - 24) / size.h));
+    const scale = st.scale ?? st.fitted;
+    const nodes = [...g.nodes.values()];
+    const done = nodes.filter((n) => n.status === "done").length;
+    const active = nodes.filter((n) => n.status === "active" || n.status === "current");
+    const asking = this.asking?.n === b.n ? this.asking : null;
+    const zoom = (to) => (_e, cx) => {
+      st.scale = to;
+      cx.notify();
+    };
+    const facts = [`updated ${ago(b.updated ?? this.view()?.at)}`, `${done} of ${nodes.length} done`, active.length ? `now: ${active.map((n) => n.title).join(", ")}` : null].filter(Boolean);
+    const controls = h_flex().flex_none().gap(2).items_center().p(2).rounded(RADIUS.md).border_1().border_color(k.border)
+        .child(Button(`show-bp-fit-${b.n}`, { label: "Fit", size: "sm", variant: st.scale == null ? "secondary" : "ghost", tooltip: "Fit to the pane (0)", onClick: zoom(null) }))
+        .child(Button(`show-bp-out-${b.n}`, { icon: "minus", size: "icon-sm", variant: "ghost", tooltip: "Smaller (−)", onClick: zoom(Math.max(0.3, scale / 1.2)) }))
+        .child(div().w(42).flex_none().text_center().font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.mutedFg).child(`${Math.round(scale * 100)}%`))
+        .child(Button(`show-bp-in-${b.n}`, { icon: "plus", size: "icon-sm", variant: "ghost", tooltip: "Larger (+)", onClick: zoom(Math.min(2, scale * 1.2)) }));
+    // A narrow pane gives the title the whole row: the zoom goes to the foot.
+    const head = h_flex().gap(8).items_center().min_h(32)
+      .child(h_flex().size(24).flex_none().rounded(RADIUS.md).items_center().justify_center().bg(alpha(k.ring, 0.14)).child(Icon("map", { size: 14, color: k.ring })))
+      .child(v_flex().flex_1().min_w(0)
+        .child(div().truncate().text_size(TEXT.base).font_semibold().child(g.title ?? b.title ?? this.view()?.title ?? "Blueprint"))
+        .child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(facts.join(" · "))))
+      .when(!narrow, (e) => e.child(controls));
+    const swatch = (mark, label) => h_flex().gap(6).items_center().flex_none().child(mark).child(label);
+    const legend = h_flex().gap(14).items_center().flex_wrap().text_size(TEXT.xs).text_color(k.mutedFg)
+      .child(swatch(div().size(12).rounded_full().bg(k.done).flex().items_center().justify_center().text_size(8).font_semibold().text_color(k.background).child("✓"), "Done"))
+      .child(swatch(div().size(9).rounded_full().bg(k.working), "In progress"))
+      .child(swatch(div().w(14).h(9).rounded(3).border_1().border_color(k.input).bg(k.card), "To do"))
+      .child(div().flex_1())
+      .child(h_flex().gap(6).items_center().child(Progress(done / nodes.length, { color: k.done, w: narrow ? 64 : 110 })).child(`${Math.round((100 * done) / nodes.length)}%`));
+    const drawn = Graph(`show-bp-${b.n}`, L, {
+      scale,
+      hovered: asking?.id ?? st.hovered ?? null,
+      onHover: (id, cx) => {
+        if (st.hovered !== id && (id !== null || st.hovered)) {
+          st.hovered = id;
+          cx.notify();
+        }
+      },
+      onClick: (node, cx) => this.askAbout(b, node, cx),
+    });
+    const W = size.w * scale, H = size.h * scale;
+    const composer = asking ? this.askCard(k, asking, narrow) : null;
+    // Zoomed in, a taller plan scrolls inside the canvas.
+    const height = Math.min(tallest, Math.max(140, H + 24));
+    const canvas = div().id(`show-bp-canvas-${b.n}`).relative().w_full().h(height).rounded(RADIUS.md).border_1().border_color(k.border).bg(alpha(k.muted, 0.3)).overflow_hidden()
+      .child(dots(k, height))
+      .child(div().id(`show-bp-scroll-${b.n}`).absolute().inset_0().overflow_scrollbar()
+        .child(div().w(Math.max(W + 24, room)).h(Math.max(H + 24, height)).flex().items_center().justify_center().child(drawn)));
+    const hint = composer ? null : narrow ? "Click a box to ask for a change" : "Click a box to ask the session for a change there";
+    return v_flex().gap(10).w_full()
+      .child(head)
+      .child(legend)
+      .child(canvas)
+      .when(Boolean(composer), (e) => e.child(composer))
+      .when(Boolean(hint) || narrow, (e) => e.child(h_flex().gap(6).items_center().text_size(TEXT.xs).text_color(k.dim)
+        .when(Boolean(hint), (e) => e.child(Icon("hand", { size: 12, color: k.dim })).child(div().flex_1().min_w(0).truncate().child(hint ?? "")))
+        .when(!hint, (e) => e.child(div().flex_1()))
+        .when(narrow, (e) => e.child(controls))));
+  }
+
+  /** The change request composer, under the canvas so the box it is about stays in view. */
+  askCard(k, a, narrow) {
+    const stop = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_mouse_up("left", (_e, cx) => cx.stop_propagation());
+    const state = a.status === "done" ? Badge("done", "success") : a.status === "active" || a.status === "current" ? Badge("in progress", "info") : null;
+    const card = v_flex().id("show-bp-ask").gap(8).p(12).rounded(RADIUS.lg).border_1().border_color(k.ring).bg(k.popover).shadow_lg()
+      .child(h_flex().gap(8).items_center()
+        .child(Icon("message-square-plus", { size: 14, color: k.ring }))
+        .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).font_semibold().child(a.title))
+        .when(Boolean(state), (e) => e.child(state)))
+      .child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(`A change request about this step${a.sub ? ` · ${a.sub}` : ""}`))
+      .child(Input.new(this.ask).h(32).px(8).rounded(RADIUS.md).border_1().border_color(k.input).bg(k.background).text_size(TEXT.sm))
+      .child(h_flex().gap(6).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(narrow ? "" : "Reaches the session as your next message"))
+        .child(Button("show-bp-cancel", { label: "Cancel", variant: "outline", size: "sm", onClick: (_e, cx) => { this.asking = null; this.handle.focus(); cx.notify(); } }))
+        .child(Button("show-bp-send", { label: "Send", icon: "send", size: "sm", kbd: narrow ? undefined : "⏎", onClick: (_e, cx) => this.sendAsk(cx) })));
+    return stop(card);
   }
 
   // Pictures ------------------------------------------------------------------------------------------------------------
@@ -937,7 +1098,7 @@ export default class Show {
 
   footer(k, view) {
     const b = this.focus !== null ? view.blocks[this.focus] : null;
-    const typing = Boolean(this.activeDiff());
+    const typing = Boolean(this.activeDiff()) || Boolean(this.asking);
     const by = {
       table: [["↑↓", "rows"], ["1-9", "sort"]],
       chart: [["←→", "point"], ["+/−", "zoom"], ["0", "all"]],
@@ -946,11 +1107,12 @@ export default class Show {
       compare: [["h/l", "split"], ["s", "side by side"]],
       flow: [["+/−", "size"], ["0", "fit"]],
       mermaid: [["+/−", "size"], ["0", "fit"]],
+      blueprint: [["click", "ask for a change"], ["+/−", "zoom"], ["0", "fit"]],
       sequence: [["+/−", "size"], ["0", "fit"]],
       choice: [["↑↓", "move"], ["⏎", "pick"], ["1-9", "pick"]],
       confirm: [["y", "confirm"], ["⏎", "press"]],
     };
-    const hints = typing ? [["⏎", "add the comment"], ["esc", "cancel"]]
+    const hints = typing ? [["⏎", this.asking ? "send to the session" : "add the comment"], ["esc", "cancel"]]
       : b ? [...(by[b.type] ?? []), ["esc", "leave"]]
       : [["j/k", "blocks"], ["tab", "focus"], ["^P", "commands"], ...(view.url ? [["o", "page"]] : []), ...(this.name ? [["q", "hide"]] : [])];
     return h_flex().h(30).flex_none().px(12).gap(12).items_center().border_t_1().border_color(k.border).overflow_hidden().text_size(TEXT.xs).text_color(k.mutedFg)

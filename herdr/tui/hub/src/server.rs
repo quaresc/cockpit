@@ -14,7 +14,7 @@ use cockpit_core::files;
 use cockpit_core::frontend::{self, Frontend};
 use serde_json::{Value, json};
 
-use crate::{act, feed, fetch, go, history, search, store, views};
+use crate::{act, feed, fetch, fetcher, go, history, names, search, store, views};
 
 /// A connection the hub answers on: its unix socket, or TCP on 127.0.0.1 for the Herdr app's mod.
 pub trait Conn: Read + Write + Send + Sized + 'static {
@@ -49,6 +49,8 @@ pub fn now_secs() -> u64 {
 pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
     // The feed runs while the hub does, from its first request on.
     feed::start();
+    fetcher::start();
+    names::start();
     let Ok(mut writer) = stream.dup() else {
         return;
     };
@@ -98,6 +100,12 @@ fn subscribe<C: Conn>(mut writer: C, request: &Value) {
             return;
         }
     }
+}
+
+/// Claude Code's answer to an MCP call from a session that has none bound yet (still starting, or a background job):
+/// not news about the source, so it never reaches a document.
+fn not_ready(error: &Value) -> bool {
+    error.as_str().is_some_and(|e| e.contains("is not available in this mode"))
 }
 
 pub fn handle(request: &Value) -> Value {
@@ -158,12 +166,24 @@ fn store_op(op: &str, request: &Value) -> Value {
             json!({"versions": store::global().past(name, request["since"].as_u64().unwrap_or(0))})
         }
         "store.put" => {
+            // A session that cannot call MCP yet must not write that over the last good document.
+            if not_ready(&request["value"]["error"]) {
+                return json!({"value": store::global().get(name)});
+            }
             json!({"value": store::global().update(name, |_| request["value"].clone()).1})
         }
         "store.patch" => {
             let Some(fields) = request["fields"].as_object() else {
                 return json!({"error": "a patch needs its fields as an object"});
             };
+            let mut fields = fields.clone();
+            if not_ready(&fields.get("error").cloned().unwrap_or(Value::Null)) {
+                fields.remove("error");
+            }
+            if let Some(Value::Array(errors)) = fields.get_mut("errors") {
+                errors.retain(|e| !not_ready(e));
+            }
+            let fields = &fields;
             let merge = |doc: &Value| {
                 if name == "inbox" { feed::merge::mod_inbox(doc, fields) } else { store::patch(doc, fields) }
             };

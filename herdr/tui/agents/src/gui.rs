@@ -483,6 +483,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "page": f["page"].as_str().or(mock["page"].as_str()),
             "time": {"agent_today": totals.agents.get(&l.handle).copied().unwrap_or(0), "ticket_today": ticket_secs.0, "ticket_week": ticket_secs.1},
             "snoozed": snoozed, "seen": seen, "unread": unread, "session": session,
+            "load": crate::load::of(l, session.as_deref()),
         }));
     }
     let rank = |stage: &str| STAGES.iter().position(|(id, _)| *id == stage).unwrap_or(99);

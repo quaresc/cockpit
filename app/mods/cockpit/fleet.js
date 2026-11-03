@@ -51,7 +51,15 @@ export function fleet(rows, home) {
   const tabs = new Map();
   for (const s of spaces()) for (const t of s.tabs) tabs.set(t.id, { tab: t, space: s });
   const merged = new Set((home?.merged ?? []).map((m) => `${m.repo}/${m.branch}`));
-  return agents().map((a) => {
+  // Herdr's list, plus the agents only the hub sees (a Claude session attached from the background, the demo's).
+  const live = agents();
+  const seen = new Set(live.map((a) => a.address));
+  for (const r of rowsOf(rows)) {
+    const address = addressOf(r);
+    if (!address || seen.has(address) || (r.frontend && r.frontend !== "app")) continue;
+    live.push({ address, status: r.status, title: r.title, tab: r.tab?.id, tab_name: r.tab?.name, space: r.space?.id, space_name: r.space?.name, focused: false });
+  }
+  return live.map((a) => {
     const r = byAddress.get(a.address) ?? {};
     const place = tabs.get(a.tab);
     const pr = prOf(r);
@@ -117,17 +125,8 @@ export function goToAgent(address) {
 /** The hub's agents actions, by the contract the agents view keeps: answer, recap, snooze, seen, fork. */
 export const agentAct = (action, args) => hub.act("agents", action, [args]);
 
-/** The Home board's counts, for the bar and the bell to agree with it: agents by stage, plus my PRs to fix and to land
- * that no agent works on. */
-export function counts(list, home) {
+/** The agents by stage, for the bar, the bell and Home to agree: only agents, never PRs or tickets on their own. */
+export function counts(list, _home) {
   const by = (stage) => list.filter((a) => a.stage === stage).length;
-  const branches = new Set(list.map((a) => a.branch).filter(Boolean));
-  const loose = (prs) => (prs ?? []).filter((pr) => !branches.has(pr.branch)).length;
-  const needsBranches = new Set(list.filter((a) => a.stage === "needs").map((a) => a.branch).filter(Boolean));
-  return {
-    needs: by("needs") + (home?.fixing ?? []).filter((pr) => !needsBranches.has(pr.branch)).length,
-    working: by("working"),
-    ready: by("ready") + loose(home?.ready),
-    done: by("done"),
-  };
+  return { needs: by("needs"), working: by("working"), ready: by("ready"), done: by("done") };
 }

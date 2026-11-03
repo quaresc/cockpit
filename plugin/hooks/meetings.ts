@@ -4,6 +4,7 @@ import type { Inbox, Meeting, MeetingsState } from '../types'
 
 import { isMcpNotReady, notify } from './ci'
 import { cacheDir, home, loadConfig } from './config'
+import { hubOwnsMeetings } from './feed'
 import { hasTicket } from './match'
 import { callMapped, listAt, pick, text } from './platform'
 import { withLease, writeDoc } from './store'
@@ -119,14 +120,16 @@ async function prepFor($: $, meeting: Meeting) {
 let inflight: Promise<void> | undefined
 let calendarMissingAt = 0
 
-// Refreshes the shared meetings cache (one session at a time), then warns once, 5 minutes ahead.
+// Refreshes the shared meetings cache (one session at a time), then warns once, 5 minutes ahead. While the hub reads
+// the calendar from calendar.ics, its meetings are the ones warned about and only `notified` is written back.
 export function refreshMeetings($: $, isForced = false) {
   inflight ??= (async () => {
     try {
       const prev = await readMeetings($)
       await withLease($, 'meetings', async () => {
         let state: MeetingsState = prev ?? { at: 0, meetings: [], notified: [] }
-        if (isForced || Date.now() - state.at > STALE_MS) {
+        const isHubs = hubOwnsMeetings(state)
+        if (!isHubs && (isForced || Date.now() - state.at > STALE_MS)) {
           const isOff = Date.now() - calendarMissingAt < MISSING_RETRY_MS || !(await loadConfig($)).calendar.enabled
           const meetings = isOff ? null : await fetchMeetings($).catch((err: Error) => {
             // The connector may not be connected yet (at startup, or added later): try again shortly.
@@ -134,7 +137,7 @@ export function refreshMeetings($: $, isForced = false) {
             else state = { ...state, error: `Calendar: ${err.message.replace(/^cockpit: /, '')}` }
             return null
           })
-          if (meetings) state = { ...state, at: Date.now(), meetings: markBriefable(meetings, (await loadConfig($)).meetingBrief.skip), error: undefined }
+          if (meetings) state = { ...state, at: Date.now(), meetings: markBriefable(meetings, (await loadConfig($)).meetingBrief.skip), error: undefined, by: undefined }
         }
         const soon = state.meetings.filter(m => {
           const until = Date.parse(m.start) - Date.now()
@@ -146,6 +149,10 @@ export function refreshMeetings($: $, isForced = false) {
           const prep = brief.length > 0 ? `\n${brief.join('\n')}` : await prepFor($, m).catch(() => '')
           const join: [string, string][] = brief.length > 0 && m.join ? [['Join', m.join]] : []
           await notify($, '📅 Meeting', `${m.title} in ${Math.round((Date.parse(m.start) - Date.now()) / 60_000)} min${prep}`, brief.length > 0 ? `meeting:${m.id}` : (m.join ?? m.url), join)
+        }
+        if (isHubs) {
+          if (soon.length > 0) await writeDoc($, 'meetings', { notified: [...state.notified, ...soon.map(m => m.id)] }, 'patch')
+          return
         }
         const live = new Set(state.meetings.map(m => m.id))
         state.notified = [...state.notified.filter(id => live.has(id)), ...soon.map(m => m.id)]

@@ -10,6 +10,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState, Textarea } from "gpui-base";
 import { readTextFile } from "herdr";
 import * as hub from "./hub.js";
+import { Markdown, openReader } from "./reader.js";
 import {
   tokens, TEXT, RADIUS, Icon, Badge, Button, Kbd, PageHeader, SearchField, TextField, KeyHints, Empty, ErrorState, Skeleton,
   Command, Toaster, Flashes, Scroller, SidePanel, AlertDialog, Chip, Mono, Metric, StageHeading, Progress, Pills, Toggle,
@@ -176,6 +177,10 @@ export default class Routines {
     this.sel = key;
     const slug = key?.replace(/^inbox:/, "").split("/")[0];
     if (slug && this.fresh.has(slug)) this.cleared.set(slug, this.fresh.get(slug));
+  }
+
+  readOutput(x, text) {
+    openReader({ text, title: x.name, meta: [x.when, x.took, x.cost].filter(Boolean).join(" · ") });
   }
 
   loadOutput(path, cx) {
@@ -581,6 +586,9 @@ export default class Routines {
       case "x":
         if (entry?.unread) this.markRead(cx, entry.key);
         break;
+      case "v":
+        if (entry?.output) this.readOutput(entry, this.outputs.get(entry.output) || entry.summary || "");
+        break;
       case "shift-x":
         this.readAll(cx);
         break;
@@ -955,12 +963,24 @@ export default class Routines {
           ],
         }),
       );
-    out.push(this.section("Output", k));
     const text = this.outputs.get(x.output);
+    const shown = text || x.summary || "";
+    out.push(
+      h_flex()
+        .items_center()
+        .gap(6)
+        .child(div().flex_1().child(this.section("Output", k)))
+        .when(Boolean(shown), (e) =>
+          e
+            .child(Button(`r-copy-${x.key}`, { icon: "copy", variant: "ghost", size: "icon-sm", tooltip: "Copy the output", onClick: (_e, cx) => (cx.write_to_clipboard(shown), cx.notify()) }))
+            .child(Button(`r-read-out-${x.key}`, { label: "Read", icon: "file-text", variant: "outline", size: "sm", kbd: "v", tooltip: "The whole output in a window", onClick: () => this.readOutput(x, shown) })),
+        ),
+    );
+    // Rendered as the Markdown it is; a long one shows its start, the window shows all of it.
     out.push(
       text === undefined || text === null
         ? Skeleton({ h: 60 })
-        : div().p(10).rounded(RADIUS.md).bg(k.muted).whitespace_normal().text_size(TEXT.sm).text_color(k.foreground).child((text || x.summary).slice(0, 4000)),
+        : div().p(12).rounded(RADIUS.md).bg(k.muted).text_color(k.foreground).child(Markdown(`r-md-${x.key}`, shown.length > 2400 ? `${shown.slice(0, 2400)}\n\n…` : shown)),
     );
     out.push(this.section("Actions", k));
     out.push(

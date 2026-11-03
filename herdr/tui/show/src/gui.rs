@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use cockpit_core::files;
 use serde_json::{Value, json};
 
+use crate::blueprint;
 use crate::log::run;
 use crate::mermaid;
 use crate::patch::{File, Kind, git_diff, prepare};
@@ -94,7 +95,12 @@ impl Caches {
 
 /// A view as the mod draws it: its header facts and each block's model.
 pub fn model(name: &str, spec: &Value, caches: &Caches) -> Value {
-    let blocks: Vec<Value> = spec["blocks"].as_array().into_iter().flatten().enumerate().map(|(n, b)| block(n, b, caches)).collect();
+    model_in(&dir(), name, spec, caches)
+}
+
+fn model_in(dir: &Path, name: &str, spec: &Value, caches: &Caches) -> Value {
+    let blocks: Vec<Value> =
+        spec["blocks"].as_array().into_iter().flatten().enumerate().map(|(n, b)| block(n, &blueprint::living(dir, name, b), caches)).collect();
     json!({
         "name": name,
         "title": spec["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(name),
@@ -137,6 +143,7 @@ pub fn block(n: usize, spec: &Value, caches: &Caches) -> Value {
             }
         }
         "sequence" => json!({"actors": actors(spec), "messages": spec["messages"]}),
+        "blueprint" => json!({"graph": "flowchart", "text": spec["text"], "file": spec["file"], "updated": spec["updated"]}),
         "image" => json!({"src": picture(spec["path"].as_str().or(spec["url"].as_str())), "caption": spec["caption"]}),
         "compare" => json!({"before": picture(spec["before"].as_str()), "after": picture(spec["after"].as_str()), "caption": spec["caption"]}),
         "diff" => json!({"live": true, "repo": spec["repo"], "base": spec["base"], "patch": spec["patch"].is_string()}),
@@ -390,7 +397,7 @@ fn answer(dir: &Path, name: &str, args: &[Value]) -> Result<String, String> {
     }
     let n = args.get(1).and_then(Value::as_u64).ok_or("which block?")? as usize;
     let kind = args.get(2).and_then(Value::as_str).unwrap_or_default();
-    if !matches!(kind, "choice" | "confirm" | "comment" | "review") {
+    if !matches!(kind, "choice" | "confirm" | "comment" | "review" | "blueprint") {
         return Err(format!("not an answer: {kind}"));
     }
     let spec = files::load(&dir.join(format!("{name}.json"))).ok_or("the view is gone")?;
@@ -413,6 +420,7 @@ fn answer(dir: &Path, name: &str, args: &[Value]) -> Result<String, String> {
     Ok(match kind {
         "comment" => format!("comment on {label} sent to the session"),
         "review" => "review sent to the session".into(),
+        "blueprint" => format!("change request about «{label}» sent to the session"),
         _ => format!("answered: {label}"),
     })
 }
@@ -499,6 +507,23 @@ mod tests {
         assert!(act_in(dir, "answer", &[json!("q"), json!(0), json!("choice"), json!("b"), json!("b")]).unwrap().is_err());
         assert!(act_in(dir, "answer", &[json!("../x"), json!(0), json!("choice")]).unwrap().is_err());
         assert!(act_in(dir, "nope", &[]).is_none());
+    }
+
+    #[test]
+    fn a_blueprint_draws_its_file_and_takes_change_requests() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let spec = json!({"title": "Plan", "at": 1, "blocks": [{"type": "blueprint", "text": "flowchart TD\n A --> B"}]});
+        files::write(&dir.join("plan.json"), &spec).unwrap();
+        std::fs::write(dir.join("plan.mmd"), "flowchart TD\n A[Read] --> B[Write]\n class A done").unwrap();
+        let b = &model_in(dir, "plan", &spec, &no_caches())["blocks"][0];
+        assert_eq!(b["graph"], "flowchart");
+        assert!(b["text"].as_str().unwrap().contains("class A done"));
+        assert!(b["updated"].is_u64());
+        let ask = |text: &str| act_in(dir, "answer", &[json!("plan"), json!(0), json!("blueprint"), json!({"node": "A", "label": "Read", "text": text}), json!("Read")]).unwrap();
+        assert_eq!(ask("split it"), Ok("change request about «Read» sent to the session".into()));
+        std::fs::remove_file(dir.join("plan.0.answer")).unwrap();
+        assert!(ask("and test it").is_ok());
     }
 
     #[test]

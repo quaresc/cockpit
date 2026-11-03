@@ -4,6 +4,7 @@
 pub mod cli;
 pub mod gui;
 pub mod ledger;
+pub mod load;
 pub mod prompt;
 pub mod recap;
 pub mod state;

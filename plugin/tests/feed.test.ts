@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
-import type { CiState, Inbox } from '../types'
+import type { CiState, Inbox, MeetingsState } from '../types'
 
-import { HUB_FRESH_MS, hubOwns, hubOwnsCi, modFetchedAt, modPart } from '../hooks/feed'
+import { HUB_FRESH_MS, HUB_MEETINGS_FRESH_MS, hubOwns, hubOwnsCi, hubOwnsMeetings, modFetchedAt, modPart } from '../hooks/feed'
 import { changes, prChanges, ticketChanges } from '../hooks/match'
 
 const inbox = (over: Partial<Inbox> = {}): Inbox => ({ at: 0, direct: [], team: [], botRepos: [], mine: [], tickets: [], errors: [], ...over })
@@ -30,6 +30,15 @@ test('ci.json is the hub one only while fresh and marked so', async () => {
   expect(hubOwnsCi(ci, now + HUB_FRESH_MS)).toBe(false)
   expect(hubOwnsCi({ ...ci, by: undefined }, now)).toBe(false)
   expect(hubOwnsCi(null, now)).toBe(false)
+})
+
+test('meetings.json is the hub one while it read the calendar less than a quarter of an hour ago', async () => {
+  const meetings: MeetingsState = { at: now - 1000, meetings: [], notified: [], by: 'hub' }
+  expect(hubOwnsMeetings(meetings, now)).toBe(true)
+  expect(hubOwnsMeetings(meetings, now + HUB_FRESH_MS)).toBe(true)
+  expect(hubOwnsMeetings(meetings, now + HUB_MEETINGS_FRESH_MS)).toBe(false)
+  expect(hubOwnsMeetings({ ...meetings, by: undefined }, now)).toBe(false)
+  expect(hubOwnsMeetings(null, now)).toBe(false)
 })
 
 test('PR and ticket news split, so each side announces only what it fetched', async () => {

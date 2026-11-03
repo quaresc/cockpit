@@ -12,8 +12,13 @@ import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct } from "./fleet.js";
 import {
   tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
-  Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton,
+  Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
 } from "./ui.js";
+
+/** An event's row, brought into view in its app. */
+function cx_go(e) {
+  hub.go({ app: e.app, key: e.key }).catch(() => {});
+}
 
 const DEFAULT_PINNED = ["inbox", "to-do", "runbook", "meetings"];
 const many = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -87,6 +92,16 @@ export default class Home {
     });
     this.apps = {};
     this.pinned = null;
+    this.events = [];
+    const loadEvents = (cx) =>
+      cx.spawn(async (cx) => {
+        try {
+          this.events = await hub.events(undefined, Date.now() - 3 * 86_400_000);
+          cx.notify();
+        } catch {}
+      });
+    loadEvents(cx);
+    cx.timer.every(60_000, (cx) => loadEvents(cx));
     cx.spawn(async (cx) => {
       try {
         const { cache, home } = await hub.install();
@@ -130,8 +145,8 @@ export default class Home {
     const prCard = (pr, stage) => ({ kind: "pr", key: `p:${pr.url}`, stage, project: pr.repo, pr, agent: agents.find((a) => a.branch && a.branch === pr.branch) ?? null });
     const all = [
       ...agents.map(agentCard),
-      ...(this.home?.fixing ?? []).filter((pr) => !agents.some((a) => a.branch === pr.branch && a.stage === "needs")).map((pr) => prCard(pr, "needs")),
-      ...(this.home?.ready ?? []).filter((pr) => !covered(pr)).map((pr) => prCard(pr, "ready")),
+      ...(this.home?.fixing ?? []).filter((pr) => !agents.some((a) => a.branch === pr.branch && a.stage === "needs")).map((pr) => prCard(pr, "fix")),
+      ...(this.home?.ready ?? []).filter((pr) => !covered(pr)).map((pr) => prCard(pr, "land")),
     ];
     for (const c of all) {
       const before = this.stages.get(c.key);
@@ -156,12 +171,14 @@ export default class Home {
       working: by("working").sort((a, b) => (a.agent?.working ?? 0) - (b.agent?.working ?? 0)),
       ready: by("ready"),
       done: by("done").sort((a, b) => since(b) - since(a)),
+      // PRs no agent works on: to fix first, then to land.
+      prs: [...by("fix"), ...by("land")],
       archived: shown.filter((c) => c.stage === "done" && c.archived).length,
     };
   }
 
   flat(cols) {
-    return COLUMNS.flatMap((c) => cols[c.stage]);
+    return [...COLUMNS.flatMap((c) => cols[c.stage]), ...cols.prs];
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -462,11 +479,9 @@ export default class Home {
               .pb(28)
               .gap(18)
               .child(this.header(all, cols, narrow))
-              .when(!loading, (e) => e.child(this.overview()))
-              .when(loading, (e) => e.child(this.skeleton()))
               .when(Boolean(this.home?.lost?.length), (e) => e.child(this.lostBanner(narrow)))
-              .child(this.nextMove(cols, narrow))
-              .child(this.board(cols, wide, narrow)),
+              .child(loading ? this.skeleton() : this.kpis(cols, narrow))
+              .child(this.dashboard(cols, wide, narrow)),
           ),
       )
       .when(Boolean(this.confirm), (e) =>
@@ -496,7 +511,7 @@ export default class Home {
     const now = new Date(this.now);
     const needs = cols.needs.length;
     const parts = [
-      needs ? `${plural(needs, "thing")} ${needs === 1 ? "needs" : "need"} you` : "nothing needs you",
+      needs ? `${plural(needs, "agent")} ${needs === 1 ? "needs" : "need"} you` : "no agent needs you",
       `${cols.working.length} working`,
       cols.ready.length ? `${cols.ready.length} ready to land` : null,
     ].filter(Boolean);
@@ -534,36 +549,136 @@ export default class Home {
       );
   }
 
-  /** One short line per pinned app, a click away. */
-  overview() {
+  /** The numbers across the top, as a SaaS dashboard opens: agents, reviews, PRs, what shipped, spend. */
+  kpis(cols, narrow) {
     const k = tokens();
-    const items = OVERVIEW.filter((o) => (this.pinned ?? DEFAULT_PINNED).includes(o.space))
+    const inbox = this.apps.inbox?.counts ?? {};
+    const prs = this.apps.inbox?.prs ?? [];
+    const week = this.home?.week?.by_day ?? [];
+    const shipped = week.reduce((n, d) => n + (d.count ?? 0), 0);
+    const landed = (this.home?.landed?.days ?? []).map((d) => d.count ?? 0);
+    const spend = this.home?.spend ?? {};
+    const needs = cols.needs.filter((c) => c.agent).length;
+    const fix = (this.home?.fixing ?? []).length;
+    const ready = (this.home?.ready ?? []).length;
+    const tile = (id, o) => StatTile(id, o).min_w(narrow ? 140 : 160);
+    return h_flex()
+      .id("home-kpis")
+      .w_full()
+      .gap(12)
+      .flex_wrap()
+      .child(tile("kpi-agents", { label: "Agents", icon: "bot", value: needs ? `${needs} need you` : String(cols.working.length + cols.needs.length + cols.done.length), hint: `${cols.working.length} working · ${cols.done.length} done`, onClick: () => needs && goToAgent(cols.needs.find((c) => c.agent).agent.address) }))
+      .child(tile("kpi-reviews", { label: "Reviews for you", icon: "eye", value: String(inbox.direct ?? 0), hint: `${Math.max(0, (inbox.reviews ?? 0) - (inbox.direct ?? 0))} for your team`, onClick: () => show("inbox") }))
+      .child(tile("kpi-prs", { label: "Your PRs", icon: "git-pull-request", value: String(prs.length), hint: [ready && `${ready} ready`, fix && `${fix} to fix`].filter(Boolean).join(" · ") || "nothing to do", onClick: () => show("inbox") }))
+      .child(tile("kpi-shipped", { label: "Merged this week", icon: "git-merge", value: String(shipped), hint: `${landed.at(-1) ?? 0} today` }))
+      .child(tile("kpi-spend", { label: "Agent spend", icon: "dollar", value: money(spend.today ?? 0), hint: `${money(spend.week ?? 0)} these 7 days` }));
+  }
+
+  /** Agents and PRs on the left, what comes next and what happened on the right. */
+  dashboard(cols, wide, narrow) {
+    const left = v_flex()
+      .flex_1()
+      .min_w(0)
+      .gap(18)
+      .when(Boolean(this.nextMove(cols, narrow)), (e) => e.child(this.nextMove(cols, narrow)))
+      .child(this.board(cols, wide, narrow))
+      .when(cols.prs.length > 0, (e) => e.child(this.prList(cols.prs, narrow)));
+    const right = v_flex().w(320).flex_none().gap(16).child(this.upNext()).child(this.appsCard()).child(this.activity());
+    // Two columns from a laptop's width; under it the side cards follow the board.
+    const two = !narrow && this.width >= 900;
+    return (two ? h_flex() : v_flex()).w_full().items_start().gap(20).child(left).child(right.when(!two, (e) => e.w_full()));
+  }
+
+  /** PRs no agent works on, to fix then to land. */
+  prList(prs, narrow) {
+    const k = tokens();
+    return v_flex()
+      .gap(10)
+      .child(StageHeading("head-prs", "Your PRs", { color: k.info, count: prs.length }))
+      .child(div().w_full().flex().flex_row().flex_wrap().gap(14).children(prs.map((c) => div().w(narrow ? "100%" : 440).flex_none().child(this.card(c, { stage: c.stage, tone: c.stage === "fix" ? "destructive" : "success" })))));
+  }
+
+  /** A side card: a title, rows, and an empty line when there are none. */
+  side(id, title, icon, rows, empty, onOpen) {
+    const k = tokens();
+    return Card({
+      id,
+      padding: 14,
+      gap: 8,
+      title,
+      action: onOpen ? Button(`${id}-open`, { icon: "external", variant: "ghost", size: "icon-sm", tooltip: `Open ${title}`, onClick: () => onOpen() }) : undefined,
+      children: rows.length ? rows : [div().text_size(TEXT.sm).text_color(k.dim).child(empty)],
+    });
+  }
+
+  upNext() {
+    const k = tokens();
+    const m = this.apps.meetings;
+    const now = Date.now();
+    const next = (m?.meetings ?? []).filter((x) => (x.end ?? 0) > now).slice(0, 3);
+    return this.side(
+      "home-next-meetings",
+      "Up next",
+      "calendar",
+      next.map((x) =>
+        h_flex()
+          .id(`mt-${x.id}`)
+          .gap(10)
+          .items_center()
+          .child(v_flex().w(52).flex_none().child(Mono(x.time ?? new Date(x.start).toTimeString().slice(0, 5), { color: k.foreground })).child(div().text_size(TEXT.xs).text_color(k.dim).child(x.day === m.today ? "today" : new Date(x.start).toDateString().slice(0, 3))))
+          .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(k.foreground).child(x.title))
+          .when(Boolean(x.join), (e) => e.child(Button(`mt-join-${x.id}`, { label: "Join", size: "sm", variant: "outline", onClick: (_e, cx) => this.openUrl(cx, x.join) }))),
+      ),
+      "No more meetings",
+      () => show("meetings"),
+    );
+  }
+
+  /** One line per pinned app, a click away. */
+  appsCard() {
+    const k = tokens();
+    // Meetings have their own card above.
+    const items = OVERVIEW.filter((o) => o.view !== "meetings" && (this.pinned ?? DEFAULT_PINNED).includes(o.space))
       .map((o) => ({ ...o, line: this.apps[o.view] ? o.line(this.apps[o.view]) : null }))
       .filter((o) => o.line);
-    return h_flex()
-      .id("home-overview")
-      .flex_wrap()
-      .gap(8)
-      .children(
-        items.map((o) =>
-          h_flex()
-            .id(`ov-${o.view}`)
-            .h(30)
-            .px(10)
-            .gap(7)
-            .items_center()
-            .rounded(RADIUS.md)
-            .border_1()
-            .border_color(k.border)
-            .cursor_pointer()
-            .hover((s) => s.bg(k.accent))
-            .on_click(() => show(o.view))
-            .tooltip(`Open ${o.label}`)
-            .child(Icon(o.icon, { size: 14, color: o.line.tone ? k[o.line.tone] : k.mutedFg }))
-            .child(div().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(o.label))
-            .child(div().text_size(TEXT.sm).text_color(o.line.tone ? k[o.line.tone] : k.mutedFg).child(o.line.text)),
-        ),
-      );
+    return this.side(
+      "home-apps",
+      "Apps",
+      "layout-dashboard",
+      items.map((o) =>
+        h_flex()
+          .id(`ov-${o.view}`)
+          .h(28)
+          .px(6)
+          .mx(-6)
+          .gap(8)
+          .items_center()
+          .rounded(RADIUS.md)
+          .cursor_pointer()
+          .hover((s) => s.bg(k.accent))
+          .on_click(() => show(o.view))
+          .child(Icon(o.icon, { size: 14, color: o.line.tone ? k[o.line.tone] : k.mutedFg }))
+          .child(div().w(72).flex_none().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(o.label))
+          .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(o.line.tone ? k[o.line.tone] : k.mutedFg).child(o.line.text)),
+      ),
+      "Nothing pinned",
+    );
+  }
+
+  /** What changed lately, newest first: reviews asked, CI, tickets, merges, releases, routines. */
+  activity() {
+    const k = tokens();
+    const rows = (this.events ?? []).slice(0, 8).map((e, i) =>
+      h_flex()
+        .id(`ev-${i}`)
+        .gap(8)
+        .items_start()
+        .cursor_pointer()
+        .on_click(() => cx_go(e))
+        .child(div().flex_1().min_w(0).text_size(TEXT.sm).text_color(k.foreground).truncate().child(e.title))
+        .child(div().flex_none().text_size(TEXT.xs).text_color(k.dim).child(dur(Date.now() - (e.at ?? Date.now())))),
+    );
+    return this.side("home-activity", "Activity", "history", rows, "Nothing happened lately");
   }
 
   skeleton() {
@@ -632,45 +747,7 @@ export default class Home {
         ].filter(Boolean),
       });
     }
-    const fix = cols.needs.find((c) => c.kind === "pr");
-    if (fix) {
-      const pr = fix.pr;
-      const why = pr.failed?.length ? `${pr.failed.join(", ")} failing` : pr.review === "CHANGES_REQUESTED" ? "changes requested" : "CI failing";
-      return Callout("home-next", {
-        tone: k.destructive,
-        label: "Next move",
-        icon: "wrench",
-        stack: narrow,
-        title: `Fix ${pr.repo}#${pr.number}: ${why}`,
-        meta: `${pr.title} · ${pr.branch}`,
-        actions: [
-          Button("next-open", { label: "Open PR", icon: "external", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }),
-          ToneButton("next-fix", { label: "Fix with Claude", tone: k.destructive, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, fix.key, "Starting…", () => hub.act("inbox", "fix_ci", [pr.url]))) }),
-        ],
-      });
-    }
-    const ready = cols.ready[0];
-    if (ready) {
-      const pr = ready.pr ?? ready.agent?.pr;
-      return Callout("home-next", {
-        tone: k.success,
-        label: "Next move",
-        icon: "git-merge",
-        stack: narrow,
-        title: pr ? `Land ${pr.repo ?? ""}#${pr.number}: ${pr.title ?? ""}` : `${ready.agent?.title} is ready to land`,
-        meta: "Approved, every check green.",
-        actions: [pr?.url && Button("next-open", { label: "Open PR", icon: "external", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }), pr?.url && ToneButton("next-merge", { label: "Merge", tone: k.success, kbd: "m", onClick: (_e, cx) => this.merge(cx, pr) })].filter(Boolean),
-      });
-    }
-    return Callout("home-next", {
-      tone: k.done,
-      label: "All clear",
-      icon: "coffee",
-      stack: narrow,
-      title: cols.working.length ? `${plural(cols.working.length, "agent")} on it, nothing waits for you` : "Nothing waits for you",
-      meta: "New questions, failing checks and PRs to land show up here first.",
-      actions: [Button("next-new", { label: "New agent", icon: "plus", variant: "outline", size: "sm", onClick: (_e, cx) => this.newAgent(cx) })],
-    });
+    return null;
   }
 
   choiceRow(a, prefix, pad = 0) {
@@ -780,7 +857,7 @@ export default class Home {
     const isAgentCard = card.kind === "agent";
 
     const timer = !isAgentCard
-      ? card.stage === "ready"
+      ? card.stage === "land"
         ? "ready"
         : pr?.failed?.length
           ? "failing"
@@ -816,6 +893,19 @@ export default class Home {
     if (ch && (ch.added || ch.removed)) facts.push(h_flex().gap(4).child(Mono(`+${ch.added ?? 0}`, { color: k.success })).child(Mono(`−${ch.removed ?? 0}`, { color: k.destructive })));
     if (ch?.files) facts.push(Mono(plural(ch.files, "file")));
     if (a?.cost) facts.push(Mono(money(a.cost)));
+    // What its processes cost the machine: a hot one shows in warning, a runaway in red.
+    if (a?.load) {
+      const hot = a.load.cpu >= 150 ? k.destructive : a.load.cpu >= 60 ? k.warning : k.mutedFg;
+      facts.push(
+        h_flex()
+          .id(`${card.key}-load`)
+          .gap(4)
+          .items_center()
+          .tooltip(`CPU ${a.load.cpu}% of a core · ${a.load.mem} MB, the last two minutes`)
+          .when((a.load.history?.length ?? 0) > 1, (e) => e.child(Sparkline(a.load.history, { w: 36, h: 12, color: hot })))
+          .child(Mono(`${a.load.cpu}% · ${a.load.mem >= 1000 ? `${(a.load.mem / 1000).toFixed(1)} GB` : `${a.load.mem} MB`}`, { color: hot })),
+      );
+    }
     const queued = this.queue?.queues?.[a ? a.handle : ""]?.length ?? 0;
     if (queued) facts.push(Chip(`${queued} queued`, { color: k.info, icon: "list-ordered" }));
 
@@ -829,10 +919,10 @@ export default class Home {
       if (!a.question?.choices?.length) actions.push(ToneButton(`${card.key}-reply`, { label: "Reply", tone, kbd: "t", onClick: (_e, cx) => this.startReply(cx, a) }));
       actions.push(Button(`${card.key}-beside`, { label: "Open beside", variant: "outline", size: "sm", onClick: (_e, cx) => this.openBeside(cx, a) }));
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a.address) }));
-    } else if (card.stage === "needs") {
+    } else if (card.stage === "fix") {
       actions.push(ToneButton(`${card.key}-fix`, { label: "Fix with Claude", tone: k.destructive, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, card.key, "Starting…", () => hub.act("inbox", "fix_ci", [pr.url]))) }));
       actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
-    } else if (card.stage === "ready") {
+    } else if (card.stage === "ready" || card.stage === "land") {
       if (pr?.url) actions.push(ToneButton(`${card.key}-merge`, { label: "Merge", tone: k.success, kbd: "m", onClick: (_e, cx) => this.merge(cx, pr) }));
       if (pr?.url) actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
       if (a) actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a.address) }));

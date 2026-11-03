@@ -82,6 +82,11 @@ export type CalendarFields = Partial<Record<
 
 export type Calendar = {
   enabled: boolean
+  // The calendar's secret iCal address: the hub then reads the meetings itself, fresh without a Claude session. Never
+  // shared beyond the file.
+  ics?: string
+  // My address, to read my answer to each invite from the iCal file; else the calendar's own id.
+  email?: string | string[]
   name: string
   server: string
   tools: Partial<Record<CalendarCapability, Recipe>>
@@ -337,7 +342,11 @@ let shared = ''
 // The config as the mod reads it, defaults and older formats resolved, for the herdr apps and scripts to read as is.
 async function shareConfig($: $, config: Config) {
   // Tokens stay in the config file: the hub reads them there.
-  const body = JSON.stringify({ ...config, tickets: { ...config.tickets, token: undefined }, ci: { ...config.ci, token: undefined } }, null, 2)
+  const body = JSON.stringify(
+    { ...config, tickets: { ...config.tickets, token: undefined }, ci: { ...config.ci, token: undefined }, calendar: { ...config.calendar, ics: undefined } },
+    null,
+    2,
+  )
   if (body === shared) return
   await $.process.run(['mkdir', '-p', await cacheDir($)])
   await writeAtomic($, `${await cacheDir($)}/config.json`, body)

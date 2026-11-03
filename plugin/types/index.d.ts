@@ -174,7 +174,8 @@ export type MonitoredApp = {
 }
 export type MonitorState = { version: 1; at: number; env: string; errors: string[]; apps: MonitoredApp[] }
 
-export type MeetingsState ={ at: number; meetings: Meeting[]; notified: string[]; error?: string }
+// by: 'hub' when the hub read it from calendar.ics.
+export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string; by?: 'hub' }
 
 declare module 'claude-code' {
   interface PluginState {

@@ -48,7 +48,7 @@ function decode(s) {
     hex ? String.fromCodePoint(parseInt(hex, 16)) : dec ? String.fromCodePoint(Number(dec)) : NAMED[name.toLowerCase()] ?? all);
 }
 
-/** A Mermaid flowchart's nodes and edges; `class a,b done|active` marks progress, as blueprint diagrams do. */
+/** A Mermaid flowchart's nodes and edges; `class a,b done|active` (or `a:::done`) marks progress, as blueprints do. */
 export function parseFlowchart(src) {
   const g = { title: null, dir: "TB", nodes: new Map(), edges: [] };
   const lines = String(src ?? "").split("\n").map((l) => l.trim());
@@ -87,8 +87,16 @@ function node(g, id) {
   return n;
 }
 
+// A node's `:::name` class, which sets its status; the position after it.
+function classed(n, s, pos) {
+  const m = /^:::(\w+)/.exec(s.slice(pos));
+  if (!m) return pos;
+  n.status = m[1];
+  return pos + m[0].length;
+}
+
 function readNode(g, s, pos) {
-  const m = /^\s*([\w.-]+?)(?=[\s[({>]|-->|---|==|-\.|$)/.exec(s.slice(pos)) ?? /^\s*(\w+)/.exec(s.slice(pos));
+  const m = /^\s*([\w.-]+?)(?=[\s[({>]|:::|-->|---|==|-\.|$)/.exec(s.slice(pos)) ?? /^\s*(\w+)/.exec(s.slice(pos));
   if (!m) return null;
   const id = m[1];
   pos += m[0].length;
@@ -101,9 +109,9 @@ function readNode(g, s, pos) {
     if (end < 0) break;
     const [title, ...rest] = unquote(s.slice(pos + open.length, end)).split(/<br\s*\/?>/i);
     Object.assign(n, { shape, title: decode(title.trim()), sub: decode(rest.join(" ").trim()) || null });
-    return [id, end + close.length];
+    return [id, classed(n, s, end + close.length)];
   }
-  return [id, pos];
+  return [id, classed(n, s, pos)];
 }
 
 function statement(g, s) {

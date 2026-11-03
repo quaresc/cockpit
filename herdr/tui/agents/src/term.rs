@@ -48,6 +48,11 @@ pub fn output(argv: &[String], secs: u64) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// `hc <args>`'s stdout, 10 seconds at most.
+pub fn hc_text(args: &[&str]) -> Option<String> {
+    hc(args)
+}
+
 fn hc(args: &[&str]) -> Option<String> {
     let mut argv = vec![frontend::program("hc", "HC_BIN")];
     argv.extend(args.iter().map(|a| a.to_string()));

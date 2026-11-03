@@ -1,4 +1,4 @@
-//! When a source fetches next: every minute, at once when asked, later and later after errors (up to 15 minutes), and
+//! When a source fetches next: every minute (or its own interval), at once when asked, later and later after errors (up to 15 minutes), and
 //! not before a rate limit's reset, even when asked.
 
 use chrono::TimeZone;
@@ -10,12 +10,22 @@ const LONGEST: u64 = 15 * 60;
 
 #[derive(Debug, Default)]
 pub struct Schedule {
+    /// Seconds between fetches; 0 is the minute.
+    every: u64,
     next: u64,
     failures: u32,
     limited_until: u64,
 }
 
 impl Schedule {
+    pub fn every(every: u64) -> Self {
+        Self { every, ..Self::default() }
+    }
+
+    fn interval(&self) -> u64 {
+        if self.every == 0 { EVERY } else { self.every }
+    }
+
     pub fn is_due(&self, now: u64, is_asked: bool) -> bool {
         now >= self.limited_until && (is_asked || now >= self.next)
     }
@@ -24,19 +34,19 @@ impl Schedule {
     pub fn after(&mut self, outcome: &Result<(), Failure>, now: u64) -> Option<String> {
         match outcome {
             Ok(()) => {
-                (self.failures, self.limited_until, self.next) = (0, 0, now + EVERY);
+                (self.failures, self.limited_until, self.next) = (0, 0, now + self.interval());
                 None
             }
             Err(Failure::Limited(until)) => {
                 self.limited_until = *until;
-                self.next = (*until).max(now + EVERY);
+                self.next = (*until).max(now + self.interval());
                 Some(format!("rate limited, next try at {}", clock(self.next)))
             }
             Err(Failure::Other(message)) => {
                 self.failures += 1;
-                let delay = (EVERY << (self.failures - 1).min(4)).min(LONGEST);
+                let delay = (self.interval() << (self.failures - 1).min(4)).min(LONGEST.max(self.interval()));
                 self.next = now + delay;
-                Some(if delay > EVERY { format!("{message}; next try in {} min", delay / 60) } else { message.clone() })
+                Some(if delay > self.interval() { format!("{message}; next try in {} min", delay / 60) } else { message.clone() })
             }
         }
     }
@@ -74,6 +84,17 @@ mod tests {
         assert!(s.is_due(1, true), "asking tries again at once after an error");
         s.after(&Ok(()), 0);
         assert_eq!(s.failures, 0);
+    }
+
+    #[test]
+    fn a_source_of_its_own_interval_backs_off_from_it() {
+        let mut s = Schedule::every(300);
+        s.after(&Ok(()), 0);
+        assert!(!s.is_due(299, false) && s.is_due(300, false) && s.is_due(1, true));
+        let fail = Err(Failure::Other("HTTP 404".into()));
+        assert_eq!(s.after(&fail, 0).as_deref(), Some("HTTP 404"));
+        assert_eq!(s.after(&fail, 0).as_deref(), Some("HTTP 404; next try in 10 min"));
+        assert_eq!((s.after(&fail, 0), s.next).1, 900);
     }
 
     #[test]

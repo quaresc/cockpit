@@ -1,4 +1,4 @@
-import type { CiState, Inbox, MergedPr, Pr, Ticket } from '../types'
+import type { CiState, Inbox, MeetingsState, MergedPr, Pr, Ticket } from '../types'
 
 // The hub fetches GitHub on its own (and Linear or CircleCI given their tokens) and keeps those fields of the inbox, and
 // ci.json. While its part is fresh the mod leaves it alone and fetches only the rest.
@@ -13,6 +13,13 @@ export const hubOwns = (inbox: Inbox | null, source: HubSource, now = Date.now()
 export const modFetchedAt = (inbox: Inbox) => inbox.modAt ?? (inbox.hub ? 0 : inbox.at)
 
 export const hubOwnsCi = (ci: CiState | null, now = Date.now()) => ci?.by === 'hub' && now - ci.at < HUB_FRESH_MS
+
+// Given calendar.ics the hub reads the calendar every five minutes: meetings.json stays its own until a quarter of an hour
+// without a good read.
+export const HUB_MEETINGS_FRESH_MS = 15 * 60_000
+
+export const hubOwnsMeetings = (meetings: MeetingsState | null, now = Date.now()) =>
+  meetings?.by === 'hub' && now - meetings.at < HUB_MEETINGS_FRESH_MS
 
 export type GithubPart = { direct: Pr[]; team: Pr[]; botRepos: string[]; mine: Pr[]; merged: MergedPr[] }
 

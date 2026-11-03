@@ -80,12 +80,12 @@ the tab, `agent` = the focused agent alone), the apps · the `status` bar; in `w
 `panel-body`: `show`, `review`, `runbook-panel` (`runbook {scope: "focused"}`), `files`, `changes`, then the `activity`
 bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown only while prompts are queued).
 
-- **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): a greeting with one line of counts, one chip per pinned
-  app saying in a few words where it stands (from that app's own view, a click opens it), the NEXT MOVE
-  callout (the longest-waiting question with its choices as buttons and a reply field, else a PR to fix, else one to
-  land, else all clear), the restart banner, and the columns Needs you · Working · Ready to land · Done (agents from view
-  `agents` joined with Herdr's live list in `fleet.js`; my PRs to fix and to land that no agent works on). With no card
-  picked, the keys act on the NEXT MOVE agent.
+- **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): a dashboard. A greeting with one line of counts, KPI
+  tiles (agents needing you, reviews for you, your PRs, merged this week, agent spend), the NEXT MOVE callout (only an
+  agent waiting on you: its question with its choices as buttons and a reply field), the agents by stage as wrapped
+  cards (empty stages on one line), then your PRs no agent works on (to fix, to land). On the right: Up next (meetings),
+  Apps (each pinned app in a few words, a click away) and Activity (the hub's events of the last days). "Needs you" means
+  agents only. With no card picked, the keys act on the NEXT MOVE agent.
   Keys: `j k h l` move, `⏎` go, `1–9` answer, `t` reply, `f` the agent beside the board, `m` merge, `a` archive (tab
   settled, Undo on the toast), `o` PR, `r` recap, `s` snooze, `q` queue, `n` new agent; right-click for the rest.
 - **Status bar** (`status.js`): Home's counts (`fleet.counts`, each a click) on the left; on the right the focused
@@ -94,6 +94,9 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   `agent-view`, `cmd-alt-b` `panel`, `ctrl-cmd-1..5` `panel:<show|review|runbook|files|changes>`, `cmd-j`
   `next-waiting`, `cmd-shift-j`/`cmd-shift-u` `next:blocked`/`next:done`, `cmd-g` `pr`, `cmd-l` `ticket`, `cmd-alt-r`
   `resume`. `cmd-alt-q` → `cockpit.queue` (the queue dialog), `cmd-r` → `cockpit.recap` (view `agents`' popup).
+- **Reader** (`reader.js`): a window that reads a file or a text as rendered Markdown, selectable and copied in one click;
+  `openReader({path | text, title, meta})`, and `Markdown(id, text)` for the same rendering inside a panel (a routine
+  run's output uses both).
 - **Bell** (`bell.js`): agents waiting, breathing; click = the longest waiting, hover = their questions, right-click =
   pick one. **Activity bar** (`activity.js`): the panel's children with badges from shared `badge.<name>` =
   `{count, tone}` (write it only when it changes); it adds its panels to `workspace.panels` so a space switch keeps them.
@@ -107,6 +110,19 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   notification (its click resumes them all), Home's banner, the status bar, `cockpit resume [look|all|<handle>|dismiss
   <handle>]` and `cockpit focus resume`. Resuming types `cd '<cwd>' && claude --resume <id>` into its terminal when it
   sits at a shell, opens a space in its folder when it is gone, and refuses when another program runs there.
+
+## The hub on its own
+
+- **Fetcher** (`hub/src/fetcher.rs`): while a source needs an MCP connector (Linear or CircleCI without a token, the
+  calendar without `calendar.ics`, the platform, the monitor), the hub keeps one Claude Code session idle at its prompt
+  in a hidden herdr-core terminal named `cockpit-fetch` (no space, no pane, haiku, no tokens spent while idle); its
+  plugin refreshes the inbox, CI, meetings and monitor like any session. `fetcher: false` turns it off. The store also
+  refuses Claude Code's "$.mcp.call is not available in this mode" errors, so a session that cannot call MCP yet never
+  writes over good data.
+- **Names** (`hub/src/names.rs`): every 20 s a tab still at its default name (its number, a shell's) takes its agent's
+  task, the title Claude Code gives the session (else a few words from haiku with no tools, once per session), and a
+  space at its folder's name takes its agents' ticket ("ENG-412 · Store and enforce") or repo. A name the person typed
+  never changes; `names: false` turns it off.
 
 ## View `agents` (every agent terminal, both halves)
 
@@ -148,7 +164,8 @@ every 2 s), when the `inbox`/`ci`/`agents` documents change, or after its own ac
     "snoozed": {"until": 1793640000000, "label": "until 18:00"},                          // or null ("till done": until null)
     "seen": false,                           // looked at (`agents seen`) since this status began
     "unread": true,                          // needs_you or done, not seen, not snoozed: what the bell counts
-    "session": "4f1c…"                       // its Claude session id, when known (the recap and fork use it)
+    "session": "4f1c…",                      // its Claude session id, when known (the recap and fork use it)
+    "load": {"cpu": 12, "mem": 340, "history": [3, 12, …]}  // its process tree: % of a core, MB, the last samples; or null
   }],
   "stages": [{"id": "needs_you", "label": "Needs you", "count": 2}, …],  // whose-move order, every stage
   "counts": {"needs_you": 2, "done": 1, "working": 3, "unread": 3, "total": 8, …},
@@ -274,14 +291,25 @@ deletions, files, reviewers, checks}}`; `ticket_card` `{id}` → `{description, 
   view. Hub views: `show {name}` or `show {terminal, pick}` (pushed on change: `~/.cache/cockpit/show` and the CI caches),
   and `show-block {name, n, since}` asked on the block's own clock for what runs something (a repo diff every 3 s, a log
   or a command's rows every `every` s; `{same: true}` when a diff's hash is `since`). Actions `show answer [name, n, type,
-  value, label]` (type `choice`, `confirm`, `comment`, or `review` for several diff comments at once: `value.comments`,
-  `label` = "1) a.rs:12: text 2) …"). Pictures are copied into
+  value, label]` (type `choice`, `confirm`, `comment`, `blueprint` (a change request about a box), or `review` for
+  several diff comments at once: `value.comments`, `label` = "1) a.rs:12: text 2) …"). Pictures are copied into
   `<app home>/data/cockpit/show/` (the app draws images only from its folder). Commands: `cockpit.show:go:<name>[#block]`,
   `cockpit.show:hide:<name>` (the pane closes itself), `show:copy:<n>`, `show:first:<n>`, `show:page:`.
 - **The show tool in app mode** (the plugin's side): split the agent's pane with `pane.split {direction, pane, mod:
   "cockpit", props: {app: "show", name}}`, keep `{pane, terminal}` in `<name>.app` and write `terminal:
   $HC_TERMINAL_ID` into the spec. The view is open while the hub's `shown show` lists its name (see Claude sessions);
   the footer chip closes it with `pane.close {pane}`. Answers are the same `<name>.<n>.answer` files.
+- **Blueprint** (a `{type: "blueprint", text}` block): the session's living plan, a Mermaid flowchart whose boxes are
+  the steps, `class A,B done` / `class C active` (or `A:::done`) marking progress and a `---\ntitle: …\n---` header
+  its title. A view holding one is named `<pane>-<first 8 of the session id>` (one per session) and its text lives in
+  `~/.cache/cockpit/show/<name>.mmd`: the show call removes that file so the call's text shows, then the agent keeps
+  the plan current by writing the whole flowchart there (the plugin allows Write/Edit on those files without a
+  prompt). The hub watches the folder, so each save rebuilds the view: its model carries `text` (the file's, else the
+  call's), `file` and `updated` (the file's mtime, ms). The app draws a header (title, "updated 2m ago", done count,
+  Fit / − / zoom% / +), a done / in progress / to do legend with a progress bar and the diagram on a dot grid; a click
+  on a box (or the palette's "Ask for a change", or `cockpit.show:ask:<block>:<box id>`) opens a composer, sent as
+  `show answer [name, n, "blueprint", {node, label, text}, label]`, which reaches the session as "In the blueprint,
+  about «label» (box id): text". The herdr TUI pane draws the file's flowchart like a mermaid block, without clicks.
 - **`review`** (`{app: "review"}`, or `{repo, terminal, scope}`): the focused agent's repo, scope Uncommitted | Branch
   (against `origin/HEAD`, main or master, from the merge base) | PR (`gh pr view` + `gh pr diff`, kept a minute). Hub view
   `review {repo, scope, since}` (polled every 3 s while shown) gives the files, `about` (branch, base, commits, PR) and
@@ -365,7 +393,9 @@ wide, into `docs/app/` (`OUT`, `WIDTHS`, `THEMES` change that). It brings the wi
   follow [herdr-gh-board](https://github.com/meviusisback/herdr-gh-board) (MIT).
 - The show view's Mermaid flowchart parser and layered layout (`mods/cockpit/diagram.js`) are ported from
   [herdr-blueprint-app](https://github.com/chappse6/herdr-blueprint-app)'s `mermaid.js` and `layout.js` (MIT, Copyright
-  (c) 2026 chappse6), its node drawing and done/active marks after its `main.js`. The review's walkthrough (prompt, JSON
+  (c) 2026 chappse6), its node drawing and done/active marks after its `main.js`; the living blueprint (a plan the
+  agent keeps current in a `.mmd` file, a click on a box asking it for a change, Fit / − / % / +, the dot grid) is its
+  idea. The review's walkthrough (prompt, JSON
   schema, the checks on the answer, hunk ids that survive line shifts, Outdated and Not covered) follows
   [herdr-walkthrough](https://github.com/dmazlum/herdr-walkthrough) (MIT, Copyright (c) 2026 Devrim Mazlum); comments as
   rows under their line with a floating composer and "Submit review · N" are ideas from herdr-reviewer (no license, not

@@ -5,6 +5,20 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.30.0 (2026-11-03)
+
+- Home is a dashboard: KPI tiles, the next move (an agent waiting on you), agents by stage, your PRs, then Up next,
+  Apps and Activity on the side. Needs you, working, ready and done count agents only, everywhere.
+- The work view and every app sit as floating cards; agent cards show their processes' CPU and memory with a sparkline.
+- Live blueprint: an agent keeps a Mermaid plan in a show pane (done and active boxes), and a click on a box sends a
+  change request about it back to the agent.
+- Tabs and spaces name themselves: a tab after its agent's task, a space after its ticket or repo; names you typed stay.
+- The hub keeps a hidden Claude session for what only MCP reaches, and reads the calendar itself from `calendar.ics`
+  (a secret iCal address); "$.mcp.call is not available" never reaches the inbox, CI or meetings again.
+- Routines: a run's output reads as Markdown, with a window to read and copy all of it.
+- Pages open in the browser in front: they open from the Herdr window, not the hub.
+- Home lists the agents only the hub sees too, such as a Claude session attached from the background.
+
 ## 0.29.0 (2026-11-02)
 
 - Inbox in the Herdr app, by kind: alerts, reviews, your PRs, tickets and what to clean up, each its own section.

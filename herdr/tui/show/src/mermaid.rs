@@ -18,10 +18,18 @@ static ARROW: LazyLock<Regex> = LazyLock::new(|| {
 static DECLARED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(participant|actor)\s+(\S+)(?:\s+as\s+(.+))?$").unwrap());
 static NOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[Nn]ote\s+(?:left of|right of|over)\s+([^,:]+)(?:,[^:]+)?\s*:\s*(.*)$").unwrap());
 static SIDEWAYS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(LR|RL)\b").unwrap());
+static CLASSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r":::[A-Za-z0-9_-]+").unwrap());
 const SKIPPED: [&str; 9] = ["%%", "classDef", "class ", "style ", "linkStyle", "click ", "subgraph", "end", "direction"];
 
-pub fn is_flowchart(text: &str) -> bool {
+/// The diagram after its `---` front matter (where Mermaid keeps a title), if it has one.
+pub fn body(text: &str) -> &str {
     let start = text.trim_start();
+    let Some(rest) = start.strip_prefix("---") else { return start };
+    rest.find("\n---").map_or(start, |end| rest[end + 4..].trim_start())
+}
+
+pub fn is_flowchart(text: &str) -> bool {
+    let start = body(text);
     start.starts_with("flowchart") || start.starts_with("graph")
 }
 
@@ -39,6 +47,7 @@ fn node(found: &Captures) -> (String, String, &'static str) {
 
 /// The flow block a mermaid flowchart describes.
 pub fn flowchart(text: &str) -> Value {
+    let text = CLASSED.replace_all(body(text), "");
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty() && !l.trim().starts_with("%%")).collect();
     let header = lines.first().map_or("", |l| l.trim());
     let direction = if SIDEWAYS.is_match(header) { "right" } else { "down" };
@@ -127,6 +136,15 @@ mod tests {
         assert_eq!(flow["nodes"].as_array().map(Vec::len), Some(3));
         assert_eq!(flow["edges"][0], json!({"from": "A", "to": "B", "label": "go"}));
         assert_eq!(flow["edges"][1], json!({"from": "B", "to": "C", "label": "yes"}));
+    }
+
+    #[test]
+    fn reads_past_a_title_and_inline_classes() {
+        let text = "---\ntitle: Quota plan\n---\nflowchart TD\n  A[Read limits]:::done --> B[Count calls]:::active\n  class A done";
+        assert!(is_flowchart(text));
+        let flow = flowchart(text);
+        assert_eq!(flow["edges"][0], json!({"from": "A", "to": "B"}));
+        assert_eq!(flow["nodes"][1]["label"], "Count calls");
     }
 
     proptest! {

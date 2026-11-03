@@ -4,6 +4,7 @@
 mod answers;
 mod app;
 mod blocks;
+mod blueprint;
 mod chart;
 mod compare;
 mod diff;
