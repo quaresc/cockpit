@@ -10,6 +10,7 @@ on:
       - docs/*.svg
       - docs/*.png
       - docs/app/**
+      - docs/cockpit.mp4
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -37,6 +38,7 @@ jobs:
           mkdir -p _site/img/app
           cp docs/*.svg docs/*.png _site/img/
           cp docs/app/*.png _site/img/app/
+          if [ -f docs/cockpit.mp4 ]; then cp docs/cockpit.mp4 _site/img/; fi
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site

@@ -4,12 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cockpit · Herdr TUI</title>
-  <meta name="description" content="cockpit: Claude Code agents beside their tickets, PRs, CI and deploys, in herdr and the Herdr app.">
+  <meta name="description" content="cockpit in herdr: a sidebar, a footer and pinned spaces beside your Claude Code agents, in your terminal.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-side" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M5.5 8h1.5M5.5 11h1.5"/></symbol>
+  <symbol id="i-foot" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 16h18M7 18h3M13 18h4"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-9"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="15" width="8" height="6" rx="1.5"/><path d="M7 9v3a3 3 0 0 0 3 3h3"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-recap" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><path d="m16 16 2 2 4-4"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+</svg>
+
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
@@ -18,69 +30,100 @@
       <a href="desktop.html">Herdr APP</a>
       <a href="terminal.html" aria-current="page">Herdr TUI</a>
       <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
-      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+      <a href="https://github.com/quaresc/cockpit"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
     </nav>
   </div>
 </header>
 
 <main>
-  <div class="wrap">
-    <div class="page-head">
-      <h1>Herdr TUI</h1>
-      <p class="lead">cockpit in <a href="https://herdr.dev">herdr</a>: what each agent works on, beside it.</p>
+  <section class="page-hero">
+    <div class="wrap">
+      <span class="eyebrow">Herdr TUI</span>
+      <h1>cockpit, <span class="grad">in your terminal</span></h1>
+      <p class="sub">A plugin for <a href="https://herdr.dev">herdr</a>: what each agent works on, right beside it.
+        <code>/cockpit:setup</code> installs it.</p>
+      <div class="buttons">
+        <a class="button primary" href="index.html#install">Install</a>
+        <a class="button" href="#keys">Keys</a>
+      </div>
+      <figure class="frame">
+        <img src="img/overview.svg" alt="herdr with the cockpit sidebar, an agent testing its change in a browser beside it, and its footer" width="1296" height="679">
+      </figure>
     </div>
-      <figure class="shot terminal"><img src="img/overview.svg" alt="herdr with the cockpit sidebar, an agent testing its change in a browser beside it, and its footer"></figure>
-    <section class="feature">
-      <div>
-        <h3>Sidebar</h3>
-        <p>Each agent’s task, branch, ticket, CI and page. Red on failing CI.</p>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>What's in it</h2>
       </div>
-      <figure class="shot terminal"><img src="img/sidebar.svg" alt="The sidebar"></figure>
-    </section>
-    <section class="feature">
-      <div>
-        <h3>Footer</h3>
-        <p>One click to the ticket, PR, deploy, preview and every page the conversation cites.</p>
-      </div>
-      <figure class="shot terminal"><img src="img/footer.svg" alt="The footer"></figure>
-    </section>
-    <section class="feature">
-      <div>
-        <h3>Pinned spaces</h3>
-        <p>Inbox, runbook, to-do, meetings, and opt-in monitor and routines, one key each.</p>
-      </div>
-      <figure class="shot terminal"><img src="img/inbox.svg" alt="The inbox space"></figure>
-    </section>
-    <section class="feature text-only">
-      <div>
-        <h3>Show and E2E</h3>
-        <p>Charts, tables and diffs in a pane beside the agent; the agent tests its page in a browser beside it.</p>
-      </div>
-    </section>
-    <section class="feature">
-      <div>
-        <h3>Palette</h3>
-        <p>prefix+space over any pane: tickets, PRs, runbook steps, meetings, history and past sessions.</p>
-      </div>
-      <figure class="shot terminal"><img src="img/palette.svg" alt="The palette"></figure>
-    </section>
-    <h2>Keys</h2>
-    <div class="table-wrap">
-      <table>
-        <tr><td>prefix + space</td><td class="wrap-ok">Palette</td></tr>
-        <tr><td>prefix + i t a d u m o y</td><td class="wrap-ok">Inbox, terminal, actions, to-do, runbook, meetings, monitor, routines</td></tr>
-        <tr><td>prefix + f</td><td class="wrap-ok">The page beside the agent, in your browser</td></tr>
-        <tr><td>prefix + shift+a</td><td class="wrap-ok">Every agent</td></tr>
-        <tr><td>j k · Enter · /</td><td class="wrap-ok">Move · main action · filter, in every app</td></tr>
-      </table>
+      <ul class="list">
+        <li id="sidebar"><span class="ico"><svg class="i"><use href="#i-side"/></svg></span><div><b>Sidebar</b><span>Each agent's task, branch, ticket, CI and page. Red on failing CI.</span></div></li>
+        <li id="footer"><span class="ico"><svg class="i"><use href="#i-foot"/></svg></span><div><b>Footer</b><span>One click to the ticket, PR, deploy, preview and every page the conversation cites.</span></div></li>
+        <li id="spaces"><span class="ico"><svg class="i"><use href="#i-pin"/></svg></span><div><b>Pinned spaces</b><span>Inbox, runbook, to-do, meetings, and opt-in monitor and routines, one key each.</span></div></li>
+        <li id="show"><span class="ico"><svg class="i"><use href="#i-chart"/></svg></span><div><b>Show panes</b><span>Charts, tables and diffs beside the agent; comment a diff and send it back as one review.</span></div></li>
+        <li id="blueprint"><span class="ico"><svg class="i"><use href="#i-flow"/></svg></span><div><b>Blueprint</b><span>The plan the agent keeps current, drawn as a flowchart in its pane.</span></div></li>
+        <li id="e2e"><span class="ico"><svg class="i"><use href="#i-globe"/></svg></span><div><b>E2E beside the agent</b><span>The agent tests its page in terminal-browser, next to the conversation.</span></div></li>
+        <li id="palette"><span class="ico"><svg class="i"><use href="#i-search"/></svg></span><div><b>Palette</b><span><kbd>prefix</kbd> <kbd>space</kbd> over any pane: tickets, PRs, runbooks, meetings, history, past sessions.</span></div></li>
+        <li id="recap"><span class="ico"><svg class="i"><use href="#i-recap"/></svg></span><div><b>Agents · Queue · Resume</b><span>Every agent in one popup, prompts queued for a busy one, agents back after a restart.</span></div></li>
+      </ul>
     </div>
-  </div>
+  </section>
+
+  <section class="section alt">
+    <div class="wrap gallery">
+      <figure class="frame">
+        <img src="img/show.svg" alt="Show: a chart beside the conversation" width="1296" height="679" loading="lazy">
+        <figcaption><b>Show.</b> Charts and tables beside the conversation.</figcaption>
+      </figure>
+      <div class="gallery two">
+        <figure class="frame">
+          <img src="img/inbox.svg" alt="The inbox space" width="1044" height="963" loading="lazy">
+          <figcaption><b>Inbox.</b> Reviews, then your tickets with their PRs.</figcaption>
+        </figure>
+        <figure class="frame">
+          <img src="img/palette.svg" alt="The palette" width="876" height="557" loading="lazy">
+          <figcaption><b>Palette.</b> Everything cockpit knows, over any pane.</figcaption>
+        </figure>
+      </div>
+      <figure class="frame">
+        <img src="img/e2e.svg" alt="An agent testing its page in terminal-browser beside the conversation" width="1296" height="679" loading="lazy">
+        <figcaption><b>E2E.</b> The agent tests its page in a browser beside it.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section" id="keys">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Keys</h2>
+        <p>In every app: <kbd>j</kbd> <kbd>k</kbd> move, <kbd>Enter</kbd> main action, <kbd>/</kbd> filter.</p>
+      </div>
+      <div class="keys">
+        <table>
+          <tr><td><kbd>prefix</kbd> <kbd>space</kbd></td><td>Palette</td></tr>
+          <tr><td><kbd>prefix</kbd> <kbd>i t a d u m o y</kbd></td><td>Inbox, terminal, actions, to-do, runbook, meetings, monitor, routines</td></tr>
+          <tr><td><kbd>prefix</kbd> <kbd>f</kbd></td><td>The page beside the agent, in your browser</td></tr>
+          <tr><td><kbd>prefix</kbd> <kbd>⇧A</kbd></td><td>Every agent</td></tr>
+          <tr><td><kbd>prefix</kbd> <kbd>⇧Q</kbd></td><td>The agent's prompt queue</td></tr>
+          <tr><td><kbd>prefix</kbd> <kbd>⇧U</kbd></td><td>Resume the agents a restart stopped</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="site-footer">
   <div class="wrap">
-    <span>cockpit · MIT license</span>
-    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="24" height="24">cockpit</a>
+    <nav aria-label="Footer">
+      <a href="desktop.html">Herdr APP</a>
+      <a href="terminal.html">Herdr TUI</a>
+      <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+      <a href="https://herdr.dev">herdr</a>
+    </nav>
+    <small>MIT license · Screens show the fictional acme world.</small>
   </div>
 </footer>
 </body>

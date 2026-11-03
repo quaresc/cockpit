@@ -736,7 +736,8 @@ export default class Home {
         tone: k.blocked,
         label: "Next move",
         icon: "hand",
-        stack: narrow,
+        // Beside the side cards the callout is narrow: its actions go under the question.
+        stack: narrow || this.width < 1500,
         title: q?.text ? `${a.title} asks: “${q.text}”` : `${a.title} is waiting for you`,
         meta,
         body: body ?? undefined,

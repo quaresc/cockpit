@@ -3,13 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>cockpit</title>
-  <meta name="description" content="cockpit: Claude Code agents beside their tickets, PRs, CI and deploys, in herdr and the Herdr app.">
+  <title>cockpit · every Claude Code agent beside its work</title>
+  <meta name="description" content="cockpit puts each Claude Code agent beside its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away. For herdr and the Herdr app.">
   <meta name="color-scheme" content="light dark">
+  <meta property="og:title" content="cockpit">
+  <meta property="og:description" content="Every Claude Code agent beside its ticket, PR, CI and deploy, and one place to work from.">
+  <meta property="og:image" content="img/app/home-dark.png">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+  <symbol id="i-agent" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="15" width="8" height="6" rx="1.5"/><path d="M7 9v3a3 3 0 0 0 3 3h3"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-9"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="m3 6 2 2 3-3M3 13l2 2 3-3M12 7h9M12 14h9M4 20h17"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+  <symbol id="i-hub" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="4.5" cy="5" r="2"/><circle cx="19.5" cy="5" r="2"/><circle cx="4.5" cy="19" r="2"/><circle cx="19.5" cy="19" r="2"/><path d="m6 6.5 3.8 3.6M18 6.5l-3.8 3.6M6 17.5l3.8-3.6M18 17.5l-3.8-3.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+</svg>
+
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
@@ -18,51 +37,362 @@
       <a href="desktop.html">Herdr APP</a>
       <a href="terminal.html">Herdr TUI</a>
       <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
-      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+      <a href="https://github.com/quaresc/cockpit"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
     </nav>
   </div>
 </header>
 
 <main>
-  <div class="wrap">
-    <section class="hero">
-      <img class="logo" src="img/logo.svg" alt="cockpit logo" width="96" height="96">
-      <h1>cockpit</h1>
-      <p class="tagline">Your Claude Code agents, beside their ticket, PR, CI and deploy.</p>
-      <p class="lead">Plus your inbox, runbooks, to-dos, meetings, releases and routines, and one palette over all of it.</p>
+  <section class="hero">
+    <div class="wrap">
+      <a class="pill" href="desktop.html#blueprint"><b>New</b> Live blueprints the agent keeps current →</a>
+      <h1>Every Claude Code agent, <span class="grad">beside its work</span></h1>
+      <p class="sub">cockpit puts each agent next to its ticket, PR, CI and deploy, and tells you whose move it is.
+        Your inbox, runbooks, meetings and releases sit one key away.</p>
       <div class="buttons">
-        <a class="button primary" href="desktop.html">Herdr APP</a>
-        <a class="button" href="terminal.html">Herdr TUI</a>
+        <a class="button primary" href="#install">Install in Claude Code</a>
+        <a class="button" href="#demo" data-play><svg class="i play" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>Watch the demo</a>
       </div>
-    </section>
+      <p class="note">Free and open source · macOS · for herdr and the Herdr desktop app</p>
 
-    <h2 id="install">Install</h2>
-    <p>In a Claude Code session:</p>
-    <pre><code>/plugin install cockpit --marketplace quaresc/cockpit
-/cockpit:setup</code></pre>
-    <p>Setup asks what you want and installs both halves. <code>/cockpit:doctor</code> checks everything. Needs macOS,
-      <code>gh</code> signed in and <code>jq</code>.</p>
-
-    <h2>Two ways to run it</h2>
-    <div class="grid">
-      <a class="card" href="desktop.html">
-        <h3>Herdr APP</h3>
-        <p>Drawn natively in the Herdr desktop app: Home, sidebar, every app as a view.</p>
-      </a>
-      <a class="card" href="terminal.html">
-        <h3>Herdr TUI</h3>
-        <p>In herdr: a sidebar, a footer and pinned spaces beside your agents.</p>
-      </a>
+      <figure class="frame" id="demo">
+        <video controls muted playsinline preload="metadata" poster="img/app/home-dark.png" width="1600" height="1025">
+          <source src="img/cockpit.mp4" type="video/mp4">
+        </video>
+      </figure>
     </div>
-    <p>Both share the same hub and data, so they can run at once.</p>
-  </div>
+
+    <div class="works wrap">
+      <p>Works with what you already use</p>
+      <ul class="chips">
+        <li>Claude Code</li><li>herdr</li><li>Herdr app</li><li>GitHub</li><li>Linear</li><li>Jira</li><li>CircleCI</li>
+        <li>Google Calendar</li><li>Datadog</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">How it works</span>
+        <h2>From install to one place, in three steps</h2>
+      </div>
+      <ol class="steps">
+        <li>
+          <h3>Install</h3>
+          <p>Two commands in Claude Code. Setup picks your features and wires herdr, the Herdr app, or both.</p>
+        </li>
+        <li>
+          <h3>Agents get context</h3>
+          <p>Each session knows its ticket, branch, PR, CI and deploy, and shows them right beside it.</p>
+        </li>
+        <li>
+          <h3>Work from one place</h3>
+          <p>Home says who waits on you. Answer, merge, fix CI or recap without hunting for the tab.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section alt" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Features</span>
+        <h2>Everything your agents touch, in reach</h2>
+        <p>One hub feeds every app, so the sidebar, the board and the palette always agree.</p>
+      </div>
+      <div class="features">
+        <a class="feature-card" href="desktop.html#home">
+          <span class="ico"><svg class="i"><use href="#i-home"/></svg></span>
+          <h3>Home dashboard</h3>
+          <p>KPI tiles, the next move, agents by stage, then Up next, Apps and Activity.</p>
+          <span class="where">Herdr APP</span>
+        </a>
+        <a class="feature-card" href="desktop.html#agents">
+          <span class="ico"><svg class="i"><use href="#i-agent"/></svg></span>
+          <h3>Agents beside their work</h3>
+          <p>Ticket, PR, CI, cost, CPU and memory on every agent; questions answered in place.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card" href="desktop.html#inbox">
+          <span class="ico"><svg class="i"><use href="#i-inbox"/></svg></span>
+          <h3>Inbox</h3>
+          <p>Alerts, reviews, your PRs and tickets by kind; merge, or start an agent on one.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card mint" href="desktop.html#blueprint">
+          <span class="ico"><svg class="i"><use href="#i-flow"/></svg></span>
+          <h3>Live blueprint</h3>
+          <p>The agent's plan as a diagram it keeps current. Click a box to ask for a change.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card" href="terminal.html#show">
+          <span class="ico"><svg class="i"><use href="#i-chart"/></svg></span>
+          <h3>Show panes</h3>
+          <p>Charts, tables, diffs and before/after screenshots beside the conversation.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card" href="desktop.html#palette">
+          <span class="ico"><svg class="i"><use href="#i-search"/></svg></span>
+          <h3>One palette</h3>
+          <p>Tickets, PRs, runbooks, meetings, the week's history and past sessions.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card" href="desktop.html#apps">
+          <span class="ico"><svg class="i"><use href="#i-list"/></svg></span>
+          <h3>Runbook · To-do · Meetings</h3>
+          <p>The steps left to ship, your list, your week with join and a prepared brief.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card" href="desktop.html#monitor">
+          <span class="ico"><svg class="i"><use href="#i-pulse"/></svg></span>
+          <h3>Monitor · Routines <span class="badge">opt-in</span></h3>
+          <p>Each release judged on errors and latency; Claude prompts run on a schedule.</p>
+          <span class="where">Herdr APP · Herdr TUI</span>
+        </a>
+        <a class="feature-card mint" href="#faq">
+          <span class="ico"><svg class="i"><use href="#i-hub"/></svg></span>
+          <h3>A shared, local hub</h3>
+          <p>Fetches GitHub, Linear, CircleCI and your calendar, or asks a hidden Claude session.</p>
+          <span class="where">Both halves, at once</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tour">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Tour</span>
+        <h2>See it in the Herdr app</h2>
+        <p>The acme demo world: a few agents on daily quotas, a flaky test and an invoice export.</p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Screens">
+        <button role="tab" id="t-home" aria-controls="p-home" aria-selected="true">Home</button>
+        <button role="tab" id="t-inbox" aria-controls="p-inbox" aria-selected="false" tabindex="-1">Inbox</button>
+        <button role="tab" id="t-work" aria-controls="p-work" aria-selected="false" tabindex="-1">Work &amp; palette</button>
+        <button role="tab" id="t-monitor" aria-controls="p-monitor" aria-selected="false" tabindex="-1">Monitor</button>
+      </div>
+
+      <div class="panel" role="tabpanel" id="p-home" aria-labelledby="t-home">
+        <figure class="frame">
+          <picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/home-dark.png" alt="Home: the next move and every agent by whose move it is" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Home.</b> The next move, and every agent and PR by whose move it is.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-inbox" aria-labelledby="t-inbox">
+        <figure class="frame">
+          <picture><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/inbox-dark.png" alt="The inbox: alerts, reviews and tickets with their PRs" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Inbox.</b> Alerts, reviews, then your tickets with their PRs, CI and deploys.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-work" aria-labelledby="t-work">
+        <figure class="frame">
+          <picture><source srcset="img/app/palette-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/palette-dark.png" alt="An agent at work with the palette open over it" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Work.</b> An agent at work, the palette open over it (<kbd>⌘⇧P</kbd>).</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-monitor" aria-labelledby="t-monitor">
+        <figure class="frame">
+          <picture><source srcset="img/app/monitor-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/monitor-dark.png" alt="The monitor: today's releases judged on errors and latency" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Monitor.</b> Each release judged on errors and latency, with its alerts.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" id="halves">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Two ways to run it</span>
+        <h2>Herdr APP or Herdr TUI</h2>
+        <p>The same apps and data, drawn natively or in your terminal.</p>
+      </div>
+      <div class="compare">
+        <article class="plan">
+          <div class="thumb"><picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="cockpit in the Herdr app" width="1600" height="1025" loading="lazy"></picture></div>
+          <div class="body">
+            <span class="kicker">Desktop</span>
+            <h3>Herdr APP</h3>
+            <p class="tagline">A layout and a mod, drawn natively by the Herdr desktop app.</p>
+            <ul class="checks">
+              <li><svg class="i"><use href="#i-check"/></svg><span>Home dashboard with the next move</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>Sidebar: questions answered in place, agents by ticket</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>Side panel per agent: show, review, runbook, files</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>Buttons, hover cards, right-click menus, <kbd>⌘</kbd> keys</span></li>
+            </ul>
+            <a class="button" href="desktop.html">Explore the app <svg class="i"><use href="#i-arrow"/></svg></a>
+          </div>
+        </article>
+        <article class="plan">
+          <div class="thumb"><img src="img/overview.svg" alt="cockpit in herdr: sidebar, an agent, a browser beside it and the footer" width="1296" height="679" loading="lazy"></div>
+          <div class="body">
+            <span class="kicker">Terminal</span>
+            <h3>Herdr TUI</h3>
+            <p class="tagline">A herdr plugin: cockpit in your terminal, beside your agents.</p>
+            <ul class="checks">
+              <li><svg class="i"><use href="#i-check"/></svg><span>Sidebar with each agent's task, branch, ticket and CI</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>Footer: one click to ticket, PR, deploy and preview</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>Pinned spaces, one prefix key per app</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>E2E tests in a browser beside the agent</span></li>
+            </ul>
+            <a class="button" href="terminal.html">Explore the TUI <svg class="i"><use href="#i-arrow"/></svg></a>
+          </div>
+        </article>
+      </div>
+      <p class="both">Both run on the same hub, so you can use them at once.</p>
+    </div>
+  </section>
+
+  <section class="section" id="install">
+    <div class="wrap install">
+      <div>
+        <span class="eyebrow">Install</span>
+        <h2>Two commands in Claude Code</h2>
+        <p class="lead">Setup asks what you want, writes your config and installs both halves.</p>
+        <ul class="needs">
+          <li><svg class="i"><use href="#i-check"/></svg><span>macOS, with <code>gh</code> signed in and <code>jq</code></span></li>
+          <li><svg class="i"><use href="#i-check"/></svg><span><a href="https://herdr.dev">herdr</a> 0.9+ (with a Nerd Font), the Herdr app, or both</span></li>
+          <li><svg class="i"><use href="#i-check"/></svg><span>Your Claude Code connectors for tickets, CI and calendar, if any</span></li>
+        </ul>
+      </div>
+      <div>
+        <div class="term">
+          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><em>claude</em>
+            <button class="copy" type="button" data-copy="/plugin install cockpit --marketplace quaresc/cockpit&#10;/cockpit:setup"><svg class="i"><use href="#i-copy"/></svg><span>Copy</span></button>
+          </div>
+<pre><code><span class="p">&gt; </span>/plugin install cockpit --marketplace quaresc/cockpit
+<span class="p">&gt; </span>/cockpit:setup
+<span class="c"># any time later</span>
+<span class="p">&gt; </span>/cockpit:doctor</code></pre>
+        </div>
+        <p class="after"><code>/cockpit:doctor</code> checks every part and fixes what is broken.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" id="faq">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">FAQ</span>
+        <h2>Questions</h2>
+      </div>
+      <div class="faq">
+        <details open>
+          <summary>Do I need API tokens?</summary>
+          <p>No. GitHub goes through your <code>gh</code> login, and tickets, CI and meetings come from the Claude Code
+            connectors you already have, through one hidden, idle Claude session the hub keeps.</p>
+          <p>A Linear key, a CircleCI token or your calendar's secret iCal address are optional: with them the hub fetches
+            that data itself.</p>
+        </details>
+        <details>
+          <summary>What does it cost?</summary>
+          <p>cockpit is free and MIT-licensed. Its Claude features run on your own Claude Code plan: recaps on haiku,
+            meeting briefs, and routines, which take a weekly budget. Each one can be turned off.</p>
+          <p>The hidden session that reads your connectors sits idle at its prompt and spends no tokens.</p>
+        </details>
+        <details>
+          <summary>Does it work without the Herdr app?</summary>
+          <p>Yes. The herdr half works alone in your terminal, the Herdr app half works alone, and both can run at once on
+            the same hub. Setup wires whichever you have.</p>
+        </details>
+        <details>
+          <summary>Is my data sent anywhere?</summary>
+          <p>Not to cockpit: there is no cockpit server. The hub runs on your Mac, listens only on 127.0.0.1 with a token,
+            and keeps its state in <code>~/.cache/cockpit</code>.</p>
+          <p>It talks to GitHub, your ticket and CI tools and your calendar as you, and Claude features go through your
+            own Claude Code. Search over past sessions uses a small model, downloaded once and run locally.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="cta">
+        <h2>Stop hunting for the agent that needs you</h2>
+        <p>Install cockpit in Claude Code and let Home tell you whose move it is.</p>
+        <div class="buttons">
+          <a class="button primary" href="#install">Install</a>
+          <a class="button" href="https://github.com/quaresc/cockpit"><svg class="i" style="fill:currentColor;stroke:none" viewBox="0 0 16 16"><use href="#i-gh"/></svg>Star on GitHub</a>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="site-footer">
   <div class="wrap">
-    <span>cockpit · MIT license</span>
-    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="24" height="24">cockpit</a>
+    <nav aria-label="Footer">
+      <a href="desktop.html">Herdr APP</a>
+      <a href="terminal.html">Herdr TUI</a>
+      <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+      <a href="https://herdr.dev">herdr</a>
+    </nav>
+    <small>MIT license · Screens show the fictional acme world.</small>
   </div>
 </footer>
+
+<script>
+  // The demo video falls back to the screenshot while img/cockpit.mp4 is missing.
+  (function () {
+    var video = document.querySelector("#demo video");
+    var source = video && video.querySelector("source");
+    function fallback() {
+      if (!video.parentNode) return;
+      var pic = document.createElement("picture");
+      pic.innerHTML = '<source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)">' +
+        '<img class="app-shot" src="img/app/home-dark.png" alt="The cockpit Home in the Herdr app" width="1600" height="1025">';
+      video.replaceWith(pic);
+    }
+    if (source) {
+      source.addEventListener("error", fallback);
+      if (video.networkState === 3) fallback();
+    }
+    document.querySelectorAll("[data-play]").forEach(function (a) {
+      a.addEventListener("click", function () {
+        var v = document.querySelector("#demo video");
+        if (v) v.play().catch(function () {});
+      });
+    });
+
+    // Showcase tabs: without this script every screen shows, one under the other.
+    var tabs = document.querySelector(".tabs");
+    if (tabs) {
+      var buttons = Array.prototype.slice.call(tabs.querySelectorAll("[role=tab]"));
+      function pick(b, focus) {
+        buttons.forEach(function (x) {
+          var on = x === b;
+          x.setAttribute("aria-selected", on);
+          x.tabIndex = on ? 0 : -1;
+          document.getElementById(x.getAttribute("aria-controls")).hidden = !on;
+        });
+        if (focus) b.focus();
+      }
+      buttons.forEach(function (b, n) {
+        b.addEventListener("click", function () { pick(b); });
+        b.addEventListener("keydown", function (e) {
+          var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          if (d) pick(buttons[(n + d + buttons.length) % buttons.length], true);
+        });
+      });
+      tabs.classList.add("ready");
+      pick(buttons[0]);
+    }
+
+    document.querySelectorAll("[data-copy]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var label = b.querySelector("span");
+        navigator.clipboard.writeText(b.dataset.copy).then(function () {
+          label.textContent = "Copied";
+          setTimeout(function () { label.textContent = "Copy"; }, 1600);
+        });
+      });
+    });
+  })();
+</script>
 </body>
 </html>

@@ -4,12 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cockpit · Herdr APP</title>
-  <meta name="description" content="cockpit: Claude Code agents beside their tickets, PRs, CI and deploys, in herdr and the Herdr app.">
+  <meta name="description" content="cockpit in the Herdr desktop app: Home, a sidebar of agents, every app as a view, a side panel beside each agent.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+  <symbol id="i-side" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16M5.5 8h1.5M5.5 11h1.5"/></symbol>
+  <symbol id="i-agent" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16M17.5 8h1M17.5 11h1"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="15" width="8" height="6" rx="1.5"/><path d="M7 9v3a3 3 0 0 0 3 3h3"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="m3 6 2 2 3-3M3 13l2 2 3-3M12 7h9M12 14h9M4 20h17"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-recap" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><path d="m16 16 2 2 4-4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+</svg>
+
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="30" height="30">cockpit</a>
@@ -18,82 +34,102 @@
       <a href="desktop.html" aria-current="page">Herdr APP</a>
       <a href="terminal.html">Herdr TUI</a>
       <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
-      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+      <a href="https://github.com/quaresc/cockpit"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
     </nav>
   </div>
 </header>
 
 <main>
-  <div class="wrap">
-    <div class="page-head">
-      <h1>Herdr APP</h1>
-      <p class="lead">cockpit as a layout and a mod in the Herdr desktop app. <code>/cockpit:setup</code> installs it, or
-        <code>cockpit app install</code>.</p>
+  <section class="page-hero">
+    <div class="wrap">
+      <span class="eyebrow">Herdr APP</span>
+      <h1>cockpit, <span class="grad">drawn natively</span></h1>
+      <p class="sub">A layout and a mod for the Herdr desktop app: Home, a sidebar of agents, every app as a view.
+        <code>/cockpit:setup</code> installs it, or <code>cockpit app install</code>.</p>
+      <div class="buttons">
+        <a class="button primary" href="index.html#install">Install</a>
+        <a class="button" href="#keys">Keys</a>
+      </div>
+      <figure class="frame">
+        <picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/home-dark.png" alt="Home: the next move and the agents by whose move it is" width="1600" height="1025"></picture>
+      </figure>
     </div>
-      <figure class="shot"><picture><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="Home: the next move and the agents by whose move it is"></picture></figure>
-    <section class="feature text-only">
-      <div>
-        <h3>Home</h3>
-        <p>The next move, and every agent and PR by whose move it is. Answer, merge or recap from the keyboard.</p>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>What's in it</h2>
       </div>
-    </section>
-    <section class="feature text-only">
-      <div>
-        <h3>Sidebar</h3>
-        <p>The agents that need you, answered in place, every agent by ticket, and a bubble on each app.</p>
-      </div>
-    </section>
-    <section class="feature">
-      <div>
-        <h3>Inbox</h3>
-        <p>Reviews, then your tickets with their PRs, CI and deploys. A click on a reference opens it.</p>
-      </div>
-      <figure class="shot"><picture><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img src="img/app/inbox-dark.png" alt="The inbox"></picture></figure>
-    </section>
-    <section class="feature text-only">
-      <div>
-        <h3>Runbook · To-do · Meetings</h3>
-        <p>The steps left to ship a ticket, your to-do list, your week with join and prepare.</p>
-      </div>
-    </section>
-    <section class="feature text-only">
-      <div>
-        <h3>Monitor · Routines</h3>
-        <p>Each release judged on errors and latency; Claude prompts the hub runs on a schedule. Both opt-in.</p>
-      </div>
-    </section>
-    <section class="feature">
-      <div>
-        <h3>Beside each agent</h3>
-        <p>A side panel with its show panes, review, runbook, files and changes; its links in the status bar.</p>
-      </div>
-      <figure class="shot"><picture><source srcset="img/app/work-light.png" media="(prefers-color-scheme: light)"><img src="img/app/work-dark.png" alt="An agent with its side panel"></picture></figure>
-    </section>
-    <section class="feature text-only">
-      <div>
-        <h3>Palette</h3>
-        <p>⌘⇧P: Herdr’s commands plus everything cockpit knows, the week’s history and past sessions.</p>
-      </div>
-    </section>
-    <h2>Keys</h2>
-    <div class="table-wrap">
-      <table>
-        <tr><td>⌘⇧P</td><td class="wrap-ok">Palette</td></tr>
-        <tr><td>⌘⌥0</td><td class="wrap-ok">Home ↔ work</td></tr>
-        <tr><td>⌘⌥1 … ⌘⌥6</td><td class="wrap-ok">Inbox, runbook, to-do, meetings, monitor, routines</td></tr>
-        <tr><td>⌘⌥B</td><td class="wrap-ok">Side panel</td></tr>
-        <tr><td>⌘J</td><td class="wrap-ok">Next agent waiting</td></tr>
-        <tr><td>⌘G · ⌘L</td><td class="wrap-ok">The agent’s PR · ticket</td></tr>
-        <tr><td>⌘R</td><td class="wrap-ok">Recap of every agent</td></tr>
-      </table>
+      <ul class="list">
+        <li id="home"><span class="ico"><svg class="i"><use href="#i-home"/></svg></span><div><b>Home</b><span>KPI tiles, the next move with its choices as buttons, agents by stage; Up next, Apps and Activity.</span></div></li>
+        <li id="sidebar"><span class="ico"><svg class="i"><use href="#i-side"/></svg></span><div><b>Sidebar</b><span>Agents that need you, answered in place; every agent by ticket; quota bars; a bubble per app.</span></div></li>
+        <li id="agents"><span class="ico"><svg class="i"><use href="#i-agent"/></svg></span><div><b>Agents</b><span>Floating terminal cards with CPU and memory; tabs and spaces named after their work.</span></div></li>
+        <li id="panel"><span class="ico"><svg class="i"><use href="#i-panel"/></svg></span><div><b>Side panel</b><span>Show, Review, Runbook, Files and Changes beside the focused agent; its links in the status bar.</span></div></li>
+        <li id="blueprint"><span class="ico"><svg class="i"><use href="#i-flow"/></svg></span><div><b>Live blueprint</b><span>The agent's plan as a diagram it keeps current. Click a box to ask for a change.</span></div></li>
+        <li id="inbox"><span class="ico"><svg class="i"><use href="#i-inbox"/></svg></span><div><b>Inbox</b><span>Alerts, reviews, your PRs, tickets and cleanup; merge, or start an agent in a worktree.</span></div></li>
+        <li id="palette"><span class="ico"><svg class="i"><use href="#i-search"/></svg></span><div><b>Palette</b><span><kbd>⌘⇧P</kbd>: Herdr's commands plus everything cockpit knows, history and past sessions.</span></div></li>
+        <li id="apps"><span class="ico"><svg class="i"><use href="#i-list"/></svg></span><div><b>Runbook · To-do · Meetings</b><span>The steps left to ship, your list, your week with join and a prepared brief.</span></div></li>
+        <li id="monitor"><span class="ico"><svg class="i"><use href="#i-pulse"/></svg></span><div><b>Monitor <span class="badge">opt-in</span></b><span>Each release judged on errors and latency, from Datadog.</span></div></li>
+        <li id="routines"><span class="ico"><svg class="i"><use href="#i-clock"/></svg></span><div><b>Routines <span class="badge">opt-in</span></b><span>Claude prompts and scripts on a schedule or an event; each run's output as Markdown.</span></div></li>
+        <li id="recap"><span class="ico"><svg class="i"><use href="#i-recap"/></svg></span><div><b>Recap · Queue · Resume</b><span>Every agent recapped by stage, prompts queued for a busy one, agents back after a restart.</span></div></li>
+        <li id="notifications"><span class="ico"><svg class="i"><use href="#i-bell"/></svg></span><div><b>Notifications</b><span>Herdr's toast in front, the system's otherwise; a click opens the row it is about.</span></div></li>
+      </ul>
     </div>
-  </div>
+  </section>
+
+  <section class="section alt">
+    <div class="wrap gallery">
+      <figure class="frame">
+        <picture><source srcset="img/app/palette-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/palette-dark.png" alt="An agent at work with the palette open over it" width="1600" height="1025" loading="lazy"></picture>
+        <figcaption><b>Work.</b> An agent at work, the palette open over it.</figcaption>
+      </figure>
+      <div class="gallery two">
+        <figure class="frame">
+          <picture><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/inbox-dark.png" alt="The inbox" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Inbox.</b> By kind, each reference a link.</figcaption>
+        </figure>
+        <figure class="frame">
+          <picture><source srcset="img/app/monitor-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/monitor-dark.png" alt="The monitor" width="1600" height="1025" loading="lazy"></picture>
+          <figcaption><b>Monitor.</b> Today's releases and their health.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="keys">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Keys</h2>
+        <p>Every app keeps its TUI keys, plus buttons and right-click menus.</p>
+      </div>
+      <div class="keys">
+        <table>
+          <tr><td><kbd>⌘⇧P</kbd></td><td>Palette</td></tr>
+          <tr><td><kbd>⌘⌥0</kbd></td><td>Home ↔ work</td></tr>
+          <tr><td><kbd>⌘⌥1</kbd> … <kbd>⌘⌥6</kbd></td><td>Inbox, runbook, to-do, meetings, monitor, routines</td></tr>
+          <tr><td><kbd>⌘⌥A</kbd></td><td>The focused agent alone</td></tr>
+          <tr><td><kbd>⌘⌥B</kbd></td><td>Side panel</td></tr>
+          <tr><td><kbd>⌘J</kbd></td><td>Next agent waiting</td></tr>
+          <tr><td><kbd>⌘G</kbd> · <kbd>⌘L</kbd></td><td>The agent's PR · ticket</td></tr>
+          <tr><td><kbd>⌘R</kbd></td><td>Recap of every agent</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="site-footer">
   <div class="wrap">
-    <span>cockpit · MIT license</span>
-    <span><a href="https://github.com/quaresc/cockpit">GitHub</a> · <a href="https://github.com/quaresc/cockpit/releases">Releases</a> · <a href="https://herdr.dev">herdr</a></span>
+    <a class="brand" href="index.html"><img src="img/logo.svg" alt="" width="24" height="24">cockpit</a>
+    <nav aria-label="Footer">
+      <a href="desktop.html">Herdr APP</a>
+      <a href="terminal.html">Herdr TUI</a>
+      <a href="https://github.com/quaresc/cockpit/releases">Changelog</a>
+      <a href="https://github.com/quaresc/cockpit">GitHub</a>
+      <a href="https://herdr.dev">herdr</a>
+    </nav>
+    <small>MIT license · Screens show the fictional acme world.</small>
   </div>
 </footer>
 </body>

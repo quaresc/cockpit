@@ -2,7 +2,11 @@
 
 <h1 align="center">cockpit</h1>
 
-<p align="center">Your Claude Code agents, beside their ticket, PR, CI and deploy.<br>
+<p align="center"><b>Every Claude Code agent, beside its work.</b><br>
+Each agent next to its ticket, PR, CI and deploy, and Home tells you whose move it is.<br>
+Your inbox, runbooks, meetings and releases are one key away.</p>
+
+<p align="center"><a href="https://quaresc.github.io/cockpit/">Website</a> ·
 <a href="https://quaresc.github.io/cockpit/desktop.html">Herdr APP</a> ·
 <a href="https://quaresc.github.io/cockpit/terminal.html">Herdr TUI</a> ·
 <a href="https://github.com/quaresc/cockpit/releases">Changelog</a></p>
@@ -18,8 +22,8 @@ In a Claude Code session:
 /cockpit:setup
 ```
 
-Setup asks what you want and installs both halves; `/cockpit:doctor` checks everything. Needs macOS, `gh` signed in
-and `jq`.
+Setup asks what you want and installs both halves, for [herdr](https://herdr.dev), the Herdr app, or both;
+`/cockpit:doctor` checks everything. Needs macOS, `gh` signed in and `jq`.
 
 ## License
 
