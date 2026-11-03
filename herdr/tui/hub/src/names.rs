@@ -79,7 +79,8 @@ fn round() {
     for (id, members) in spaces {
         let now = members[0]["space"]["name"].as_str().unwrap_or_default().to_string();
         let frontend = members[0]["frontend"].as_str().unwrap_or("app").to_string();
-        let Some(name) = space_name(&members, &inbox) else { continue };
+        // Never an empty name: Herdr would take it as "back to the folder's", over a name the person gave.
+        let Some(name) = space_name(&members, &inbox).filter(|n| !n.trim().is_empty()) else { continue };
         let folder = members[0]["cwd"].as_str().unwrap_or_default();
         if now != name && is_default_space(&now, folder, &pinned, given.get(&id)) && rename_space(&frontend, &id, &name) {
             given.insert(id, name);
@@ -194,7 +195,7 @@ fn first_prompt(path: &Path) -> Option<String> {
 /// "ENG-412 · Store and enforce" when every agent there is on one ticket, else their one repo.
 fn space_name(members: &[&Value], inbox: &Value) -> Option<String> {
     let one = |key: &str| -> Option<String> {
-        let first = members[0][key].as_str().map(str::to_string).or_else(|| members[0][key]["key"].as_str().map(str::to_string))?;
+        let first = members[0][key].as_str().or(members[0][key]["key"].as_str()).filter(|v| !v.trim().is_empty())?.to_string();
         members.iter().all(|m| m[key].as_str().or(m[key]["key"].as_str()) == Some(first.as_str())).then_some(first)
     };
     if let Some(ticket) = one("ticket") {
@@ -253,5 +254,7 @@ mod tests {
         assert_eq!(space_name(&[&a, &b], &Value::Null).as_deref(), Some("ENG-412 · Store and enforce"));
         assert_eq!(space_name(&[&a, &c], &Value::Null).as_deref(), Some("api"), "no shared ticket: the shared repo");
         assert_eq!(space_name(&[&c, &c], &Value::Null).as_deref(), Some("api"));
+        let blank = json!({"ticket": null, "repo": ""});
+        assert_eq!(space_name(&[&blank, &blank], &Value::Null), None, "no empty name");
     }
 }

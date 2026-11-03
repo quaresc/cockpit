@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.30.1 (2026-11-03)
+
+- A branch whose PR already merged, still checked out, no longer gives a session its ticket, PR or CI.
+- The space renamer never sets an empty name, which Herdr reads as "after its folder".
+
 ## 0.30.0 (2026-11-03)
 
 - Home is a dashboard: KPI tiles, the next move (an agent waiting on you), agents by stage, your PRs, then Up next,

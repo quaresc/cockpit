@@ -8,6 +8,7 @@ import { home, loadConfig } from './config'
 type $ = EngineInterface
 
 const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
+const inbox = atom({ plugin: 'cockpit', key: 'inbox' } as const, null)
 
 // Which checkout this session works in, followed from the paths its tools touch: the repos folder, herdr's worktrees,
 // and Claude Code's worktrees inside a repo. The checkout is git's own top folder, so a worktree reads its own branch.
@@ -89,5 +90,8 @@ export async function branchOf($: $, current: Work) {
   if (focus) return focus.branch
   const { exitCode, stdout } = await $.process.run(['git', '-C', current.dir, 'branch', '--show-current'])
   const branch = exitCode === 0 ? stdout.trim() : ''
-  return ['main', 'master', 'develop', ''].includes(branch) ? undefined : branch
+  if (['main', 'master', 'develop', ''].includes(branch)) return undefined
+  // A branch whose PR already merged, still checked out, is not what a new session works on: no ticket, PR or CI from it.
+  const data = (await read($, inbox)) as { merged?: { repo: string; branch: string }[] } | null
+  return data?.merged?.some(m => m.branch === branch && m.repo === current.repo) ? undefined : branch
 }
