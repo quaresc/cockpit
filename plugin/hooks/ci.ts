@@ -6,7 +6,7 @@ import { cacheDir, cockpitCommand, fill, home, loadConfig, writeAtomic } from '.
 import { appFor, call, callMapped, can, createPreview, dashboardName, deployedApps, extendPreview, listAt, listPreviews, pick, previewUrl, text } from './platform'
 import { hubOwnsCi } from './feed'
 import { ciChanges, hasTicket } from './match'
-import { checkRequest } from './protocol'
+import { checkRequest, knowsRequest } from './protocol'
 import type { Outcome } from './protocol'
 import { withLease, writeDoc } from './store'
 import { mailGet, mailRequest } from './mail'
@@ -449,7 +449,8 @@ export async function processRequests($: $, onDone: () => void) {
   const entries = await $.fs.list(dir).catch(() => [])
   void pruneResults($, `${dir}/results`).catch(() => undefined)
   for (const entry of entries) {
-    if (!entry.name.endsWith('.json') || entry.name.startsWith('claimed-')) continue
+    if (!entry.name.endsWith('.req') || entry.name.startsWith('claimed-')) continue
+    if (!knowsRequest(await readJson<unknown>($, `${dir}/${entry.name}`))) continue
     const claimed = `${dir}/claimed-${entry.name}`
     // mv is atomic: whichever session moves the file handles it.
     if ((await $.process.run(['mv', `${dir}/${entry.name}`, claimed])).exitCode !== 0) continue

@@ -436,7 +436,8 @@ pub(super) fn request(ctx: &mut Ctx, payload: Value, row: &str, working: &str) -
     if !hubs && !agent::get("claude").is_some_and(|a| a.installed()) {
         return Err(format!("{} needs a server cockpit reaches itself (cockpit setup) or Claude Code's connectors", s(&payload, "label")?));
     }
-    let name = format!("{}-{}.json", now_ms(), s(&payload, "type")?);
+    // `.req`, which sessions on an older plugin never read, so none refuses a type it does not know.
+    let name = format!("{}-{}.req", now_ms(), s(&payload, "type")?);
     files::write(&requests_dir().join(&name), &payload).map_err(|e| e.to_string())?;
     ctx.pending.insert(row.into(), json!({"file": name, "working": working, "label": payload["label"], "at": now()}));
     Ok(())

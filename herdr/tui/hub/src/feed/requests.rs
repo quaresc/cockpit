@@ -61,7 +61,7 @@ pub fn take(cache: &Path, config: &Config, raw: &Value) {
     let Ok(entries) = std::fs::read_dir(&dir) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.ends_with(".json") || name.starts_with("claimed-") {
+        if !name.ends_with(".req") || name.starts_with("claimed-") {
             continue;
         }
         let path = entry.path();

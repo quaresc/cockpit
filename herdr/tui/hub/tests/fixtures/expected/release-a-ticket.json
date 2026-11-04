@@ -2,7 +2,7 @@
   "calls": [],
   "error": null,
   "files": {
-    "home/.cache/cockpit/requests/<MS>-release.json": {
+    "home/.cache/cockpit/requests/<MS>-release.req": {
       "label": "ENG-402",
       "ticket": "ENG-402",
       "type": "release"
@@ -12,7 +12,7 @@
   "pending": {
     "ENG-402": {
       "at": 0,
-      "file": "<MS>-release.json",
+      "file": "<MS>-release.req",
       "label": "ENG-402",
       "working": "moving to Done…"
     }

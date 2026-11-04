@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.37.1 (2026-11-04)
+
+- Opening a mail no longer loads forever when a Claude Code session on an older plugin takes the request: requests are
+  `.req` files older plugins never read, a session leaves a type it does not know to a newer one, and the hub restarts
+  its fetcher session when cockpit updates.
+
 ## 0.37.0 (2026-11-04)
 
 - A Mail space: unread mail split into what needs you and updates, each thread rendered as HTML beside the list (a

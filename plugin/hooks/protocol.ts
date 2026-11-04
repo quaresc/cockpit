@@ -23,6 +23,12 @@ export type Request = {
 // What the session writes back to the app, in requests/results/<file>; `refused` means it never ran.
 export type Outcome = { ok: boolean; state: 'done' | 'failed' | 'refused'; message: string; at: number }
 
+// Whether this plugin knows the request's type: one it does not is left for a newer session to take.
+export const knowsRequest = (raw: unknown) => {
+  const type = (raw as { type?: unknown } | null)?.type
+  return typeof type === 'string' && type in REQUEST_FIELDS
+}
+
 export function checkRequest(raw: unknown): { request: Request } | { refusal: string } {
   const types = Object.keys(REQUEST_FIELDS)
   const value = (raw ?? {}) as Record<string, unknown>

@@ -261,17 +261,17 @@ fn requests_and_ticket_actions_go_out_through_the_servers() {
 
     let requests = cache.join("requests");
     std::fs::create_dir_all(&requests).unwrap();
-    std::fs::write(requests.join("1-rerun.json"), json!({"type": "rerun", "label": "api main", "workflowId": "w1"}).to_string()).unwrap();
-    std::fs::write(requests.join("2-rerun.json"), json!({"type": "rerun", "label": "api main"}).to_string()).unwrap();
-    let rerun = wait_for(&requests.join("results/1-rerun.json"), |v| v["state"].is_string());
+    std::fs::write(requests.join("1-rerun.req"), json!({"type": "rerun", "label": "api main", "workflowId": "w1"}).to_string()).unwrap();
+    std::fs::write(requests.join("2-rerun.req"), json!({"type": "rerun", "label": "api main"}).to_string()).unwrap();
+    let rerun = wait_for(&requests.join("results/1-rerun.req"), |v| v["state"].is_string());
     assert_eq!((&rerun["state"], &rerun["message"]), (&json!("done"), &json!("rerun started")));
-    let refused = wait_for(&requests.join("results/2-rerun.json"), |v| v["state"].is_string());
+    let refused = wait_for(&requests.join("results/2-rerun.req"), |v| v["state"].is_string());
     assert_eq!(refused["state"], "refused", "a rerun names its workflow");
     assert_eq!(calls(&sandbox, "circleci").iter().find(|c| c["tool"] == "rerun_workflow").unwrap()["args"]["workflow"], "w1");
 
     // A thread asked of a session is read by the hub when it reaches the mail server, and kept where the mail space looks.
-    std::fs::write(requests.join("3-mail-get.json"), json!({"type": "mail-get", "label": "Quota numbers", "message": "t1"}).to_string()).unwrap();
-    let got = wait_for(&requests.join("results/3-mail-get.json"), |v| v["state"].is_string());
+    std::fs::write(requests.join("3-mail-get.req"), json!({"type": "mail-get", "label": "Quota numbers", "message": "t1"}).to_string()).unwrap();
+    let got = wait_for(&requests.join("results/3-mail-get.req"), |v| v["state"].is_string());
     assert_eq!(got["state"], "done", "{got}");
     let kept = read(&cache.join("mail/t1.json"));
     assert_eq!((&kept["messages"][0]["fromName"], &kept["messages"][0]["html"]), (&json!("Ana"), &json!("<p>Here they are</p>")));

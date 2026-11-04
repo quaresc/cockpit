@@ -80,11 +80,21 @@ fn claude() -> Option<String> {
     agent::get("claude").filter(agent::Agent::installed).map(|a| a.path())
 }
 
+/// Where the version of the hub that launched the fetcher is kept: a fetcher launched by another runs an older plugin.
+fn launched_by() -> std::path::PathBuf {
+    files::cache().join("fetcher.version")
+}
+
 fn tend() {
     let claude = claude();
     let wanted = claude.is_some() && config::load().0["fetcher"] != false && !mcp_sources().is_empty();
+    let current = std::fs::read_to_string(launched_by()).is_ok_and(|v| v.trim() == env!("CARGO_PKG_VERSION"));
     match (wanted, running().is_some()) {
         (true, false) => launch(&claude.unwrap_or_default()),
+        // The next round launches it again, on this hub's plugin.
+        (true, true) if !current => {
+            let _ = hc(&["kill", FETCHER]);
+        }
         (false, true) => {
             let _ = hc(&["kill", FETCHER]);
         }
@@ -95,6 +105,7 @@ fn tend() {
 fn launch(claude: &str) {
     // A finished terminal of that name holds it: it goes first.
     let _ = hc(&["rm", FETCHER]);
+    let _ = std::fs::write(launched_by(), env!("CARGO_PKG_VERSION"));
     let cwd = config::load().repos();
     // Not through frontend::hc: its trailing --json would land in Claude's arguments.
     let _ = std::process::Command::new(frontend::program("hc", "HC_BIN"))
