@@ -298,11 +298,13 @@ mod tests {
         assert!(act("test-view", "other", &[]).is_none());
         let (tx, rx) = channel();
         subscribe(&json!({"views": ["test-view", {"name": "test-view", "args": {"b": 2}}, "unknown"], "notify": true}), tx);
-        let first: Value = serde_json::from_str(&rx.recv().unwrap()).unwrap();
-        let second: Value = serde_json::from_str(&rx.recv().unwrap()).unwrap();
+        // Empty lines are the keep-alives other tests' notifications send to every subscriber.
+        let next = || -> Value { serde_json::from_str(&rx.iter().find(|l| !l.is_empty()).unwrap()).unwrap() };
+        let first = next();
+        let second = next();
         assert_eq!((first["view"].as_str(), second["value"]["args"]["b"].as_i64()), (Some("test-view"), Some(2)));
         focus("test-view", &json!({"key": "x"}));
-        let focus: Value = serde_json::from_str(&rx.recv().unwrap()).unwrap();
+        let focus = next();
         assert_eq!(focus["target"]["key"], "x");
         assert!(notify(&json!({"title": "hi"})));
         let lines: Vec<String> = rx.try_iter().filter(|l| !l.is_empty()).collect();
