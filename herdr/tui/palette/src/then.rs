@@ -1,9 +1,9 @@
-//! What the palette does once its popup has closed: a jump, a hub action, or text for the Claude session it opened over.
+//! What the palette does once its popup has closed: a jump, a hub action, or text for the agent session it opened over.
 
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use cockpit_core::{actions, files, frontend, hub};
+use cockpit_core::{actions, agent, files, frontend, hub};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,11 +17,23 @@ pub enum Then {
     /// A folder in the person's editor.
     Editor(String),
     /// Typed at the session's prompt, not sent.
-    Insert { pane: String, text: String },
+    Insert {
+        pane: String,
+        text: String,
+    },
     /// Sent to the session as a prompt.
-    Ask { pane: String, text: String },
+    Ask {
+        pane: String,
+        text: String,
+    },
     /// A fork of the session in a tab of the actions space, asked to look into an item (no prompt: just the fork).
-    Fork { session: String, cwd: String, title: String, prompt: String },
+    Fork {
+        agent: String,
+        session: String,
+        cwd: String,
+        title: String,
+        prompt: String,
+    },
 }
 
 impl Then {
@@ -47,7 +59,7 @@ impl Then {
                 Some(terminal) => frontend::app_prompt(terminal, text).then_some(()).ok_or_else(|| format!("could not send to {terminal}")),
                 None => herdr(&["agent", "prompt", pane, text]),
             },
-            Then::Fork { session, cwd, title, prompt } => fork(session, cwd, title, prompt),
+            Then::Fork { agent, session, cwd, title, prompt } => fork(agent, session, cwd, title, prompt),
         }
     }
 }
@@ -81,13 +93,14 @@ fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\"'\"'"))
 }
 
-/// The command line that resumes the session as a fork and asks it the prompt, if any.
-pub fn fork_line(session: &str, prompt: &str) -> String {
-    let line = ["claude", "--resume", session, "--fork-session"].map(quote).join(" ");
-    if prompt.is_empty() { line } else { format!("{line} {}", quote(prompt)) }
+/// The command line that forks the agent's session and asks it the prompt, if any; an error when it cannot fork.
+pub fn fork_line(agent: &str, session: &str, prompt: &str) -> Result<String, String> {
+    let agent = agent::get(agent).ok_or_else(|| format!("no agent {agent:?}"))?;
+    let argv = agent.fork_with(session, Some(prompt)).ok_or_else(|| format!("{} cannot fork a session", agent.name))?;
+    Ok(agent.typed(&argv).iter().map(|w| quote(w)).collect::<Vec<_>>().join(" "))
 }
 
-/// The config's `editor` (code, cursor, zed, ...), else VS Code: its command line, else the macOS app of that name.
+/// The config's `editor` (code, cursor, zed, ...), else VS Code: its command line, else on macOS the app of that name.
 fn editor(cwd: &str) -> Result<(), String> {
     let config = files::config();
     let name = config["editor"].as_str().filter(|e| !e.is_empty()).unwrap_or("code");
@@ -102,20 +115,24 @@ fn editor(cwd: &str) -> Result<(), String> {
         "subl" => "Sublime Text",
         other => other,
     };
-    let opened = Command::new("open").args(["-a", app, cwd]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
-    if opened.is_ok_and(|s| s.success()) { Ok(()) } else { Err(format!("{app} is not installed (set \"editor\" in the cockpit config)")) }
+    // An editor whose command isn't on the PATH still opens by its app name on macOS.
+    let opened = cfg!(target_os = "macos")
+        && Command::new("open").args(["-a", app, cwd]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
+    if opened { Ok(()) } else { Err(format!("{app} is not installed (set \"editor\" in the cockpit config)")) }
 }
 
-fn fork(session: &str, cwd: &str, title: &str, prompt: &str) -> Result<(), String> {
+fn fork(agent: &str, session: &str, cwd: &str, title: &str, prompt: &str) -> Result<(), String> {
     if session.is_empty() || !session.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err(format!("not a session id: {session:?}"));
     }
+    let line = fork_line(agent, session, prompt)?;
     let short: String = title.chars().take(28).collect();
     let label = if short.len() < title.len() { format!("⑂ {short}…") } else { format!("⑂ {title}") };
-    let pane = actions::open_tab(&actions::pinned(), cwd, &label, None).or_else(|| frontend::new_space(cwd, &label)).ok_or("herdr opened no tab for the fork")?;
+    let pane =
+        actions::open_tab(&actions::pinned(), cwd, &label, None).or_else(|| frontend::new_space(cwd, &label)).ok_or("herdr opened no tab for the fork")?;
     match pane.strip_prefix(frontend::APP) {
-        Some(_) => frontend::run_in(&pane, &fork_line(session, prompt)).then_some(()).ok_or_else(|| "the fork's tab took no command".to_string()),
-        None => herdr(&["pane", "run", &pane, &fork_line(session, prompt)]),
+        Some(_) => frontend::run_in(&pane, &line).then_some(()).ok_or_else(|| "the fork's tab took no command".to_string()),
+        None => herdr(&["pane", "run", &pane, &line]),
     }
 }
 
@@ -125,7 +142,11 @@ mod tests {
 
     #[test]
     fn the_fork_line_quotes_its_prompt() {
-        assert_eq!(fork_line("4f1c-77", "look at it's state"), "claude --resume 4f1c-77 --fork-session 'look at it'\"'\"'s state'");
-        assert_eq!(fork_line("4f1c-77", ""), "claude --resume 4f1c-77 --fork-session");
+        let line =
+            |agent: &str, prompt: &str| fork_line(agent, "4f1c-77", prompt).map(|l| l.split_once(' ').map(|(_, rest)| rest.to_string()).unwrap_or_default());
+        assert_eq!(line("claude", "look at it's state"), Ok("--resume 4f1c-77 --fork-session 'look at it'\"'\"'s state'".into()));
+        assert_eq!(line("claude", ""), Ok("--resume 4f1c-77 --fork-session".into()));
+        assert_eq!(line("codex", "go"), Ok("fork 4f1c-77 go".into()));
+        assert_eq!(fork_line("copilot", "4f1c-77", ""), Err("GitHub Copilot CLI cannot fork a session".into()));
     }
 }

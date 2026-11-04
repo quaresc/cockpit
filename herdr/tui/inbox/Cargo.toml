@@ -3,6 +3,10 @@ name = "cockpit-inbox"
 description = "The inbox space: PRs, tickets, CI runs and previews as one tree, with their actions."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true

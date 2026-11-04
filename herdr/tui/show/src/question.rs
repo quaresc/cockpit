@@ -199,7 +199,10 @@ impl Confirm {
             out.push(Row::text(format!("✓ answered: {answered}"), if answered == "cancelled" { dim() } else { fg(GREEN) }));
             return out;
         }
-        let buttons = [(false, "Cancel".to_string(), LINE, Color::Rgb(72, 72, 78), Color::Rgb(24, 24, 26), FG), (true, self.label.clone(), RED, Color::Rgb(255, 176, 176), Color::Rgb(168, 76, 76), BG)];
+        let buttons = [
+            (false, "Cancel".to_string(), LINE, Color::Rgb(72, 72, 78), Color::Rgb(24, 24, 26), FG),
+            (true, self.label.clone(), RED, Color::Rgb(255, 176, 176), Color::Rgb(168, 76, 76), BG),
+        ];
         let mut rows = [Row::new(), Row::new(), Row::new()];
         for (yes, label, bg, light, dark, text) in buttons {
             let w = (width(&label) + 4).max(16);

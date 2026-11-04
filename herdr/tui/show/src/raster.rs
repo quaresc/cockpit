@@ -68,10 +68,14 @@ pub fn svg(text: &str, width: Option<f64>) -> Result<DynamicImage, String> {
     let (w, h) = ((size.width() * scale).round().max(1.0) as u32, (size.height() * scale).round().max(1.0) as u32);
     let mut pixmap = tiny_skia::Pixmap::new(w, h).ok_or("empty picture")?;
     resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
-    let data: Vec<u8> = pixmap.pixels().iter().flat_map(|p| {
-        let c = p.demultiply();
-        [c.red(), c.green(), c.blue(), c.alpha()]
-    }).collect();
+    let data: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
     RgbaImage::from_raw(w, h, data).map(DynamicImage::ImageRgba8).ok_or_else(|| "bad pixels".into())
 }
 
@@ -140,4 +144,3 @@ fn sha1_hex(data: &[u8]) -> String {
     }
     h.iter().map(|x| format!("{x:08x}")).collect()
 }
-

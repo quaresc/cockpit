@@ -1,11 +1,11 @@
-// The show view: what a Claude session shows beside itself through the MCP `show` tool, block by block, drawn natively
+// The show view: what an agent session shows beside itself through the MCP `show` tool, block by block, drawn natively
 // (markdown, figure tiles, sortable tables, charts with hover (line, area, bars, donuts), flow and Mermaid diagrams, sequence charts, pictures, before/after
 // compares, diffs with line comments, live logs, CI runs, questions, the session's living blueprint). As a pane (`props.name`) it shows that view; in
 // the right panel it follows the focused agent's views, one tab each. Answers go back through the hub.
 
 import { div, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, v_virtual_list, Scrollbar, InputState, Input, TextView } from "gpui-base";
-import { exec, appHome, focused, panes, run, layout, shared, setShared, props, settings } from "herdr";
+import { exec, appHome, focused, panes, run, layout, shared, setShared, props, settings, window as win } from "herdr";
 import * as hub from "./hub.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
 import { Chart, Figures, zoomed, compact } from "./plot.js";
@@ -236,11 +236,14 @@ export default class Show {
     this.images.set(pic.key, { state: "loading" });
     const rel = `data/cockpit/show/${pic.key}`;
     const fetch = pic.remote ? 'curl -fsSL --max-time 20 -o "$1" "$2"' : 'cp "$2" "$1"';
-    const script = `mkdir -p "$(dirname "$1")" && { [ -s "$1" ] || ${fetch}; } && sips -g pixelWidth -g pixelHeight "$1"`;
+    // Its size from sips on macOS, elsewhere from `file` when it is there ("PNG image data, 800 x 600, …").
+    const size = win()?.platform === "macos" ? 'sips -g pixelWidth -g pixelHeight "$1"' : '{ file -b "$1" || true; }';
+    const script = `mkdir -p "$(dirname "$1")" && { [ -s "$1" ] || ${fetch}; } && ${size}`;
     cx.spawn(async (cx) => {
       try {
         const r = await exec("sh", ["-c", script, "sh", `${appHome()}/${rel}`, pic.src]);
-        const w = Number(/pixelWidth: (\d+)/.exec(r.stdout)?.[1]), h = Number(/pixelHeight: (\d+)/.exec(r.stdout)?.[1]);
+        const dims = [...r.stdout.matchAll(/(\d+) ?x ?(\d+)/g)].pop();
+        const w = Number(/pixelWidth: (\d+)/.exec(r.stdout)?.[1] ?? dims?.[1]), h = Number(/pixelHeight: (\d+)/.exec(r.stdout)?.[1] ?? dims?.[2]);
         this.images.set(pic.key, r.code === 0 ? { state: "ready", rel, w: w || 800, h: h || 500 } : { state: "failed", error: r.stderr.trim() || "could not read the picture" });
       } catch (e) {
         this.images.set(pic.key, { state: "failed", error: String(e?.message ?? e) });
@@ -314,7 +317,7 @@ export default class Show {
   }
 
   openUrl(url) {
-    if (url) exec("open", [url]).catch(() => {});
+    if (url) hub.openUrl(url).catch(() => {});
   }
 
   hide() {

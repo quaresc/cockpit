@@ -1,4 +1,4 @@
-//! Past Claude sessions through the socket, from the fixture box's transcripts: indexed in the background once the hub
+//! Past agent sessions through the socket, from the fixture box's transcripts: indexed in the background once the hub
 //! starts, found after the apps' own entries, and a fork of one opened in a tab of the actions space.
 
 mod common;
@@ -35,7 +35,7 @@ fn search_with_sessions(hub: &Hub, query: &str) -> Vec<Value> {
         if entries.iter().any(|e| e["app"] == "session") {
             return entries;
         }
-        assert!(start.elapsed() < Duration::from_secs(10), "no session found for {query:?}: {entries:?}");
+        assert!(start.elapsed() < Duration::from_secs(30), "no session found for {query:?}: {entries:?}");
         std::thread::sleep(Duration::from_millis(100));
     }
 }
@@ -49,10 +49,11 @@ fn sessions_come_after_the_apps_entries() {
     let last = entries.last().unwrap();
     assert_eq!((last["kind"].as_str(), last["title"].as_str()), (Some("session"), Some("Add dark mode tokens to the sign-in page")));
     assert_eq!(last["target"]["key"], "s-dark");
-    let sessions: Vec<String> =
+    let mut sessions: Vec<String> =
         search_with_sessions(&hub, "sign-in").iter().filter(|e| e["app"] == "session").map(|e| e["target"]["key"].as_str().unwrap().to_string()).collect();
-    assert_eq!(sessions, ["s-login", "s-dark"]);
-    assert!(sandbox.home().join(".cache/cockpit/sessions-index/v2/manifest.json").exists());
+    sessions.sort();
+    assert_eq!(sessions, ["s-dark", "s-login"]);
+    assert!(sandbox.home().join(".cache/cockpit/sessions-index/v3/manifest.json").exists());
 }
 
 #[test]

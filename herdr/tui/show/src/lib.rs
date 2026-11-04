@@ -1,5 +1,5 @@
-//! The view a Claude session shows beside itself, read from ~/.cache/cockpit/show/<name>.json, its
-//! answers and line comments written back for the mod to hand to the session.
+//! The view an agent session shows beside itself, read from ~/.cache/cockpit/show/<name>.json, its answers and line
+//! comments written back for the mod to hand to the session.
 
 mod answers;
 mod app;

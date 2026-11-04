@@ -71,7 +71,7 @@ impl Requests {
                 let waited = now() - job.at;
                 let is_claimed = dir.join("results").join(format!("{file}.claimed")).exists();
                 if waited > ANSWER_WAIT || (waited > CLAIM_WAIT && !is_claimed) {
-                    let message = if is_claimed { "the session that took it never answered" } else { "no Claude session picked it up" };
+                    let message = if is_claimed { "the session that took it never answered" } else { "no Claude Code session picked it up" };
                     // Left behind, a request would run whenever a session next starts, maybe hours later.
                     let _ = std::fs::remove_file(dir.join(&file));
                     let job = self.pending.remove(&file).expect("listed above");
@@ -106,7 +106,7 @@ mod tests {
         assert!(requests.settle().is_empty());
         assert!(!dir.join("1-rerun.json").exists());
         let outcome = &requests.outcome["row"];
-        assert_eq!((outcome.ok, outcome.message.as_str()), (false, "no Claude session picked it up"));
+        assert_eq!((outcome.ok, outcome.message.as_str()), (false, "no Claude Code session picked it up"));
         assert!(requests.working("row").is_none());
     }
 }

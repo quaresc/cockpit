@@ -1,8 +1,9 @@
 ---
 source: meetings/tests/snapshots.rs
+assertion_line: 69
 expression: "render(&mut app, 60, 8)"
 ---
-   Meetings   waiting for a Claude session with the Google
+   Meetings   waiting for a Claude Code session with the G
 
 
 

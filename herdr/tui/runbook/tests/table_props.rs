@@ -21,10 +21,14 @@ fn runbook() -> impl Strategy<Value = (String, Vec<[String; 4]>)> {
         let mut cells = Vec::new();
         for (i, (values, pads)) in rows.into_iter().enumerate() {
             let values: [String; 4] = std::array::from_fn(|k| clean(COLUMNS[k], &values[k]));
-            let written: Vec<String> = values.iter().enumerate().map(|(k, v)| {
-                let v = v.replace('|', "\\|");
-                if COLUMNS[k] == Column::Command && !v.is_empty() { format!("`{v}`") } else { v }
-            }).collect();
+            let written: Vec<String> = values
+                .iter()
+                .enumerate()
+                .map(|(k, v)| {
+                    let v = v.replace('|', "\\|");
+                    if COLUMNS[k] == Column::Command && !v.is_empty() { format!("`{v}`") } else { v }
+                })
+                .collect();
             let pad = |k: usize| " ".repeat(pads[k]);
             text.push('|');
             text.push_str(&format!("{}{}{}|", pad(0), i + 1, pad(0)));

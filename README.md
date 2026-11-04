@@ -2,9 +2,9 @@
 
 <h1 align="center">cockpit</h1>
 
-<p align="center"><b>Every Claude Code agent, beside its work.</b><br>
-Each agent next to its ticket, PR, CI and deploy, and Home tells you whose move it is.<br>
-Your inbox, runbooks, meetings and releases are one key away.</p>
+<p align="center"><b>Every coding agent, beside its work.</b><br>
+Claude Code, Codex and every other agent Herdr runs, each next to its ticket, PR, CI and deploy;<br>
+Home tells you whose move it is, and your inbox, runbooks, meetings and releases are one key away.</p>
 
 <p align="center"><a href="https://quaresc.github.io/cockpit/#demo"><b>▶ Watch the 40-second demo</b></a> ·
 <a href="https://quaresc.github.io/cockpit/">Website</a> ·
@@ -16,16 +16,43 @@ Your inbox, runbooks, meetings and releases are one key away.</p>
 
 ## Install
 
-In a Claude Code session:
+In Claude Code:
 
 ```
 /plugin install cockpit --marketplace quaresc/cockpit
 /cockpit:setup
 ```
 
-Setup asks what you want and installs both halves, for [herdr](https://herdr.dev), the Herdr app, or both;
-`/cockpit:doctor` checks everything. Needs macOS, `gh` signed in and `jq`.
+With any other agent (Codex, OpenCode, Pi, …), in a shell:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/quaresc/cockpit/main/install.sh | sh
+cockpit setup
+```
+
+The shell install needs cockpit 0.33.0 or later.
+
+Setup asks what you want and wires [herdr](https://herdr.dev), the Herdr app, or both; `cockpit doctor` checks
+everything. Needs `gh` signed in and `jq`. Release binaries for macOS and Linux (x86_64, arm64); macOS notifications
+use a small notifier app, Linux `notify-send`. What cockpit asks an agent to do (recaps, routines, meeting briefs)
+runs on the agent you pick in setup.
+
+## Agents
+
+cockpit works with every agent Herdr runs: their status, questions answered from the sidebar, recaps, Home, the inbox,
+runbooks, meetings, routines, and the show, search and changes tools over MCP. A few parts need Claude Code, as they
+read its plugin hooks or its connectors:
+
+- the monitor and the fetchers that use Claude's connectors (Datadog, your deploy platform);
+- the quota bars and Agent spend;
+- the footer under the prompt;
+- the `/runbook` and `/todo` commands, and the morning brief.
+
+## Develop
+
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how the repo is laid out, how to build and test each half, and the GUI
+sandbox. Security reports go through [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT
+MIT; third-party parts are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

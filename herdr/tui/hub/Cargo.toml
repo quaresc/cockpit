@@ -3,6 +3,10 @@ name = "cockpit-hub"
 description = "The background process the space apps share: actions, search across apps, details on demand, history, and the binary kept on the plugin's version."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true
@@ -19,7 +23,7 @@ nucleo-matcher.workspace = true
 libc = "0.2"
 # The feed's HTTPS calls to GitHub, Linear and CircleCI.
 ureq = { version = "3.5.0", default-features = false, features = ["rustls", "gzip"] }
-# The index of past Claude sessions the palette searches.
+# The index of past agent sessions the palette searches.
 tantivy = { version = "0.27.0", default-features = false, features = ["mmap", "lz4-compression", "stemmer"] }
 # The shared documents and their past versions, one file the hub alone writes.
 redb = "4.4.0"
@@ -27,6 +31,8 @@ lz4_flex = "0.14.0"
 # Searching past sessions by meaning: a static embedding model (model2vec) read without its Python runtime.
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 safetensors = "0.6"
+# The model's files checked against the pinned revision's hashes.
+sha2 = "0.10.9"
 
 [dev-dependencies]
 tempfile = "3"

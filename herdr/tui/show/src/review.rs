@@ -35,8 +35,12 @@ fn toplevel(folder: &str) -> Option<String> {
 
 /// The branch a branch's changes are counted from: the remote's default, else main or master.
 fn base_of(repo: &str) -> Option<String> {
-    git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
-        .or_else(|| ["origin/main", "main", "origin/master", "master"].into_iter().find(|b| git(repo, &["rev-parse", "--verify", "--quiet", b]).is_some()).map(str::to_string))
+    git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).or_else(|| {
+        ["origin/main", "main", "origin/master", "master"]
+            .into_iter()
+            .find(|b| git(repo, &["rev-parse", "--verify", "--quiet", b]).is_some())
+            .map(str::to_string)
+    })
 }
 
 /// What `gh` said about the branch's pull request, and its diff, kept a minute per repo and branch.
@@ -118,7 +122,9 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
             let repo = toplevel(first).ok_or_else(|| format!("{first} is not in a git repository"));
             repo.and_then(|repo| patch_of(&repo, scope).and_then(|(patch, about)| walkthrough::start(&repo, scope, model, &patch, &about)))
         }
-        "stop_walkthrough" => walkthrough::stop(&toplevel(first).unwrap_or_else(|| first.to_string()), args.get(1).and_then(Value::as_str).unwrap_or("uncommitted")),
+        "stop_walkthrough" => {
+            walkthrough::stop(&toplevel(first).unwrap_or_else(|| first.to_string()), args.get(1).and_then(Value::as_str).unwrap_or("uncommitted"))
+        }
         _ => return None,
     })
 }
@@ -143,7 +149,12 @@ pub fn message(review: &Value) -> Result<String, String> {
         .enumerate()
         .map(|(i, c)| {
             let side = if c["old"] == true { " (removed line)" } else { "" };
-            let code = c["code"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!(" `{}`", one_line(s).chars().take(80).collect::<String>())).unwrap_or_default();
+            let code = c["code"]
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| format!(" `{}`", one_line(s).chars().take(80).collect::<String>()))
+                .unwrap_or_default();
             format!("{}) {}:{}{side}{code}: {}", i + 1, c["path"].as_str().unwrap_or("?"), c["line"], one_line(c["text"].as_str().unwrap_or_default()))
         })
         .collect();
@@ -177,7 +188,10 @@ mod tests {
             {"path": "src/b.rs", "line": 3, "old": true, "text": "keep this"},
         ]});
         let line = message(&review).unwrap();
-        assert_eq!(line, "My review of this branch's changes (2 comments), please address each: 1) src/a.rs:12 `let x = 2;`: use the constant 2) src/b.rs:3 (removed line): keep this");
+        assert_eq!(
+            line,
+            "My review of this branch's changes (2 comments), please address each: 1) src/a.rs:12 `let x = 2;`: use the constant 2) src/b.rs:3 (removed line): keep this"
+        );
         assert!(!line.contains('\n'));
         assert!(message(&json!({"comments": []})).is_err());
     }

@@ -4,6 +4,7 @@
 
 pub mod actions;
 pub mod acts;
+pub mod agent;
 pub mod anim;
 pub mod bridge;
 pub mod dialog;
@@ -23,6 +24,7 @@ pub mod testing;
 pub mod text;
 pub mod theme;
 pub mod toast;
+pub mod transcripts;
 pub mod widgets;
 
 /// `--version` prints the binary's name and the workspace version, then exits: doctor checks the binaries run with it.

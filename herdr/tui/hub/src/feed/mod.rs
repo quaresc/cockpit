@@ -104,7 +104,12 @@ fn run() {
 
 /// When the inbox app (or the mod after a request) last asked for fresh data.
 fn asked_at(cache: &Path) -> u64 {
-    std::fs::metadata(cache.join("refresh-request")).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::fs::metadata(cache.join("refresh-request"))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 impl Feed {

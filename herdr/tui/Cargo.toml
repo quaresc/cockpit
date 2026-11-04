@@ -4,8 +4,12 @@ resolver = "3"
 members = ["core", "hub", "agents", "inbox", "runbook", "show", "todo", "meetings", "monitor", "routines", "palette", "update", "cli"]
 
 [workspace.package]
-version = "0.32.0"
+version = "0.33.0"
 edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/quaresc/cockpit"
+publish = false
 
 [workspace.dependencies]
 cockpit-core = { path = "core" }

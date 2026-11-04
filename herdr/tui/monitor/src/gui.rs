@@ -117,7 +117,17 @@ fn strip(values: &[f64], text: impl Fn(f64) -> String) -> Value {
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let usual = sorted[sorted.len() / 2];
     let max = sorted.last().copied().unwrap_or(0.0);
-    let level = |v: f64| if usual <= 0.0 { u8::from(v > 0.0) } else if v >= usual * 2.0 { 2 } else if v >= usual * 1.5 { 1 } else { 0 };
+    let level = |v: f64| {
+        if usual <= 0.0 {
+            u8::from(v > 0.0)
+        } else if v >= usual * 2.0 {
+            2
+        } else if v >= usual * 1.5 {
+            1
+        } else {
+            0
+        }
+    };
     let last = values.last().copied().unwrap_or(0.0);
     json!({"values": values, "levels": values.iter().map(|v| level(*v)).collect::<Vec<_>>(), "max": max, "usual": usual, "last": last, "text": text(last), "level": level(last)})
 }
@@ -164,7 +174,8 @@ fn app_model(tui: &App, clock: &Clock, app: &data::App) -> Value {
         (None, true) if app.watched => "ok",
         _ => "idle",
     };
-    let monitors = app.monitors.as_ref().map(|m| json!({"ok": m.ok, "warn": m.warn, "alert": m.alert, "nodata": m.nodata, "total": m.ok + m.warn + m.alert + m.nodata}));
+    let monitors =
+        app.monitors.as_ref().map(|m| json!({"ok": m.ok, "warn": m.warn, "alert": m.alert, "nodata": m.nodata, "total": m.ok + m.warn + m.alert + m.nodata}));
     let series = app.series.as_ref();
     let alerting: Vec<Value> = app
         .alerting()

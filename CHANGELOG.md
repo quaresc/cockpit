@@ -5,6 +5,20 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.33.0 (2026-11-04)
+
+- Every agent Herdr supports, not only Claude Code: cockpit starts, resumes, forks and runs headless Codex, opencode,
+  Copilot, Cursor and the rest from one table (`agents.default`, `agents.commands` in the config), and reads Claude,
+  Codex, pi, omp, Qwen and Copilot sessions for search, recaps and context.
+- `cockpit mcp` gives any MCP agent the show, search, changes and report tools; `cockpit agents connect` adds it to
+  each installed agent's config, and a Codex plugin ships in `codex/`.
+- Install without Claude Code: `curl -fsSL https://raw.githubusercontent.com/quaresc/cockpit/main/install.sh | sh`,
+  then `cockpit setup`.
+- The Herdr app layout says how to install cockpit when it isn't, and keeps listing Herdr's agents meanwhile.
+- GitHub Actions reruns go through `gh`; actions only the Claude Code plugin can carry out are offered only with it.
+- Links, pictures and the clipboard work on Linux.
+- Third-party notices ship with every release; CONTRIBUTING, SECURITY and a code of conduct for contributors.
+
 ## 0.32.0 (2026-11-03)
 
 - An editor beside the agent in the Herdr app: syntax highlighting, ⌘S saves (refused when the file changed on disk),

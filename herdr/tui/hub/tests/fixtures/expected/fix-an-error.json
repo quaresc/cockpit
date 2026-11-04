@@ -55,7 +55,7 @@
         "pane",
         "run",
         "wT:p1",
-        "claude 'Fix the error Req.TransportError: socket closed in api (Datadog service api, env production): new error Req.TransportError: socket closed, 140 events in the last day, first seen 2026-10-28T15:55:59Z in main-v2026.10.28.1 (https://app.datadoghq.com/error-tracking/issue/deadbeef). It came with the release v2026.10.28.1. Use your observability tools (Datadog) to read the issue'\"'\"'s stack trace and sample events, find the cause in this repo, reproduce it in a failing test, then fix it. Follow the repo'\"'\"'s conventions (its CLAUDE.md and mine): branch off an updated main, name the branch as they say and ask me for the ticket key when it needs one, then open a draft PR with a short description that links the Datadog issue.'"
+        "claude 'Fix the error Req.TransportError: socket closed in api (Datadog service api, env production): new error Req.TransportError: socket closed, 140 events in the last day, first seen 2026-10-28T15:55:59Z in main-v2026.10.28.1 (https://app.datadoghq.com/error-tracking/issue/deadbeef). It came with the release v2026.10.28.1. Use your observability tools (Datadog) to read the issue'\"'\"'s stack trace and sample events, find the cause in this repo, reproduce it in a failing test, then fix it. Follow the repo'\"'\"'s conventions (its CLAUDE.md or AGENTS.md, and mine): branch off an updated main, name the branch as they say and ask me for the ticket key when it needs one, then open a draft PR with a short description that links the Datadog issue.'"
       ],
       "cmd": "herdr",
       "stdin": null

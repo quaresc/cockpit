@@ -1,6 +1,7 @@
 //! What a waiting agent asks, read off the bottom of its screen: the question, its numbered choices, whether they are
 //! checkboxes, where the cursor is and where Submit sits; and the keys that answer it. Ported from herdr-relevo's
 //! `lib/prompt.js` (Apache-2.0), whose key sequences were measured on Claude Code's menus.
+//! Source: https://github.com/johnny4young/herdr-relevo (Apache-2.0), modified for cockpit; see THIRD_PARTY_NOTICES.md.
 
 use std::sync::LazyLock;
 
@@ -279,7 +280,9 @@ Enter to select · ↑/↓ to navigate · Esc to cancel";
 
     #[test]
     fn a_permission_prompt_is_told_apart() {
-        let q = read("Bash command\n  rm -rf build\n\nDo you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again for rm commands\n  3. No, and tell Claude what to do differently (esc)\n");
+        let q = read(
+            "Bash command\n  rm -rf build\n\nDo you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again for rm commands\n  3. No, and tell Claude what to do differently (esc)\n",
+        );
         assert!(q.permission());
         assert_eq!(q.json()["choices"][2]["label"], "No, and tell Claude what to do differently (esc)");
     }

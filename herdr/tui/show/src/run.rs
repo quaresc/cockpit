@@ -1,4 +1,4 @@
-//! `cockpit show <name>` shows ~/.cache/cockpit/show/<name>.json beside a Claude session, keeps `<name>.pid` while it
+//! `cockpit show <name>` shows ~/.cache/cockpit/show/<name>.json beside an agent session, keeps `<name>.pid` while it
 //! runs (the mod reads it to update the open pane) and writes the session's answers back.
 
 use std::path::PathBuf;
@@ -40,7 +40,8 @@ pub fn run(name: &str) -> std::io::Result<()> {
         });
     }
     warm_up();
-    let mut picker = Picker::from_query_stdio_with_options(QueryStdioOptions { kitty_compression: true, ..Default::default() }).unwrap_or_else(|_| Picker::halfblocks());
+    let mut picker =
+        Picker::from_query_stdio_with_options(QueryStdioOptions { kitty_compression: true, ..Default::default() }).unwrap_or_else(|_| Picker::halfblocks());
     picker.set_background_color(Some(image::Rgba([16, 16, 16, 255])));
     let mut app = ShowApp::new(name.to_string(), dir, picker);
     term::run(&mut app)

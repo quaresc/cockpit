@@ -43,7 +43,8 @@ impl App {
         for i in self.shown() {
             let step = &book.steps[i];
             let k = key(&book.slug, &step.n);
-            let marks = Marks { phase: self.fx.get(&k).map_or(Phase::Still, |fx| fx.phase(now)), picked: self.picked.contains(&k), hit: self.hit(&book.slug, &step.n) };
+            let marks =
+                Marks { phase: self.fx.get(&k).map_or(Phase::Still, |fx| fx.phase(now)), picked: self.picked.contains(&k), hit: self.hit(&book.slug, &step.n) };
             let row = rows::row(book, step, &widths, marks, &self.handoffs, &self.inbox);
             // Comfortable rows keep a blank line under them, which their highlight covers.
             placed.push(Placed { step: i, top: lines.len(), height: row.len() + usize::from(!compact) });

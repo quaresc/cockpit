@@ -19,6 +19,8 @@ pub fn view(_args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     };
     let mut model = model(&or_file("inbox"), &or_file("ci"), Local::now());
     model["lost"] = json!(resume::lost());
+    let agent = cockpit_core::agent::default();
+    model["agent"] = json!({"id": agent.id, "name": agent.name});
     model["spend"] = spend(&files::cache().join("costs"));
     model
 }
@@ -70,11 +72,7 @@ fn pr_card(pr: &Value, ci: &Value) -> Value {
 /// over the week, and this week against the last.
 pub fn model(inbox: &Value, ci: &Value, now: DateTime<Local>) -> Value {
     let mine = list(&inbox["mine"]);
-    let ready: Vec<Value> = mine
-        .iter()
-        .filter(|p| p["review"] == "APPROVED" && p["ci"] == "SUCCESS" && p["isDraft"] != true)
-        .map(|p| pr_card(p, ci))
-        .collect();
+    let ready: Vec<Value> = mine.iter().filter(|p| p["review"] == "APPROVED" && p["ci"] == "SUCCESS" && p["isDraft"] != true).map(|p| pr_card(p, ci)).collect();
     let fixing: Vec<Value> = mine
         .iter()
         .filter(|p| p["isDraft"] != true && (p["ci"] == "FAILURE" || p["ci"] == "ERROR" || p["review"] == "CHANGES_REQUESTED"))
@@ -130,7 +128,8 @@ pub fn model(inbox: &Value, ci: &Value, now: DateTime<Local>) -> Value {
         .collect();
     let mut hours: Vec<f64> = merged.iter().filter(|(d, _, _)| *d > today - Duration::days(30)).filter_map(|(_, h, _)| *h).collect();
     hours.sort_by(f64::total_cmp);
-    let median = (!hours.is_empty()).then(|| if hours.len() % 2 == 1 { hours[hours.len() / 2] } else { (hours[hours.len() / 2 - 1] + hours[hours.len() / 2]) / 2.0 });
+    let median =
+        (!hours.is_empty()).then(|| if hours.len() % 2 == 1 { hours[hours.len() / 2] } else { (hours[hours.len() / 2 - 1] + hours[hours.len() / 2]) / 2.0 });
     let repos = {
         let mut counts: Vec<(String, usize)> = Vec::new();
         for (_, _, m) in &this_week {
@@ -170,13 +169,17 @@ pub fn model(inbox: &Value, ci: &Value, now: DateTime<Local>) -> Value {
 }
 
 /// What the Claude sessions cost over the last 7 days and today, from the cost books they wrote then (a book counts
-/// for the day it was last written).
+/// for the day it was last written); null when no session ever wrote one, so Home shows no spend it cannot know.
 fn spend(dir: &std::path::Path) -> Value {
     let now = SystemTime::now();
     let midnight = Local.from_local_datetime(&Local::now().date_naive().and_hms_opt(0, 0, 0).unwrap_or_default()).single();
     let midnight = midnight.map(|m| UNIX_EPOCH + std::time::Duration::from_secs(m.timestamp().max(0) as u64)).unwrap_or(now);
+    let books: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten().collect();
+    if books.is_empty() {
+        return Value::Null;
+    }
     let (mut week, mut today) = (0.0, 0.0);
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+    for entry in books {
         let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else { continue };
         if now.duration_since(modified).is_ok_and(|d| d.as_secs() > 7 * 86_400) {
             continue;
@@ -207,6 +210,14 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spend_is_unknown_without_cost_books() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(spend(&dir.path().join("costs")), Value::Null);
+        std::fs::write(dir.path().join("s1.json"), r#"{"ENG-412": 1.5}"#).unwrap();
+        assert_eq!(spend(dir.path()), json!({"week": 1.5, "today": 1.5}));
+    }
 
     fn pr(n: u64, review: &str, ci: &str, branch: &str) -> Value {
         json!({"repo": "api", "number": n, "title": format!("PR {n}"), "url": format!("u{n}"), "branch": branch, "review": review, "ci": ci, "isDraft": false})

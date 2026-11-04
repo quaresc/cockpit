@@ -329,7 +329,12 @@ fn pr_of(inbox: &Value, repo: &str, branch: Option<&str>) -> Value {
 
 fn ci_of(ci: &Value, repo: &str, branch: Option<&str>, pr: &Value) -> Value {
     let Some(branch) = branch else { return Value::Null };
-    let run = ci["runs"].as_array().into_iter().flatten().filter(|r| r["branch"] == branch && (repo.is_empty() || r["repo"] == repo)).max_by_key(|r| r["createdAt"].as_str().unwrap_or_default().to_string());
+    let run = ci["runs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r["branch"] == branch && (repo.is_empty() || r["repo"] == repo))
+        .max_by_key(|r| r["createdAt"].as_str().unwrap_or_default().to_string());
     if let Some(r) = run {
         let (done, total) = (r["done"].as_u64().unwrap_or(0), r["total"].as_u64().unwrap_or(0));
         return match () {
@@ -419,7 +424,7 @@ fn stretches(now: u64) -> Vec<ledger::Stretch> {
     all
 }
 
-/// The view model: see app/README.md, "View `agents`".
+/// The view model: see docs/app.md, "View `agents`".
 pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     if !snap().polled {
         poll();
@@ -442,8 +447,18 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         let f = &facts[&l.handle];
         let mock = demo.as_ref().and_then(|w| w["agents"].as_array()?.iter().find(|x| x["terminal"] == l.handle.as_str()).cloned()).unwrap_or(Value::Null);
         let git = s.git.get(&l.cwd).and_then(|(g, _)| g.clone());
-        let branch = git.as_ref().and_then(|g| g.branch.clone()).or_else(|| f["branch"].as_str().map(str::to_string)).or_else(|| mock["branch"].as_str().map(str::to_string));
-        let repo = git.as_ref().map(|g| g.repo.clone()).filter(|r| !r.is_empty()).or_else(|| f["repo"].as_str().map(str::to_string)).or_else(|| mock["repo"].as_str().map(str::to_string)).unwrap_or_default();
+        let branch = git
+            .as_ref()
+            .and_then(|g| g.branch.clone())
+            .or_else(|| f["branch"].as_str().map(str::to_string))
+            .or_else(|| mock["branch"].as_str().map(str::to_string));
+        let repo = git
+            .as_ref()
+            .map(|g| g.repo.clone())
+            .filter(|r| !r.is_empty())
+            .or_else(|| f["repo"].as_str().map(str::to_string))
+            .or_else(|| mock["repo"].as_str().map(str::to_string))
+            .unwrap_or_default();
         let changes = match (&git, &mock["changes"]) {
             (Some(g), _) => json!({"files": g.files, "add": g.add, "del": g.del, "ahead": g.ahead, "behind": g.behind}),
             (None, m) if m.is_object() => m.clone(),
@@ -464,18 +479,27 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         let session = session_of(l, f).or_else(|| mock["session"].as_str().map(str::to_string));
         let recap = match &session {
             Some(_) if !mock.is_null() => {
-                if mock["recap"].is_string() { json!({"text": mock["recap"], "at": now.saturating_sub(120_000), "fresh": true, "running": false, "error": null}) } else { Value::Null }
+                if mock["recap"].is_string() {
+                    json!({"text": mock["recap"], "at": now.saturating_sub(120_000), "fresh": true, "running": false, "error": null})
+                } else {
+                    Value::Null
+                }
             }
             Some(id) => recap::shown(id, transcript_of(l, f, id).as_deref()),
             None => Value::Null,
         };
         let ticket_secs = key.as_ref().and_then(|k| totals.tickets.get(k)).copied().unwrap_or((0, 0));
-        let title = f["task"].as_str().filter(|t| !t.is_empty()).map(str::to_string).or_else(|| (!l.title.is_empty()).then(|| l.title.clone())).unwrap_or_else(|| l.tab_name.clone());
+        let title = f["task"]
+            .as_str()
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .or_else(|| (!l.title.is_empty()).then(|| l.title.clone()))
+            .unwrap_or_else(|| l.tab_name.clone());
         let question = a.question.as_ref().map(Question::json).unwrap_or(Value::Null);
         rows.push(json!({
             "terminal": l.handle, "address": l.address, "frontend": l.frontend,
             "space": {"id": l.space_id, "name": l.space_name}, "tab": {"id": l.tab_id, "name": l.tab_name},
-            "title": title, "program": l.program, "status": l.status,
+            "title": title, "program": l.program, "agent": l.agent, "status": l.status,
             "since": entry.since, "waiting_since": if l.status == "blocked" { json!(entry.since) } else { Value::Null },
             "question": if l.status == "blocked" { question } else { Value::Null }, "said": a.said, "recap": recap, "stage": stage,
             "repo": repo, "branch": branch, "cwd": l.cwd, "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
@@ -545,7 +569,7 @@ fn settle() {
     std::thread::sleep(Duration::from_millis(250));
 }
 
-/// Answers the question on the agent's screen; see app/README.md for the shapes.
+/// Answers the question on the agent's screen; see docs/app.md for the shapes.
 fn answer(handle: &str, arg: &Value) -> Result<String, String> {
     let a = find(handle).ok_or("no such agent")?;
     let tab = &a.live.tab_name;
@@ -586,7 +610,8 @@ fn answer(handle: &str, arg: &Value) -> Result<String, String> {
             settle();
             q = reread(handle);
         }
-        let toggles: Vec<String> = q.choices.iter().filter(|c| Some(c.n) != q.free && c.checked != Some(wanted.contains(&c.n))).map(|c| c.n.to_string()).collect();
+        let toggles: Vec<String> =
+            q.choices.iter().filter(|c| Some(c.n) != q.free && c.checked != Some(wanted.contains(&c.n))).map(|c| c.n.to_string()).collect();
         term::keys(handle, &toggles)?;
         if let (Some(text), Some(free)) = (text, q.free) {
             settle();
@@ -618,7 +643,7 @@ fn recap_now(handle: &str, force: bool) -> Result<String, String> {
     let a = find(handle).ok_or("no such agent")?;
     let facts = facts_doc();
     let f = &facts[handle];
-    let session = session_of(&a.live, f).ok_or("no Claude session known for this agent yet")?;
+    let session = session_of(&a.live, f).ok_or("no session known for this agent yet")?;
     let path = transcript_of(&a.live, f, &session).ok_or("its transcript is not on this machine")?;
     if !force && recap::fresh(&session, &path) {
         return Ok("the recap is current".into());
@@ -630,10 +655,10 @@ fn recap_now(handle: &str, force: bool) -> Result<String, String> {
 fn fork(handle: &str, place: &str) -> Result<String, String> {
     let a = find(handle).ok_or("no such agent")?;
     let facts = facts_doc();
-    let session = session_of(&a.live, &facts[handle]).ok_or("no Claude session known for this agent yet")?;
+    let agent = cockpit_core::agent::of_program(&a.live.program).ok_or_else(|| format!("cockpit does not know the agent {}", a.live.program))?;
+    let session = session_of(&a.live, &facts[handle]).ok_or_else(|| format!("no {} session known for this agent yet", agent.name))?;
     let cwd = if a.live.cwd.is_empty() { files::home().to_string_lossy().into_owned() } else { a.live.cwd.clone() };
-    let claude = files::claude();
-    let argv = [claude.as_str(), "--resume", session.as_str(), "--fork-session"];
+    let argv = agent.fork_argv(&session).ok_or_else(|| format!("{} cannot fork a session", agent.name))?;
     let label = format!("fork · {}", if a.live.title.is_empty() { &a.live.tab_name } else { &a.live.title });
     let made = match handle.strip_prefix(APP) {
         Some(_) if place == "tab" => frontend::app_do("tab.new", &json!({"space": a.live.space_id, "folder": cwd, "argv": argv, "name": label})).is_some(),
@@ -642,17 +667,23 @@ fn fork(handle: &str, place: &str) -> Result<String, String> {
             frontend::app_do("terminal.open", &json!({"argv": argv, "folder": cwd, "place": place})).is_some()
         }
         None => {
-            let line = argv.join(" ");
+            let line = cockpit_core::agent::shell_line(&agent.typed(&argv));
             let created = if place == "tab" {
                 frontend::herdr(&["tab", "create", "--workspace", &a.live.space_id, "--cwd", &cwd, "--label", &label, "--focus"])
             } else {
                 frontend::herdr(&["pane", "split", handle, "--direction", place, "--cwd", &cwd])
             };
-            let pane = created.as_ref().and_then(|c| c["root_pane"]["pane_id"].as_str().or(c["pane"]["pane_id"].as_str()).or(c["pane_id"].as_str()).map(str::to_string));
+            let pane = created
+                .as_ref()
+                .and_then(|c| c["root_pane"]["pane_id"].as_str().or(c["pane"]["pane_id"].as_str()).or(c["pane_id"].as_str()).map(str::to_string));
             pane.is_some_and(|p| frontend::run_in(&p, &line))
         }
     };
-    if made { Ok(format!("forked {} into a new {}", a.live.tab_name, if place == "tab" { "tab" } else { "pane" })) } else { Err("the window did not open it".into()) }
+    if made {
+        Ok(format!("forked {} into a new {}", a.live.tab_name, if place == "tab" { "tab" } else { "pane" }))
+    } else {
+        Err("the window did not open it".into())
+    }
 }
 
 /// The view's actions, one object argument each: answer, recap, snooze, seen, fork, focus.

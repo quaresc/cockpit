@@ -182,7 +182,7 @@ impl App {
     pub(crate) fn question(&self, cmd: &Cmd) -> String {
         let Cmd::RollBack(app, release, previous) = cmd else { return "sure?".into() };
         let name = self.row_name(&Item::Release(app.clone(), release.clone()));
-        format!("roll back {name} to {previous}? A Claude session checks {previous} and asks before any deploy.")
+        format!("roll back {name} to {previous}? {} checks {previous} and asks before any deploy.", cockpit_core::agent::default().name)
     }
 
     /// Folds or unfolds the selected app, or the app of the selected row, which then takes the selection.

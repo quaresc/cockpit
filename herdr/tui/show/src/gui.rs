@@ -76,7 +76,8 @@ fn listed(dir: &Path, terminal: Option<&str>) -> Vec<(String, Value)> {
 
 fn summary(name: &str, spec: &Value) -> Value {
     let blocks = spec["blocks"].as_array().map_or(0, Vec::len);
-    let asks = spec["blocks"].as_array().into_iter().flatten().filter(|b| matches!(b["type"].as_str(), Some("choice" | "confirm")) && b["answered"].is_null()).count();
+    let asks =
+        spec["blocks"].as_array().into_iter().flatten().filter(|b| matches!(b["type"].as_str(), Some("choice" | "confirm")) && b["answered"].is_null()).count();
     json!({"name": name, "title": spec["title"], "at": spec["at"], "blocks": blocks, "asks": asks, "terminal": spec["terminal"]})
 }
 
@@ -155,7 +156,9 @@ pub fn block(n: usize, spec: &Value, caches: &Caches) -> Value {
             "answered": spec["answered"],
             "options": spec["options"].as_array().into_iter().flatten().map(|o| json!({"label": o["label"], "preview": o["preview"]})).collect::<Vec<_>>(),
         }),
-        "confirm" => json!({"summary": spec["summary"], "consequence": spec["consequence"], "confirm_label": spec["confirm_label"].as_str().filter(|l| !l.is_empty()).unwrap_or("Confirm"), "answered": spec["answered"]}),
+        "confirm" => {
+            json!({"summary": spec["summary"], "consequence": spec["consequence"], "confirm_label": spec["confirm_label"].as_str().filter(|l| !l.is_empty()).unwrap_or("Confirm"), "answered": spec["answered"]})
+        }
         other => json!({"unknown": other}),
     };
     if let (Some(out), Some(own)) = (out.as_object_mut(), own.as_object()) {
@@ -190,8 +193,17 @@ fn actors(spec: &Value) -> Vec<Value> {
 /// A picture's source and the name its copy takes in the app's folder (the app draws pictures only from there).
 fn picture(src: Option<&str>) -> Value {
     let Some(src) = src.filter(|s| !s.is_empty()) else { return Value::Null };
-    let ext = src.rsplit('/').next().and_then(|n| n.rsplit_once('.')).map(|(_, e)| e.to_lowercase()).filter(|e| e.len() <= 4 && e.chars().all(|c| c.is_ascii_alphanumeric()));
-    let stamp = if src.starts_with('/') { std::fs::metadata(src).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs()) } else { 0 };
+    let ext = src
+        .rsplit('/')
+        .next()
+        .and_then(|n| n.rsplit_once('.'))
+        .map(|(_, e)| e.to_lowercase())
+        .filter(|e| e.len() <= 4 && e.chars().all(|c| c.is_ascii_alphanumeric()));
+    let stamp = if src.starts_with('/') {
+        std::fs::metadata(src).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
+    } else {
+        0
+    };
     let key = format!("{:016x}.{}", fnv(&format!("{src}@{stamp}")), ext.unwrap_or_else(|| "png".into()));
     json!({"src": src, "remote": !src.starts_with('/'), "key": key})
 }
@@ -210,7 +222,8 @@ fn chart(spec: &Value) -> Value {
     let (xi, ys, names) = axes(spec);
     let rows = rows(spec);
     let labels: Vec<String> = rows.iter().map(|r| cell(at(r, xi))).collect();
-    let series: Vec<Value> = ys.iter().zip(&names).map(|(&i, name)| json!({"name": name, "values": rows.iter().map(|r| number(at(r, i))).collect::<Vec<_>>()})).collect();
+    let series: Vec<Value> =
+        ys.iter().zip(&names).map(|(&i, name)| json!({"name": name, "values": rows.iter().map(|r| number(at(r, i))).collect::<Vec<_>>()})).collect();
     let x = spec["columns"].as_array().and_then(|c| c.get(xi)).map(text).unwrap_or_default();
     let kind = spec["kind"].as_str().filter(|k| matches!(*k, "bar" | "area" | "donut")).unwrap_or("line");
     let on = |key: &str| spec[key].as_bool().unwrap_or(false);
@@ -317,7 +330,13 @@ pub fn log_lines(output: &str, keep: usize) -> Vec<Value> {
     lines[lines.len().saturating_sub(keep)..]
         .iter()
         .map(|l| {
-            let level = if ERROR.is_match(l) { "error" } else if WARN.is_match(l) { "warn" } else { "" };
+            let level = if ERROR.is_match(l) {
+                "error"
+            } else if WARN.is_match(l) {
+                "warn"
+            } else {
+                ""
+            };
             json!([l.replace('\t', "    "), level])
         })
         .collect()
@@ -380,7 +399,8 @@ fn file_model(file: &File, sent: &mut usize) -> Value {
             json!([kind_mark(l.kind), l.old, l.new, pieces])
         })
         .collect();
-    let hunks: Vec<Value> = hunk_ids(file).into_iter().map(|(start, end, id)| json!({"id": id, "at": start, "end": end, "header": file.lines[start].text})).collect();
+    let hunks: Vec<Value> =
+        hunk_ids(file).into_iter().map(|(start, end, id)| json!({"id": id, "at": start, "end": end, "header": file.lines[start].text})).collect();
     json!({"path": file.path, "added": file.added, "removed": file.removed, "hunks": hunks, "lines": lines, "more": file.lines.len() - shown})
 }
 
@@ -445,7 +465,23 @@ mod tests {
 
     #[test]
     fn every_fixture_block_has_a_model() {
-        for name in ["chart_bar", "chart_line", "choice", "code", "compare", "confirm", "diff", "flow", "image", "log", "markdown", "mermaid", "mixed", "sequence", "table"] {
+        for name in [
+            "chart_bar",
+            "chart_line",
+            "choice",
+            "code",
+            "compare",
+            "confirm",
+            "diff",
+            "flow",
+            "image",
+            "log",
+            "markdown",
+            "mermaid",
+            "mixed",
+            "sequence",
+            "table",
+        ] {
             let m = model(name, &fixture(name), &no_caches());
             for b in m["blocks"].as_array().unwrap() {
                 assert!(b["unknown"].is_null(), "{name}: {b}");
@@ -467,8 +503,15 @@ mod tests {
     #[test]
     fn a_chart_keeps_its_shape_and_figures_their_items() {
         let rows = json!([["fr", 9332, 1359], ["en", 7758, 932]]);
-        let c = block(0, &json!({"type": "chart", "kind": "bar", "horizontal": true, "percent": true, "columns": ["lang", "ok", "ko"], "rows": rows}), &no_caches());
-        assert_eq!((c["kind"].as_str(), c["horizontal"].as_bool(), c["stacked"].as_bool(), c["percent"].as_bool()), (Some("bar"), Some(true), Some(true), Some(true)));
+        let c = block(
+            0,
+            &json!({"type": "chart", "kind": "bar", "horizontal": true, "percent": true, "columns": ["lang", "ok", "ko"], "rows": rows}),
+            &no_caches(),
+        );
+        assert_eq!(
+            (c["kind"].as_str(), c["horizontal"].as_bool(), c["stacked"].as_bool(), c["percent"].as_bool()),
+            (Some("bar"), Some(true), Some(true), Some(true))
+        );
         let d = block(0, &json!({"type": "chart", "kind": "donut", "columns": ["lang", "n"], "rows": [["fr", 3], ["en", 1]]}), &no_caches());
         assert_eq!(d["kind"], "donut");
         let odd = block(0, &json!({"type": "chart", "kind": "pie", "columns": ["a", "b"], "rows": [["x", 1]]}), &no_caches());
@@ -539,7 +582,9 @@ mod tests {
         assert_eq!(b["graph"], "flowchart");
         assert!(b["text"].as_str().unwrap().contains("class A done"));
         assert!(b["updated"].is_u64());
-        let ask = |text: &str| act_in(dir, "answer", &[json!("plan"), json!(0), json!("blueprint"), json!({"node": "A", "label": "Read", "text": text}), json!("Read")]).unwrap();
+        let ask = |text: &str| {
+            act_in(dir, "answer", &[json!("plan"), json!(0), json!("blueprint"), json!({"node": "A", "label": "Read", "text": text}), json!("Read")]).unwrap()
+        };
         assert_eq!(ask("split it"), Ok("change request about «Read» sent to the session".into()));
         std::fs::remove_file(dir.join("plan.0.answer")).unwrap();
         assert!(ask("and test it").is_ok());

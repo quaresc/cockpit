@@ -8,6 +8,8 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 
 2. **herdr plugin.** Without herdr (the Herdr app alone), link the scripts the Claude plugin ships instead, `ln -sfn ~/.claude/plugins/marketplaces/cockpit/herdr ~/.config/cockpit/herdr`, run `sh ~/.config/cockpit/herdr/fetch-apps.sh`, use `~/.config/cockpit/herdr` as `<plugin_root>` below and skip to step 3. With herdr, read `~/.config/herdr/plugins.json`. When no entry has `plugin_id` "cockpit", run `herdr plugin install quaresc/cockpit/herdr --yes` and read the file again. Keep that entry's `plugin_root`. Then run `sh <plugin_root>/fetch-apps.sh`: it puts this version's `cockpit` binary, which runs the space apps and the hub, built for this machine, in `<plugin_root>/bin` (for a version whose release has no binary yet it keeps the one an earlier install had, or does nothing on a first install).
 
+2b. **Default agent.** Run `sh <plugin_root>/cockpit.sh agents connected` (each agent cockpit can give its tools to, with `installed`), and check `command -v claude codex` too. Ask with AskUserQuestion which agent cockpit starts by default (new agents from the inbox, the palette, routines), offering Claude Code first and every other installed one; it goes in the config as `agents.default` (its id: `claude`, `codex`, `opencode`…).
+
 3. **Connectors.** Run `claude mcp list` and note the exact names of the connected servers for tickets (Linear, Jira, Trello, Asana, GitHub Issues…), CI (CircleCI, GitLab, Buildkite…; GitHub Actions needs none) and a calendar (Google Calendar, Outlook…), and of a platform connector whose tools report deploys or run per-branch preview environments (an Argo, Vercel or in-house connector), if any.
 
 4. **Features.** Ask with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, tickets (naming the ticket connector found), CI runs (GitHub checks, or the CI connector found), meetings (naming the calendar connector found), deploys and preview environments through the platform connector, E2E tests in terminal-browser beside the agent, for an agent testing a front change in a browser you watch (installs it with `brew install --cask terminal-browser` when missing, then runs `terminal-browser config set render.transport auto` and `terminal-browser config set render.fps 60`; on macOS with Ghostty older than 1.4.0, asks me to update it (Ghostty → Check for Updates…), since older builds refuse the frame files herdr hands it). Without it, E2E tests run in Claude in Chrome. Links and footer chips always open in the default browser. Mark the ones whose connector is missing as such in their description.
@@ -70,6 +72,7 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
   "browserIdleMinutes": 60,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
+  "agents": { "default": "claude" },
   "runbookTools": [],
   "worktrees": false,
   "density": "comfortable"
@@ -81,6 +84,8 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 8. **herdr config.** Read `<plugin_root>/config.example.toml` and merge it into `~/.config/herdr/config.toml`: keep every key I already set, add the missing ones, and never duplicate a `[[keys.command]]` with the same `key`. The one key to replace is `ui.toast.delivery`: set it to `herdr` so herdr's system popups do not double cockpit's, and say so. In `ui.sidebar.spaces`, the `workspace` token's rules must show every pinned space: add `{ contains = "  " }` before the hiding rule when it is missing. For each space of my own with a `key`, add a `[[keys.command]]` running `sh ~/.config/cockpit/herdr/focus-space.sh <name>`, like the built-in ones. Back the file up as `config.toml.bak-<date>`, show me the diff, write it once I agree, then run `herdr server reload-config`.
 
 9. **Spaces.** Run `sh <plugin_root>/ensure-spaces.sh` then `sh <plugin_root>/pin-spaces.sh`, and check with `herdr workspace list` that the pinned spaces exist.
+
+9b. **Other agents.** When step 2b listed installed agents other than Claude Code with `"connected": false`, ask whether they should get cockpit's tools too (show, search, changes, report_step, through their own MCP config); on yes run `sh <plugin_root>/cockpit.sh agents connect <their ids>` and say what it printed: each config is backed up first and only cockpit's entry is added. Codex users can take the Codex plugin instead (`codex plugin marketplace add quaresc/cockpit`, then `codex plugin add cockpit@cockpit`).
 
 10. **Notifications (macOS).** Run `sh <plugin_root>/notifier/build.sh` (it needs `swiftc`, from `xcode-select --install`), then `COCKPIT_APP_WAIT=0 sh <plugin_root>/app.sh notify "Cockpit" "Notifications are on" "space:inbox"`, and ask me to click Allow when macOS asks about Cockpit's notifications. In the Herdr app, a notification shows as Herdr's own toast while its window is in front, and as this system one otherwise.
 

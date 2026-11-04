@@ -1,5 +1,5 @@
 //! Tickets changed from the inbox: a Linear issue's state, its assignee, a new issue, through Linear's GraphQL API when
-//! the config gives `tickets.token`; without one, a Claude session in the actions space makes the change with the
+//! the config gives `tickets.token`; without one, an agent session in the actions space makes the change with the
 //! ticket connector.
 
 use cockpit_core::files;
@@ -70,7 +70,11 @@ pub fn state_for<'a>(states: &'a [Value], name: &str) -> Option<&'a Value> {
 }
 
 fn update(token: &str, issue_id: &str, input: Value) -> Res {
-    let data = gql(token, "mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }", json!({"id": issue_id, "input": input}))?;
+    let data = gql(
+        token,
+        "mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }",
+        json!({"id": issue_id, "input": input}),
+    )?;
     if data["issueUpdate"]["success"] == true { Ok(()) } else { Err("Linear refused the change".into()) }
 }
 
@@ -106,12 +110,12 @@ fn ticket_id(v: &Value) -> String {
     v["id"].as_str().or(v.as_str()).unwrap_or_default().to_uppercase()
 }
 
-/// A change the ticket connector makes, in a Claude session of the actions space.
+/// A change the ticket connector makes, in an agent session of the actions space.
 fn by_session(ctx: &mut Ctx, id: &str, what: &str) {
     let name = ctx.cfg.0["tickets"]["name"].as_str().unwrap_or("the ticket tool").to_string();
     let prompt = format!("{what} in {name}, then say it is done in one line. Change nothing else.");
     let repos = ctx.cfg.repos();
-    inbox::start_action(ctx, &repos, &format!("ticket {}", id.to_lowercase()), &prompt, &[]);
+    inbox::start_action(ctx, &repos, &format!("ticket {}", id.to_lowercase()), &prompt, &inbox::Launch::new());
 }
 
 /// `set_state [ticket, state name]`.
@@ -146,7 +150,11 @@ pub fn assign(ctx: &mut Ctx, args: &[Value]) -> Res {
     let user = if who == "me" {
         viewer(&token)?
     } else {
-        let data = gql(&token, "query($q: String!) { users(filter: { or: [{ displayName: { eqIgnoreCase: $q } }, { name: { eqIgnoreCase: $q } }, { email: { eqIgnoreCase: $q } }] }) { nodes { id } } }", json!({"q": who}))?;
+        let data = gql(
+            &token,
+            "query($q: String!) { users(filter: { or: [{ displayName: { eqIgnoreCase: $q } }, { name: { eqIgnoreCase: $q } }, { email: { eqIgnoreCase: $q } }] }) { nodes { id } } }",
+            json!({"q": who}),
+        )?;
         data["users"]["nodes"][0]["id"].as_str().map(str::to_string).ok_or_else(|| format!("Linear knows no one called {who}"))?
     };
     update(&token, issue["id"].as_str().unwrap_or(&id), json!({"assigneeId": user}))?;
@@ -163,7 +171,10 @@ pub fn file_issue(ctx: &mut Ctx, args: &[Value]) -> Res {
     let team = spec["team"].as_str().filter(|t| !t.is_empty()).map(str::to_uppercase).or_else(|| keys.first().cloned()).ok_or("say which team files it")?;
     let description = spec["description"].as_str().unwrap_or_default().to_string();
     let Some(token) = token() else {
-        let what = format!("File a new issue in the team {team}, assigned to me, titled \"{title}\"{}", if description.is_empty() { String::new() } else { format!(", described as: {description}") });
+        let what = format!(
+            "File a new issue in the team {team}, assigned to me, titled \"{title}\"{}",
+            if description.is_empty() { String::new() } else { format!(", described as: {description}") }
+        );
         by_session(ctx, &team, &what);
         return Ok(());
     };
@@ -186,7 +197,11 @@ pub fn card(args: &Value) -> Res<Value> {
     };
     let mut states: Vec<Value> = list(&issue["team"]["states"]["nodes"]).to_vec();
     let order = |t: &str| ["triage", "backlog", "unstarted", "started", "completed", "canceled"].iter().position(|x| *x == t).unwrap_or(9);
-    states.sort_by(|a, b| order(a["type"].as_str().unwrap_or_default()).cmp(&order(b["type"].as_str().unwrap_or_default())).then(a["position"].as_f64().unwrap_or(0.0).total_cmp(&b["position"].as_f64().unwrap_or(0.0))));
+    states.sort_by(|a, b| {
+        order(a["type"].as_str().unwrap_or_default())
+            .cmp(&order(b["type"].as_str().unwrap_or_default()))
+            .then(a["position"].as_f64().unwrap_or(0.0).total_cmp(&b["position"].as_f64().unwrap_or(0.0)))
+    });
     let description: String = issue["description"].as_str().unwrap_or_default().chars().take(1200).collect();
     Ok(json!({
         "id": issue["identifier"], "title": issue["title"], "url": issue["url"], "description": description,

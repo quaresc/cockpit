@@ -19,19 +19,67 @@ fn any_json() -> impl Strategy<Value = Value> {
         any::<i64>().prop_map(Value::from),
         any::<f64>().prop_filter("finite", |f| f.is_finite()).prop_map(Value::from),
         "[a-zA-Z0-9 #:/._-]{0,12}".prop_map(Value::from),
-        prop_oneof![Just("2026-10-27T15:53:26Z"), Just("FAILURE"), Just("SUCCESS"), Just("APPROVED"), Just("started"), Just("ENG-1"), Just("eng-1-x"), Just("api")].prop_map(Value::from),
+        prop_oneof![
+            Just("2026-10-27T15:53:26Z"),
+            Just("FAILURE"),
+            Just("SUCCESS"),
+            Just("APPROVED"),
+            Just("started"),
+            Just("ENG-1"),
+            Just("eng-1-x"),
+            Just("api")
+        ]
+        .prop_map(Value::from),
     ];
     leaf.prop_recursive(3, 24, 6, |inner| {
-        prop_oneof![prop::collection::vec(inner.clone(), 0..5).prop_map(Value::from), prop::collection::hash_map(field(), inner, 0..6).prop_map(|m| Value::Object(m.into_iter().collect::<Map<_, _>>())),]
+        prop_oneof![
+            prop::collection::vec(inner.clone(), 0..5).prop_map(Value::from),
+            prop::collection::hash_map(field(), inner, 0..6).prop_map(|m| Value::Object(m.into_iter().collect::<Map<_, _>>())),
+        ]
     })
 }
 
 /// The field names the inbox reads, so generated objects hit the code that reads them.
 fn field() -> impl Strategy<Value = String> {
     prop::sample::select(vec![
-        "repo", "number", "title", "url", "author", "authorName", "updatedAt", "isDraft", "isDirect", "review", "ci", "branch", "base", "failedChecks", "id", "status",
-        "statusType", "parentId", "project", "expiresAt", "health", "app", "activated", "isRunning", "outcome", "failed", "job", "tests", "step", "workflowId", "dockerTag",
-        "done", "total", "createdAt", "isLive", "tag", "dashboard", "workflow",
+        "repo",
+        "number",
+        "title",
+        "url",
+        "author",
+        "authorName",
+        "updatedAt",
+        "isDraft",
+        "isDirect",
+        "review",
+        "ci",
+        "branch",
+        "base",
+        "failedChecks",
+        "id",
+        "status",
+        "statusType",
+        "parentId",
+        "project",
+        "expiresAt",
+        "health",
+        "app",
+        "activated",
+        "isRunning",
+        "outcome",
+        "failed",
+        "job",
+        "tests",
+        "step",
+        "workflowId",
+        "dockerTag",
+        "done",
+        "total",
+        "createdAt",
+        "isLive",
+        "tag",
+        "dashboard",
+        "workflow",
     ])
     .prop_map(str::to_string)
 }

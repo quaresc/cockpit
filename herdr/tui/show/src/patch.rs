@@ -174,7 +174,8 @@ fn paint_file(file: &mut File, mut grammars: Option<&mut Grammars>) {
     while start < file.lines.len() {
         let end = file.lines[start + 1..].iter().position(|l| l.kind == Kind::Hunk).map_or(file.lines.len(), |at| start + 1 + at);
         for old in [true, false] {
-            let side: Vec<usize> = (start..end).filter(|&i| matches!((file.lines[i].kind, old), (Kind::Same, _) | (Kind::Del, true) | (Kind::Add, false))).collect();
+            let side: Vec<usize> =
+                (start..end).filter(|&i| matches!((file.lines[i].kind, old), (Kind::Same, _) | (Kind::Del, true) | (Kind::Add, false))).collect();
             let texts: Vec<String> = side.iter().map(|&i| expand(&file.lines[i].text)).collect();
             let painted = match grammars.as_deref_mut() {
                 Some(grammars) => grammars.paint(&token, &texts),

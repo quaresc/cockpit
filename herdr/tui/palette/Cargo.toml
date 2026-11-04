@@ -3,6 +3,10 @@ name = "cockpit-palette"
 description = "The launcher herdr opens as a popup over any pane: every app's items, the week's events and past sessions, and cockpit's own commands."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true

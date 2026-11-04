@@ -3,7 +3,7 @@
 
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { run, focused, props, setShared, exec } from "herdr";
+import { run, focused, props, setShared } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct } from "./fleet.js";
 import { tokens, TEXT, Icon, Spinner, Button, Chip, Mono, dur } from "./ui.js";
@@ -77,7 +77,7 @@ export default class AgentHead {
           .child(div().text_size(TEXT.xs).text_color(a.status === "blocked" ? color : k.mutedFg).child(`${WORD[a.status] ?? a.status}${since ? ` · ${dur(this.now - since)}` : ""}`)),
       )
       .when(Boolean(a.branch), (e) => e.child(div().min_w(0).truncate().child(Mono(a.branch, { color: k.dim }))))
-      .when(Boolean(a.pr?.number), (e) => e.child(Chip(`#${a.pr?.number}`, { id: "head-pr", mono: true, icon: "git-pull-request", tooltip: "Open the PR  ⌘G", onClick: (_e, cx) => cx.spawn(async () => exec("open", [a.pr.url])) })))
+      .when(Boolean(a.pr?.number), (e) => e.child(Chip(`#${a.pr?.number}`, { id: "head-pr", mono: true, icon: "git-pull-request", tooltip: "Open the PR  ⌘G", onClick: (_e, cx) => cx.spawn(async () => hub.openUrl(a.pr.url)) })))
       .when(Boolean(a.ticket), (e) => e.child(Chip(a.ticket, { mono: true, icon: "ticket" })))
       .child(div().flex_1())
       .child(

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Writes the brief of one meeting with a headless Claude: why it exists, where things stand, what to bring.
-# It reads the event, the Notion pages and tickets it links, and local runbooks; nothing else.   meeting-brief.sh <event id>
+# Writes the brief of one meeting with a headless agent (meetingBrief.agent, else the default): why it exists, where
+# things stand, what to bring. It reads the event, the Notion pages and tickets it links, and local runbooks; nothing
+# else.   meeting-brief.sh <event id>
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
 . "$(dirname "$0")/lib.sh"
 id=$1
@@ -52,9 +53,15 @@ titles, no filler.
 - ## Bring: up to 2 points or questions for me to raise
 - ## Links: up to 4 '- [short title](url)' lines; attachments you could not read go here by name
 Leave out a section with nothing to say. Write the file, then reply with nothing."
-model=$(jq -r '.meetingBrief.model // "sonnet"' "$SETTINGS")
-cd "$REPOS" && claude -p "$prompt" --model "$model" --permission-mode acceptEdits --add-dir "$DIR" \
-  --add-dir "$HOME/.config/cockpit/runbooks" --add-dir "$CACHE" --allowedTools "$@" </dev/null >"$CACHE/meeting-brief-$name.log" 2>&1
+agent=$(sh "$ROOT/cockpit.sh" agent id --agent "$(jq -r '.meetingBrief.agent // empty' "$SETTINGS")")
+# A model by agent id, or one name, passed only to the agent it belongs to.
+model=$(jq -r --arg a "$agent" '.meetingBrief.model // "sonnet" | if type == "object" then .[$a] // "" else . end' "$SETTINGS")
+line=$(sh "$ROOT/cockpit.sh" agent argv run --agent "$agent" --prompt "$prompt" --model "$model" --edits --dir "$DIR" \
+  --dir "$HOME/.config/cockpit/runbooks" --dir "$CACHE")
+[ -n "$line" ] || exit 1
+# Claude Code is told which tools it may call without asking.
+[ "$agent" = claude ] && line="$line --allowedTools \"\$@\""
+cd "$REPOS" && eval "$line" </dev/null >"$CACHE/meeting-brief-$name.log" 2>&1
 
 # Whatever came back: wrapped bullets joined, prose lines cut at 90 characters (link lines keep their URL),
 # 15 non-empty lines at most.

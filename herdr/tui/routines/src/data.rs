@@ -18,13 +18,17 @@ pub struct Routine {
     /// manual, every, schedule, event or broken.
     pub trigger: String,
     pub error: Option<String>,
-    /// claude or shell.
+    /// agent or shell.
     pub run: String,
+    /// The agent that runs it, its name, and the one its file names (empty for the default).
+    pub agent: Option<String>,
+    pub agent_name: Option<String>,
+    pub agent_set: String,
     pub cwd: String,
     pub model: String,
     pub tools: Vec<String>,
     pub mode: String,
-    /// Dollars a week, and what its runs of the last seven days cost, as Claude estimates them.
+    /// Dollars a week, and what its runs of the last seven days cost, as Claude Code estimates them.
     pub budget: Option<f64>,
     pub spent_week: f64,
     pub last_cost: Option<f64>,
@@ -145,6 +149,28 @@ struct Raw {
     running: HashMap<String, Running>,
     queued: Vec<Queued>,
     runs: HashMap<String, Vec<Run>>,
+    agents: Agents,
+}
+
+/// The agents a routine can run on, as the hub has them: the default first, then the others installed.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Agents {
+    /// The default agent's id; empty from a hub that predates agents, whose routines all ran Claude Code.
+    pub default: String,
+    /// {id, name} of each agent installed that runs headless.
+    pub installed: Vec<Value>,
+}
+
+impl Agents {
+    /// The default agent's name and whether it is Claude Code.
+    pub fn default_agent(&self) -> (String, bool) {
+        if self.default.is_empty() {
+            return ("Claude Code".into(), true);
+        }
+        let name = self.installed.iter().find(|a| a["id"] == self.default.as_str()).and_then(|a| a["name"].as_str()).unwrap_or(&self.default);
+        (name.to_string(), self.default == "claude")
+    }
 }
 
 /// How a routine stands, for its glyph and colour.
@@ -170,6 +196,7 @@ pub struct Doc {
     pub running: HashMap<String, Running>,
     pub queued: Vec<String>,
     pub runs: HashMap<String, Vec<Run>>,
+    pub agents: Agents,
 }
 
 impl Doc {
@@ -183,6 +210,7 @@ impl Doc {
             running: raw.running,
             queued: raw.queued.into_iter().map(|q| q.slug).collect(),
             runs: raw.runs,
+            agents: raw.agents,
         })
     }
 

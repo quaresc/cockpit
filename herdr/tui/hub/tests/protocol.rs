@@ -139,7 +139,7 @@ fn fetch_ci_log_of_another_ci_needs_a_session() {
     let sandbox = sandbox();
     let hub = Hub::start(&sandbox, &[]);
     let log = hub.request(&json!({"op": "fetch", "kind": "ci_log", "args": {"repo": "api", "branch": "me/eng-401-login"}}));
-    assert_eq!(log["message"], "The CircleCI logs need a Claude session with its connector: fix ci opens one.");
+    assert_eq!(log["message"], "The CircleCI logs need an agent session with its connector: fix ci opens one.");
 }
 
 /// gh answering canned JSON, and logging its calls like the other fakes.

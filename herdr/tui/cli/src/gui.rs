@@ -13,15 +13,51 @@ use crate::proc::fail;
 
 /// Every app's view; an app crate adds its own `Def` here.
 pub fn register() {
-    views::register(Def { name: "agents", docs: &["inbox", "ci", "agents"], dirs: cockpit_agents::gui::dirs, build: cockpit_agents::gui::view, act: cockpit_agents::gui::act });
+    views::register(Def {
+        name: "agents",
+        docs: &["inbox", "ci", "agents"],
+        dirs: cockpit_agents::gui::dirs,
+        build: cockpit_agents::gui::view,
+        act: cockpit_agents::gui::act,
+    });
     cockpit_agents::gui::start(|| views::touch("agents"));
-    views::register(Def { name: "inbox", docs: &["inbox", "ci", "brief"], dirs: cockpit_inbox::gui::dirs, build: cockpit_inbox::gui::view, act: cockpit_inbox::gui::act });
+    views::register(Def {
+        name: "inbox",
+        docs: &["inbox", "ci", "brief"],
+        dirs: cockpit_inbox::gui::dirs,
+        build: cockpit_inbox::gui::view,
+        act: cockpit_inbox::gui::act,
+    });
     views::register(Def { name: "todo", docs: &["inbox"], dirs: cockpit_todo::gui::dirs, build: cockpit_todo::gui::view, act: cockpit_todo::gui::act });
     views::register(Def { name: "palette", docs: &[], dirs: cockpit_palette::gui::dirs, build: cockpit_palette::gui::view, act: cockpit_palette::gui::act });
-    views::register(Def { name: "runbook", docs: &["inbox"], dirs: cockpit_runbook::gui::dirs, build: cockpit_runbook::gui::view, act: cockpit_runbook::gui::act });
-    views::register(Def { name: "meetings", docs: &["meetings"], dirs: cockpit_meetings::gui::dirs, build: cockpit_meetings::gui::view, act: cockpit_meetings::gui::act });
-    views::register(Def { name: "monitor", docs: &["monitor"], dirs: cockpit_monitor::gui::dirs, build: cockpit_monitor::gui::view, act: cockpit_monitor::gui::act });
-    views::register(Def { name: "routines", docs: &["routines"], dirs: cockpit_routines::gui::dirs, build: cockpit_routines::gui::view, act: cockpit_routines::gui::act });
+    views::register(Def {
+        name: "runbook",
+        docs: &["inbox"],
+        dirs: cockpit_runbook::gui::dirs,
+        build: cockpit_runbook::gui::view,
+        act: cockpit_runbook::gui::act,
+    });
+    views::register(Def {
+        name: "meetings",
+        docs: &["meetings"],
+        dirs: cockpit_meetings::gui::dirs,
+        build: cockpit_meetings::gui::view,
+        act: cockpit_meetings::gui::act,
+    });
+    views::register(Def {
+        name: "monitor",
+        docs: &["monitor"],
+        dirs: cockpit_monitor::gui::dirs,
+        build: cockpit_monitor::gui::view,
+        act: cockpit_monitor::gui::act,
+    });
+    views::register(Def {
+        name: "routines",
+        docs: &["routines"],
+        dirs: cockpit_routines::gui::dirs,
+        build: cockpit_routines::gui::view,
+        act: cockpit_routines::gui::act,
+    });
     views::register(Def { name: "routines-when", docs: &[], dirs: Vec::new, build: cockpit_routines::gui::when_view, act: cockpit_routines::gui::no_act });
     views::register(Def { name: "show", docs: &[], dirs: cockpit_show::gui::dirs, build: cockpit_show::gui::view, act: cockpit_show::gui::act });
     views::register(Def { name: "show-block", docs: &[], dirs: Vec::new, build: cockpit_show::gui::block_data, act: |_, _| None });
@@ -62,7 +98,12 @@ fn alive(pid: u64) -> bool {
 /// The hubs of this home: the one hub.json names and whoever holds the unix socket, which can be another one.
 fn hubs() -> Vec<u64> {
     let named = files::load(&files::cache().join("hub.json")).and_then(|i| i["pid"].as_u64());
-    let held = std::process::Command::new("lsof").arg("-t").arg(cockpit_core::hub::socket()).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let held = std::process::Command::new("lsof")
+        .arg("-t")
+        .arg(cockpit_core::hub::socket())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
     let mut pids: Vec<u64> = named.into_iter().chain(held.lines().filter_map(|l| l.trim().parse().ok())).collect();
     pids.sort_unstable();
     pids.dedup();
@@ -71,7 +112,11 @@ fn hubs() -> Vec<u64> {
 }
 
 fn is_hub(pid: u64) -> bool {
-    let command = std::process::Command::new("ps").args(["-o", "command=", "-p", &pid.to_string()]).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let command = std::process::Command::new("ps")
+        .args(["-o", "command=", "-p", &pid.to_string()])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
     command.trim_end().ends_with("cockpit hub")
 }
 
@@ -184,7 +229,10 @@ fn source() -> PathBuf {
     let herdr = files::herdr_dir();
     let herdr = std::fs::canonicalize(&herdr).unwrap_or(herdr);
     let packed = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("app"))).unwrap_or_default();
-    [herdr.join("app"), herdr.parent().map(|p| p.join("app")).unwrap_or_default(), packed].into_iter().find(|p| p.join("mods/cockpit/main.js").exists()).unwrap_or_default()
+    [herdr.join("app"), herdr.parent().map(|p| p.join("app")).unwrap_or_default(), packed]
+        .into_iter()
+        .find(|p| p.join("mods/cockpit/main.js").exists())
+        .unwrap_or_default()
 }
 
 fn remove(path: &Path) -> std::io::Result<()> {
@@ -247,7 +295,8 @@ pub fn install(from: &Path, home: &Path, link: bool) -> Result<Vec<String>, Stri
     lines.push(format!("{} the cockpit layout and mod ({} files) in {}", if link { "linked" } else { "copied" }, files_in.len(), home.display()));
     let exe = std::env::current_exe().map_err(err)?;
     // COCKPIT_* variables set for the install (a sandbox's test hooks) go to every cockpit command the mod runs.
-    let env: Map<String, Value> = std::env::vars().filter(|(k, _)| k.starts_with("COCKPIT_") && k != "COCKPIT_FRONTEND").map(|(k, v)| (k, Value::from(v))).collect();
+    let env: Map<String, Value> =
+        std::env::vars().filter(|(k, _)| k.starts_with("COCKPIT_") && k != "COCKPIT_FRONTEND").map(|(k, v)| (k, Value::from(v))).collect();
     let info = json!({"bin": exe, "cache": files::cache(), "home": files::home(), "version": env!("CARGO_PKG_VERSION"), "env": env});
     files::write(&home.join("cockpit.json"), &info).map_err(err)?;
     let (keys, skipped) = merge_keys(&files::load(&home.join("keys.json")).unwrap_or(json!({})), &files::load(&from.join("keys.json")).unwrap_or(json!({})));
@@ -297,7 +346,13 @@ mod tests {
     fn installs_the_layout_and_mod_and_says_where_cockpit_is() {
         let from = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        for (path, text) in [("mods/cockpit/main.js", "x"), ("mods/cockpit/ui.js", "y"), ("layouts/cockpit.json", "{}"), ("layouts/cockpit.svg", "<svg/>"), ("keys.json", "{\"global\": {\"cmd-k\": \"cockpit.palette\"}}")] {
+        for (path, text) in [
+            ("mods/cockpit/main.js", "x"),
+            ("mods/cockpit/ui.js", "y"),
+            ("layouts/cockpit.json", "{}"),
+            ("layouts/cockpit.svg", "<svg/>"),
+            ("keys.json", "{\"global\": {\"cmd-k\": \"cockpit.palette\"}}"),
+        ] {
             let p = from.path().join(path);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, text).unwrap();

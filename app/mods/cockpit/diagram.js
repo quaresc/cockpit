@@ -1,6 +1,8 @@
 // Diagrams drawn natively for the show view: Mermaid flowcharts and flow blocks as a layered layout (nodes as boxes,
 // edges as bezier paths with arrow heads), and sequence charts as lifelines and arrows. Paths are drawn in percentages
 // of their box, so they follow the zoom; node text is estimated, never measured.
+// The flowchart parser and layered layout are ported from https://github.com/chappse6/herdr-blueprint-app's `mermaid.js`
+// and `layout.js` (MIT, Copyright (c) 2026 chappse6); see THIRD_PARTY_NOTICES.md.
 
 import { div, PathBuilder } from "gpui-kit";
 import { v_flex } from "gpui-base";

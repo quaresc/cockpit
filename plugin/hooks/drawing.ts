@@ -1,4 +1,5 @@
 import { SHOW_TOOL_FULL } from './show'
+import { MCP } from './tools'
 
 // Results are drawn with the show tool. A hand-made HTML page opened beside the session, or a claude.ai artifact, is the
 // fallback: allowed once show was tried in the turn, when the person asked for that medium, or with a stated reason.
@@ -6,11 +7,7 @@ import { SHOW_TOOL_FULL } from './show'
 export const DRAWING_SECTION = {
   id: 'cockpit:drawing',
   scope: 'session' as const,
-  text: [
-    '# Drawing results',
-    `Whenever an answer holds a trend, a breakdown, a distribution, a comparison, a share, a ranking, a process, an architecture or an exchange between parts, draw it with ${SHOW_TOOL_FULL} in the pane beside the session, without being asked: figures as a stats block, numbers as charts, structure as flow, Mermaid or sequence blocks. Keep the written answer to what the picture means.`,
-    `Do not write an HTML page to open in the browser pane, nor publish a claude.ai artifact, to show results: those are the fallback for what no ${SHOW_TOOL_FULL} block can draw (call it first with what it can), or for when the person asks for a page or a link to share.`,
-  ].join('\n'),
+  text: MCP.drawing.map(line => line.replaceAll('{show}', SHOW_TOOL_FULL)).join('\n'),
 }
 
 /** What the person's prompt this turn asked for, and whether the show tool ran since. */

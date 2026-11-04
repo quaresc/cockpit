@@ -61,7 +61,9 @@ impl State {
             .into_iter()
             .flatten()
             .map(|(k, e)| {
-                let snooze = e["snooze"].is_object().then(|| Snooze { until: e["snooze"]["until"].as_u64(), class: e["snooze"]["class"].as_str().unwrap_or_default().to_string() });
+                let snooze = e["snooze"]
+                    .is_object()
+                    .then(|| Snooze { until: e["snooze"]["until"].as_u64(), class: e["snooze"]["class"].as_str().unwrap_or_default().to_string() });
                 let entry = Entry {
                     class: e["class"].as_str().unwrap_or_default().to_string(),
                     since: e["since"].as_u64().unwrap_or(0),

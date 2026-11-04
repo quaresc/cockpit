@@ -101,8 +101,7 @@ fn occurrences(calendar: &Calendar, floating: Tz, from: DateTime<Utc>, to: DateT
     let uid = |event: &Props| event.get("UID").map(|p| p.value.clone()).unwrap_or_default();
     let instant = |event: &Props, name: &str| event.get(name).and_then(|p| ics::when_of(p, floating)).and_then(|w| w.utc());
     // The instances an override replaces, by series and the start it had there.
-    let overridden: HashSet<(String, i64)> =
-        calendar.events.iter().filter_map(|e| Some((uid(e), instant(e, "RECURRENCE-ID")?.timestamp()))).collect();
+    let overridden: HashSet<(String, i64)> = calendar.events.iter().filter_map(|e| Some((uid(e), instant(e, "RECURRENCE-ID")?.timestamp()))).collect();
     let mut out = Vec::new();
     for event in &calendar.events {
         let Some(When::At(start)) = event.get("DTSTART").and_then(|p| ics::when_of(p, floating)) else { continue };
@@ -399,11 +398,8 @@ mod tests {
     #[test]
     fn a_weekly_series_less_its_exdate_with_its_moved_instance() {
         let week = week();
-        let syncs: Vec<(&str, &str)> = week
-            .iter()
-            .filter(|m| m["series"] == "7kq2sync")
-            .map(|m| (m["id"].as_str().unwrap(), m["start"].as_str().unwrap()))
-            .collect();
+        let syncs: Vec<(&str, &str)> =
+            week.iter().filter(|m| m["series"] == "7kq2sync").map(|m| (m["id"].as_str().unwrap(), m["start"].as_str().unwrap())).collect();
         assert_eq!(
             syncs,
             [

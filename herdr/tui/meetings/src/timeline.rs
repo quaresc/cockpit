@@ -191,9 +191,17 @@ pub fn svg(week: &Week, clock: &Clock, selected: Option<&str>, width: f64, heigh
         let line = font * 1.15;
         if h >= font * 0.8 {
             let ty = y + font.min(h - 1.0).max(font * 0.8);
-            let _ = write!(out, r#"<g clip-path="url(#b{n})"><text x="{:.1}" y="{ty:.1}" font-size="{font:.1}" fill="{text}">{}</text>"#, x + 4.0, esc(&m.title));
+            let _ =
+                write!(out, r#"<g clip-path="url(#b{n})"><text x="{:.1}" y="{ty:.1}" font-size="{font:.1}" fill="{text}">{}</text>"#, x + 4.0, esc(&m.title));
             if h >= line * 2.0 {
-                let _ = write!(out, r#"<text x="{:.1}" y="{:.1}" font-size="{:.1}" fill="{text}" opacity="0.75">{}</text>"#, x + 4.0, ty + line, font * 0.85, m.span_text(clock));
+                let _ = write!(
+                    out,
+                    r#"<text x="{:.1}" y="{:.1}" font-size="{:.1}" fill="{text}" opacity="0.75">{}</text>"#,
+                    x + 4.0,
+                    ty + line,
+                    font * 0.85,
+                    m.span_text(clock)
+                );
             }
             out.push_str("</g>");
         }

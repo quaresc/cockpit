@@ -4,14 +4,19 @@
 mod act;
 mod actions;
 mod browse;
+mod connect;
 mod doctor;
 mod find;
 mod focus;
 mod gui;
 mod home;
+mod jsonedit;
+mod launch;
+mod mcp;
 mod proc;
 mod queue;
 mod routine;
+mod setup;
 mod shots;
 mod space;
 mod store;
@@ -26,15 +31,20 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
-const USAGE: &str = "cockpit, the plugin's command.
+const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agents' tools.
 
     cockpit inbox|runbook|todo|meetings|monitor|routines
                                                a space's app (cockpit space adds cockpit-space, which update.sh looks for)
     cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
-    cockpit show <name>                        the view a Claude session shows beside itself
+    cockpit show <name>                        the view an agent session shows beside itself
     cockpit palette                            the launcher herdr opens as a popup (prefix+space); PALETTE_PANE is the pane below
     cockpit agents [answer|recap|snooze|seen|fork|week]  every agent terminal: who needs you, answered from here
+    cockpit agents connect|disconnect [<agent>...]
+                                               cockpit's tools (cockpit mcp) in each installed agent's MCP config
+    cockpit agents connected                   which agents have them, as JSON
+    cockpit agent id|argv ...                  an agent's id, or its command line to start, run, resume or fork (cockpit agent for more)
     cockpit search <query>                     what the palette finds, as the hub's JSON: items, the week's events, past sessions
+    cockpit mcp                                cockpit's agent tools (show, search, changes, report_step) as a stdio MCP server
     cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor|routines]
                                                what changed in the shared data, newest first, as the hub's JSON (a day by default)
     cockpit hub                                the background process the apps share; the first app that needs it starts it
@@ -52,6 +62,8 @@ const USAGE: &str = "cockpit, the plugin's command.
                                                a notification (the Herdr app's toast when it follows the hub, else
                                                the system's; --system: the system's); a click or a button does its action
     cockpit focus <target>                     what a notification's click does (cockpit focus for more)
+    cockpit setup                              picks the frontends, the default agent and the features, writes the config,
+                                               wires herdr, the Herdr app and the other agents (/cockpit:setup in Claude Code)
     cockpit doctor                             checks every part of cockpit, one ok, warn or fail line each
     cockpit browse ...                         a page in terminal-browser beside a pane (cockpit browse for more)
     cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)
@@ -76,8 +88,14 @@ fn main() {
         "routines" => app(cockpit_routines::run()),
         "show" => app(cockpit_show::run(rest.first().map_or("show", String::as_str))),
         "palette" => app(cockpit_palette::run()),
+        "agents" if rest.first().is_some_and(|c| ["connect", "disconnect", "connected"].contains(&c.as_str())) => connect::main(rest),
         "agents" => cockpit_agents::cli::main(rest),
+        "agent" => match launch::run(rest) {
+            Ok(line) => println!("{line}"),
+            Err(why) => proc::fail(&why),
+        },
         "search" => find::search(rest),
+        "mcp" => mcp::main(rest),
         "events" => find::events(rest),
         "hub" if rest.is_empty() => {
             gui::register();
@@ -94,6 +112,7 @@ fn main() {
         "notify" => notify(rest),
         "focus" => focus::main(rest),
         "doctor" => doctor::main(rest),
+        "setup" => setup::main(rest),
         "space" => space::main(rest),
         "browse" => browse::main(rest),
         "shots" => shots::main(rest),
@@ -159,6 +178,5 @@ fn ping(timeout: Duration) -> bool {
         return false;
     }
     let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).is_ok()
-        && serde_json::from_str::<serde_json::Value>(&line).is_ok_and(|answer| answer["ok"] == true)
+    BufReader::new(stream).read_line(&mut line).is_ok() && serde_json::from_str::<serde_json::Value>(&line).is_ok_and(|answer| answer["ok"] == true)
 }

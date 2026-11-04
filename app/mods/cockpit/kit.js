@@ -1,5 +1,5 @@
 // The design kit's gallery: every component of ui.js on sample data, to check a change in both themes.
-// `cockpit.kit` opens it as a window (sh app/sandbox.sh kit).
+// `cockpit.kit` opens it as a window (sh scripts/sandbox.sh kit).
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";

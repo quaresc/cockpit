@@ -1,5 +1,5 @@
 //! A palette jump to another app: its pinned space comes into view, then the app is asked to bring the item into view.
-//! A past Claude session opens instead as a fork in a tab of the actions space.
+//! A past agent session opens instead as a fork in a tab of the actions space.
 
 use std::path::Path;
 
@@ -57,7 +57,14 @@ fn session(target: &Value) -> Value {
     let prompt = "This is a fork of a past session, opened from cockpit to look back at it. Sum up in a few lines where it \
                   stood: what was done, what was decided, what was left open. Then wait for my questions. Change nothing (no \
                   edits, commits, pushes or ticket updates) unless I ask.";
-    let line = join(&["claude", "--resume", id, "--fork-session", prompt].map(str::to_string));
+    // A past session's target names its agent; one that does not is Claude Code's.
+    let Some(agent) = cockpit_core::agent::get(target["agent"].as_str().unwrap_or("claude")) else {
+        return json!({"error": format!("session {id} belongs to an agent cockpit does not know")});
+    };
+    let Some(argv) = agent.fork_with(id, Some(prompt)) else {
+        return json!({"error": format!("{} cannot fork a past session", agent.name)});
+    };
+    let line = join(&agent.typed(&argv));
     let pane = actions::open_tab(&config::load().space_names(), cwd, &label, Some(&key)).or_else(|| frontend::new_space(cwd, &label));
     let Some(pane) = pane else {
         return json!({"error": "herdr opened no tab for the session"});

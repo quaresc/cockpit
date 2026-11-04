@@ -275,7 +275,7 @@ impl App {
     pub fn run(&mut self, cmd: Cmd, armed: Option<String>) {
         let id = |id: Option<String>| id.map_or(Value::Null, Value::from);
         match cmd {
-            Cmd::Add => self.form = Some(Form::new()),
+            Cmd::Add => self.form = Some(Form::new(self.doc.as_ref().map(|d| d.agents.default_agent()).unwrap_or_else(|| ("Claude Code".into(), true)))),
             Cmd::Run(slug) => self.call("run", vec![slug.into()], None),
             Cmd::Stop(slug) => self.call("stop", vec![slug.into()], None),
             Cmd::Pause(slug, paused) => self.call("pause", vec![slug.into(), paused.into()], None),

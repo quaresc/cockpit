@@ -595,7 +595,8 @@ pub fn inline(text: &str) -> Vec<Span<'static>> {
                 _ => {}
             },
             NodeEdge::End(node) => {
-                if let value @ (NodeValue::Emph | NodeValue::Strong | NodeValue::Strikethrough | NodeValue::Link(_) | NodeValue::Image(_)) = &node.data().value {
+                if let value @ (NodeValue::Emph | NodeValue::Strong | NodeValue::Strikethrough | NodeValue::Link(_) | NodeValue::Image(_)) = &node.data().value
+                {
                     writer.leave(value);
                 }
             }
@@ -677,7 +678,8 @@ mod tests {
     #[test]
     fn inline_keeps_only_the_inline_marks() {
         let spans = inline("## Use `quota()` **here**");
-        let shown: Vec<(&str, Option<Color>, bool)> = spans.iter().map(|s| (s.content.as_ref(), s.style.fg, s.style.add_modifier.contains(Modifier::BOLD))).collect();
+        let shown: Vec<(&str, Option<Color>, bool)> =
+            spans.iter().map(|s| (s.content.as_ref(), s.style.fg, s.style.add_modifier.contains(Modifier::BOLD))).collect();
         assert_eq!(shown, vec![("Use ", None, false), ("quota()", Some(ORANGE), false), (" ", None, false), ("here", None, true)]);
         assert_eq!(inline("```suggestion")[0].content, "```suggestion");
     }

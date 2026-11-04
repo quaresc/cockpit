@@ -1,4 +1,4 @@
-//! The pinned actions space: a tab per one-off Claude session the inbox or the runbook starts, remembered by key in
+//! The pinned actions space: a tab per one-off agent session the inbox or the runbook starts, remembered by key in
 //! actions.json so pressing the same action again brings its tab back. The hub and the `cockpit` CLI both open them.
 
 use std::path::PathBuf;
@@ -73,7 +73,7 @@ pub fn space(pinned: &[String]) -> Option<String> {
         .and_then(|w| w["workspace_id"].as_str().map(str::to_string))
 }
 
-/// The pane or terminal where the action's Claude session still runs; None once it has ended or its tab closed.
+/// The pane or terminal where the action's agent session still runs; None once it has ended or its tab closed.
 pub fn pane_of(key: &str) -> Option<String> {
     let handle = panes().into_iter().find(|(k, _)| k == key).and_then(|(_, p)| pane_id(&p).map(str::to_string))?;
     frontend::alive(&handle).then_some(handle)

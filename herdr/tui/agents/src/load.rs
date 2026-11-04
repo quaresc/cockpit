@@ -21,14 +21,18 @@ struct State {
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
-/// The process an agent's tree starts at: the app terminal's own process, else the Claude session's pid.
+/// The process an agent's tree starts at: its terminal's, as the frontend gives it (asked of hc for an app terminal not
+/// looked at yet), else for Claude Code the pid its own registry notes for the session.
 fn root(l: &Live, session: Option<&str>) -> Option<u32> {
+    if let Some(pid) = l.pid {
+        return Some(pid);
+    }
     if l.frontend == "app" {
         let got: Value = serde_json::from_str(&term::hc_text(&["get", &l.address, "--json"])?).ok()?;
         return got["pid"].as_u64().map(|p| p as u32);
     }
-    let session = session?;
-    let dir = cockpit_core::files::home().join(".claude/sessions");
+    let session = session.filter(|_| l.agent == "claude")?;
+    let dir = cockpit_core::transcripts::claude_home().join("sessions");
     std::fs::read_dir(dir).into_iter().flatten().flatten().find_map(|e| {
         let v = cockpit_core::files::load(&e.path())?;
         (v["sessionId"].as_str() == Some(session)).then(|| v["pid"].as_u64().map(|p| p as u32)).flatten()

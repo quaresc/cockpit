@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cockpit": {
+      "command": "cockpit",
+      "args": ["mcp"],
+      "env_vars": [
+        "HERDR_ENV", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_SOCKET_PATH", "HERDR_BIN_PATH", "HC_TERMINAL_ID",
+        "HC_TERMINAL_SOCKET", "HC_SESSION", "HERDR_APP_HOME", "HERDR_APP_BIN", "COCKPIT_FRONTEND", "COCKPIT_HC_BIN"
+      ]
+    }
+  }
+}

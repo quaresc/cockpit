@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use image::{DynamicImage, RgbaImage};
 use ratatui::layout::Size;
+use ratatui_image::Resize;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::Protocol;
-use ratatui_image::Resize;
 use resvg::{tiny_skia, usvg};
 
 use crate::timeline;
@@ -98,8 +98,7 @@ impl Picture {
             let _turn = DRAWING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let (w, h) = (key.cols as f64 * cw, key.rows as f64 * ch);
             let text = timeline::svg(&week, &clock, key.selected.as_deref(), w, h, (cw, ch));
-            let drawn = raster(&text)
-                .and_then(|image| picker.new_protocol(image, Size::new(key.cols, key.rows), Resize::Fit(None)).map_err(|e| e.to_string()));
+            let drawn = raster(&text).and_then(|image| picker.new_protocol(image, Size::new(key.cols, key.rows), Resize::Fit(None)).map_err(|e| e.to_string()));
             let _ = tx.send((key, drawn));
         });
     }

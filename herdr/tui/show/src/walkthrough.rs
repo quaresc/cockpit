@@ -1,4 +1,5 @@
-//! The guided walkthrough of a diff: the hunks read by `claude -p` in the background, grouped into steps in reading
+//! The guided walkthrough of a diff: the hunks read by an agent run headless in the background (Claude Code's `-p` with
+//! a JSON schema when it is installed, else the default agent), grouped into steps in reading
 //! order with what each changes, then laid over the diff as it is now (a step whose code moved is outdated, a hunk no
 //! step covers is listed). The prompt, schema and checks follow dmazlum/herdr-walkthrough (MIT).
 
@@ -6,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use cockpit_core::agent::{self, Agent, Headless};
 use cockpit_core::files;
 use serde_json::{Value, json};
 
@@ -71,8 +73,10 @@ fn root() -> PathBuf {
 /// Lockfiles and bundles: listed, never sent.
 fn generated(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
-    matches!(name, "Cargo.lock" | "package-lock.json" | "yarn.lock" | "pnpm-lock.yaml" | "mix.lock" | "Gemfile.lock" | "poetry.lock" | "go.sum" | "composer.lock")
-        || name.ends_with(".min.js")
+    matches!(
+        name,
+        "Cargo.lock" | "package-lock.json" | "yarn.lock" | "pnpm-lock.yaml" | "mix.lock" | "Gemfile.lock" | "poetry.lock" | "go.sum" | "composer.lock"
+    ) || name.ends_with(".min.js")
         || name.ends_with(".snap")
         || path.contains("/dist/")
 }
@@ -118,7 +122,13 @@ pub fn digest(patch: &str) -> Digest {
 fn prompt(d: &Digest, what: &str) -> String {
     let steps = ((d.hunks as f64 / 2.5).round() as usize).clamp(1, LIMIT_STEPS);
     let parts = if d.hunks <= 4 { 1 } else { steps.div_ceil(3).clamp(1, LIMIT_PARTS) };
-    let key = if steps <= 3 { 1 } else if steps <= 9 { 2 } else { 3 };
+    let key = if steps <= 3 {
+        1
+    } else if steps <= 9 {
+        2
+    } else {
+        3
+    };
     let notes = steps.div_ceil(3).clamp(1, LIMIT_NOTES);
     format!(
         "The change: {what}\n\nIt has {} file(s) and {} hunk(s) to read. Aim for about {steps} step(s) in about {parts} part(s); never more than {LIMIT_STEPS} steps, {LIMIT_PARTS} parts or {LIMIT_HUNKS} hunks in one step. Fewer, fuller steps beat many thin ones.\nMark at most {key} step(s) \"key\". Write at most {notes} note(s) in the whole walkthrough; none is a fine answer.\nPart titles show in a narrow column: one to three words, at most 28 characters.\n\nThe digest: each file starts with \"=== path\", each hunk with its alias in square brackets and its @@ header, then its lines.\n\n{}",
@@ -136,20 +146,44 @@ fn key_of(d: &Digest, model: &str) -> String {
     format!("{:016x}", fnv(&format!("{PROMPT_VERSION}\n{model}\n{}", d.text)))
 }
 
-/// The script a job runs: claude with no tools, MCP servers, settings or skills, stopped after `$2` seconds.
+/// The script a job runs: `$3...` reading `$2`, stopped after `$1` seconds.
 const RUN: &str = r#"#!/bin/sh
 cd "$(dirname "$0")" || exit 1
-"${COCKPIT_CLAUDE:-claude}" -p --output-format json --tools '' --no-session-persistence --strict-mcp-config --setting-sources '' --disable-slash-commands --model "$1" --json-schema "$(cat schema.json)" --system-prompt "$(cat system.txt)" < prompt.txt > out.json 2> err.txt &
+limit=$1; input=$2; shift 2
+"$@" < "$input" > out.json 2> err.txt &
 pid=$!
 echo $pid > pid
 ( waited=0
   while kill -0 $pid 2>/dev/null; do
-    if [ $waited -ge "${2:-900}" ]; then echo "Stopped after $2 seconds without an answer." >> err.txt; kill $pid; exit 0; fi
+    if [ $waited -ge "$limit" ]; then echo "Stopped after $limit seconds without an answer." >> err.txt; kill $pid; exit 0; fi
     sleep 3; waited=$((waited + 3))
   done ) &
 wait $pid
 echo $? > code.tmp && mv code.tmp code
 "#;
+
+/// The command a job runs and what it reads: Claude Code with no tools, MCP servers, settings or skills and the answer's
+/// schema, the prompt on its input; another agent headless, told the instructions and the JSON shape in its prompt.
+fn command(agent: &Agent, model: &str, d: &Digest, what: &str) -> Option<(Vec<String>, &'static str)> {
+    if agent.id == "claude" {
+        let mut argv = vec![agent.path()];
+        argv.extend(
+            ["-p", "--output-format", "json", "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--setting-sources", ""].map(String::from),
+        );
+        argv.extend([
+            "--disable-slash-commands".into(),
+            "--model".into(),
+            model.into(),
+            "--json-schema".into(),
+            schema().to_string(),
+            "--system-prompt".into(),
+            SYSTEM.into(),
+        ]);
+        return Some((argv, "prompt.txt"));
+    }
+    let shape = format!("Answer with one JSON object and nothing else, matching this JSON schema:\n{}\n\n{}", schema(), prompt(d, what));
+    Some((agent.headless(&shape, &Headless { system: Some(SYSTEM), ..Default::default() })?, "/dev/null"))
+}
 
 /// Starts a walkthrough of the patch in the background, unless one of the same changes and model is there or running.
 pub fn start(repo: &str, scope: &str, model: &str, patch: &str, about: &Value) -> Result<String, String> {
@@ -157,7 +191,15 @@ pub fn start(repo: &str, scope: &str, model: &str, patch: &str, about: &Value) -
 }
 
 pub fn start_in(root: &Path, repo: &str, scope: &str, model: &str, patch: &str, about: &Value) -> Result<String, String> {
-    let model = if MODELS.contains(&model) { model } else { "haiku" };
+    // Claude Code writes it when installed; another agent writes it on its own model, named after it.
+    let agent = agent::get("claude").filter(Agent::installed).unwrap_or_else(agent::default);
+    let model = if agent.id != "claude" {
+        agent.id.as_str()
+    } else if MODELS.contains(&model) {
+        model
+    } else {
+        "haiku"
+    };
     let d = digest(patch);
     if d.hunks == 0 {
         return Err("no changes to walk through".into());
@@ -188,16 +230,17 @@ pub fn start_in(root: &Path, repo: &str, scope: &str, model: &str, patch: &str, 
     std::fs::write(job.join("prompt.txt"), prompt(&d, &what)).map_err(err)?;
     std::fs::write(job.join("schema.json"), schema().to_string()).map_err(err)?;
     std::fs::write(job.join("run.sh"), RUN).map_err(err)?;
+    let (argv, input) = command(&agent, model, &d, &what).ok_or_else(|| format!("{} has no headless mode to write a walkthrough", agent.name))?;
     let aliases: Value = d.aliases.iter().map(|(a, id)| (a.clone(), json!(id))).collect::<serde_json::Map<_, _>>().into();
     let listed: Vec<Value> = d.files.iter().map(|(p, a)| json!({"path": p, "aliases": a})).collect();
-    files::write(&job.join("meta.json"), &json!({"aliases": aliases, "files": listed, "model": model, "repo": repo, "scope": scope, "at": now_ms()})).map_err(err)?;
+    files::write(&job.join("meta.json"), &json!({"aliases": aliases, "files": listed, "model": model, "repo": repo, "scope": scope, "at": now_ms()}))
+        .map_err(err)?;
     let mut command = Command::new("sh");
-    command.arg(job.join("run.sh")).args([model, "900"]).current_dir(&job).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // A nested claude must not think it runs inside the session that asked.
+    command.arg(job.join("run.sh")).args(["900", input]).args(&argv).current_dir(&job).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // A nested agent must not think it runs inside the session that asked.
     for var in ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"] {
         command.env_remove(var);
     }
-    command.env("COCKPIT_CLAUDE", files::claude());
     let mut child = command.spawn().map_err(|e| format!("the walkthrough did not start: {e}"))?;
     std::thread::spawn(move || {
         let _ = child.wait();
@@ -258,14 +301,22 @@ pub fn state_in(root: &Path, repo: &str, scope: &str, patch: &str) -> Value {
 /// A finished job's answer, checked: every step pointing at hunks that were in the digest.
 fn finish(job: &Path) -> Result<Value, String> {
     let read = |name: &str| std::fs::read_to_string(job.join(name)).unwrap_or_default();
-    let answer: Value = serde_json::from_str(&read("out.json")).map_err(|_| {
+    let out = read("out.json");
+    let failed = || {
         let why: Vec<String> = read("err.txt").lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect();
-        if why.is_empty() { format!("claude exited with {}", read("code").trim()) } else { why[why.len().saturating_sub(3)..].join(" ") }
-    })?;
+        if why.is_empty() { format!("the agent exited with {}", read("code").trim()) } else { why[why.len().saturating_sub(3)..].join(" ") }
+    };
+    // Claude Code's JSON envelope, else another agent's answer as text.
+    let answer: Value = match serde_json::from_str::<Value>(&out) {
+        Ok(v) if ["type", "result", "subtype", "structured_output"].iter().any(|k| v.get(*k).is_some()) => v,
+        _ if out.trim().is_empty() || read("code").trim() != "0" => return Err(failed()),
+        _ => json!({"result": out}),
+    };
     if answer["is_error"] == true || answer["subtype"].as_str().is_some_and(|s| s != "success") {
-        return Err(answer["result"].as_str().filter(|r| !r.trim().is_empty()).unwrap_or("claude reported an error").trim().to_string());
+        return Err(answer["result"].as_str().filter(|r| !r.trim().is_empty()).unwrap_or("the agent reported an error").trim().to_string());
     }
-    let raw = if answer["structured_output"].is_object() { answer["structured_output"].clone() } else { parse_json(answer["result"].as_str().unwrap_or_default())? };
+    let raw =
+        if answer["structured_output"].is_object() { answer["structured_output"].clone() } else { parse_json(answer["result"].as_str().unwrap_or_default())? };
     let meta = files::load(&job.join("meta.json")).unwrap_or_default();
     let mut entry = normalize(&raw, &meta)?;
     entry["cost"] = answer["total_cost_usd"].clone();
@@ -351,7 +402,9 @@ pub fn normalize(raw: &Value, meta: &Value) -> Result<Value, String> {
             (!note.is_empty() && left_out.contains(path.as_str()) && noted.insert(path.clone())).then(|| json!({"path": path, "note": note}))
         })
         .collect();
-    Ok(json!({"title": Some(clip(&raw["title"], 140)).filter(|t| !t.is_empty()).unwrap_or_else(|| "Walkthrough".into()), "summary": clip(&raw["summary"], 0), "parts": parts, "skipped": skipped}))
+    Ok(
+        json!({"title": Some(clip(&raw["title"], 140)).filter(|t| !t.is_empty()).unwrap_or_else(|| "Walkthrough".into()), "summary": clip(&raw["summary"], 0), "parts": parts, "skipped": skipped}),
+    )
 }
 
 /// The walkthrough over the diff as it is now: each step's hunks still found, outdated when one is gone, and every
@@ -371,7 +424,8 @@ pub fn overlay(entry: &Value, patch: &str) -> Value {
                 .into_iter()
                 .flatten()
                 .map(|step| {
-                    let (found, missing): (Vec<&Value>, Vec<&Value>) = step["hunks"].as_array().into_iter().flatten().partition(|h| h.as_str().is_some_and(|id| ids.contains(id)));
+                    let (found, missing): (Vec<&Value>, Vec<&Value>) =
+                        step["hunks"].as_array().into_iter().flatten().partition(|h| h.as_str().is_some_and(|id| ids.contains(id)));
                     covered.extend(found.iter().filter_map(|h| h.as_str()).map(str::to_string));
                     outdated += usize::from(!missing.is_empty());
                     let mut out = step.clone();
@@ -384,12 +438,16 @@ pub fn overlay(entry: &Value, patch: &str) -> Value {
             json!({"title": part["title"], "blurb": part["blurb"], "steps": steps})
         })
         .collect();
-    let notes: HashMap<&str, &str> = entry["skipped"].as_array().into_iter().flatten().filter_map(|s| Some((s["path"].as_str()?, s["note"].as_str()?))).collect();
+    let notes: HashMap<&str, &str> =
+        entry["skipped"].as_array().into_iter().flatten().filter_map(|s| Some((s["path"].as_str()?, s["note"].as_str()?))).collect();
     let uncovered: Vec<Value> = files
         .iter()
         .filter_map(|f| {
             let hunks: Vec<String> = hunk_ids(f).into_iter().map(|(_, _, id)| id).filter(|id| !covered.contains(id)).collect();
-            let note = notes.get(f.path.as_str()).map(|n| n.to_string()).unwrap_or_else(|| if generated(&f.path) { "Generated file, not sent to the model.".into() } else { String::new() });
+            let note = notes
+                .get(f.path.as_str())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| if generated(&f.path) { "Generated file, not sent to the model.".into() } else { String::new() });
             (!hunks.is_empty()).then(|| json!({"path": f.path, "hunks": hunks, "note": note}))
         })
         .collect();

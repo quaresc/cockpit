@@ -110,8 +110,9 @@ impl Table {
                 (true, false) => Style::new().fg(FG).bg(CURSOR_BLURRED),
                 _ => Style::new().fg(FG).bg(zebra),
             };
-            let pieces: Vec<(String, Style)> =
-                (0..self.columns.len()).map(|i| self.piece(i, cell(at(r, i)), if at(r, i).is_null() && k != self.cursor { base.fg(DIM) } else { base })).collect();
+            let pieces: Vec<(String, Style)> = (0..self.columns.len())
+                .map(|i| self.piece(i, cell(at(r, i)), if at(r, i).is_null() && k != self.cursor { base.fg(DIM) } else { base }))
+                .collect();
             let mut row = Row::from_line(slice(&pieces, self.x, view, base)).target(Target::Table);
             row.clicks.push((0, view, Act::Cursor(k)));
             if let Some((text, style)) = bar(n) {

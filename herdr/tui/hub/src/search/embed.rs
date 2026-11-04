@@ -6,10 +6,17 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use cockpit_core::files;
+use sha2::{Digest, Sha256};
 use tokenizers::Tokenizer;
 
 const MODEL: &str = "potion-base-8M";
-const FILES: [&str; 3] = ["config.json", "tokenizer.json", "model.safetensors"];
+/// The Hugging Face commit the files come from, and each file's sha256 at it.
+const REVISION: &str = "bf8b056651a2c21b8d2565580b8569da283cab23";
+const FILES: [(&str, &str); 3] = [
+    ("config.json", "2a6ac0e9aaa356a68a5688070db78fc3a464fefe85d2f06a1905ce3718687553"),
+    ("tokenizer.json", "e67e803f624fb4d67dea1c730d06e1067e1b14d830e2c2202569e3ef0f70bb50"),
+    ("model.safetensors", "f65d0f325faadc1e121c319e2faa41170d3fa07d8c89abd48ca5358d9a223de2"),
+];
 /// Tokens of a text the vector reads; a session's chunks are well under it.
 const MAX_TOKENS: usize = 512;
 
@@ -31,30 +38,46 @@ fn is_on() -> bool {
     std::env::var("COCKPIT_EMBED").map_or(true, |v| v != "off")
 }
 
-/// The model's files, downloaded when missing; false when they could not be.
+/// The model's files, downloaded when missing or not the pinned ones; false when they could not be.
 pub fn fetch() -> bool {
     if !is_on() {
         return false;
     }
     let dir = dir();
     let _ = std::fs::create_dir_all(&dir);
-    FILES.iter().all(|name| {
+    FILES.iter().all(|(name, sha)| {
         let path = dir.join(name);
-        path.metadata().is_ok_and(|m| m.len() > 0) || download(&format!("https://huggingface.co/minishlab/{MODEL}/resolve/main/{name}"), &path)
+        is_pinned(&path, sha) || download(&format!("https://huggingface.co/minishlab/{MODEL}/resolve/{REVISION}/{name}"), &path, sha)
     })
 }
 
-fn download(url: &str, path: &Path) -> bool {
-    let Ok(response) = ureq::get(url).call() else { return false };
-    let tmp = path.with_extension("part");
-    let saved = std::fs::File::create(&tmp).and_then(|mut file| std::io::copy(&mut response.into_body().as_reader(), &mut file));
-    saved.is_ok() && std::fs::rename(&tmp, path).is_ok()
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The model, read once its files are there; None without them.
+fn is_pinned(path: &Path, sha: &str) -> bool {
+    std::fs::read(path).is_ok_and(|bytes| sha256(&bytes) == sha)
+}
+
+/// Saves the file only when its sha256 is the pinned one.
+fn download(url: &str, path: &Path, sha: &str) -> bool {
+    let Ok(response) = ureq::get(url).call() else { return false };
+    let Ok(bytes) = response.into_body().with_config().limit(200 * 1024 * 1024).read_to_vec() else { return false };
+    if sha256(&bytes) != sha {
+        return false;
+    }
+    let tmp = path.with_extension("part");
+    std::fs::write(&tmp, &bytes).is_ok() && std::fs::rename(&tmp, path).is_ok()
+}
+
+/// The model, read once its files are there and the pinned ones; None without them.
 pub fn model() -> Option<&'static Model> {
     static MODEL: OnceLock<Option<Model>> = OnceLock::new();
-    MODEL.get_or_init(|| if is_on() { Model::load(&dir()) } else { None }).as_ref()
+    let load = || {
+        let dir = dir();
+        (is_on() && FILES.iter().all(|(name, sha)| is_pinned(&dir.join(name), sha))).then(|| Model::load(&dir)).flatten()
+    };
+    MODEL.get_or_init(load).as_ref()
 }
 
 impl Model {
@@ -102,8 +125,28 @@ impl Model {
 /// quotas" asks about fixed quotas.
 pub fn question(text: &str) -> String {
     const ASKING: [&str; 22] = [
-        "the", "a", "an", "session", "sessions", "conversation", "chat", "where", "when", "which", "that", "we", "i", "you",
-        "about", "did", "talked", "discussed", "one", "find", "resume", "with",
+        "the",
+        "a",
+        "an",
+        "session",
+        "sessions",
+        "conversation",
+        "chat",
+        "where",
+        "when",
+        "which",
+        "that",
+        "we",
+        "i",
+        "you",
+        "about",
+        "did",
+        "talked",
+        "discussed",
+        "one",
+        "find",
+        "resume",
+        "with",
     ];
     let kept: Vec<&str> = text.split_whitespace().filter(|w| !ASKING.contains(&w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()))).collect();
     if kept.is_empty() { text.to_string() } else { kept.join(" ") }
@@ -147,6 +190,16 @@ mod tests {
         assert_eq!(question("the session"), "the session", "nothing left keeps it whole");
     }
 
+    #[test]
+    fn a_file_counts_only_with_its_pinned_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, "abc").unwrap();
+        assert!(is_pinned(&path, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+        assert!(!is_pinned(&path, FILES[0].1));
+        assert!(!is_pinned(&dir.path().join("missing.json"), FILES[0].1));
+    }
+
     /// With the real model, when it was downloaded on this machine: meaning outranks shared words.
     #[test]
     fn sentences_that_mean_the_same_sit_closer() {
@@ -157,4 +210,3 @@ mod tests {
         assert!(similarity(&close, &query) > similarity(&far, &query), "{} vs {}", similarity(&close, &query), similarity(&far, &query));
     }
 }
-

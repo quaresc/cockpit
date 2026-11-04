@@ -1,51 +1,24 @@
 import type { EngineInterface } from 'claude-code'
 
 import { home } from './config'
+import { MCP } from './tools'
 
 type $ = EngineInterface
 
 // Two tools over the hub: the palette's search across cockpit, and what changed in its shared data. Each runs the
 // `cockpit` CLI through cockpit.sh and hands back its JSON as is.
-export const SEARCH_TOOL = 'cockpit_search'
-export const SEARCH_TOOL_FULL = `mcp__cockpit__${SEARCH_TOOL}`
-export const CHANGES_TOOL = 'cockpit_changes'
-export const CHANGES_TOOL_FULL = `mcp__cockpit__${CHANGES_TOOL}`
+const SEARCH = MCP.tools.cockpit_search
+const CHANGES = MCP.tools.cockpit_changes
+export const SEARCH_TOOL = SEARCH.name
+export const SEARCH_TOOL_FULL = `mcp__cockpit__${SEARCH_TOOL}` as const
+export const CHANGES_TOOL = CHANGES.name
+export const CHANGES_TOOL_FULL = `mcp__cockpit__${CHANGES_TOOL}` as const
 
-const APPS = ['inbox', 'monitor'] as const
+const APPS = CHANGES.inputSchema.properties.app.enum
 
-export const SEARCH_SPEC = {
-  name: SEARCH_TOOL,
-  description:
-    'Searches everything cockpit knows, as its palette does: the person\'s PRs and the reviews asked of them, their tickets, ' +
-    'runbooks and their steps, show views, to-dos, meetings, monitored apps and their releases, the week\'s events (a review ' +
-    'requested, CI turning red, a ticket moving, a release judged) and past Claude sessions by what was said in them. Use it ' +
-    'to find a PR, ticket, runbook, meeting, release or past session the person names loosely ("the quota PR", "yesterday\'s ' +
-    'session on dark mode") before asking them for a link or an id. Returns JSON {entries: [{app, kind, title, help, target}]}, ' +
-    'best first; a PR\'s target key is its URL, a ticket\'s its id.',
-  inputSchema: {
-    type: 'object',
-    properties: { query: { type: 'string', description: 'Words to match, fuzzily: a ticket id, a repo, part of a title' } },
-    required: ['query'],
-  },
-  isDeferred: false,
-}
+export const SEARCH_SPEC = { name: SEARCH.name, description: SEARCH.description.join(''), inputSchema: SEARCH.inputSchema, isDeferred: false }
 
-export const CHANGES_SPEC = {
-  name: CHANGES_TOOL,
-  description:
-    'What changed in the person\'s work, newest first, from the week of history cockpit keeps: reviews requested, PRs opened, ' +
-    'approved, merged or asked for changes, CI turning red or green, tickets moving status, releases judged or moving their ' +
-    'numbers. Use it for "what changed since this morning", "what happened while I was away", "anything new on my PRs". ' +
-    'Returns JSON {events: [{at, when, app, doc, key, title}]}.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      since: { type: 'string', description: 'How far back: 30m, 2h, 1d (the default) up to 7d, or epoch milliseconds' },
-      app: { type: 'string', enum: APPS, description: 'Only the inbox (PRs, reviews, CI, tickets) or only the monitor (releases)' },
-    },
-  },
-  isDeferred: false,
-}
+export const CHANGES_SPEC = { name: CHANGES.name, description: CHANGES.description.join(''), inputSchema: CHANGES.inputSchema, isDeferred: false }
 
 // The CLI's arguments for a search, or what is wrong with the input.
 export function searchArgs(input: Record<string, unknown>): string[] | string {

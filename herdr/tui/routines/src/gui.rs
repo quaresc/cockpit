@@ -130,7 +130,8 @@ fn home_short(path: &str) -> String {
 }
 
 fn run_model(tui: &App, doc: &Doc, clock: &Clock, r: &Routine, run: &Run, runs_dir: &Path) -> Value {
-    let worktree = run.worktree.as_ref().map(|w| json!({"path": home_short(&w.path), "full": w.path, "branch": w.branch, "kept": w.kept(), "describe": w.describe()}));
+    let worktree =
+        run.worktree.as_ref().map(|w| json!({"path": home_short(&w.path), "full": w.path, "branch": w.branch, "kept": w.kept(), "describe": w.describe()}));
     json!({
         "key": format!("{}/run/{}", r.slug, run.id), "slug": r.slug, "id": run.id, "name": r.name, "started": run.started, "ended": run.ended,
         "when": clock.when(run.started), "ago": clock.ago(run.ended.max(run.started)), "took": if run.missed { String::new() } else { run.took() },
@@ -146,11 +147,12 @@ fn routine_model(tui: &App, doc: &Doc, clock: &Clock, r: &Routine, runs_dir: &Pa
     let running = doc.running.get(&r.slug).map(|run| {
         json!({"id": run.id, "started": run.started, "for": duration(clock.now.saturating_sub(run.started)), "why": run.why, "stopping": run.stopping.is_some()})
     });
-    let history: Vec<Value> = runs.iter().take(HISTORY).rev().map(|run| json!({"id": run.id, "word": run.word(), "when": clock.when(run.started), "summary": run.summary})).collect();
+    let history: Vec<Value> =
+        runs.iter().take(HISTORY).rev().map(|run| json!({"id": run.id, "word": run.word(), "when": clock.when(run.started), "summary": run.summary})).collect();
     let next_runs: Vec<Value> = r.next_runs.iter().map(|at| json!({"at": at, "text": clock.until(*at)})).collect();
     json!({
         "key": r.slug, "slug": r.slug, "name": r.name, "state": state_name(doc.state(r)), "when": r.when, "whenText": r.when_text, "trigger": r.trigger,
-        "error": r.error, "problems": r.problems, "run": r.run, "model": r.model, "mode": r.mode, "tools": r.tools, "cwd": home_short(&r.cwd),
+        "error": r.error, "problems": r.problems, "run": r.run, "agent": r.agent, "agentName": r.agent_name, "agentSet": r.agent_set, "model": r.model, "mode": r.mode, "tools": r.tools, "cwd": home_short(&r.cwd),
         "budget": r.budget, "spentWeek": r.spent_week, "spent": estimate(r.spent_week), "lastCost": r.last_cost.map(estimate), "over": r.over,
         "paused": r.paused, "prompt": r.prompt, "path": r.path, "notify": r.notify, "worktree": r.worktree, "catchUp": r.catch_up,
         "next": r.next, "nextText": r.next.filter(|_| !r.paused).map(|at| clock.until(at)), "nextRuns": next_runs,
@@ -184,11 +186,8 @@ pub fn model(value: &Value, clock: Clock, since: Option<u64>, runs_dir: &Path) -
     let mut tui = App::with(Some(clock), Density::Comfortable, false, runs_dir.to_path_buf());
     tui.set_doc(value);
     let routines: Vec<Value> = ordered(&doc).into_iter().map(|r| routine_model(&tui, &doc, &clock, r, runs_dir)).collect();
-    let inbox: Vec<Value> = doc
-        .unread()
-        .into_iter()
-        .filter_map(|(slug, run)| doc.routine(slug).map(|r| run_model(&tui, &doc, &clock, r, run, runs_dir)))
-        .collect();
+    let inbox: Vec<Value> =
+        doc.unread().into_iter().filter_map(|(slug, run)| doc.routine(slug).map(|r| run_model(&tui, &doc, &clock, r, run, runs_dir))).collect();
     let week: Vec<&Run> = doc.runs.values().flatten().filter(|run| clock.now.saturating_sub(run.started) < 7 * DAY_MS).collect();
     let count = |word: &str| week.iter().filter(|run| run.word() == word).count();
     let states: Vec<State> = doc.routines.iter().map(|r| doc.state(r)).collect();
@@ -197,7 +196,7 @@ pub fn model(value: &Value, clock: Clock, since: Option<u64>, runs_dir: &Path) -
     let worktrees = doc.runs.values().flatten().filter(|run| run.worktree.as_ref().is_some_and(|w| w.kept())).count();
     let (spent, budget) = (doc.routines.iter().map(|r| r.spent_week).sum::<f64>(), doc.routines.iter().filter_map(|r| r.budget).sum::<f64>());
     json!({
-        "ready": true, "at": doc.at, "since": since, "runsDir": runs_dir,
+        "ready": true, "at": doc.at, "since": since, "runsDir": runs_dir, "agents": {"default": doc.agents.default, "installed": doc.agents.installed},
         "tiles": {
             "routines": doc.routines.len(), "active": doc.routines.iter().filter(|r| !r.paused).count(), "paused": of(State::Paused),
             "running": of(State::Running), "waiting": of(State::Waiting), "failing": of(State::Failed) + of(State::Broken) + of(State::Missed) + of(State::Over),

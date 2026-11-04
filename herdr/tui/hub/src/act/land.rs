@@ -1,11 +1,13 @@
 //! Landing PRs and starting work: whether GitHub would merge a PR now and what the merge menu offers (after
 //! mrolafsson/herdr-github's readiness), merge, auto-merge, draft and the merge queue through gh; a ticket or a PR to a
-//! worktree with Claude in a space of its own, checked first; and the worktrees of merged branches removed.
+//! worktree with the agent in a space of its own, checked first; and the worktrees of merged branches removed.
+//! The readiness line and merge menu are ported from https://github.com/mrolafsson/herdr-github (MIT, Copyright (c) 2026
+//! Hjortur Stefan Olafsson); see THIRD_PARTY_NOTICES.md.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use cockpit_core::{files, frontend};
+use cockpit_core::{agent, files, frontend};
 use serde_json::{Value, json};
 
 use super::{Ctx, arg, inbox, opt, tickets};
@@ -89,7 +91,18 @@ const DETAIL: &str = "query($owner: String!, $name: String!, $number: Int!) { re
 /// The PR and its repo's merge settings as GitHub has them now: {repo: {...}, pr: {...}}.
 pub fn detail(cfg: &Config, pr: &Value) -> Res<Value> {
     let (owner, name, number) = coords(cfg, pr)?;
-    let out = gh(&["api", "graphql", "-f", &format!("query={DETAIL}"), "-F", &format!("owner={owner}"), "-F", &format!("name={name}"), "-F", &format!("number={number}")])?;
+    let out = gh(&[
+        "api",
+        "graphql",
+        "-f",
+        &format!("query={DETAIL}"),
+        "-F",
+        &format!("owner={owner}"),
+        "-F",
+        &format!("name={name}"),
+        "-F",
+        &format!("number={number}"),
+    ])?;
     let data: Value = serde_json::from_str(&out).map_err(|e| format!("gh answered no JSON: {e}"))?;
     let repo = &data["data"]["repository"];
     if repo["pullRequest"].is_null() {
@@ -180,7 +193,8 @@ pub fn readiness(d: &Value) -> (&'static str, String, &'static str) {
     (state, line, tone)
 }
 
-const METHODS: [(&str, &str, &str); 3] = [("SQUASH", "squash", "Squash and merge"), ("MERGE", "merge", "Create a merge commit"), ("REBASE", "rebase", "Rebase and merge")];
+const METHODS: [(&str, &str, &str); 3] =
+    [("SQUASH", "squash", "Squash and merge"), ("MERGE", "merge", "Create a merge commit"), ("REBASE", "rebase", "Rebase and merge")];
 
 fn allowed(d: &Value) -> Vec<(&'static str, &'static str, &'static str)> {
     let repo = &d["repo"];
@@ -305,7 +319,10 @@ pub fn merge(ctx: &mut Ctx, args: &[Value]) -> Res {
     }
     if d["pr"]["isMergeQueueEnabled"] == true {
         let id = d["pr"]["id"].as_str().unwrap_or_default();
-        mutate("mutation($id: ID!, $oid: GitObjectID) { enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid}) { clientMutationId } }", &[("id", id), ("oid", &head)])?;
+        mutate(
+            "mutation($id: ID!, $oid: GitObjectID) { enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid}) { clientMutationId } }",
+            &[("id", id), ("oid", &head)],
+        )?;
         after_change(ctx, format!("{name}#{n} joined the merge queue"));
         return Ok(());
     }
@@ -364,7 +381,7 @@ pub fn dequeue(ctx: &mut Ctx, args: &[Value]) -> Res {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// From a ticket or a PR to a worktree with Claude
+// From a ticket or a PR to a worktree with an agent
 
 /// Where a new worktree of the branch goes: herdr's convention, ~/.herdr/worktrees/<repo>/<branch>.
 fn worktree_path(repo: &str, branch: &str) -> PathBuf {
@@ -433,7 +450,7 @@ fn pr_plan(cfg: &Config, target: &Value, ticket: Option<&Value>) -> Value {
             steps.push(format!("{branch} is open in a space already: bring it into view"));
         } else {
             place = "checkout";
-            steps.push(format!("{branch} is checked out in {found}: Claude starts there in a new space \u{201c}{label}\u{201d}"));
+            steps.push(format!("{branch} is checked out in {found}: {} starts there in a new space \u{201c}{label}\u{201d}", agent::default().name));
         }
     } else {
         let at = worktree_path(&repo, &branch);
@@ -441,10 +458,14 @@ fn pr_plan(cfg: &Config, target: &Value, ticket: Option<&Value>) -> Value {
         if at.exists() {
             blockers.push(format!("{path} exists but is not a worktree of {branch}"));
         }
-        let from = if pr["isCrossRepository"] == true { format!("{}'s fork (pull/{}/head)", pr["headRepositoryOwner"]["login"].as_str().unwrap_or("its author"), text(&pr["number"])) } else { format!("origin/{branch}") };
+        let from = if pr["isCrossRepository"] == true {
+            format!("{}'s fork (pull/{}/head)", pr["headRepositoryOwner"]["login"].as_str().unwrap_or("its author"), text(&pr["number"]))
+        } else {
+            format!("origin/{branch}")
+        };
         steps.push(format!("fetch {branch} from {from}"));
         steps.push(format!("add a worktree of it at {path}"));
-        steps.push(format!("start Claude there in a new space \u{201c}{label}\u{201d}"));
+        steps.push(format!("start {} there in a new space \u{201c}{label}\u{201d}", agent::default().name));
     }
     finish(json!({
         "kind": "pr", "label": label, "place": place, "path": path, "repo": repo, "main": main, "branch": branch,
@@ -468,15 +489,18 @@ fn ticket_plan(cfg: &Config, target: &Value) -> Value {
         Ok(Some(issue)) => {
             branch = issue["branchName"].as_str().unwrap_or_default().to_string();
             match issue["state"]["type"].as_str() {
-                Some("completed") | Some("canceled") => blockers.push(format!("{id} is {}: reopen it first", issue["state"]["name"].as_str().unwrap_or("closed"))),
+                Some("completed") | Some("canceled") => {
+                    blockers.push(format!("{id} is {}: reopen it first", issue["state"]["name"].as_str().unwrap_or("closed")))
+                }
                 Some("started") => {}
                 _ => steps.push(format!("move {id} to In Progress")),
             }
             match issue["assignee"].as_object() {
                 None => steps.push(format!("assign {id} to you")),
-                Some(a) if a.get("isMe") != Some(&json!(true)) => {
-                    blockers.push(format!("{id} is assigned to {}: take it over in {ticket_name} first", a.get("displayName").and_then(Value::as_str).unwrap_or("someone else")))
-                }
+                Some(a) if a.get("isMe") != Some(&json!(true)) => blockers.push(format!(
+                    "{id} is assigned to {}: take it over in {ticket_name} first",
+                    a.get("displayName").and_then(Value::as_str).unwrap_or("someone else")
+                )),
                 Some(_) => {}
             }
         }
@@ -506,15 +530,25 @@ fn ticket_plan(cfg: &Config, target: &Value) -> Value {
         steps = vec![format!("\u{201c}{label}\u{201d} already runs: bring it into view")];
     } else {
         let name = if branch.is_empty() { format!("a branch named after {label}") } else { format!("the branch {branch}") };
-        steps.push(format!("start Claude in {} in a new space \u{201c}{label}\u{201d}: it finds the repo and makes {name} in a worktree", cfg.repos()));
+        steps.push(format!(
+            "start {} in {} in a new space \u{201c}{label}\u{201d}: it finds the repo and makes {name} in a worktree",
+            agent::default().name,
+            cfg.repos()
+        ));
     }
-    finish(json!({"kind": "ticket", "label": label, "place": place, "branch": branch, "ticket": known, "issue": issue.ok().flatten(), "steps": steps, "blockers": blockers}))
+    finish(
+        json!({"kind": "ticket", "label": label, "place": place, "branch": branch, "ticket": known, "issue": issue.ok().flatten(), "steps": steps, "blockers": blockers}),
+    )
 }
 
-/// `start [ticket | pr]`: the plan's checks, then the ticket moved and assigned, then Claude on the branch.
+/// `start [ticket | pr]`: the plan's checks, then the ticket moved and assigned, then the agent on the branch.
 pub fn start(ctx: &mut Ctx, args: &[Value]) -> Res {
     let target = arg(args, 0)?;
-    let key = if is_pr(target) { target["url"].as_str().unwrap_or_default().to_string() } else { target["id"].as_str().or(target.as_str()).unwrap_or_default().to_uppercase() };
+    let key = if is_pr(target) {
+        target["url"].as_str().unwrap_or_default().to_string()
+    } else {
+        target["id"].as_str().or(target.as_str()).unwrap_or_default().to_uppercase()
+    };
     if !ctx.confirmed(&format!("start-{key}")) {
         return Ok(());
     }
@@ -557,11 +591,12 @@ pub fn start(ctx: &mut Ctx, args: &[Value]) -> Res {
                 text(&plan["title"]),
                 text(&plan["branch"])
             );
-            inbox::start_space(ctx, &path, &label, &prompt, &[]);
+            inbox::start_space(ctx, &path, &label, &prompt, &inbox::Launch::new());
         }
         _ => {
             let t = &plan["ticket"];
-            let branch = plan["branch"].as_str().filter(|b| !b.is_empty()).map(|b| format!("the branch {b}")).unwrap_or_else(|| format!("a branch named after {label}"));
+            let branch =
+                plan["branch"].as_str().filter(|b| !b.is_empty()).map(|b| format!("the branch {b}")).unwrap_or_else(|| format!("a branch named after {label}"));
             let prompt = format!(
                 "Start {} ({}): {}.{ask} Read the ticket, find the repo it touches, create {branch} in a git worktree of that repo (git worktree add ~/.herdr/worktrees/<repo>/<branch>), and propose a plan before coding.",
                 text(&t["id"]),
@@ -569,7 +604,7 @@ pub fn start(ctx: &mut Ctx, args: &[Value]) -> Res {
                 t["title"].as_str().unwrap_or("")
             );
             let repos = ctx.cfg.repos();
-            inbox::start_space(ctx, &repos, &label, &prompt, &[]);
+            inbox::start_space(ctx, &repos, &label, &prompt, &inbox::Launch::new());
         }
     }
     if !moved.is_empty() {
@@ -670,7 +705,9 @@ mod tests {
         let (menu, why) = choices(&clean);
         assert_eq!((menu.len(), why.as_str()), (2, ""));
         assert_eq!((menu[0]["method"].as_str(), menu[1]["method"].as_str()), (Some("squash"), Some("merge")));
-        let failing = d(json!({"state": "OPEN", "mergeStateStatus": "BLOCKED", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [{"name": "lint", "conclusion": "FAILURE", "isRequired": true}]}}}}]}}));
+        let failing = d(
+            json!({"state": "OPEN", "mergeStateStatus": "BLOCKED", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [{"name": "lint", "conclusion": "FAILURE", "isRequired": true}]}}}}]}}),
+        );
         assert_eq!(readiness(&failing).1, "Blocked: 1 required check failing");
         assert_eq!(choices(&failing).0[0]["do"], "auto");
         let draft = d(json!({"state": "OPEN", "isDraft": true}));

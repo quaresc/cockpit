@@ -264,7 +264,12 @@ fn row_json(row: &Row, above: &str) -> Value {
             }
         }
         Body::Cells(cells) => {
-            let lead: Vec<Value> = cells.lead.iter().filter(|(g, _)| !g.trim().is_empty()).map(|(g, st)| json!({"icon": if is_glyph(g) { icons::lucide(g.trim()) } else { "circle" }, "tone": tone(*st)})).collect();
+            let lead: Vec<Value> = cells
+                .lead
+                .iter()
+                .filter(|(g, _)| !g.trim().is_empty())
+                .map(|(g, st)| json!({"icon": if is_glyph(g) { icons::lucide(g.trim()) } else { "circle" }, "tone": tone(*st)}))
+                .collect();
             out["cells"] = json!({
                 "lead": lead, "ref": cells.reference.0.trim(), "title": cells.title.0, "title_tone": tone(cells.title.1),
                 "notes": cells.notes.0, "notes_tone": tone(cells.notes.1), "age": cells.age,
@@ -324,5 +329,37 @@ mod tests {
         let empty = model_of(&Inputs::default(), &Config::from(json!({})), true, &mut local, json!({}));
         assert_eq!((empty["state"].as_str(), empty["group"].as_str()), (Some("empty"), Some("status")));
         assert!(empty["message"].as_str().unwrap().starts_with("No data yet"));
+    }
+
+    /// Every act label in the model, however deep its row.
+    fn labels(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::Object(m) => {
+                for a in m.get("acts").and_then(Value::as_array).into_iter().flatten() {
+                    out.extend(a["label"].as_str().map(str::to_string));
+                }
+                m.values().for_each(|x| labels(x, out));
+            }
+            Value::Array(a) => a.iter().for_each(|x| labels(x, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn without_claude_code_only_github_reruns_are_offered() {
+        facts::freeze("2026-10-28T10:00:00Z");
+        let mut ci = fixture("ci.json");
+        let inputs = |ci: &Value| Inputs { data: Some(fixture("inbox.json")), ci: ci.clone(), ..Inputs::default() };
+        let offered = |ci: &Value, config: Config| {
+            let mut out = Vec::new();
+            labels(&model_of(&inputs(ci), &config, false, &mut Local::fixed(HashMap::new(), Vec::new()), json!({})), &mut out);
+            out
+        };
+        assert!(offered(&ci, Config::from(json!({}))).iter().any(|l| l == "rerun"), "the fixture has a failed run to rerun");
+        assert!(!offered(&ci, Config::from(json!({})).without_claude()).iter().any(|l| l == "rerun" || l == "redeploy" || l == "done"));
+        for run in ci["runs"].as_array_mut().unwrap() {
+            run["slug"] = json!(format!("acme/{}", run["repo"].as_str().unwrap()));
+        }
+        assert!(offered(&ci, Config::from(json!({})).without_claude()).iter().any(|l| l == "rerun"));
     }
 }

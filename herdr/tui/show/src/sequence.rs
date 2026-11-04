@@ -83,9 +83,7 @@ impl Canvas {
 
 /// Words filled greedily into lines of `room` cells, long words broken, nothing for an empty text.
 fn wrap(text: &str, room: usize) -> Vec<String> {
-    let options = textwrap::Options::new(room.max(1))
-        .word_separator(textwrap::WordSeparator::AsciiSpace)
-        .wrap_algorithm(textwrap::WrapAlgorithm::FirstFit);
+    let options = textwrap::Options::new(room.max(1)).word_separator(textwrap::WordSeparator::AsciiSpace).wrap_algorithm(textwrap::WrapAlgorithm::FirstFit);
     let lines: Vec<String> = textwrap::wrap(text.trim(), options).into_iter().map(|l| l.into_owned()).collect();
     if lines.iter().all(String::is_empty) { vec![String::new()] } else { lines }
 }
@@ -103,11 +101,8 @@ struct Arrow {
 pub fn draw(actors: &[Value], messages: &[Value], room: i64) -> Vec<Vec<(String, Style)>> {
     let id = |a: &Value| a.as_str().map_or_else(|| a["id"].as_str().unwrap_or_default().to_string(), str::to_string);
     let mut names: Vec<String> = actors.iter().map(id).collect();
-    let mut labels: HashMap<String, String> = actors
-        .iter()
-        .filter(|a| a.is_object())
-        .map(|a| (id(a), a["label"].as_str().filter(|l| !l.is_empty()).map_or_else(|| id(a), str::to_string)))
-        .collect();
+    let mut labels: HashMap<String, String> =
+        actors.iter().filter(|a| a.is_object()).map(|a| (id(a), a["label"].as_str().filter(|l| !l.is_empty()).map_or_else(|| id(a), str::to_string))).collect();
     for m in messages {
         for end in ["from", "to", "over"] {
             if let Some(end) = m[end].as_str().filter(|e| !e.is_empty())

@@ -8,17 +8,19 @@ import { appDo } from './herdr'
 import type { Here } from './herdr'
 import { PAGE_BLOCKS, pageBlocks, pageHtml } from './page'
 import { fetchSource } from './sources'
+import { MCP } from './tools'
 
 type $ = EngineInterface
 
 // The show tool: a view built from a fixed catalog of blocks, drawn in a pane split from the session's: `cockpit show`
 // in herdr, the cockpit mod's show view in the Herdr app.
 // A later call with the same pane name rewrites the view and the open pane redraws.
-export const SHOW_TOOL = 'show'
-export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}`
+const SHOW = MCP.tools.show
+export const SHOW_TOOL = SHOW.name
+export const SHOW_TOOL_FULL = `mcp__cockpit__${SHOW_TOOL}` as const
 
-const PLACEMENTS = ['right', 'down', 'zoomed', 'browser'] as const
-const BLOCKS = ['markdown', 'stats', 'table', 'chart', 'flow', 'sequence', 'mermaid', 'blueprint', 'image', 'compare', 'diff', 'log', 'ci', 'choice', 'confirm'] as const
+const PLACEMENTS = SHOW.inputSchema.properties.placement.enum
+const BLOCKS = SHOW.inputSchema.properties.blocks.items.properties.type.enum
 const NODE_KINDS = ['box', 'round', 'decision'] as const
 const CHART_KINDS = ['line', 'area', 'bar', 'donut'] as const
 const CHART_FLAGS = ['horizontal', 'stacked', 'percent', 'show_values'] as const
@@ -28,52 +30,7 @@ const MAX_ROWS = 5000
 const MAX_PATCH = 500_000
 const MIN_EVERY = 30
 
-export const SHOW_SPEC = {
-  name: SHOW_TOOL,
-  description:
-    'Draws charts, figures, tables, diagrams, pictures, diffs, logs or a question in a pane beside this session, natively ' +
-    '(in the Herdr app or herdr). Reach for it on your own, unasked, whenever an answer holds a trend, a breakdown, a ' +
-    'distribution, a comparison, a share, a ranking, a funnel, a process, an architecture or an exchange: draw it here ' +
-    'instead of a markdown table or ASCII art, and keep the text answer to what it means. It replaces hand-written HTML ' +
-    'pages and claude.ai artifacts: use those only for what no block can draw, or when the person asks for a page or a ' +
-    'link to share. Blocks: {type:"stats", items:[{label, value, note?, delta?, good?, spark?:[numbers]}]} for headline ' +
-    'figures as tiles (good: whether the delta is good news); {type:"chart", kind:"line"|"area"|"bar"|"donut", ' +
-    'columns, rows, x?, y?:[columns], stacked?, percent?, horizontal?, show_values?} (rows as arrays; line or area over ' +
-    'time, bar for categories, horizontal:true for rankings and long names, stacked:true or percent:true (each row to ' +
-    '100%) for parts of a whole per category, donut for one whole split in a few parts (first y column; past six ' +
-    'slices fold into Other), show_values:true to write the values on the marks); ' +
-    '{type:"table", columns, rows}; a chart or table can instead take source:{metabase:{question:<id>}|{query:<MBQL>}} or ' +
-    'source:{datadog:{queries:[...], from?:"now-1h"}} to refresh itself every `every` seconds, or command:<shell printing JSON> ' +
-    'with every; {type:"flow", nodes:[{id, label, kind?:"box"|"round"|"decision"}], edges:[{from, to, label?}], ' +
-    'direction?:"down"|"right"}; {type:"sequence", actors?:[...], messages:[{from, to, label, reply?} | {note, over}]}; ' +
-    '{type:"mermaid", text} for a flowchart or sequenceDiagram; {type:"blueprint", text}, the living plan of a task of ' +
-    'several steps: a Mermaid flowchart (`flowchart TD`, a `---\\ntitle: …\\n---` header for its title), one box per step, ' +
-    '`class A,B done` and `class C active` (or `A:::done`) marking progress; show it once in its own view (pane ' +
-    '"blueprint", one per session), then keep it current as the work moves by rewriting the whole flowchart into the .mmd ' +
-    'file the result names (with Write), which redraws the pane with no further show call; a box the person clicks ' +
-    'reaches you as their next message, a change request about that step; {type:"image", path|url, caption?} (an ' +
-    'animated GIF plays, so an E2E recording shows as one); {type:"compare", before, after} for two screenshots (a before/after of a front change); ' +
-    '{type:"diff", repo:<absolute path>, base?} following the working tree, or {type:"diff", patch}, whose lines the person can ' +
-    'comment on, each comment reaching you as their next message; {type:"log", command, every?, lines?} tailing a command; ' +
-    '{type:"ci", repo, branch} for the CI run of a branch; {type:"choice", prompt?, options:[{label, value?, preview?}]} or ' +
-    '{type:"confirm", summary, consequence?, confirm_label?}, whose answer reaches you as the person\'s next message; ' +
-    '{type:"markdown", text}. Any block takes a title. The same pane name updates the same pane. placement:"browser" ' +
-    'draws the view as a web page in the browser beside the session instead, at full resolution: use it for tables too ' +
-    'wide for a pane, big diagrams, pictures and side-by-side diffs; it takes markdown, stats, table, chart, flow, ' +
-    'sequence, mermaid, image, compare and diff blocks, with rows given in the call.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      pane: { type: 'string', description: 'A short name such as quota-chart; the same name updates the same pane' },
-      title: { type: 'string' },
-      url: { type: 'string', description: 'Optional: what `o` in the pane opens in the browser' },
-      placement: { type: 'string', enum: PLACEMENTS, description: 'Where a new pane opens: right of this session (default), below it, zoomed, or as a page in the browser beside it' },
-      blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: BLOCKS } }, required: ['type'] } },
-    },
-    required: ['pane', 'title', 'blocks'],
-  },
-  isDeferred: false,
-}
+export const SHOW_SPEC = { name: SHOW.name, description: SHOW.description.join(''), inputSchema: SHOW.inputSchema, isDeferred: false }
 
 export type Block = Record<string, unknown>
 type Placement = (typeof PLACEMENTS)[number]

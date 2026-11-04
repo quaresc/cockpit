@@ -10,7 +10,10 @@ use serde_json::{Value, json};
 
 use cockpit_core::widgets::sparkline;
 
-use crate::facts::{self, Config, STALE_PR_DAYS, age_days, ago, ci_glyph, dashboard_name, flag, has_ticket, is_deploying, is_failing, list, needs_me, reference, review_glyph, s, text};
+use crate::facts::{
+    self, Config, STALE_PR_DAYS, age_days, ago, ci_glyph, dashboard_name, flag, has_ticket, is_deploying, is_failing, list, needs_me, reference, review_glyph,
+    s, text,
+};
 use crate::icons::icon;
 use crate::model::{Ctx, heading, strong};
 use crate::row::{Cells, Kind, Row, RowAct, call, open};
@@ -57,7 +60,14 @@ const SPARK: usize = 8;
 const SPARK_MIN: usize = 3;
 
 impl<'a> Build<'a> {
-    fn new(data: &'a Value, ci: &'a Value, config: &'a Config, costs: &'a HashMap<String, f64>, series: &'a HashMap<String, Vec<f64>>, secs: &'a HashMap<String, u64>) -> Self {
+    fn new(
+        data: &'a Value,
+        ci: &'a Value,
+        config: &'a Config,
+        costs: &'a HashMap<String, f64>,
+        series: &'a HashMap<String, Vec<f64>>,
+        secs: &'a HashMap<String, u64>,
+    ) -> Self {
         let mine = list(data, "mine");
         let by_key: HashSet<Key> = mine.iter().map(pr_key).collect();
         let mut pr_children: HashMap<Key, Vec<&Value>> = HashMap::new();
@@ -148,20 +158,23 @@ impl<'a> Build<'a> {
             let new = call("fix_ci", vec![pr.clone(), run_arg.clone(), json!("new")]);
             acts.push(RowAct::pick("fix ci", 'f', vec![("on this PR's branch", here), ("on a new PR off main", new)]).main());
         }
+        // GitHub Actions runs (they carry the repo's slug) rerun through gh; other CI through a Claude Code session.
         if let Some(r) = run
             && s(r, "outcome") == "failed"
             && !s(r, "workflowId").is_empty()
             && running.is_none()
+            && (!s(r, "slug").is_empty() || self.config.claude())
         {
             acts.push(RowAct::new("rerun", 'r', call("rerun", vec![pr.clone(), r.clone()])).confirm(format!("rerun-{}", s(r, "workflowId"))));
         }
         if let Some(bx) = bx
             && image_ready
+            && self.config.claude()
         {
             let redeploy = call("redeploy", vec![bx.clone(), json!(s(pr, "url"))]);
             acts.push(RowAct::new("redeploy", 'd', redeploy).main_if(acts.is_empty()).confirm(format!("redeploy-{}-{}", s(bx, "id"), s(bx, "app"))));
         }
-        if bx.is_none() && image_ready && self.config.can_preview() {
+        if bx.is_none() && image_ready && self.config.can_preview() && self.config.claude() {
             let preview = call("create_preview", vec![pr.clone()]);
             acts.push(RowAct::new("preview", 's', preview).main_if(acts.is_empty()).confirm(format!("preview-{}-{}", s(pr, "repo"), s(pr, "branch"))));
         }
@@ -178,10 +191,23 @@ impl<'a> Build<'a> {
         acts.push(RowAct::new("open", 'o', open(s(pr, "url"))).main_if(acts.is_empty() && !merge_first));
         if !flag(pr, "isDraft") {
             let method = |label: &'static str, how: &str| (label, call("merge", vec![pr.clone(), json!(how)]));
-            let merge = RowAct::pick("merge", 'M', vec![method("squash and merge", "squash"), method("create a merge commit", "merge"), method("rebase and merge", "rebase")]);
+            let merge = RowAct::pick(
+                "merge",
+                'M',
+                vec![method("squash and merge", "squash"), method("create a merge commit", "merge"), method("rebase and merge", "rebase")],
+            );
             acts.push(merge.main_if(merge_first));
             let auto = |label: &'static str, how: &str| (label, call("automerge", vec![pr.clone(), json!(how)]));
-            acts.push(RowAct::pick("auto-merge", 'U', vec![auto("squash when ready", "squash"), auto("merge commit when ready", "merge"), auto("rebase when ready", "rebase"), auto("turn auto-merge off", "off")]));
+            acts.push(RowAct::pick(
+                "auto-merge",
+                'U',
+                vec![
+                    auto("squash when ready", "squash"),
+                    auto("merge commit when ready", "merge"),
+                    auto("rebase when ready", "rebase"),
+                    auto("turn auto-merge off", "off"),
+                ],
+            ));
             acts.push(RowAct::new("to draft", 'T', call("draft", vec![pr.clone()])));
         } else {
             acts.push(RowAct::new("mark ready", 'Y', call("ready", vec![pr.clone()])));
@@ -198,7 +224,13 @@ impl<'a> Build<'a> {
         let mut info = vec![
             Line::from(vec![Span::styled(format!("{}  ", reference(pr)), dim()), Span::styled(s(pr, "title").to_string(), strong())]),
             Line::styled(format!("{} → {}{draft} · updated {} ago", s(pr, "branch"), s(pr, "base"), ago(s(pr, "updatedAt"))), dim()),
-            Line::from(vec![Span::styled("review ", dim()), Span::styled(review, rv_s), Span::styled("   ci ", dim()), Span::styled(ci_state, ci_s), Span::styled(preview, dim())]),
+            Line::from(vec![
+                Span::styled("review ", dim()),
+                Span::styled(review, rv_s),
+                Span::styled("   ci ", dim()),
+                Span::styled(ci_state, ci_s),
+                Span::styled(preview, dim()),
+            ]),
             Line::styled(ready_text.to_string(), tone_style(ready_tone)),
         ];
         let mut kids = Vec::new();
@@ -215,7 +247,10 @@ impl<'a> Build<'a> {
         let checks: Vec<&str> = list(pr, "failedChecks")
             .iter()
             .filter_map(Value::as_str)
-            .filter(|c| *c != shown_job && !mirror.as_ref().is_some_and(|m| c.to_lowercase().starts_with(&format!("ci/{m}")) || c.to_lowercase().starts_with(m.as_str())))
+            .filter(|c| {
+                *c != shown_job
+                    && !mirror.as_ref().is_some_and(|m| c.to_lowercase().starts_with(&format!("ci/{m}")) || c.to_lowercase().starts_with(m.as_str()))
+            })
             .collect();
         if !checks.is_empty() {
             let line = format!("{} {}", icon("github"), checks.join(", "));
@@ -290,7 +325,7 @@ impl<'a> Build<'a> {
         let deployed = list(&self.data["deploys"], id);
         let mut acts = Vec::new();
         if deploying {
-            if !deployed.is_empty() && deployed.iter().all(|d| flag(d, "isLive")) {
+            if !deployed.is_empty() && deployed.iter().all(|d| flag(d, "isLive")) && self.config.claude() {
                 acts.push(RowAct::new("done", 'x', call("mark_done", vec![ticket.clone()])).main().confirm(format!("done-{id}")));
             }
         } else if started {
@@ -313,7 +348,7 @@ impl<'a> Build<'a> {
         acts.push(RowAct::pick("status", 'i', vec![state("Todo"), state("In Progress"), state("In Review"), state("Done")]));
         acts.push(RowAct::new("open", 'o', open(s(ticket, "url"))));
         let project = if s(ticket, "project").is_empty() { "no project" } else { s(ticket, "project") };
-        let mut spent = usd.map(|u| format!(" · ${u:.2} in Claude usage")).unwrap_or_default();
+        let mut spent = usd.map(|u| format!(" · ${u:.2} in Claude Code usage")).unwrap_or_default();
         if let Some(secs) = self.secs.get(&id.to_uppercase()) {
             spent += &format!(" · {} by agents this week", facts::duration(*secs));
         }
@@ -324,7 +359,11 @@ impl<'a> Build<'a> {
         let mut kids = Vec::new();
         for (n, done) in deployed.iter().enumerate() {
             let is_live = flag(done, "isLive");
-            let live = if is_live { format!("{} live in production", icon("rocket")) } else { format!("{} not in production yet, prod runs {}", icon("waiting"), s(done, "tag")) };
+            let live = if is_live {
+                format!("{} live in production", icon("rocket"))
+            } else {
+                format!("{} not in production yet, prod runs {}", icon("waiting"), s(done, "tag"))
+            };
             let line = format!("{}  {live}", reference(done));
             let style = if is_live { fg(GREEN) } else { fg(DIM) };
             kids.push(Row::text(format!("{id}:deploy:{n}"), Line::styled(line.clone(), style)));
@@ -422,7 +461,8 @@ impl<'a> Build<'a> {
     }
 
     fn other(&self, claimed: &HashSet<Key>) -> Row {
-        let others: Vec<&Value> = self.mine.iter().filter(|pr| !claimed.contains(&pr_key(pr)) && !self.pr_parent.get(&pr_key(pr)).is_some_and(|p| claimed.contains(p))).collect();
+        let others: Vec<&Value> =
+            self.mine.iter().filter(|pr| !claimed.contains(&pr_key(pr)) && !self.pr_parent.get(&pr_key(pr)).is_some_and(|p| claimed.contains(p))).collect();
         let mut groups: [Vec<&Value>; 4] = Default::default();
         for root in others.iter().copied().filter(|pr| self.is_top(pr)) {
             let tree = self.pr_subtree(root);

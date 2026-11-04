@@ -18,19 +18,6 @@ pub fn config_dir() -> PathBuf {
     home().join(".config/cockpit")
 }
 
-/// The Claude Code the person runs: COCKPIT_CLAUDE, else the local install (its shell alias beats PATH), else the native
-/// installer's, else the first on PATH. A Herdr app terminal starts its argv without aliases, so PATH alone can be stale.
-pub fn claude() -> String {
-    use std::os::unix::fs::PermissionsExt;
-    let runs = |p: &Path| p.is_file() && p.metadata().is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
-    if let Some(set) = std::env::var("COCKPIT_CLAUDE").ok().filter(|c| !c.is_empty()) {
-        return set;
-    }
-    let installs = [home().join(".claude/local/claude"), home().join(".local/bin/claude")];
-    let on_path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join("claude")).collect::<Vec<_>>()).unwrap_or_default();
-    installs.into_iter().chain(on_path).find(|p| runs(p)).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "claude".into())
-}
-
 /// The herdr plugin folder, where its scripts live: app.sh says so, else the binary's own place.
 pub fn herdr_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("COCKPIT_HERDR_DIR") {

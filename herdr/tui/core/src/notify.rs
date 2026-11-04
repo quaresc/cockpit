@@ -66,10 +66,15 @@ fn pr_url(s: &str) -> Option<String> {
 
 /// The ticket id in a tracker's URL: "ENG-2" in Linear's `/issue/ENG-2/slug` or Jira's `/browse/ENG-2`.
 fn ticket_id(url: &str) -> Option<String> {
-    url.split(['/', '?', '#']).find(|part| {
-        let Some((key, n)) = part.split_once('-') else { return false };
-        key.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && key.chars().all(|c| c.is_ascii_alphanumeric()) && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
-    }).map(str::to_string)
+    url.split(['/', '?', '#'])
+        .find(|part| {
+            let Some((key, n)) = part.split_once('-') else { return false };
+            key.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                && key.chars().all(|c| c.is_ascii_alphanumeric())
+                && !n.is_empty()
+                && n.chars().all(|c| c.is_ascii_digit())
+        })
+        .map(str::to_string)
 }
 
 /// A system notification posted for the Herdr app: its click and buttons lead to rows of the app, not the browser.
@@ -211,7 +216,8 @@ mod tests {
         assert_eq!(row_target("act:plan:ENG-2"), "inbox:ENG-2");
         assert_eq!(row_target("runbook:eng-4:a,b"), "runbook:eng-4:a,b");
         assert_eq!(row_target("https://status.acme.dev"), "https://status.acme.dev");
-        let (action, buttons) = for_app("https://github.com/acme/api/pull/4/checks", &["Why?=act:ci:https://github.com/acme/api/pull/4".into(), "Docs=https://x.dev".into()]);
+        let (action, buttons) =
+            for_app("https://github.com/acme/api/pull/4/checks", &["Why?=act:ci:https://github.com/acme/api/pull/4".into(), "Docs=https://x.dev".into()]);
         assert_eq!(action, "herdr-app:inbox:https://github.com/acme/api/pull/4");
         assert_eq!(buttons, ["Why?=herdr-app:act:ci:https://github.com/acme/api/pull/4", "Docs=https://x.dev"]);
     }

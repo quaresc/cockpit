@@ -72,7 +72,11 @@ pub fn ago(iso: &str) -> String {
 /// A cache's millisecond timestamp as local HH:MM.
 pub fn clock(ms: &Value) -> String {
     let ms = ms.as_i64().unwrap_or(0);
-    let shown = if FROZEN.get().is_some() { Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%H:%M").to_string()) } else { Local.timestamp_millis_opt(ms).single().map(|t| t.format("%H:%M").to_string()) };
+    let shown = if FROZEN.get().is_some() {
+        Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%H:%M").to_string())
+    } else {
+        Local.timestamp_millis_opt(ms).single().map(|t| t.format("%H:%M").to_string())
+    };
     shown.unwrap_or_default()
 }
 
@@ -174,23 +178,43 @@ pub fn dashboard_name(url: &str) -> &'static str {
     if ARGO.is_match(host) {
         return "ArgoCD";
     }
-    let names = [("vercel.com", "Vercel"), ("netlify.app", "Netlify"), ("netlify.com", "Netlify"), ("render.com", "Render"), ("railway.app", "Railway"), ("fly.io", "Fly")];
+    let names = [
+        ("vercel.com", "Vercel"),
+        ("netlify.app", "Netlify"),
+        ("netlify.com", "Netlify"),
+        ("render.com", "Render"),
+        ("railway.app", "Railway"),
+        ("fly.io", "Fly"),
+    ];
     names.iter().find(|(suffix, _)| host.ends_with(suffix)).map(|(_, name)| *name).unwrap_or("Dashboard")
 }
 
 /// The config values the inbox reads, from the config the mod resolved.
 pub struct Config {
     raw: Value,
+    claude: bool,
 }
 
 impl Config {
     pub fn load() -> Self {
-        Self::from(cockpit_core::files::config())
+        let claude = cockpit_core::agent::get("claude").is_some_and(|a| a.installed());
+        Self { claude, ..Self::from(cockpit_core::files::config()) }
     }
 
     pub fn from(raw: Value) -> Self {
         crate::icons::set_ci(s(&raw["ci"], "name"));
-        Self { raw }
+        Self { raw, claude: true }
+    }
+
+    /// The same config on a machine without Claude Code.
+    pub fn without_claude(self) -> Self {
+        Self { claude: false, ..self }
+    }
+
+    /// Whether Claude Code is installed: the cockpit plugin carries out CircleCI reruns, previews and releases in its
+    /// sessions, so without it those are not offered.
+    pub fn claude(&self) -> bool {
+        self.claude
     }
 
     /// The preview's dashboard, from the configured URL template; None when there is none.
@@ -225,9 +249,7 @@ impl Config {
 
 /// A URL component percent-encoded: every byte but ASCII letters, digits and `_.-~` escaped.
 fn quote(text: &str) -> String {
-    text.bytes()
-        .map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
-        .collect()
+    text.bytes().map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 #[cfg(test)]

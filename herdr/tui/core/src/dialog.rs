@@ -47,19 +47,25 @@ impl Dialog {
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let width = 64.min(area.width.saturating_sub(4));
         let (question, body): (&str, Vec<Line>) = match self {
-            Dialog::Confirm { question } => (question, vec![Line::from(vec![
-                Span::styled(" No  n ", Style::new().fg(FG).bg(LINE)),
-                Span::raw("  "),
-                Span::styled(" Yes  y ", Style::new().fg(BG).bg(ORANGE).add_modifier(Modifier::BOLD)),
-            ])]),
-            Dialog::Pick { question, options, selected } => (question, options
-                .iter()
-                .enumerate()
-                .map(|(i, o)| {
-                    let style = if i == *selected { Style::new().fg(FG).bg(PANEL).add_modifier(Modifier::BOLD) } else { Style::new().fg(FG) };
-                    Line::from(Span::styled(format!(" {} {o} ", if i == *selected { "›" } else { " " }), style))
-                })
-                .collect()),
+            Dialog::Confirm { question } => (
+                question,
+                vec![Line::from(vec![
+                    Span::styled(" No  n ", Style::new().fg(FG).bg(LINE)),
+                    Span::raw("  "),
+                    Span::styled(" Yes  y ", Style::new().fg(BG).bg(ORANGE).add_modifier(Modifier::BOLD)),
+                ])],
+            ),
+            Dialog::Pick { question, options, selected } => (
+                question,
+                options
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| {
+                        let style = if i == *selected { Style::new().fg(FG).bg(PANEL).add_modifier(Modifier::BOLD) } else { Style::new().fg(FG) };
+                        Line::from(Span::styled(format!(" {} {o} ", if i == *selected { "›" } else { " " }), style))
+                    })
+                    .collect(),
+            ),
         };
         let lines = crate::text::wrap(question, (width as usize).saturating_sub(6)).len() as u16;
         // Borders, a row of padding above and below, the question, a blank row, the body, and Pick's hint.

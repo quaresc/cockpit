@@ -83,7 +83,7 @@ impl App {
         let at = self.week.as_ref().and_then(|w| w.at).and_then(chrono::DateTime::from_timestamp_millis);
         match at {
             Some(at) => spans.push(Span::styled(format!("   updated {}", self.clock.local(at).format("%H:%M")), dim())),
-            None => spans.push(Span::styled("   waiting for a Claude session with the Google Calendar connector", dim())),
+            None => spans.push(Span::styled("   waiting for a Claude Code session with the Google Calendar connector", dim())),
         }
         if self.week_view {
             spans.push(Span::styled("   week view", fg(ORANGE)));
@@ -111,12 +111,7 @@ impl App {
         } else {
             let local = clock.local(first.start);
             let when = if local.date() == clock.today() { until_text(first.start, clock) } else { local.format("%A %H:%M").to_string() };
-            Line::from(vec![
-                Span::styled(" next  ", dim()),
-                Span::styled(when, bold(ORANGE)),
-                Span::raw("  "),
-                Span::styled(first.title.clone(), bold(FG)),
-            ])
+            Line::from(vec![Span::styled(" next  ", dim()), Span::styled(when, bold(ORANGE)), Span::raw("  "), Span::styled(first.title.clone(), bold(FG))])
         };
         Some((line, first.join.as_ref().map(|_| first.id.clone())))
     }
@@ -187,7 +182,10 @@ impl App {
             let bg = m.is_now(&self.clock).then_some(NOW_BG);
             rows.push(Row { line, meeting: Some(m.id.clone()), bg });
             if self.preparing.contains(&m.id) {
-                rows.push(plain_row(Line::from(vec![Span::raw(" ".repeat(BRIEF_INDENT)), Span::styled("preparing the brief…", fg(ORANGE).add_modifier(Modifier::DIM))])));
+                rows.push(plain_row(Line::from(vec![
+                    Span::raw(" ".repeat(BRIEF_INDENT)),
+                    Span::styled("preparing the brief…", fg(ORANGE).add_modifier(Modifier::DIM)),
+                ])));
             }
             if let (Some(brief), true) = (self.briefs.get(&m.id), self.open.contains(&m.id)) {
                 // The brief's markdown drawn as the show view draws it, kept tight: no blank line between its blocks.

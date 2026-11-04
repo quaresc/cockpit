@@ -1,4 +1,4 @@
-//! What a found item reads as inside a Claude session: enough for the session to act on it without asking which one.
+//! What a found item reads as inside an agent session: enough for the session to act on it without asking which one.
 
 use cockpit_core::hub::Found;
 use serde_json::Value;
@@ -12,7 +12,7 @@ pub fn reference(found: &Found, inbox: &Value, config: &Value) -> String {
         ("inbox", "pr" | "review") if !key.is_empty() => key.to_string(),
         ("inbox", "ticket") => ticket(key, inbox, config),
         ("monitor", "release" | "app") => monitored(found, key),
-        ("session", _) => format!("the past Claude session \"{}\" ({key})", found.title),
+        ("session", _) => format!("the past agent session \"{}\" ({key})", found.title),
         ("todo", _) => format!("the to-do \"{}\"", found.title),
         ("runbook", "runbook") => format!("the runbook \"{}\"", found.title),
         ("runbook", "step") => format!("the runbook step \"{}\" ({})", found.title, found.help),
@@ -101,7 +101,7 @@ mod tests {
     fn the_rest_by_title() {
         let none = Value::Null;
         let session = found("session", "session", "Quota limits", "2 d ago · api", json!({"app": "session", "key": "4f1c-77"}));
-        assert_eq!(reference(&session, &none, &none), "the past Claude session \"Quota limits\" (4f1c-77)");
+        assert_eq!(reference(&session, &none, &none), "the past agent session \"Quota limits\" (4f1c-77)");
         let meeting = found("meetings", "meeting", "Team daily", "Wed 28 Oct 09:45", json!({"app": "meetings", "key": "m1"}));
         assert_eq!(reference(&meeting, &none, &none), "the meeting \"Team daily\" (Wed 28 Oct 09:45)");
         let view = found("show", "view", "Quotas demo", "", json!({"app": "show", "key": "demo"}));

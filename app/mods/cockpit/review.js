@@ -1,11 +1,11 @@
 // The review view: the focused agent's changes in one of three scopes (uncommitted, its branch against the base, its
 // pull request), commented line by line and sent back to that agent as one message (Submit review · N), or read as a
-// guided walkthrough: the hunks grouped into steps in reading order, each explained, written by `claude -p` in the
+// guided walkthrough: the hunks grouped into steps in reading order, each explained, written by an agent run headless in the
 // background through the hub.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { exec, focused, panes, agents, layout, props, shared, setShared } from "herdr";
+import { focused, panes, agents, layout, props, shared, setShared } from "herdr";
 import * as hub from "./hub.js";
 import { openCode } from "./code.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Tabs, Empty, Toaster, Spinner, Overline } from "./ui.js";
@@ -337,7 +337,7 @@ export default class Review {
     const bar = h_flex().h(40).flex_none().px(12).gap(8).items_center().border_b_1().border_color(k.border)
       .child(Tabs("review-scope", { items: SCOPES.map((s, i) => ({ ...s, label: narrow && s.value === "uncommitted" ? "Local" : s.label, kbd: String(i + 1) })), value: this.scope, onChange: (v, cx) => { this.setScope(v, cx); cx.notify(); } }))
       .child(div().flex_1())
-      .when(Boolean(pr?.number) && !narrow, (e) => e.child(Badge(`#${pr.number}${pr.isDraft ? " draft" : ""}`, "outline", { id: "review-pr", icon: "git-pull-request", tooltip: pr.title, onClick: () => exec("open", [pr.url]) })))
+      .when(Boolean(pr?.number) && !narrow, (e) => e.child(Badge(`#${pr.number}${pr.isDraft ? " draft" : ""}`, "outline", { id: "review-pr", icon: "git-pull-request", tooltip: pr.title, onClick: () => hub.openUrl(pr.url) })))
       .child(Tabs("review-mode", { items: [{ value: "diff", label: narrow ? "" : "Diff", icon: "file-diff" }, { value: "walk", label: narrow ? "" : "Walkthrough", icon: "route" }], value: this.mode, onChange: (v, cx) => this.setMode(v, cx) }));
     return v_flex().flex_none().border_b_1().border_color(k.border).child(top).child(bar);
   }
@@ -427,7 +427,7 @@ export default class Review {
     return v_flex().flex_1().items_center().justify_center().p(24).child(
       v_flex().max_w(460).gap(14).p(20).rounded(RADIUS.lg).border_1().border_color(k.border).bg(k.card)
         .child(h_flex().gap(8).items_center().child(Icon("route", { size: 18, color: k.ring })).child(div().text_size(TEXT.lg).font_semibold().child("Walk through these changes")))
-        .child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Claude groups the hunks into steps in the order they make sense, explains what each changes, and lists what no step covers. It explains, it does not judge. One background call, no tools, cached by the exact changes."))
+        .child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("An agent groups the hunks into steps in the order they make sense, explains what each changes, and lists what no step covers. It explains, it does not judge. One background call, no tools, cached by the exact changes."))
         .when(w.status === "failed", (e) => e.child(h_flex().gap(8).p(10).rounded(RADIUS.md).bg(alpha(k.destructive, 0.1)).text_size(TEXT.sm).child(Icon("alert", { size: 14, color: k.destructive })).child(div().flex_1().child(w.error ?? "it failed"))))
         .child(pills)
         .child(h_flex().justify_end().child(Button("review-generate", { label: w.status === "failed" ? "Try again" : "Generate", icon: "sparkles", onClick: (_e, cx) => this.generate(cx) }))),

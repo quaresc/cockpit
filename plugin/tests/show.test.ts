@@ -1,8 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
 import { answerText, blueprintName, collectAnswers, isBlueprintFile, viewError } from '../hooks/show'
+import { SHOW_CASES } from './fixtures/show-cases'
 
 const HOME = '/home/me'
+
+test('each shared case gets the answer cockpit mcp is held to as well', async () => {
+  for (const c of SHOW_CASES) expect([c.name, viewError(c.spec) ?? null]).toEqual([c.name, c.error])
+})
 const DIR = `${HOME}/.cache/cockpit/show`
 const ran = (exitCode: number, stdout = '') => ({ exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 

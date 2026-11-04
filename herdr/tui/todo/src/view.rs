@@ -238,15 +238,13 @@ impl App {
             return vec![Line::styled(format!("{n} marked: x toggles {}, D deletes {}, esc unmarks", them(n), them(n)), fg(FG))];
         }
         match &self.sel {
-            Sel::Adder => vec![Line::styled("a new to-do goes on top; Claude's /todo adds to the same list", dim())],
+            Sel::Adder => vec![Line::styled("a new to-do goes on top; Claude Code's /todo adds to the same list", dim())],
             Sel::Fold => vec![Line::styled(format!("{} done, the newest first", self.items().iter().filter(|i| i.done).count()), dim())],
             Sel::Item(text) => {
                 let Some(item) = self.item(text) else { return Vec::new() };
                 let style = if item.done { dim() } else { bold(FG) };
-                let mut lines: Vec<Line<'static>> = wrap(&item.text, cells)
-                    .into_iter()
-                    .map(|part| Line::from(text_spans(&part, style, usize::MAX, &self.tokens).0))
-                    .collect();
+                let mut lines: Vec<Line<'static>> =
+                    wrap(&item.text, cells).into_iter().map(|part| Line::from(text_spans(&part, style, usize::MAX, &self.tokens).0)).collect();
                 let links = links::split(&item.text, &self.tokens).iter().filter(|p| p.1).count();
                 let state = if item.done { "done" } else { "open" };
                 let more = match links {

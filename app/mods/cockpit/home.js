@@ -5,7 +5,7 @@
 
 import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, spaces, exec, knownAgents, setShared, layout, readTextFile } from "herdr";
+import { run, spaces, knownAgents, setShared, layout, readTextFile } from "herdr";
 import { show } from "./sidebar.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
@@ -124,6 +124,9 @@ export default class Home {
       },
       (state, cx) => {
         this.status = state;
+        // It stays until the hub answers: the retries between say "connecting" and would make the panel blink.
+        if (state === "live") this.notInstalled = false;
+        else if (state.startsWith("error")) this.notInstalled = hub.isNotInstalled(state);
         cx.notify();
       },
     );
@@ -270,7 +273,7 @@ export default class Home {
   }
 
   openUrl(cx, url) {
-    if (url) cx.spawn(async () => exec("open", [url]));
+    if (url) cx.spawn(async () => hub.openUrl(url));
   }
 
   newAgent(cx) {
@@ -438,6 +441,7 @@ export default class Home {
       this.pendingFlash = [];
       cx.timer.after(1, (cx) => pending.forEach(([key, color]) => this.flashes.start(cx, key, color)));
     }
+    if (this.notInstalled) return this.installPanel(k);
     const all = this.cards();
     const cols = this.columns(all);
     if (!this.sel || !this.flat(cols).some((c) => c.key === this.sel)) this.sel = this.flat(cols)[0]?.key ?? null;
@@ -506,6 +510,84 @@ export default class Home {
       .child(this.toasts.render() ?? div());
   }
 
+  /** No cockpit in this Herdr home (the layout copied on its own): what cockpit is and the two ways to install it. */
+  installPanel(k) {
+    const command = (id, text) =>
+      h_flex()
+        .id(id)
+        .gap(8)
+        .px(10)
+        .py(6)
+        .items_center()
+        .rounded(RADIUS.md)
+        .border_1()
+        .border_color(k.border)
+        .bg(k.muted)
+        .child(div().flex_1().min_w(0).font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.foreground).child(text))
+        .child(
+          Button(`${id}-copy`, {
+            icon: "copy",
+            variant: "ghost",
+            size: "icon-sm",
+            tooltip: "Copy",
+            onClick: (_e, cx) => {
+              cx.write_to_clipboard(text);
+              this.toasts.push(cx, "Copied", { kind: "success", description: text });
+            },
+          }),
+        );
+    const way = (id, title, lines) =>
+      Card({ id, title, children: [v_flex().gap(6).children(lines.map((line, i) => command(`${id}-${i}`, line)))], padding: 14, gap: 10 });
+    return div()
+      .id("home-root")
+      .size_full()
+      .relative()
+      .bg(k.background)
+      .child(
+        v_flex()
+          .id("home-install")
+          .size_full()
+          .overflow_y_scrollbar()
+          .items_center()
+          .child(
+            v_flex()
+              .w_full()
+              .max_w(620)
+              .px(28)
+              .py(48)
+              .gap(18)
+              .child(
+                h_flex()
+                  .gap(14)
+                  .items_center()
+                  .child(image("mods/cockpit/cockpit.svg").w(44).h(44).flex_none())
+                  .child(
+                    v_flex()
+                      .gap(2)
+                      .child(div().text_size(TEXT.xl).font_semibold().text_color(k.foreground).child("cockpit isn't installed"))
+                      .child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("This layout is the front of cockpit, which needs its own install.")),
+                  ),
+              )
+              .child(
+                div()
+                  .text_size(TEXT.base)
+                  .text_color(k.foreground)
+                  .child("cockpit puts every coding agent beside its work: whose move it is, its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away."),
+              )
+              .child(way("install-claude", "In Claude Code", ["/plugin install cockpit --marketplace quaresc/cockpit", "/cockpit:setup"]))
+              .child(way("install-shell", "With any other agent, in a shell", ["curl -fsSL https://raw.githubusercontent.com/quaresc/cockpit/main/install.sh | sh", "cockpit setup"]))
+              .child(
+                h_flex()
+                  .gap(10)
+                  .items_center()
+                  .child(Button("install-guide", { label: "Install guide", icon: "external", variant: "outline", size: "sm", onClick: () => hub.openUrl("https://github.com/quaresc/cockpit#install").catch(() => {}) }))
+                  .child(div().flex_1().text_size(TEXT.xs).text_color(k.dim).child("Home fills in by itself once setup is done; your agents stay in the sidebar meanwhile.")),
+              ),
+          ),
+      )
+      .child(this.toasts.render() ?? div());
+  }
+
   header(all, cols, narrow) {
     const k = tokens();
     const now = new Date(this.now);
@@ -557,7 +639,8 @@ export default class Home {
     const week = this.home?.week?.by_day ?? [];
     const shipped = week.reduce((n, d) => n + (d.count ?? 0), 0);
     const landed = (this.home?.landed?.days ?? []).map((d) => d.count ?? 0);
-    const spend = this.home?.spend ?? {};
+    // Null when no agent writes cost books (Claude Code's plugin does): no tile rather than a made-up $0.
+    const spend = this.home?.spend;
     const needs = cols.needs.filter((c) => c.agent).length;
     const fix = (this.home?.fixing ?? []).length;
     const ready = (this.home?.ready ?? []).length;
@@ -571,7 +654,7 @@ export default class Home {
       .child(tile("kpi-reviews", { label: "Reviews for you", icon: "eye", value: String(inbox.direct ?? 0), hint: `${Math.max(0, (inbox.reviews ?? 0) - (inbox.direct ?? 0))} for your team`, onClick: () => show("inbox") }))
       .child(tile("kpi-prs", { label: "Your PRs", icon: "git-pull-request", value: String(prs.length), hint: [ready && `${ready} ready`, fix && `${fix} to fix`].filter(Boolean).join(" · ") || "nothing to do", onClick: () => show("inbox") }))
       .child(tile("kpi-shipped", { label: "Merged this week", icon: "git-merge", value: String(shipped), hint: `${landed.at(-1) ?? 0} today` }))
-      .child(tile("kpi-spend", { label: "Agent spend", icon: "dollar", value: money(spend.today ?? 0), hint: `${money(spend.week ?? 0)} these 7 days` }));
+      .when(Boolean(spend), (e) => e.child(tile("kpi-spend", { label: "Agent spend", icon: "dollar", value: money(spend.today ?? 0), hint: `${money(spend.week ?? 0)} these 7 days` })));
   }
 
   /** Agents and PRs on the left, what comes next and what happened on the right. */
@@ -705,7 +788,7 @@ export default class Home {
             Chip(`↻ ${name(e)}`, {
               id: `lost-${e.handle}`,
               color: k.info,
-              tooltip: `${e.cwd}\nclaude --resume ${e.session}\nclick to resume, right-click to leave it stopped`,
+              tooltip: `${e.cwd}\n${e.line ?? e.session}\nclick to resume, right-click to leave it stopped`,
               onClick: (_ev, cx) => cx.spawn(async (cx) => this.act(cx, `l:${e.handle}`, "Resuming…", () => hub.act("home", "resume", [e.handle]))),
             }).on_mouse_down("right", (_ev, cx) => cx.spawn(async () => hub.act("home", "dismiss", [e.handle]))),
           ),
@@ -921,7 +1004,7 @@ export default class Home {
       actions.push(Button(`${card.key}-beside`, { label: "Open beside", variant: "outline", size: "sm", onClick: (_e, cx) => this.openBeside(cx, a) }));
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a.address) }));
     } else if (card.stage === "fix") {
-      actions.push(ToneButton(`${card.key}-fix`, { label: "Fix with Claude", tone: k.destructive, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, card.key, "Starting…", () => hub.act("inbox", "fix_ci", [pr.url]))) }));
+      actions.push(ToneButton(`${card.key}-fix`, { label: `Fix with ${this.home?.agent?.name ?? "the agent"}`, tone: k.destructive, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, card.key, "Starting…", () => hub.act("inbox", "fix_ci", [pr.url]))) }));
       actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
     } else if (card.stage === "ready" || card.stage === "land") {
       if (pr?.url) actions.push(ToneButton(`${card.key}-merge`, { label: "Merge", tone: k.success, kbd: "m", onClick: (_e, cx) => this.merge(cx, pr) }));

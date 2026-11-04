@@ -63,7 +63,11 @@ impl Editor {
         match self {
             Editor::Cell { slug, n, column, input } => {
                 let what = if *column == Column::Command { "command" } else { "status" };
-                (format!(" {} step {n}: {what} ", slug.to_uppercase()), vec![input.line(if *column == Column::Command { "$ " } else { "" })], "enter saves to the runbook · esc cancels")
+                (
+                    format!(" {} step {n}: {what} ", slug.to_uppercase()),
+                    vec![input.line(if *column == Column::Command { "$ " } else { "" })],
+                    "enter saves to the runbook · esc cancels",
+                )
             }
             Editor::Add { slug, after, fields, at } => {
                 let place = after.as_ref().map_or("at the end".to_string(), |n| format!("under step {n}"));
@@ -71,13 +75,11 @@ impl Editor {
                     .iter()
                     .zip(ADD_LABELS)
                     .enumerate()
-                    .map(|(i, (input, label))| {
-                        if i == *at {
-                            input.line(label)
-                        } else {
-                            Line::from(vec![Span::styled(label, dim()), Span::styled(input.text.clone(), fg(FG))])
-                        }
-                    })
+                    .map(
+                        |(i, (input, label))| {
+                            if i == *at { input.line(label) } else { Line::from(vec![Span::styled(label, dim()), Span::styled(input.text.clone(), fg(FG))]) }
+                        },
+                    )
                     .collect();
                 (format!(" {}: a new step {place} ", slug.to_uppercase()), lines, "tab or enter next field · enter on the last saves · esc cancels")
             }

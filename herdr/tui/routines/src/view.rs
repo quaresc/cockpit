@@ -100,7 +100,7 @@ impl App {
         let rows = self.rows();
         if rows.is_empty() {
             let text = if self.doc.is_some() {
-                "No routine yet. a adds one, or ask Claude: /routine every weekday at 9, sum up my open PRs."
+                "No routine yet. a adds one, or in Claude Code: /routine every weekday at 9, sum up my open PRs."
             } else {
                 "No routine yet. a adds one; the hub runs them on their schedule or when something happens."
             };
@@ -360,7 +360,7 @@ impl App {
     }
 }
 
-/// "Claude · sonnet · acceptEdits · in ~/work · Read, Grep · ≤ $0.50", "shell · in ~/notes".
+/// "Claude Code · sonnet · acceptEdits · in ~/work · Read, Grep · ≤ $0.50", "shell · in ~/notes".
 pub(crate) fn settings(r: &Routine) -> String {
     let home = cockpit_core::files::home().to_string_lossy().into_owned();
     let cwd = match (r.cwd.is_empty(), r.run == "shell") {
@@ -368,7 +368,7 @@ pub(crate) fn settings(r: &Routine) -> String {
         (true, true) => "in the repos folder".to_string(),
         (true, false) => "in a folder of its own".to_string(),
     };
-    let mut parts = vec![if r.run == "shell" { "shell".to_string() } else { "Claude".to_string() }];
+    let mut parts = vec![if r.run == "shell" { "shell".to_string() } else { r.agent_name.clone().unwrap_or_else(|| "agent".into()) }];
     if r.run != "shell" {
         let model = match r.model.to_lowercase().as_str() {
             "" => "default model".to_string(),

@@ -3,10 +3,10 @@ source: monitor/tests/snapshots.rs
 expression: "render(&mut app, 90, 30)"
 ---
    Monitor   3 apps · 3 releases today · updated 17:56
- ◆ 4 changes since 17:00: ⚠️  api v2026.10.28.1 moved: errors 0.13% → 1.9% · 🔔  [api] Curr
+ ◆ 4 changes since 17:00: ⚠️  api v2026.10.28.1 moved: errors 0.13% → 1.9% · 🔔  [api] Sign
 
  ▼ ◆  api       v2026.10.28.1  1 h ago by you    12 ok · 1 alert    ▁▁█▃▁▁▁▁▁▁▄ 14 err
-   ├  [api] Sign-in availability                                        Alert
+   ├  [api] Sign-in availability                                                   Alert
    ├  new Req.TransportError: socket closed                            140×  since 16:55
    ├ ◆ ⚠️  v2026.10.28.1  16:58 you     ENG-412  errors 0.13% → 1.9% · p95 33 → 161 ms · …
    └ ✅  v2026.10.28    16:34 jonas   errors 0.12% → 0.13% · p95 31 → 33 ms

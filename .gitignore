@@ -7,3 +7,11 @@ herdr/bin.*/
 herdr/fetch.lock/
 app/mods/cockpit/gpui-kit.d.ts
 app/mods/cockpit/jsconfig.json
+.ruff_cache/
+node_modules/
+_site/
+notes.md
+*.log
+.idea/
+.vscode/
+plugin/.claude-plugin/types/

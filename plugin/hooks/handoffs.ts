@@ -3,33 +3,21 @@ import type { EngineInterface } from 'claude-code'
 import type { Handoff } from '../types'
 
 import { cacheDir, home, writeAtomic } from './config'
+import { MCP } from './tools'
 
 type $ = EngineInterface
 
 // The runbook app's run button hands a step to a session, which then owes its outcome: this tool records it.
-export const REPORT_TOOL = 'report_step'
-export const REPORT_TOOL_FULL = `mcp__cockpit__${REPORT_TOOL}`
+const REPORT = MCP.tools.report_step
+export const REPORT_TOOL = REPORT.name
+export const REPORT_TOOL_FULL = `mcp__cockpit__${REPORT_TOOL}` as const
 
-const OUTCOMES = ['done', 'failed', 'blocked', 'waiting'] as const
+const OUTCOMES = REPORT.inputSchema.properties.outcome.enum
 type Reported = (typeof OUTCOMES)[number]
 const OPEN: Handoff['state'][] = ['sent', 'running', 'waiting']
 const HANDOFF = /\bHandoff ([a-z0-9][\w.-]*):/
 
-export const REPORT_SPEC = {
-  name: REPORT_TOOL,
-  description:
-    'Records how a runbook step handed to this session went, and updates that step\'s status cell in the runbook. ' +
-    'Call it once the step has run (done, failed or blocked), or with waiting when the step needs the person\'s go before it runs.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      handoff: { type: 'string', description: 'The handoff id the request named, e.g. eng-410-3' },
-      outcome: { type: 'string', enum: OUTCOMES, description: 'done, failed, blocked, or waiting for the person\'s go' },
-      message: { type: 'string', description: 'One line on what happened or what it waits for' },
-    },
-    required: ['handoff', 'outcome', 'message'],
-  },
-}
+export const REPORT_SPEC = { name: REPORT.name, description: REPORT.description.join(''), inputSchema: REPORT.inputSchema }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 

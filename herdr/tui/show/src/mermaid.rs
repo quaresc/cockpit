@@ -12,9 +12,7 @@ static NODE: LazyLock<Regex> = LazyLock::new(|| {
 static LINK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?:(?:--|==|-\.)\s*([^-=>|.][^>|]*?)\s*(?:-->|==>|\.->)|(?:-->|---|==>|===|-\.->|-\.-|--x|--o)(?:\s*\|([^|]*)\|)?)").unwrap()
 });
-static ARROW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*([^\s:\-+>]+)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?\s*([^\s:]+)\s*:\s*(.*)$").unwrap()
-});
+static ARROW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*([^\s:\-+>]+)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?\s*([^\s:]+)\s*:\s*(.*)$").unwrap());
 static DECLARED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(participant|actor)\s+(\S+)(?:\s+as\s+(.+))?$").unwrap());
 static NOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[Nn]ote\s+(?:left of|right of|over)\s+([^,:]+)(?:,[^:]+)?\s*:\s*(.*)$").unwrap());
 static SIDEWAYS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(LR|RL)\b").unwrap());
@@ -40,7 +38,13 @@ fn node(found: &Captures) -> (String, String, &'static str) {
     if shape.is_empty() {
         return (ident.clone(), ident, "box");
     }
-    let kind = if shape.starts_with('{') { "decision" } else if shape.starts_with('(') { "round" } else { "box" };
+    let kind = if shape.starts_with('{') {
+        "decision"
+    } else if shape.starts_with('(') {
+        "round"
+    } else {
+        "box"
+    };
     let label = shape.trim_matches(['[', ']', '(', ')', '{', '}', '>']).trim().trim_matches('"').to_string();
     (ident.clone(), if label.is_empty() { ident } else { label }, kind)
 }

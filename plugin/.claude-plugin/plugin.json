@@ -1,7 +1,7 @@
 {
   "name": "cockpit",
-  "version": "0.32.0",
-  "description": "One space with everything, for Claude Code users who switch context all day: agents, tickets, PRs, CI, inbox and meetings side by side in herdr",
+  "version": "0.33.0",
+  "description": "Every coding agent beside its work: Claude Code, Codex and every agent Herdr runs, each next to its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away, in herdr and the Herdr app",
   "author": {
     "name": "quaresc"
   },

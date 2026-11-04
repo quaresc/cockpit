@@ -1,7 +1,12 @@
 //! Ticket keys and URLs in an item's text, and where a ticket key leads, from the config's tickets settings.
 
+use std::sync::LazyLock;
+
 use regex::Regex;
 use serde_json::Value;
+
+static KEY_SHAPE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][A-Z0-9]{1,9}$").unwrap());
+static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{(\w+)\}").unwrap());
 
 /// The configured ticket key prefixes and those of my tickets, as `team_keys` gives them.
 pub fn team_keys(config: &Value, inbox: &Value) -> Vec<String> {
@@ -11,8 +16,7 @@ pub fn team_keys(config: &Value, inbox: &Value) -> Vec<String> {
             keys.push(prefix.to_string());
         }
     }
-    let shape = Regex::new(r"^[A-Z][A-Z0-9]{1,9}$").unwrap();
-    keys.retain(|k| shape.is_match(k));
+    keys.retain(|k| KEY_SHAPE.is_match(k));
     keys.sort();
     keys.dedup();
     keys
@@ -47,10 +51,7 @@ pub fn split<'a>(text: &'a str, tokens: &Regex) -> Vec<(&'a str, bool)> {
 
 /// Percent-encoding: every byte but ASCII letters, digits and `_.-~` escaped.
 fn quote(value: &str) -> String {
-    value
-        .bytes()
-        .map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
-        .collect()
+    value.bytes().map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 /// Where a token leads: itself for a URL; for a ticket key, the configured template's URL, else one of my tickets' URL
@@ -61,8 +62,7 @@ pub fn url(token: &str, config: &Value, inbox: &Value) -> Option<String> {
     }
     let id = token.to_uppercase();
     if let Some(template) = config["tickets"]["urlTemplate"].as_str().filter(|t| !t.is_empty()) {
-        let placeholder = Regex::new(r"\{(\w+)\}").unwrap();
-        return Some(placeholder.replace_all(template, |c: &regex::Captures| if &c[1] == "id" { quote(&id) } else { String::new() }).into_owned());
+        return Some(PLACEHOLDER.replace_all(template, |c: &regex::Captures| if &c[1] == "id" { quote(&id) } else { String::new() }).into_owned());
     }
     inbox["tickets"].as_array().into_iter().flatten().find_map(|ticket| {
         let (url, known) = (ticket["url"].as_str()?, ticket["id"].as_str()?);

@@ -2,6 +2,7 @@
 // since it was opened), reloaded when the agent changes it, Markdown with a live preview. "Ask the agent" sends a
 // note about the file, or some of its lines, to the agent beside it, as a review comment. Ported from
 // yama-lei/herdr-editor-layout's editor pane (Apache-2.0).
+// Source: https://github.com/yama-lei/herdr-editor-layout (Apache-2.0), modified for cockpit; see THIRD_PARTY_NOTICES.md.
 //
 //   pane.split {direction: "right", pane, mod: "cockpit", props: {app: "code", file, line?, terminal?}}
 

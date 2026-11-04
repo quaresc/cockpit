@@ -107,7 +107,8 @@ impl App {
         self.hits.list = area;
         let rows = self.rows();
         if rows.is_empty() {
-            let text = if self.doc.is_some() { "No app in the monitor." } else { "A Claude session connected to your deploy platform and Datadog fills this." };
+            let text =
+                if self.doc.is_some() { "No app in the monitor." } else { "A Claude Code session connected to your deploy platform and Datadog fills this." };
             frame.render_widget(Paragraph::new(Line::styled(text, dim())).wrap(Wrap { trim: false }), area);
             return;
         }

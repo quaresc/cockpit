@@ -1,7 +1,7 @@
 // Open in editor: a folder in the person's editor, on this machine or over SSH for a remote space (VS Code's and
 // Cursor's Remote-SSH). The editor is the cockpit config's `editor` (code, cursor, zed, ...), else VS Code.
 
-import { exec, readTextFile, hc } from "herdr";
+import { exec, readTextFile, hc, window as win } from "herdr";
 import * as hub from "./hub.js";
 
 const APPS = { code: "Visual Studio Code", cursor: "Cursor", zed: "Zed", windsurf: "Windsurf", subl: "Sublime Text" };
@@ -41,7 +41,8 @@ export async function openInEditor(folder, machine = null) {
   const r = await exec(name, [folder]).catch(() => null);
   if (r?.code === 0) return null;
   const app = APPS[name] ?? name;
-  const opened = await exec("open", ["-a", app, folder]).catch(() => null);
+  // An editor whose command isn't on the PATH still opens by its app name on macOS.
+  const opened = win()?.platform === "macos" ? await exec("open", ["-a", app, folder]).catch(() => null) : null;
   return opened?.code === 0 ? null : `${app} is not installed (set "editor" in the cockpit config)`;
 }
 

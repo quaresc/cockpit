@@ -41,7 +41,9 @@ pub fn model(data: Option<&Value>, clock: &Clock, brief_enabled: bool, brief: &d
         let date = clock.local(m.start).date();
         if day != Some(date) {
             day = Some(date);
-            days.push(json!({"date": date.to_string(), "label": day_label(date, clock), "short": short_day(date, clock), "today": date == clock.today(), "ids": []}));
+            days.push(
+                json!({"date": date.to_string(), "label": day_label(date, clock), "short": short_day(date, clock), "today": date == clock.today(), "ids": []}),
+            );
         }
         if let Some(ids) = days.last_mut().and_then(|d| d["ids"].as_array_mut()) {
             ids.push(Value::from(m.id.clone()));
@@ -73,7 +75,8 @@ fn banner(week: &Week, clock: &Clock) -> Value {
                       "progress": (done / total).clamp(0.0, 1.0), "join": first.join.is_some()});
     }
     let local = clock.local(first.start);
-    let when = if local.date() == clock.today() { until_text(first.start, clock) } else { format!("{} {}", day_label(local.date(), clock), local.format("%H:%M")) };
+    let when =
+        if local.date() == clock.today() { until_text(first.start, clock) } else { format!("{} {}", day_label(local.date(), clock), local.format("%H:%M")) };
     json!({"id": first.id, "state": "next", "title": first.title, "when": when, "soon": first.is_soon(clock), "join": first.join.is_some()})
 }
 
@@ -190,7 +193,8 @@ mod tests {
 
     #[test]
     fn the_week_as_the_mod_draws_it() {
-        let data: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/meetings.json")).unwrap()).unwrap();
+        let data: Value =
+            serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/meetings.json")).unwrap()).unwrap();
         let first = &data["meetings"][0];
         let start = DateTime::parse_from_rfc3339(first["start"].as_str().unwrap()).unwrap();
         // Five minutes into the first meeting.

@@ -10,7 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -S warning herdr/*.sh herdr/notifier/build.sh
+      - name: shellcheck
+        shell: bash
+        run: |
+          shopt -s nullglob
+          shellcheck -S warning herdr/*.sh herdr/notifier/build.sh install.sh scripts/*.sh app/*.sh docs/screenshots/*.sh
+      # The side-browser skill ships twice, to Claude Code and to Codex: both copies must say the same thing.
+      - run: sh scripts/check-skills.sh
 
   app:
     runs-on: ubuntu-latest
@@ -19,8 +25,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # Herdr is not on CI: the layout, keys and manifest must parse, and every module of the mod must be valid JavaScript.
-      - run: for f in app/layouts/*.json app/keys.json app/mods/cockpit/mod.json; do jq empty "$f" || exit 1; done
+      # Herdr is not on CI: every manifest, layout and key map must parse, and every module of the mod must be valid JavaScript.
+      - name: JSON manifests
+        run: |
+          git ls-files -z -- ':(glob)app/**/*.json' ':(glob).claude-plugin/*.json' ':(glob)plugin/.claude-plugin/*.json' \
+            ':(glob)plugin/hooks/*.json' ':(glob)codex/**/*.json' 'codex/.mcp.json' ':(glob).agents/**/*.json' |
+            xargs -0 -n1 sh -c 'jq empty "$0" || { echo "::error file=$0::not valid JSON"; exit 255; }'
       - run: for f in app/mods/cockpit/*.js; do node --input-type=module --check < "$f" || { echo "$f"; exit 1; }; done
 
   plugin:
@@ -30,9 +40,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install -g @anthropic-ai/claude-code
+      # Pinned: plugin validate and plugin test change with Claude Code; move it on once a newer one passes.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.318
       - run: claude plugin validate plugin
       - run: claude plugin test plugin
+
+  fmt:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: herdr/tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
 
   rust:
     runs-on: ubuntu-latest
@@ -47,5 +70,36 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: herdr/tui
-      - run: cargo clippy --release --workspace --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked --no-fail-fast
+
+  rust-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: herdr/tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: herdr/tui
+      - run: cargo build --workspace --locked
+      - run: cargo test --workspace --locked --no-fail-fast
+
+  # The crate notices packed into each release follow Cargo.lock: after a dependency change, run the generate line below
+  # in herdr/tui and commit the result.
+  notices:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: herdr/tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+      - run: cargo fetch --locked
+      - run: cargo about generate --locked -o THIRD_PARTY_CRATES.md about.md.hbs
+      - run: git diff --exit-code -- THIRD_PARTY_CRATES.md || { echo "::error::herdr/tui/THIRD_PARTY_CRATES.md is stale"; exit 1; }

@@ -1,5 +1,5 @@
 #!/bin/sh
-# prefix+space: the palette popup over the pane in view, which it is told of so it can type into a Claude session there.
+# prefix+space: the palette popup over the pane in view, which it is told of so it can type into an agent session there.
 H="${HERDR_BIN_PATH:-herdr}"
 pane=${HERDR_PANE_ID:-}
 [ -n "$pane" ] || pane=$("$H" pane current | jq -r '.result.pane.pane_id // empty')

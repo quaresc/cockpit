@@ -29,7 +29,11 @@ pub struct Ctx<'a> {
 pub const INBOX_VERSION: i64 = 1;
 
 pub fn heading(name: &str, title: &str, extra: &str) -> Line<'static> {
-    Line::from(vec![Span::styled(format!("{}  ", icon(name)), fg(ORANGE)), Span::styled(title.to_string(), bold(ORANGE)), Span::styled(format!("   {extra}"), dim())])
+    Line::from(vec![
+        Span::styled(format!("{}  ", icon(name)), fg(ORANGE)),
+        Span::styled(title.to_string(), bold(ORANGE)),
+        Span::styled(format!("   {extra}"), dim()),
+    ])
 }
 
 pub fn strong() -> Style {
@@ -44,7 +48,7 @@ pub fn usable(inputs: &Inputs) -> Option<&Value> {
 /// The header with its error lines, and the tree's top rows.
 pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static>>, Vec<Row>) {
     let Some(data) = &inputs.data else {
-        return (vec![Line::styled("No data yet: the cockpit mod in a Claude session fills ~/.cache/cockpit/inbox.json.", dim())], Vec::new());
+        return (vec![Line::styled("No data yet: the cockpit hub fills ~/.cache/cockpit/inbox.json.", dim())], Vec::new());
     };
     if usable(inputs).is_none() {
         return (vec![Line::styled("Refreshing: the inbox cache comes from another cockpit version.", dim())], Vec::new());
@@ -75,7 +79,8 @@ fn today(brief: &Value) -> Option<Row> {
         return None;
     }
     let written = facts::clock(&brief["at"]);
-    let mut today = Row::text("today", heading("today", "Today", &format!("morning brief, {written}"))).acts(vec![RowAct::new("dismiss", 'x', call("dismiss_brief", vec![])).main()]);
+    let mut today = Row::text("today", heading("today", "Today", &format!("morning brief, {written}")))
+        .acts(vec![RowAct::new("dismiss", 'x', call("dismiss_brief", vec![])).main()]);
     for (n, entry) in list(brief, "lines").iter().enumerate() {
         let style = match s(entry, "tone") {
             "bad" => fg(RED),
@@ -118,7 +123,7 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktree
             let text = if hours <= 0.0 { format!("preview {preview} has expired") } else { format!("preview {preview} expires in {hours:.1} h") };
             let row = alert(format!("alert:expire:{preview}"), &text, fg(if hours <= 0.0 { RED } else { ORANGE })).status(format!("preview-{preview}"));
             let extend = RowAct::new("extend 2 days", '+', call("extend", vec![json!(preview)])).main().confirm(format!("extend-{preview}"));
-            alerts.add(with_url(row, vec![extend]));
+            alerts.add(with_url(row, if config.claude() { vec![extend] } else { vec![] }));
         }
         if !matches!(s(bx, "health"), "Healthy" | "Progressing") && hours > 0.0 {
             let text = format!("preview {preview} is {}", s(bx, "health").to_lowercase());
@@ -142,7 +147,8 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktree
         if flag(bx, "activated") && merged.contains(&(s(bx, "app").into(), s(bx, "branch").into())) {
             let id = s(bx, "id");
             let text = format!("preview {id} runs merged {} {}", s(bx, "app"), s(bx, "branch"));
-            let mut acts = vec![RowAct::new("stop", 'S', call("stop_preview", vec![json!(id)])).main().confirm(format!("stop-{id}"))];
+            let stop = RowAct::new("stop", 'S', call("stop_preview", vec![json!(id)])).main().confirm(format!("stop-{id}"));
+            let mut acts = if config.claude() { vec![stop] } else { vec![] };
             let mut row = alert(format!("alert:merged:{id}"), &text, fg(ORANGE)).status(format!("preview-{id}"));
             if let Some(url) = config.dashboard_url(id) {
                 acts.push(RowAct::new("open", 'o', open(&url)));
@@ -155,14 +161,23 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktree
         let label = format!("merged {repo} {branch}");
         let is_worktree = local.spaces().get(&space).is_some_and(|w| flag(&w["worktree"], "is_linked_worktree"));
         let tab = space.strip_prefix("tab:");
-        let verb = if tab.is_some() { "close tab" } else if is_worktree { "remove worktree" } else { "close space" };
+        let verb = if tab.is_some() {
+            "close tab"
+        } else if is_worktree {
+            "remove worktree"
+        } else {
+            "close space"
+        };
         let herdr = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".into());
         let go = match tab {
             Some(tab) => json!([herdr, "tab", "focus", tab]),
             None => json!([herdr, "workspace", "focus", space]),
         };
         let text = format!("a session still works on {label}");
-        let row = Row::text(format!("alert:session:{space}"), Line::styled(format!(" {}  {text}", icon("alert")), dim())).name(format!("session on {label}")).section("Alerts").kind(Kind::Alert);
+        let row = Row::text(format!("alert:session:{space}"), Line::styled(format!(" {}  {text}", icon("alert")), dim()))
+            .name(format!("session on {label}"))
+            .section("Alerts")
+            .kind(Kind::Alert);
         let close = RowAct::new(verb, 'c', call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
         alerts.add(row.acts(vec![close, RowAct::new("go", 'o', call("run", vec![go]))]));
     }
@@ -249,7 +264,8 @@ fn review(data: &Value, muted: &[String], compact: bool) -> Row {
     let bot_repos = list(data, "botRepos");
     let bots = bot_repos.iter().filter(|r| !is_muted(r.as_str().unwrap_or(""))).count();
     let hidden = (list(data, "team").len() + bot_repos.len()).saturating_sub(shown.len() + bots);
-    let extra = format!("{} for you · {} team · {bots} bots", direct.len(), team.len()) + &if hidden > 0 { format!(" · {hidden} muted") } else { String::new() };
+    let extra =
+        format!("{} for you · {} team · {bots} bots", direct.len(), team.len()) + &if hidden > 0 { format!(" · {hidden} muted") } else { String::new() };
     let mut reviews = Row::text("review", heading("review", "Review", &extra));
     let cap = if compact { TEAM_SHOWN } else { usize::MAX };
     for pr in direct.iter().chain(team.iter().take(cap)) {

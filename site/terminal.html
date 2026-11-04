@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cockpit · Herdr TUI</title>
-  <meta name="description" content="cockpit in herdr: a sidebar, a footer and pinned spaces beside your Claude Code agents, in your terminal.">
+  <meta name="description" content="cockpit in herdr: a sidebar, a footer and pinned spaces beside your coding agents, in your terminal.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
@@ -33,7 +33,7 @@
       <span class="eyebrow">Herdr TUI</span>
       <h1>cockpit, <span class="grad">in your terminal</span></h1>
       <p class="sub">A plugin for <a href="https://herdr.dev">herdr</a>: what each agent works on, right beside it.
-        <code>/cockpit:setup</code> installs it.</p>
+        <code>/cockpit:setup</code> or <code>cockpit setup</code> installs it.</p>
       <div class="buttons">
         <a class="button primary" href="index.html#install">Install</a>
         <a class="button" href="#keys">Keys</a>
@@ -57,7 +57,7 @@
         </article>
         <article class="tile" id="footer">
           <div class="tshot"><img class="half-tui tui" src="img/footer.svg" alt="The footer" width="960" height="395" loading="lazy"></div>
-          <h3>Footer</h3><p>One click to the ticket, PR, deploy, preview and every page the conversation cites.</p>
+          <h3>Footer<span class="badge">Claude Code</span></h3><p>Under Claude Code's prompt, from the cockpit plugin: one click to the ticket, PR, deploy, preview and every page the conversation cites.</p>
         </article>
         <article class="tile" id="inbox">
           <div class="tshot"><img class="half-tui tui" src="img/inbox.svg" alt="The inbox space" width="1044" height="963" loading="lazy"></div>
@@ -105,11 +105,11 @@
         </article>
         <article class="tile" id="routines">
           <div class="tshot"><img class="half-tui tui" src="img/routines.svg" alt="Routines" width="977" height="557" loading="lazy"></div>
-          <h3>Routines<span class="badge">opt-in</span></h3><p>Claude prompts and scripts the hub runs on a schedule or an event.</p>
+          <h3>Routines<span class="badge">opt-in</span></h3><p>Agent prompts and scripts the hub runs on a schedule or an event.</p>
         </article>
         <article class="tile" id="notifications">
           <div class="tshot"><img class="half-tui zoom" style="--z:190%;--x:-84%;--y:-1%" src="img/notifications.svg" alt="A notification" width="1296" height="679" loading="lazy"></div>
-          <h3>Notifications</h3><p>macOS notifications whose click leads somewhere, with buttons.</p>
+          <h3>Notifications</h3><p>System notifications whose click leads somewhere, with buttons (macOS, and Linux through <code>notify-send</code>).</p>
         </article>
         <article class="tile" id="settings">
           <div class="tshot"><img class="half-tui tui" src="img/settings.svg" alt="The settings pane" width="1296" height="679" loading="lazy"></div>

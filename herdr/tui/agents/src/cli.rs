@@ -10,7 +10,7 @@ const USAGE: &str = "Every agent terminal, through the hub.
 
     cockpit agents [--json]                      who needs you, then the rest, by whose move
     cockpit agents answer <terminal> <n|n,m|text>  a choice, ticked choices (then Submit), or words
-    cockpit agents recap <terminal>              Claude's recap of its session (waits for it)
+    cockpit agents recap <terminal>              the agent's recap of its session (waits for it)
     cockpit agents snooze <terminal> <1h|18:00|tomorrow|done|off>
     cockpit agents seen <terminal>
     cockpit agents fork <terminal> [tab|right|down]
@@ -25,7 +25,9 @@ fn fail(msg: &str) -> ! {
 }
 
 fn model() -> Value {
-    hub::request(&json!({"op": "view", "name": "agents"}), Duration::from_secs(10)).map(|v| v["value"].clone()).unwrap_or_else(|e| fail(&format!("the cockpit hub: {e}")))
+    hub::request(&json!({"op": "view", "name": "agents"}), Duration::from_secs(10))
+        .map(|v| v["value"].clone())
+        .unwrap_or_else(|e| fail(&format!("the cockpit hub: {e}")))
 }
 
 /// The handle a word names: a handle as is, else the row whose ticket or tab or space it names.
@@ -39,7 +41,8 @@ fn resolve(model: &Value, word: &str) -> String {
 }
 
 fn try_act(action: &str, arg: Value) -> Result<String, String> {
-    let answer = hub::request(&json!({"op": "act", "app": "agents", "action": action, "args": [arg]}), Duration::from_secs(60)).map_err(|e| format!("the cockpit hub: {e}"))?;
+    let answer = hub::request(&json!({"op": "act", "app": "agents", "action": action, "args": [arg]}), Duration::from_secs(60))
+        .map_err(|e| format!("the cockpit hub: {e}"))?;
     match answer["error"].as_str() {
         Some(e) => Err(e.to_string()),
         None => Ok(answer["note"].as_str().unwrap_or_default().to_string()),
@@ -122,7 +125,13 @@ fn pick() {
     let stdin = std::io::stdin();
     loop {
         let m = model();
-        let waiting: Vec<String> = m["agents"].as_array().into_iter().flatten().filter(|r| r["stage"] == "needs_you").filter_map(|r| r["terminal"].as_str().map(str::to_string)).collect();
+        let waiting: Vec<String> = m["agents"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["stage"] == "needs_you")
+            .filter_map(|r| r["terminal"].as_str().map(str::to_string))
+            .collect();
         print!("\x1b[2J\x1b[H{}", render(&m));
         for (i, t) in waiting.iter().enumerate() {
             println!("  [{}] {t}", i + 1);
@@ -171,7 +180,8 @@ pub fn main(args: &[String]) {
             let terminal = resolve(&m, word(1));
             let rest = args[2..].join(" ");
             let numbers: Option<Vec<u64>> = rest.split(',').map(|n| n.trim().parse().ok()).collect();
-            let multi = m["agents"].as_array().into_iter().flatten().find(|r| r["terminal"] == terminal.as_str()).is_some_and(|r| r["question"]["kind"] == "multi");
+            let multi =
+                m["agents"].as_array().into_iter().flatten().find(|r| r["terminal"] == terminal.as_str()).is_some_and(|r| r["question"]["kind"] == "multi");
             let arg = match numbers {
                 Some(ns) if multi => json!({"terminal": terminal, "choices": ns}),
                 Some(ns) if ns.len() == 1 => json!({"terminal": terminal, "choice": ns[0]}),
@@ -216,7 +226,13 @@ pub fn main(args: &[String]) {
             let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
             println!("{:<12} {}  Week", "Ticket", days.map(|d| format!("{d:>6}")).join(""));
             for r in m["week"]["rows"].as_array().into_iter().flatten() {
-                let secs: Vec<String> = r["secs"].as_array().into_iter().flatten().map(|s| s.as_u64().unwrap_or(0)).map(|s| format!("{:>6}", if s == 0 { "·".into() } else { hours(s) })).collect();
+                let secs: Vec<String> = r["secs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|s| s.as_u64().unwrap_or(0))
+                    .map(|s| format!("{:>6}", if s == 0 { "·".into() } else { hours(s) }))
+                    .collect();
                 println!("{:<12} {}  {}", r["key"].as_str().unwrap_or_default(), secs.join(""), hours(r["total"].as_u64().unwrap_or(0)));
             }
         }

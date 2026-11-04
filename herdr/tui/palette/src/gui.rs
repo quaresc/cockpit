@@ -1,5 +1,5 @@
 //! The palette in the Herdr app: its pages (the doctor's report, today's brief) as view models, and what a found item
-//! does in the Claude session the palette opened over, the same as the TUI's ctrl keys.
+//! does in the agent session the palette opened over, the same as the TUI's ctrl keys.
 
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -19,7 +19,9 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
             let exe = std::env::current_exe().unwrap_or_else(|_| "cockpit".into());
             match std::process::Command::new(exe).arg("doctor").stdin(std::process::Stdio::null()).output() {
                 Ok(out) => Report::doctor_done(&String::from_utf8_lossy(&out.stdout)).json(),
-                Err(error) => json!({"title": "Cockpit doctor", "rows": [{"mark": "✗", "tone": "bad", "text": format!("cockpit doctor did not run: {error}")}]}),
+                Err(error) => {
+                    json!({"title": "Cockpit doctor", "rows": [{"mark": "✗", "tone": "bad", "text": format!("cockpit doctor did not run: {error}")}]})
+                }
             }
         }
         Some("brief") => {
@@ -34,8 +36,8 @@ pub fn dirs() -> Vec<PathBuf> {
     Vec::new()
 }
 
-/// `insert`, `ask` or `fork` with `[over, found]`: over = {terminal, cwd, title, session?} the app's Claude terminal,
-/// found = an entry of the hub's search.
+/// `insert`, `ask` or `fork` with `[over, found]`: over = {terminal, cwd, title, agent?, session?} the app's agent
+/// terminal, found = an entry of the hub's search.
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let key = match action {
         "insert" => 'r',
@@ -54,7 +56,7 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     };
     let inbox = files::load(&files::cache().join("inbox.json")).unwrap_or(Value::Null);
     let Some(then) = into_session(key, &over, &found, &inbox, &files::config()) else {
-        return Some(Err("no Claude session to fork there".into()));
+        return Some(Err("no agent session to fork there".into()));
     };
     Some(then.run().map(|()| match key {
         'r' => format!("put \"{}\" in the prompt", found.title),
@@ -67,15 +69,18 @@ fn text(v: &Value) -> String {
     v.as_str().unwrap_or_default().to_string()
 }
 
-/// The app terminal as the palette names it; the session it runs is the label's, else its folder's latest transcript.
+/// The app terminal as the palette names it, its agent Claude Code unless it says; the session it runs is the label's,
+/// else for Claude Code its folder's latest transcript.
 pub fn over_of(over: &Value) -> Over {
     let cwd = text(&over["cwd"]);
-    let session = over["session"].as_str().filter(|s| !s.is_empty()).map(str::to_string).or_else(|| latest_session(&projects_dir(), &cwd));
-    Over { pane: format!("{APP}{}", text(&over["terminal"])), is_claude: true, session, cwd, title: text(&over["title"]) }
+    let agent = cockpit_core::agent::of_program(over["agent"].as_str().unwrap_or("claude")).map(|a| a.id);
+    let latest = || latest_session(&projects_dir(), &cwd).filter(|_| agent.as_deref() == Some("claude"));
+    let session = over["session"].as_str().filter(|s| !s.is_empty()).map(str::to_string).or_else(latest);
+    Over { pane: format!("{APP}{}", text(&over["terminal"])), agent, session, cwd, title: text(&over["title"]) }
 }
 
 fn projects_dir() -> PathBuf {
-    std::env::var("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|_| files::home().join(".claude")).join("projects")
+    cockpit_core::transcripts::claude_home().join("projects")
 }
 
 /// The id of the newest transcript Claude keeps for this folder (`<projects>/<folder, each other character a dash>/`).
@@ -108,7 +113,9 @@ mod tests {
         assert_eq!(latest_session(dir.path(), "/repos/api.v2"), Some("new-2".into()));
         assert_eq!(latest_session(dir.path(), "/elsewhere"), None);
         let over = over_of(&json!({"terminal": "t3", "cwd": "/repos/api", "title": "Sign-in", "session": "4f1c-77"}));
-        assert_eq!((over.pane.as_str(), over.session.as_deref()), ("app:t3", Some("4f1c-77")));
+        assert_eq!((over.pane.as_str(), over.session.as_deref(), over.agent.as_deref()), ("app:t3", Some("4f1c-77"), Some("claude")));
+        let codex = over_of(&json!({"terminal": "t4", "cwd": "/repos/api", "agent": "codex", "session": "01a1-77"}));
+        assert_eq!((codex.agent.as_deref(), codex.forkable()), (Some("codex"), Some(("codex".into(), "01a1-77".into()))));
     }
 
     #[test]

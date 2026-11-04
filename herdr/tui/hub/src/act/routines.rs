@@ -1,5 +1,5 @@
 //! The routines space's actions: add or change one, run, stop, pause or delete it, edit its file or read a run's output
-//! in a tab of the actions space, talk a Claude run over by resuming its session there, mark runs read, and look at or
+//! in a tab of the actions space, talk an agent's run over by resuming its session there, mark runs read, and look at or
 //! clean up the worktrees runs left.
 
 use std::path::Path;
@@ -7,13 +7,13 @@ use std::path::Path;
 use cockpit_core::routines::{self, When};
 use serde_json::{Value, json};
 
-use super::inbox::start_action;
+use super::inbox::{Launch, start_action};
 use super::space;
 use super::{Ctx, arg, opt};
-use cockpit_core::frontend;
 use crate::routines::{self as runner, Setup, now_ms};
 use crate::store::{self, Store};
 use crate::value::{Res, cut, quote, text, truthy};
+use cockpit_core::{agent, frontend};
 
 fn slug(args: &[Value]) -> Res<String> {
     let slug = text(arg(args, 0)?);
@@ -30,8 +30,8 @@ fn routine(setup: &Setup, slug: &str) -> Res<routines::Routine> {
     Ok(routines::Routine::parse(slug, &path, &text))
 }
 
-/// A new routine from the app's form: name, when, prompt (or script), folder, "shell" for a script, its model, whether
-/// each run gets a worktree, and when it notifies (always, failed, never).
+/// A new routine from the app's form: name, when, prompt (or script), folder, "shell" for a script else the agent's id
+/// (empty for the default), its model, whether each run gets a worktree, and when it notifies (always, failed, never).
 pub fn add(ctx: &mut Ctx, args: &[Value]) -> Res {
     let note = create(&Setup::live(), args)?;
     ctx.note(note);
@@ -50,10 +50,17 @@ fn create(setup: &Setup, args: &[Value]) -> Res<String> {
     std::fs::create_dir_all(&setup.routines).map_err(|e| e.to_string())?;
     let slug = routines::slug_for(&setup.routines, &name);
     let mut file = routines::new_file(&name, &when, &cwd, &body);
-    if field(4) == "shell" {
+    let kind = field(4);
+    if kind == "shell" {
         file = routines::set_field(&file, "run", "shell");
-    } else if !field(5).is_empty() {
-        file = routines::set_field(&file, "model", &model(&field(5))?);
+    } else {
+        let agent = agent_field(setup, &kind)?;
+        if !agent.is_empty() {
+            file = routines::set_field(&file, "agent", &agent);
+        }
+        if !field(5).is_empty() {
+            file = routines::set_field(&file, "model", &model(setup, &agent, &field(5))?);
+        }
     }
     if truthy(opt(args, 6)) {
         file = routines::set_field(&file, "worktree", "true");
@@ -82,7 +89,8 @@ fn rewrite(setup: &Setup, slug: &str, fields: &[Value]) -> Res<String> {
         return Err("a routine needs a prompt".into());
     }
     When::parse(&when)?;
-    let model = if shell { String::new() } else { model(&field(5))? };
+    let agent = if shell { String::new() } else { agent_field(setup, &field(4))? };
+    let model = if shell { String::new() } else { model(setup, &agent, &field(5))? };
     let notify = match field(7).as_str() {
         n @ ("failed" | "never") => n.to_string(),
         _ => "always".to_string(),
@@ -90,28 +98,46 @@ fn rewrite(setup: &Setup, slug: &str, fields: &[Value]) -> Res<String> {
     let mut text = std::fs::read_to_string(&r.path).map_err(|e| e.to_string())?;
     let name = if name.is_empty() { r.name.clone() } else { name };
     let worktree = if truthy(opt(fields, 6)) { "true" } else { "false" };
-    for (key, value) in [("name", name.as_str()), ("when", &when), ("cwd", &cwd), ("run", if shell { "shell" } else { "claude" }), ("model", &model), ("worktree", worktree), ("notify", &notify)] {
+    let fields =
+        [("name", name.as_str()), ("when", &when), ("cwd", &cwd), ("run", if shell { "shell" } else { "agent" }), ("agent", &agent), ("model", &model)];
+    for (key, value) in fields.into_iter().chain([("worktree", worktree), ("notify", notify.as_str())]) {
         text = routines::set_field(&text, key, value);
     }
     let (head, _) = routines::front_matter(&text);
-    let head: Vec<String> = head.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+    let head: Vec<String> = head.iter().filter(|(k, v)| !(k == "agent" && v.is_empty())).map(|(k, v)| format!("{k}: {v}")).collect();
     std::fs::write(&r.path, format!("---\n{}\n---\n\n{}\n", head.join("\n"), body)).map_err(|e| e.to_string())?;
     Ok(format!("saved {name}"))
 }
 
-/// One of the models a routine picks from.
-fn model(name: &str) -> Res<String> {
-    let name = name.trim().to_lowercase();
-    if routines::MODELS.contains(&name.as_str()) { Ok(name) } else { Err(format!("no model {name:?}: one of lightest, haiku, sonnet, opus")) }
+/// The `agent` field for the form's choice: empty for the default, else a known agent's id.
+fn agent_field(setup: &Setup, id: &str) -> Res<String> {
+    let id = id.trim().to_lowercase();
+    if id.is_empty() || id == "agent" {
+        return Ok(String::new());
+    }
+    setup.agents.iter().find(|a| a.id == id || a.aliases.contains(&id)).map(|a| a.id.clone()).ok_or_else(|| format!("no agent {id:?}"))
 }
 
-/// The routine's model: lightest, haiku, sonnet, opus, or empty for Claude's default.
+/// A model the routine's agent takes: one of lightest, haiku, sonnet and opus for Claude Code, a plain model name for
+/// another agent.
+fn model(setup: &Setup, agent: &str, name: &str) -> Res<String> {
+    let name = name.trim().to_lowercase();
+    let id = if agent.is_empty() { setup.default_agent.as_str() } else { agent };
+    if id == "claude" || routines::MODELS.contains(&name.as_str()) {
+        return if routines::MODELS.contains(&name.as_str()) { Ok(name) } else { Err(format!("no model {name:?}: one of lightest, haiku, sonnet, opus")) };
+    }
+    if name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:/".contains(c)) { Ok(name) } else { Err(format!("no model {name:?}")) }
+}
+
+/// The routine's model: lightest, haiku, sonnet, opus, another agent's model name, or empty for the agent's default.
 pub fn set_model(ctx: &mut Ctx, args: &[Value]) -> Res {
-    let r = routine(&Setup::live(), &slug(args)?)?;
-    let name = model(opt(args, 1).as_str().unwrap_or_default())?;
+    let setup = Setup::live();
+    let r = routine(&setup, &slug(args)?)?;
+    let name = model(&setup, &r.agent, opt(args, 1).as_str().unwrap_or_default())?;
     let text = std::fs::read_to_string(&r.path).map_err(|e| e.to_string())?;
     std::fs::write(&r.path, routines::set_field(&text, "model", &name)).map_err(|e| e.to_string())?;
-    ctx.note(format!("{} runs on {}", r.name, if name.is_empty() { "Claude's default model" } else { &name }));
+    let agent = setup.agent_of(&r).map_or("the agent".to_string(), |a| a.name.clone());
+    ctx.note(format!("{} runs on {}", r.name, if name.is_empty() { format!("{agent}'s default model") } else { name }));
     runner::poke();
     Ok(())
 }
@@ -233,7 +259,7 @@ fn run_of(doc: &Value, slug: &str, id: &Value) -> Res<Value> {
     found.ok_or_else(|| format!("{slug} has not run yet"))
 }
 
-/// A Claude run's session resumed in a tab of the actions space, to ask it what it did or carry on: the given run, else
+/// An agent run's session resumed in a tab of the actions space, to ask it what it did or carry on: the given run, else
 /// the last one.
 pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let slug = slug(args)?;
@@ -242,14 +268,22 @@ pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let run = run_of(&doc, &slug, opt(args, 1))?;
     mark_read(&mut store::global(), Some(&slug), run["id"].as_str(), now_ms());
     let Some(session) = run["session"].as_str().filter(|s| !s.is_empty()) else {
-        ctx.note(format!("{slug} runs a script: no Claude session to talk to"));
+        ctx.note(format!("{slug}'s run left no agent session to talk to"));
         return Ok(());
     };
+    // A run from before runs named their agent was Claude Code's.
+    let Some(agent) = agent::get(run["agent"].as_str().unwrap_or("claude")) else {
+        return Err(format!("{slug} ran an agent cockpit no longer knows"));
+    };
+    if agent.resume.is_empty() {
+        ctx.note(format!("{} cannot resume a session: talk to it yourself", agent.name));
+        return Ok(());
+    }
     let r = routine(&setup, &slug).ok();
     let name = r.as_ref().map_or(slug.clone(), |r| r.name.clone());
     let cwd = r.map(|r| r.cwd).filter(|c| !c.is_empty()).unwrap_or_else(|| ctx.repos());
-    let flags = vec!["--resume".to_string(), session.to_string()];
-    start_action(ctx, &cwd, &format!("⟳ {}", cut(&name, 28)), "Where did this run get to? Sum it up in a few lines, then wait for me.", &flags);
+    let prompt = "Where did this run get to? Sum it up in a few lines, then wait for me.";
+    start_action(ctx, &cwd, &format!("⟳ {}", cut(&name, 28)), prompt, &Launch::resume(agent, session));
     Ok(())
 }
 
@@ -367,14 +401,14 @@ mod tests {
 
     fn world() -> (tempfile::TempDir, Store, Setup) {
         let dir = tempfile::tempdir().unwrap();
-        let setup =
-            Setup {
-                routines: dir.path().join("routines"),
-                runs: dir.path().join("runs"),
-                claude: "claude".into(),
-                repos: dir.path().to_string_lossy().into_owned(),
-                worktrees: dir.path().join("worktrees"),
-            };
+        let setup = Setup {
+            routines: dir.path().join("routines"),
+            runs: dir.path().join("runs"),
+            agents: agent::builtin(),
+            default_agent: "claude".into(),
+            repos: dir.path().to_string_lossy().into_owned(),
+            worktrees: dir.path().join("worktrees"),
+        };
         let store = Store::open(&dir.path().join("cache"), Duration::ZERO);
         (dir, store, setup)
     }
@@ -393,6 +427,10 @@ mod tests {
         assert_eq!((r.run, r.name.as_str()), (routines::Run::Shell, "git -C ~/notes pull"));
         assert_eq!(create(&setup, &[json!("x"), json!("sometimes"), json!("y")]).unwrap_err().split('?').next(), Some("when"));
         assert_eq!(create(&setup, &[json!("x"), json!("hourly"), json!(" ")]).unwrap_err(), "a routine needs a prompt");
+        create(&setup, &[json!("On codex"), json!("hourly"), json!("Go."), json!(""), json!("codex"), json!("gpt-5-mini")]).unwrap();
+        let r = routine(&setup, "on-codex").unwrap();
+        assert_eq!((r.run, r.agent.as_str(), r.model.as_str()), (routines::Run::Agent, "codex", "gpt-5-mini"));
+        assert_eq!(create(&setup, &[json!("x"), json!("hourly"), json!("y"), json!(""), json!("nobody")]).unwrap_err(), "no agent \"nobody\"");
     }
 
     #[test]
@@ -420,12 +458,16 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("worktree: true\nnotify: failed\n"), "{text}");
         std::fs::write(&path, routines::set_field(&text, "tools", "Read")).unwrap();
-        let fields = [json!("Sweep PRs"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/w"), json!("claude"), json!("sonnet"), json!(false), json!("")];
+        let fields = [json!("Sweep PRs"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/w"), json!(""), json!("sonnet"), json!(false), json!("")];
         assert_eq!(rewrite(&setup, "sweep", &fields).unwrap(), "saved Sweep PRs");
         let r = routine(&setup, "sweep").unwrap();
         assert_eq!((r.name.as_str(), r.when_text.as_str(), r.body.as_str(), r.model.as_str()), ("Sweep PRs", "weekdays 09:00", "Sum up my PRs.", "sonnet"));
         assert_eq!((r.worktree, r.notify, r.tools.clone()), (false, routines::Notify::Always, vec!["Read".to_string()]));
         assert!(rewrite(&setup, "sweep", &[json!("x"), json!("when?"), json!("y")]).is_err());
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("agent:"), "the default agent writes no field");
+        let fields = [json!("Sweep PRs"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/w"), json!("codex"), json!(""), json!(false), json!("")];
+        rewrite(&setup, "sweep", &fields).unwrap();
+        assert_eq!(routine(&setup, "sweep").unwrap().agent, "codex");
     }
 
     #[test]

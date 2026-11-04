@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use cockpit_core::files;
+use cockpit_core::{files, transcripts};
 use serde_json::Value;
 
 use crate::proc::{self, Out};
@@ -54,9 +54,15 @@ pub fn main(_: &[String]) {
     doctor.tools();
     doctor.installs();
     doctor.herdr_app();
-    let installed = doctor.claude_plugin();
-    doctor.sessions(&installed);
-    doctor.app_sessions(&installed);
+    doctor.agents();
+    // The Claude plugin and its sessions only matter when Claude Code is the default agent or installed.
+    let claude = cockpit_core::agent::get("claude");
+    let is_default = cockpit_core::agent::default().id == "claude";
+    if is_default || claude.is_some_and(|c| c.installed()) {
+        let installed = doctor.claude_plugin(is_default);
+        doctor.sessions(&installed);
+        doctor.app_sessions(&installed);
+    }
     doctor.caches();
     doctor.spaces();
     doctor.notifications();
@@ -89,7 +95,20 @@ impl Doctor {
         let settings = load(&settings_path);
         let herdr = std::env::var("HERDR_BIN_PATH").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "herdr".into());
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or_default();
-        let mut doctor = Doctor { root, link, registered, cache: files::cache(), settings, settings_path, config: load(&config_path), herdr, path, now, has_herdr: false, app: None };
+        let mut doctor = Doctor {
+            root,
+            link,
+            registered,
+            cache: files::cache(),
+            settings,
+            settings_path,
+            config: load(&config_path),
+            herdr,
+            path,
+            now,
+            has_herdr: false,
+            app: None,
+        };
         doctor.has_herdr = !doctor.output(&[&doctor.herdr, "--version"]).is_empty();
         doctor.app = doctor.which("herdr-app");
         doctor
@@ -193,11 +212,11 @@ impl Doctor {
         }
         let config = files::config_dir().join("config.json");
         if !config.is_file() {
-            fail("no ~/.config/cockpit/config.json → /cockpit:setup");
+            fail("no ~/.config/cockpit/config.json → cockpit setup (/cockpit:setup in Claude Code)");
         } else if std::fs::read_to_string(&config).is_ok_and(|text| serde_json::Deserializer::from_str(&text).into_iter::<Value>().all(|v| v.is_ok())) {
             ok("config.json");
         } else {
-            fail("config.json is not valid JSON → fix it or rerun /cockpit:setup");
+            fail("config.json is not valid JSON → fix it or rerun cockpit setup");
         }
     }
 
@@ -207,8 +226,10 @@ impl Doctor {
     fn installs(&self) {
         let registered = &self.registered;
         if !self.has_herdr {
-            // The Herdr app alone runs the scripts the Claude plugin's marketplace copy holds.
-            let shipped = files::home().join(".claude/plugins/marketplaces/cockpit/herdr");
+            // The Herdr app alone runs the scripts install.sh put in place, else the Claude plugin's marketplace copy.
+            let installed = files::home().join(".local/share/cockpit/herdr");
+            let shipped =
+                if installed.join("cockpit.sh").is_file() { installed } else { transcripts::claude_home().join("plugins/marketplaces/cockpit/herdr") };
             let linked = readlink(&self.link);
             if Path::new(&linked).join("cockpit.sh").is_file() {
                 ok(&format!("link ~/.config/cockpit/herdr → {linked}"));
@@ -239,6 +260,33 @@ impl Doctor {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
+    // The agents: the default one installed, and cockpit's tools in each installed agent's MCP config
+
+    fn agents(&self) {
+        let set = self.config.as_ref().map_or(Value::Null, |c| c["agents"]["default"].clone());
+        match set.as_str().map(|id| (id, cockpit_core::agent::get(id))) {
+            Some((_, Some(agent))) if agent.installed() => ok(&format!("default agent {} ({})", agent.name, agent.path())),
+            Some((id, Some(_))) => fail(&format!("default agent {id} is not installed → install it, or pick another with cockpit setup")),
+            Some((id, None)) => fail(&format!("default agent {id} is unknown → cockpit setup picks one of the installed agents")),
+            None => {
+                let agent = cockpit_core::agent::default();
+                warn(&format!("no agents.default in config.json: cockpit starts {} → cockpit setup picks yours", agent.name));
+            }
+        }
+        let bin = crate::connect::binary();
+        for target in crate::connect::TARGETS.iter().filter(|t| t.installed()) {
+            match target.current() {
+                Err(e) => {
+                    fail(&format!("{}: {} does not read ({e}) → fix it, then cockpit agents connect {}", target.name, target.path().display(), target.id))
+                }
+                _ if target.is_connected(&bin) => ok(&format!("{} has cockpit's tools", target.name)),
+                Ok(Some(_)) => warn(&format!("{} runs cockpit's tools from another binary → cockpit agents connect {}", target.name, target.id)),
+                Ok(None) => warn(&format!("{} has no cockpit tools (show, search, changes) → cockpit agents connect {}", target.name, target.id)),
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
     // The Herdr app half: the layout and mod in its home, on this binary's version, loading cleanly
 
     fn herdr_app(&self) {
@@ -265,7 +313,10 @@ impl Doctor {
         let checked = self.run(&[&app.to_string_lossy(), "check", &home.join("mods/cockpit").to_string_lossy()], Duration::from_secs(30));
         match checked {
             Some(o) if o.ok() => ok("Herdr app: the cockpit mod loads"),
-            Some(o) => fail(&format!("Herdr app: the cockpit mod does not load: {} → {fix}", o.stderr.lines().chain(o.stdout.lines()).find(|l| !l.trim().is_empty()).unwrap_or("no reason given"))),
+            Some(o) => fail(&format!(
+                "Herdr app: the cockpit mod does not load: {} → {fix}",
+                o.stderr.lines().chain(o.stdout.lines()).find(|l| !l.trim().is_empty()).unwrap_or("no reason given")
+            )),
             None => warn("Herdr app: herdr-app check did not answer"),
         }
     }
@@ -288,7 +339,9 @@ impl Doctor {
                     let beat = max_by_at(&all.iter().filter(|b| b["pane"] == handle.as_str()).collect::<Vec<_>>()).cloned();
                     match beat.map(|b| raw(&b["version"])) {
                         None => warn(&format!("session \"{label}\" ({address}) runs no cockpit → /reload-plugins in it, or restart it")),
-                        Some(v) if !installed.is_empty() && v != installed => warn(&format!("session \"{label}\" runs cockpit {v}, {installed} is installed → /reload-plugins in it")),
+                        Some(v) if !installed.is_empty() && v != installed => {
+                            warn(&format!("session \"{label}\" runs cockpit {v}, {installed} is installed → /reload-plugins in it"))
+                        }
                         Some(v) => ok(&format!("session \"{label}\" on cockpit {v}")),
                     }
                 }
@@ -296,8 +349,8 @@ impl Doctor {
         }
     }
 
-    /// The Claude plugin's installed version, empty when it is not installed.
-    fn claude_plugin(&self) -> String {
+    /// The Claude plugin's installed version, empty when it is not installed (a failure when Claude is the default agent).
+    fn claude_plugin(&self, is_default: bool) -> String {
         let listed = self.output(&["claude", "plugin", "list"]);
         let mut found = false;
         let mut installed = String::new();
@@ -309,7 +362,8 @@ impl Doctor {
             }
         }
         if installed.is_empty() {
-            fail("Claude plugin not installed → /plugin install cockpit --marketplace quaresc/cockpit");
+            let line = "Claude plugin not installed → /plugin install cockpit --marketplace quaresc/cockpit";
+            if is_default { fail(line) } else { warn(line) }
         } else {
             ok(&format!("Claude plugin cockpit {installed}"));
         }
@@ -632,7 +686,7 @@ impl Doctor {
         }
 
         // Permission rules for the background MCP calls.
-        let claude = load(&files::home().join(".claude/settings.json"));
+        let claude = load(&transcripts::claude_home().join("settings.json"));
         let allow: Vec<&str> = claude.as_ref().map(|c| values(&c["permissions"]["allow"]).filter_map(Value::as_str).collect()).unwrap_or_default();
         for source in ["tickets", "ci", "platform", "calendar"] {
             let block = &set[source];

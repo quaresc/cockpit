@@ -3,21 +3,21 @@
 # never their cockpit data. Everything lives under $COCKPIT_SANDBOX (default: $TMPDIR/cockpit-gui). The window shares
 # herdr-core with the person's own: its spaces and terminals are theirs, so never create, close or type into them here.
 #
-#   sh app/sandbox.sh start            fake HOME from docs/screenshots/demo_data.py (FRESH=1 rebuilds it), dev build,
+#   sh scripts/sandbox.sh start            fake HOME from docs/screenshots/demo_data.py (FRESH=1 rebuilds it), dev build,
 #                                      a separate Herdr window on the cockpit layout, and the layout and mod copied
 #                                      again each time a file of app/ changes (Herdr reloads the mod on its own)
-#   sh app/sandbox.sh do <cmd> [json]  a Herdr command in that window (layout.select, app.theme, ...)
-#   sh app/sandbox.sh show <app>       that app's block in front (work, todo, inbox, ...)
-#   sh app/sandbox.sh kit [charts]     the design kit's gallery as a window (every ui.js component, both themes)
-#   sh app/sandbox.sh light|dark       the window's appearance
-#   sh app/sandbox.sh key <keystroke>  a key pressed in the shown views (j, shift-d, ctrl-p, escape, ...)
-#   sh app/sandbox.sh shot [file.png]  a screenshot of that window, its path printed
-#   sh app/sandbox.sh check            herdr-app check on the mod
-#   sh app/sandbox.sh status           herdr-app status (errors from the mod show here)
-#   sh app/sandbox.sh notify <title> <body> [action]
+#   sh scripts/sandbox.sh do <cmd> [json]  a Herdr command in that window (layout.select, app.theme, ...)
+#   sh scripts/sandbox.sh show <app>       that app's block in front (work, todo, inbox, ...)
+#   sh scripts/sandbox.sh kit [charts]     the design kit's gallery as a window (every ui.js component, both themes)
+#   sh scripts/sandbox.sh light|dark       the window's appearance
+#   sh scripts/sandbox.sh key <keystroke>  a key pressed in the shown views (j, shift-d, ctrl-p, escape, ...)
+#   sh scripts/sandbox.sh shot [file.png]  a screenshot of that window, its path printed
+#   sh scripts/sandbox.sh check            herdr-app check on the mod
+#   sh scripts/sandbox.sh status           herdr-app status (errors from the mod show here)
+#   sh scripts/sandbox.sh notify <title> <body> [action]
 #                                      a cockpit notification, as the hub and the plugin post them
-#   sh app/sandbox.sh env              the variables to run cockpit or herdr-app against the sandbox yourself
-#   sh app/sandbox.sh stop             quits the window and stops the sandbox's hub (and its herdr-core, see HC_SESSION)
+#   sh scripts/sandbox.sh env              the variables to run cockpit or herdr-app against the sandbox yourself
+#   sh scripts/sandbox.sh stop             quits the window and stops the sandbox's hub (and its herdr-core, see HC_SESSION)
 #
 # HC_SESSION=<name> gives the window a herdr-core of its own, empty, so none of the person's terminals shows in it
 # (screenshots); terminals and spaces made there are the sandbox's.
@@ -111,5 +111,5 @@ case "${1:-}" in
     running && app "do" app.quit >/dev/null 2>&1 || true
     [ -z "$session" ] || "$box/hc.sh" server stop >/dev/null 2>&1 || true
     ;;
-  *) sed -n '2,15p' "$0"; exit 1 ;;
+  *) sed -n '2,23p' "$0"; exit 1 ;;
 esac

@@ -841,7 +841,7 @@ export default class Meetings {
   render(cx) {
     const k = tokens();
     const m = this.model;
-    const description = !m ? "Loading…" : m.waiting ? "Waiting for a Claude session with the Google Calendar connector" : m.updated ? `Updated ${m.updated}` : "This week";
+    const description = !m ? "Loading…" : m.waiting ? "Waiting for a Claude Code session with the Google Calendar connector" : m.updated ? `Updated ${m.updated}` : "This week";
     let root = v_flex()
       .id("meetings")
       .track_focus(this.handle)
@@ -882,7 +882,7 @@ export default class Meetings {
       return this.overlays(root.child(inner), k, cx);
     }
     if (m.waiting) {
-      return this.overlays(root.child(Empty({ icon: "calendar", title: "No calendar yet", description: "A Claude session with the Google Calendar connector fills this week's meetings in; the plugin asks it on its own." })), k, cx);
+      return this.overlays(root.child(Empty({ icon: "calendar", title: "No calendar yet", description: "Give the config a calendar ICS link, or run Claude Code with the Google Calendar connector: cockpit's plugin fills this week's meetings in." })), k, cx);
     }
     const sel = this.selected();
     const wide = this.width >= 860;

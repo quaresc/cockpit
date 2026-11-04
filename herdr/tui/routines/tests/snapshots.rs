@@ -108,7 +108,7 @@ fn the_form_reads_when_back_and_adds_the_routine() {
     let sent = last(&app);
     let args: Vec<&str> = sent.args.iter().map(|a| a.as_str().unwrap()).collect();
     assert_eq!(sent.action, "add");
-    assert_eq!(args, ["Review digest", "mon,thu 14:30", "List the PRs waiting for my review, oldest first.", "", "claude", "lightest", ""]);
+    assert_eq!(args, ["Review digest", "mon,thu 14:30", "List the PRs waiting for my review, oldest first.", "", "", "lightest", ""]);
 }
 
 #[test]
@@ -170,7 +170,8 @@ fn the_list_puts_running_and_failed_first() {
 fn the_sidebar_says_what_runs_and_what_failed() {
     let doc = Doc::parse(&data()).unwrap();
     assert_eq!(cockpit_routines::pinned::sidebar_text(&doc, &clock()), ("\u{f04b}  1 running · 1 failed".into(), true));
-    let calm = Doc::parse(&json!({"version": 1, "routines": [{"slug": "a", "next": clock().now + 240_000}, {"slug": "b", "paused": true, "next": 1}]})).unwrap();
+    let calm =
+        Doc::parse(&json!({"version": 1, "routines": [{"slug": "a", "next": clock().now + 240_000}, {"slug": "b", "paused": true, "next": 1}]})).unwrap();
     assert_eq!(cockpit_routines::pinned::sidebar_text(&calm, &clock()).0, "\u{f017}  next in 4 min");
 }
 

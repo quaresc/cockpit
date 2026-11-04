@@ -163,7 +163,20 @@ impl Row {
     }
 
     fn with(key: String, body: Body, name: String) -> Self {
-        Self { key, body, acts: Vec::new(), primary: None, info: Vec::new(), status: None, expand: true, name, section: String::new(), kind: Kind::Plain, item: None, children: Vec::new() }
+        Self {
+            key,
+            body,
+            acts: Vec::new(),
+            primary: None,
+            info: Vec::new(),
+            status: None,
+            expand: true,
+            name,
+            section: String::new(),
+            kind: Kind::Plain,
+            item: None,
+            children: Vec::new(),
+        }
     }
 
     pub fn acts(mut self, acts: Vec<RowAct>) -> Self {

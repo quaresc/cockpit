@@ -126,7 +126,10 @@ fn fake_hub(sandbox: &Sandbox, answer: Option<Value>) -> Arc<Mutex<Vec<Value>>> 
 const PR: &str = r#"{"repo": "api", "number": 4, "url": "https://github.com/acme/api/pull/4", "branch": "me/eng-4"}"#;
 
 fn with_inbox(sandbox: &Sandbox) {
-    sandbox.write("home/.cache/cockpit/inbox.json", &format!(r#"{{"mine": [], "team": [{PR}], "tickets": [{{"id": "ENG-1", "url": "https://linear.app/acme/issue/ENG-1/title"}}]}}"#));
+    sandbox.write(
+        "home/.cache/cockpit/inbox.json",
+        &format!(r#"{{"mine": [], "team": [{PR}], "tickets": [{{"id": "ENG-1", "url": "https://linear.app/acme/issue/ENG-1/title"}}]}}"#),
+    );
     sandbox.write(
         "home/.cache/cockpit/ci.json",
         r#"{"runs": [{"repo": "api", "branch": "other", "workflowId": "x"}, {"repo": "api", "branch": "me/eng-4", "workflowId": "wf1"}]}"#,
@@ -233,7 +236,8 @@ fn the_binary_says_its_version_and_serves_as_the_hub() {
 // ---------------------------------------------------------------------------
 // browse and shots
 
-const PANES: &str = r#"{"result": {"panes": [{"pane_id": "w2:p1", "tab_id": "w2:t1", "agent_session": {"value": "s-1"}}, {"pane_id": "w5:p1", "tab_id": "w5:t1"}]}}"#;
+const PANES: &str =
+    r#"{"result": {"panes": [{"pane_id": "w2:p1", "tab_id": "w2:t1", "agent_session": {"value": "s-1"}}, {"pane_id": "w5:p1", "tab_id": "w5:t1"}]}}"#;
 
 fn browsers(json: &str) -> String {
     common::says(json)
@@ -311,10 +315,8 @@ fn browse_beside_and_external() {
 
 /// A terminal-browser beside the pane that opens tabs and fails `fail` when given.
 fn shooting_browser(sandbox: &Sandbox, fail: Option<&str>) {
-    let mut answers = vec![
-        ("ls".to_string(), browsers(r#"{"browsers": [{"key": "b1", "tabs": []}]}"#)),
-        ("new-tab".to_string(), browsers(r#"{"openedTab": 7}"#)),
-    ];
+    let mut answers =
+        vec![("ls".to_string(), browsers(r#"{"browsers": [{"key": "b1", "tabs": []}]}"#)), ("new-tab".to_string(), browsers(r#"{"openedTab": 7}"#))];
     if let Some(command) = fail {
         answers.push((format!("action --browser b1 --tab 7 -- {command}"), "    echo 'it broke' >&2; exit 1".to_string()));
     }

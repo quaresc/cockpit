@@ -74,7 +74,7 @@ pub fn has_failed(handoff: &Value) -> bool {
 pub fn line(handoff: &Value) -> Option<(String, Style)> {
     let message = handoff["message"].as_str().unwrap_or_default();
     Some(match handoff["state"].as_str().unwrap_or_default() {
-        "sent" if now() - ms(handoff, "sentAt") > SENT_WAIT => ("↳ no Claude session took it: is the cockpit plugin loaded there?".into(), fg(RED)),
+        "sent" if now() - ms(handoff, "sentAt") > SENT_WAIT => ("↳ no agent session took it: is the cockpit plugin loaded there?".into(), fg(RED)),
         "sent" => ("↳ sent to its session…".into(), fg(ORANGE)),
         "running" => ("↳ running in its session…".into(), fg(ORANGE)),
         "waiting" => (format!("↳ ⏸ waits for your go · {message}"), bold(ORANGE)),
@@ -97,4 +97,3 @@ pub fn live_badge(repo: &str, number: u64, inbox: &Value) -> Option<(String, Sty
     }
     list("merged").iter().find(is).map(|_| (format!("{MERGED} merged"), fg(GREEN)))
 }
-

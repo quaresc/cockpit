@@ -1,21 +1,22 @@
-//! The runbook's actions: a step handed to the runbook's own Claude session, marked done by hand, a background refresh
-//! by a headless Claude, a talk about its ticket, and the notification a finished refresh sends.
+//! The runbook's actions: a step handed to the runbook's own agent session, marked done by hand, a background refresh
+//! by a headless agent, a talk about its ticket, and the notification a finished refresh sends.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use cockpit_core::files;
+use cockpit_core::agent::{self, Headless};
+use cockpit_core::{files, transcripts};
 use serde_json::{Value, json};
 
 use super::book::{handoffs_dir, read_books, read_handoffs, runbooks_dir};
 use super::{Ctx, arg, inbox, opt};
 use crate::config;
 use crate::herdr;
-use cockpit_core::frontend;
 use crate::proc;
 use crate::value::{Res, get, key, list, now, now_ms, s, text, truthy};
+use cockpit_core::frontend;
 
 const REPORT_TOOL: &str = "mcp__cockpit__report_step";
 /// A handoff no session took after this many seconds no longer counts as in flight.
@@ -25,8 +26,12 @@ const OPEN: [&str; 4] = ["⬜", "⏳", "🟡", "❌"];
 /// The refreshes this hub started, by slug, while they run.
 static REFRESHING: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 
+fn owner_file(book: &Value) -> Res<Value> {
+    Ok(files::load(&files::cache().join("runbook-owners").join(format!("{}.json", s(book, "slug")?))).unwrap_or(Value::Null))
+}
+
 fn owner_of(book: &Value) -> Res<(String, String)> {
-    let owner = files::load(&files::cache().join("runbook-owners").join(format!("{}.json", s(book, "slug")?))).unwrap_or(Value::Null);
+    let owner = owner_file(book)?;
     // A null owner field reads as empty, a missing one as "-".
     let field = |name: &str| owner.get(name).map(|v| if v.is_null() { String::new() } else { text(v) }).unwrap_or_else(|| "-".into());
     Ok((field("pane"), field("session")))
@@ -48,7 +53,7 @@ fn in_flight(handoff: &Value) -> bool {
     }
 }
 
-/// Hands the step to the runbook's own Claude conversation, resumed if it is closed; that session owes its outcome.
+/// Hands the step to the runbook's own agent conversation, resumed if it is closed; that session owes its outcome.
 pub fn run_step(ctx: &mut Ctx, args: &[Value]) -> Res {
     let (book, step) = (arg(args, 0)?, arg(args, 1)?);
     let (slug, n) = (s(book, "slug")?, s(step, "n")?);
@@ -73,7 +78,9 @@ pub fn run_step(ctx: &mut Ctx, args: &[Value]) -> Res {
     let dash = |v: &str| {
         if v.is_empty() { "-".to_string() } else { v.to_string() }
     };
-    proc::spawn(&[String::from("sh"), script, dash(&pane), dash(&session), prompt], None, None, |_| {}).map_err(|e| e.to_string())?;
+    // The session is Claude Code's unless the runbook's owner file names its agent.
+    let agent = owner_file(book)?["agent"].as_str().unwrap_or("claude").to_string();
+    proc::spawn(&[String::from("sh"), script, dash(&pane), dash(&session), prompt, agent], None, None, |_| {}).map_err(|e| e.to_string())?;
     ctx.note(format!("step {n} sent to its session{}", if session != "-" { " (resuming it)" } else { "" }));
     Ok(())
 }
@@ -151,7 +158,7 @@ pub fn focus_session(ctx: &mut Ctx, args: &[Value]) -> Res {
 
 fn memory_dir(ctx: &Ctx) -> PathBuf {
     let flat: String = ctx.repos().chars().map(|c| if c == '/' || c == '.' { '-' } else { c }).collect();
-    files::home().join(".claude").join("projects").join(flat).join("memory")
+    transcripts::claude_home().join("projects").join(flat).join("memory")
 }
 
 fn tools(ctx: &Ctx) -> Vec<String> {
@@ -186,8 +193,8 @@ fn refresh_prompt(ctx: &Ctx, book: &Value) -> Res<String> {
     .join("\n"))
 }
 
-/// Refreshes the runbook in the background: a headless Claude forked from the conversation that wrote it, else a fresh
-/// one; its exit status lands in runbook-refresh-<slug>.exit for an app that only knows the pid.
+/// Refreshes the runbook in the background: a headless run of the agent that wrote it, forked from that conversation,
+/// else of the default agent; its exit status lands in runbook-refresh-<slug>.exit for an app that only knows the pid.
 pub fn update(ctx: &mut Ctx, args: &[Value]) -> Res {
     let book = arg(args, 0)?;
     let slug = s(book, "slug")?;
@@ -196,19 +203,22 @@ pub fn update(ctx: &mut Ctx, args: &[Value]) -> Res {
         return Ok(());
     }
     let (_, session) = owner_of(book)?;
-    let claude = files::claude();
+    // The writer's session is Claude Code's unless its owner file names another agent.
+    let writer = agent::get(owner_file(book)?["agent"].as_str().unwrap_or("claude")).filter(|a| a.installed() && !a.run_fork.is_empty());
+    let fork = writer.as_ref().and(Some(session.as_str())).filter(|s| !s.is_empty() && *s != "-");
+    let agent = writer.filter(|_| fork.is_some()).unwrap_or_else(agent::default);
     let memory = memory_dir(ctx);
-    let mut dirs = vec!["--add-dir".to_string(), runbooks_dir().to_string_lossy().into_owned()];
+    let mut dirs = vec![runbooks_dir().to_string_lossy().into_owned()];
     if memory.is_dir() {
-        dirs.extend(["--add-dir".to_string(), memory.to_string_lossy().into_owned()]);
+        dirs.push(memory.to_string_lossy().into_owned());
     }
-    let mut command =
-        vec![claude, "-p".into(), refresh_prompt(ctx, book)?, "--model".into(), "sonnet".into(), "--permission-mode".into(), "acceptEdits".into()];
-    command.extend(dirs);
-    command.push("--allowedTools".into());
-    command.extend(tools(ctx));
-    if !session.is_empty() && session != "-" {
-        command.splice(1..1, ["--resume".to_string(), session, "--fork-session".to_string()]);
+    let how = Headless { model: Some("sonnet"), fork, edits: true, dirs, system: None };
+    let Some(mut command) = agent.headless(&refresh_prompt(ctx, book)?, &how) else {
+        return Err(format!("{} has no headless mode: it cannot refresh a runbook", agent.name));
+    };
+    if agent.id == "claude" {
+        command.push("--allowedTools".into());
+        command.extend(tools(ctx));
     }
     let logs = files::cache();
     let status = logs.join(format!("runbook-refresh-{slug}.exit"));
@@ -238,7 +248,8 @@ pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     let book = arg(args, 0)?;
     let slug = s(book, "slug")?;
     let data = config::read_inbox();
-    let is_ticket = regex::Regex::new(r"^[a-z]+-\d+$").expect("a valid pattern").is_match(&slug);
+    static TICKET: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^[a-z]+-\d+$").expect("a valid pattern"));
+    let is_ticket = TICKET.is_match(&slug);
     let id = if is_ticket { slug.to_uppercase() } else { slug.clone() };
     let ticket = match list(&data["tickets"]).iter().find(|t| t["id"].as_str() == Some(&id)) {
         Some(ticket) => ticket.clone(),

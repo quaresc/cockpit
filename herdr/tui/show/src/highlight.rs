@@ -156,22 +156,40 @@ impl Lang {
         let (language, name, highlights, injections, locals): (tree_sitter::Language, &str, String, &str, String) = match self {
             Self::Bash => (tree_sitter_bash::LANGUAGE.into(), "bash", tree_sitter_bash::HIGHLIGHT_QUERY.into(), "", String::new()),
             Self::C => (tree_sitter_c::LANGUAGE.into(), "c", tree_sitter_c::HIGHLIGHT_QUERY.into(), "", String::new()),
-            Self::Cpp => (tree_sitter_cpp::LANGUAGE.into(), "cpp", joined(&[tree_sitter_c::HIGHLIGHT_QUERY, tree_sitter_cpp::HIGHLIGHT_QUERY]), "", String::new()),
+            Self::Cpp => {
+                (tree_sitter_cpp::LANGUAGE.into(), "cpp", joined(&[tree_sitter_c::HIGHLIGHT_QUERY, tree_sitter_cpp::HIGHLIGHT_QUERY]), "", String::new())
+            }
             Self::Css => (tree_sitter_css::LANGUAGE.into(), "css", tree_sitter_css::HIGHLIGHTS_QUERY.into(), "", String::new()),
             Self::Elixir => (tree_sitter_elixir::LANGUAGE.into(), "elixir", tree_sitter_elixir::HIGHLIGHTS_QUERY.into(), "", String::new()),
             Self::Go => (tree_sitter_go::LANGUAGE.into(), "go", tree_sitter_go::HIGHLIGHTS_QUERY.into(), "", String::new()),
-            Self::Html => (tree_sitter_html::LANGUAGE.into(), "html", tree_sitter_html::HIGHLIGHTS_QUERY.into(), tree_sitter_html::INJECTIONS_QUERY, String::new()),
+            Self::Html => {
+                (tree_sitter_html::LANGUAGE.into(), "html", tree_sitter_html::HIGHLIGHTS_QUERY.into(), tree_sitter_html::INJECTIONS_QUERY, String::new())
+            }
             Self::Java => (tree_sitter_java::LANGUAGE.into(), "java", tree_sitter_java::HIGHLIGHTS_QUERY.into(), "", String::new()),
-            Self::JavaScript => (js::LANGUAGE.into(), "javascript", joined(&[js::HIGHLIGHT_QUERY, js::JSX_HIGHLIGHT_QUERY]), js::INJECTIONS_QUERY, js::LOCALS_QUERY.into()),
+            Self::JavaScript => {
+                (js::LANGUAGE.into(), "javascript", joined(&[js::HIGHLIGHT_QUERY, js::JSX_HIGHLIGHT_QUERY]), js::INJECTIONS_QUERY, js::LOCALS_QUERY.into())
+            }
             Self::Json => (tree_sitter_json::LANGUAGE.into(), "json", tree_sitter_json::HIGHLIGHTS_QUERY.into(), "", String::new()),
             Self::Kotlin => (tree_sitter_kotlin_sg::LANGUAGE.into(), "kotlin", tree_sitter_kotlin_sg::HIGHLIGHTS_QUERY.into(), "", String::new()),
-            Self::Markdown => (tree_sitter_md::LANGUAGE.into(), "markdown", tree_sitter_md::HIGHLIGHT_QUERY_BLOCK.into(), tree_sitter_md::INJECTION_QUERY_BLOCK, String::new()),
-            Self::MarkdownInline => (tree_sitter_md::INLINE_LANGUAGE.into(), "markdown_inline", tree_sitter_md::HIGHLIGHT_QUERY_INLINE.into(), "", String::new()),
+            Self::Markdown => (
+                tree_sitter_md::LANGUAGE.into(),
+                "markdown",
+                tree_sitter_md::HIGHLIGHT_QUERY_BLOCK.into(),
+                tree_sitter_md::INJECTION_QUERY_BLOCK,
+                String::new(),
+            ),
+            Self::MarkdownInline => {
+                (tree_sitter_md::INLINE_LANGUAGE.into(), "markdown_inline", tree_sitter_md::HIGHLIGHT_QUERY_INLINE.into(), "", String::new())
+            }
             Self::Python => (tree_sitter_python::LANGUAGE.into(), "python", tree_sitter_python::HIGHLIGHTS_QUERY.into(), "", String::new()),
             Self::Ruby => (tree_sitter_ruby::LANGUAGE.into(), "ruby", tree_sitter_ruby::HIGHLIGHTS_QUERY.into(), "", tree_sitter_ruby::LOCALS_QUERY.into()),
-            Self::Rust => (tree_sitter_rust::LANGUAGE.into(), "rust", tree_sitter_rust::HIGHLIGHTS_QUERY.into(), tree_sitter_rust::INJECTIONS_QUERY, String::new()),
+            Self::Rust => {
+                (tree_sitter_rust::LANGUAGE.into(), "rust", tree_sitter_rust::HIGHLIGHTS_QUERY.into(), tree_sitter_rust::INJECTIONS_QUERY, String::new())
+            }
             Self::Sql => (tree_sitter_sequel::LANGUAGE.into(), "sql", tree_sitter_sequel::HIGHLIGHTS_QUERY.into(), "", String::new()),
-            Self::Swift => (tree_sitter_swift::LANGUAGE.into(), "swift", tree_sitter_swift::HIGHLIGHTS_QUERY.into(), "", tree_sitter_swift::LOCALS_QUERY.into()),
+            Self::Swift => {
+                (tree_sitter_swift::LANGUAGE.into(), "swift", tree_sitter_swift::HIGHLIGHTS_QUERY.into(), "", tree_sitter_swift::LOCALS_QUERY.into())
+            }
             Self::Toml => (tree_sitter_toml_ng::LANGUAGE.into(), "toml", tree_sitter_toml_ng::HIGHLIGHTS_QUERY.into(), "", String::new()),
             Self::Tsx => (
                 ts::LANGUAGE_TSX.into(),

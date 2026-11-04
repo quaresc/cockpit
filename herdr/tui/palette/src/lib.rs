@@ -1,12 +1,12 @@
 //! `cockpit palette`: the launcher herdr opens as a popup over any pane (prefix+space). It searches every app, the
-//! week's events and past Claude sessions as you type, and lists cockpit's own commands: the pinned spaces, a refresh of
-//! the inbox, the doctor's report and today's brief. Over a Claude session, a found item can also go into that session:
-//! typed at its prompt, asked about, or looked into by a fork of it in the actions space.
+//! week's events and past agent sessions as you type, and lists cockpit's own commands: the pinned spaces, a refresh of
+//! the inbox, the doctor's report and today's brief. Over an agent's session, a found item can also go into that
+//! session: typed at its prompt, asked about, or looked into by a fork of it in the actions space.
 
+pub mod gui;
 mod reference;
 mod report;
 mod then;
-pub mod gui;
 
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
@@ -14,7 +14,7 @@ use std::time::Duration;
 use cockpit_core::hub::Found;
 use cockpit_core::palette::{Entry, Outcome, Palette};
 use cockpit_core::theme::{FG, ORANGE, PANEL, base, bold, dim, fg};
-use cockpit_core::{actions, files, keys, term};
+use cockpit_core::{actions, agent, files, keys, term};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -44,9 +44,9 @@ pub fn run() -> std::io::Result<()> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Over {
     pub pane: String,
-    /// Whether a Claude agent runs there: only then can a found item go into it.
-    pub is_claude: bool,
-    /// The Claude session's id, which a fork resumes.
+    /// The id of the agent running there (`claude`, `codex`): only then can a found item go into it.
+    pub agent: Option<String>,
+    /// The agent's session id, which a fork resumes.
     pub session: Option<String>,
     pub cwd: String,
     pub title: String,
@@ -56,10 +56,16 @@ impl Over {
     /// From `herdr pane get`'s pane.
     pub fn of(pane: &Value) -> Option<Over> {
         let id = pane["pane_id"].as_str().filter(|p| !p.is_empty())?;
-        let is_claude = pane["agent"] == "claude";
-        let session = pane["agent_session"]["value"].as_str().filter(|_| is_claude && pane["agent_session"]["kind"] == "id").map(str::to_string);
+        let agent = pane["agent"].as_str().and_then(agent::of_program).map(|a| a.id);
+        let session = pane["agent_session"]["value"].as_str().filter(|_| agent.is_some() && pane["agent_session"]["kind"] == "id").map(str::to_string);
         let title = pane["terminal_title_stripped"].as_str().map(str::trim).filter(|t| !t.is_empty()).unwrap_or(id).to_string();
-        Some(Over { pane: id.into(), is_claude, session, cwd: pane["cwd"].as_str().unwrap_or_default().into(), title })
+        Some(Over { pane: id.into(), agent, session, cwd: pane["cwd"].as_str().unwrap_or_default().into(), title })
+    }
+
+    /// The session to fork, when the agent below has one and can fork it.
+    pub fn forkable(&self) -> Option<(String, String)> {
+        let agent = agent::get(self.agent.as_deref()?).filter(|a| !a.fork.is_empty())?;
+        Some((agent.id, self.session.clone()?))
     }
 }
 
@@ -72,8 +78,13 @@ pub enum Command {
     Brief,
     /// The folder of the pane below, in the person's editor.
     Editor(String),
-    /// The Claude session below, forked to a tab of the actions space.
-    Fork { session: String, cwd: String, title: String },
+    /// The agent's session below, forked to a tab of the actions space.
+    Fork {
+        agent: String,
+        session: String,
+        cwd: String,
+        title: String,
+    },
 }
 
 impl Command {
@@ -90,20 +101,19 @@ impl Command {
     }
 }
 
-/// The ctrl keys that send a found item into the Claude session below, with their footer labels.
+/// The ctrl keys that send a found item into the agent's session below, with their footer labels.
 const SESSION_KEYS: [(char, &str); 3] = [('r', "insert"), ('a', "ask"), ('f', "fork")];
 
-/// What a session key does with a found item, None when it cannot (no Claude there, or no session id to fork).
+/// What a session key does with a found item, None when it cannot (no agent there, or no session it can fork).
 pub fn into_session(key: char, over: &Over, found: &Found, inbox: &Value, config: &Value) -> Option<Then> {
-    if !over.is_claude {
-        return None;
-    }
+    over.agent.as_ref()?;
     let text = reference(found, inbox, config);
     let pane = over.pane.clone();
     Some(match key {
         'r' => Then::Insert { pane, text: format!("{text} ") },
         'a' => Then::Ask { pane, text: format!("Look at {text}: tell me what it is, where it stands, and what it means for what we are doing here.") },
         'f' => Then::Fork {
+            agent: over.forkable()?.0,
             session: over.session.clone()?,
             cwd: over.cwd.clone(),
             title: found.title.clone(),
@@ -121,11 +131,11 @@ fn folder_name(cwd: &str) -> &str {
     cwd.trim_end_matches('/').rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or(cwd)
 }
 
-/// What the pane below adds: its folder in the editor, and a fork of its Claude session.
+/// What the pane below adds: its folder in the editor, and a fork of its agent's session.
 pub fn session_commands(over: &Over) -> Vec<Command> {
     let mut out = Vec::new();
-    if let Some(session) = over.session.clone().filter(|_| over.is_claude) {
-        out.push(Command::Fork { session, cwd: over.cwd.clone(), title: over.title.clone() });
+    if let Some((agent, session)) = over.forkable() {
+        out.push(Command::Fork { agent, session, cwd: over.cwd.clone(), title: over.title.clone() });
     }
     if !over.cwd.is_empty() {
         out.push(Command::Editor(over.cwd.clone()));
@@ -172,9 +182,9 @@ impl App {
         self.palette.open(self.commands.iter().enumerate().map(|(n, c)| c.entry(n)).collect());
     }
 
-    /// The Claude session below, when there is one.
-    fn claude(&self) -> Option<&Over> {
-        self.over.as_ref().filter(|o| o.is_claude)
+    /// The agent's session below, when there is one.
+    fn below(&self) -> Option<&Over> {
+        self.over.as_ref().filter(|o| o.agent.is_some())
     }
 
     pub fn event(&mut self, event: Event) -> bool {
@@ -208,7 +218,7 @@ impl App {
 
     fn session_key(&self, c: char) -> Option<Then> {
         SESSION_KEYS.iter().find(|(k, _)| *k == c)?;
-        let (over, found) = (self.claude()?, self.palette.selected_found()?);
+        let (over, found) = (self.below()?, self.palette.selected_found()?);
         let inbox = files::load(&files::cache().join("inbox.json")).unwrap_or(Value::Null);
         into_session(c, over, found, &inbox, &files::config())
     }
@@ -218,7 +228,7 @@ impl App {
             Some(Command::Space(name)) => self.then = Some(Then::Space(name)),
             Some(Command::RefreshInbox) => self.then = Some(Then::RefreshInbox),
             Some(Command::Editor(cwd)) => self.then = Some(Then::Editor(cwd)),
-            Some(Command::Fork { session, cwd, title }) => self.then = Some(Then::Fork { session, cwd, title, prompt: String::new() }),
+            Some(Command::Fork { agent, session, cwd, title }) => self.then = Some(Then::Fork { agent, session, cwd, title, prompt: String::new() }),
             Some(Command::Doctor) => {
                 self.report = Some(Report::doctor());
                 return false;
@@ -291,18 +301,18 @@ impl App {
             Some(_) => vec![("esc", "back"), ("q", "close")],
             None => vec![("enter", "go"), ("esc", "close")],
         };
-        let into = self.report.is_none() && self.claude().is_some() && self.palette.selected_found().is_some();
+        let into = self.report.is_none() && self.below().is_some() && self.palette.selected_found().is_some();
         let mut spans = vec![Span::raw(" ")];
         for (key, what) in keys {
             spans.extend([Span::styled(format!("{key} "), bold(ORANGE)), Span::styled(format!("{what}  "), fg(FG))]);
         }
         if into {
-            let forkable = self.claude().is_some_and(|o| o.session.is_some());
+            let forkable = self.below().is_some_and(|o| o.forkable().is_some());
             for (key, what) in SESSION_KEYS.into_iter().filter(|(k, _)| *k != 'f' || forkable) {
                 spans.extend([Span::styled(format!("^{key} "), bold(ORANGE)), Span::styled(format!("{what}  "), fg(FG))]);
             }
         }
-        let right = match self.claude() {
+        let right = match self.below() {
             Some(over) => vec![Span::styled("over ", dim()), Span::styled(format!("{} ", over.title), fg(ORANGE))],
             None => Vec::new(),
         };

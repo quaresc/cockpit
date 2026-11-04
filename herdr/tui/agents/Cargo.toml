@@ -3,6 +3,10 @@ name = "cockpit-agents"
 description = "Every agent terminal in one view, for both halves: its question read off its screen and answered from the list, its recap and whose move it is, snooze and seen, forks, and the time each ticket took."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true

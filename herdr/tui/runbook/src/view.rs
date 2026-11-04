@@ -92,7 +92,13 @@ impl App {
                 None => Span::styled(" ✓", fg(GREEN)),
             };
             let name = book.slug.to_uppercase();
-            let label = if i == self.active { bold(FG) } else if found == Some(0) { Style::new().fg(LINE) } else { dim() };
+            let label = if i == self.active {
+                bold(FG)
+            } else if found == Some(0) {
+                Style::new().fg(LINE)
+            } else {
+                dim()
+            };
             let w = width(&name) + width(&count.content) + 2;
             spans.extend([Span::raw(" "), Span::styled(name, label), count, Span::raw(" ")]);
             tabs.push((x, w));
@@ -149,7 +155,8 @@ impl App {
             .collect();
         let notes_h = if notes.is_empty() { 0 } else { notes.len() as u16 + 1 };
         let [sub, gauge, _, list, notes_area] =
-            Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Min(1), Constraint::Length(notes_h)]).areas(area);
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1), Constraint::Min(1), Constraint::Length(notes_h)])
+                .areas(area);
 
         let refreshing = self.refreshing.get(&book.slug).map(|(_, at)| at.elapsed().as_secs());
         let title = if book.title.is_empty() { book.slug.clone() } else { book.title.clone() };
@@ -178,7 +185,7 @@ impl App {
     /// The selected step's lines and its actions; when there is none, a word on how to get one.
     fn panel(&self, cells: usize) -> (Vec<Line<'static>>, Vec<Cmd>) {
         let Some(step) = self.book().and_then(|b| b.steps.get(self.selected)).filter(|_| self.shown().contains(&self.selected)) else {
-            let text = if self.books.is_empty() { "No runbook yet: run /runbook in a Claude session working on a ticket." } else { "" };
+            let text = if self.books.is_empty() { "No runbook yet: run /runbook in a Claude Code session working on a ticket." } else { "" };
             return (vec![Line::styled(text, dim())], Vec::new());
         };
         let mut lines = Vec::new();

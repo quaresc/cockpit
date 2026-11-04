@@ -2,7 +2,7 @@
 // the notification is about into view (where its other buttons are); the system's notification while it is behind,
 // whose click and buttons lead to the same row through `cockpit focus herdr-app:<target>`.
 
-import { notify, exec, window as win } from "herdr";
+import { notify, window as win } from "herdr";
 import * as hub from "./hub.js";
 
 const LEVEL = { "🔴": "error", "❌": "error", "⚠️": "warning", "✅": "success", "🟢": "success", "🚀": "success" };
@@ -34,6 +34,6 @@ export function deliver(n, install, cx) {
 
 /** What a toast's click asks: a URL opens, the rest goes through `cockpit focus` (rows, spaces, tabs, buttons). */
 export function follow(target, cx) {
-  if (/^https?:\/\//.test(target)) cx.spawn(async () => exec("open", [target]));
+  if (/^https?:\/\//.test(target)) cx.spawn(async () => hub.openUrl(target));
   else cx.spawn(async () => hub.cockpit(["focus", target]));
 }

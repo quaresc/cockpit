@@ -67,7 +67,8 @@ pub fn for_notice() -> Frontend {
     if let Some(f) = CURRENT.with(Cell::get) {
         return f;
     }
-    let told = ["COCKPIT_FRONTEND", "HC_TERMINAL_ID", "HERDR_ENV"].iter().any(|v| std::env::var(v).is_ok_and(|v| !v.is_empty())) || files::config()["frontend"].is_string();
+    let told = ["COCKPIT_FRONTEND", "HC_TERMINAL_ID", "HERDR_ENV"].iter().any(|v| std::env::var(v).is_ok_and(|v| !v.is_empty()))
+        || files::config()["frontend"].is_string();
     if told || !app_home().join("herdr-app.sock").exists() || !tui_running() {
         return detect();
     }
@@ -78,7 +79,10 @@ pub fn for_notice() -> Frontend {
 fn app_in_front() -> bool {
     let front = Command::new("lsappinfo").arg("front").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     !front.is_empty()
-        && Command::new("lsappinfo").args(["info", "-only", "bundleid", &front]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("\"dev.herdr.app\""))
+        && Command::new("lsappinfo")
+            .args(["info", "-only", "bundleid", &front])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("\"dev.herdr.app\""))
 }
 
 pub fn detect() -> Frontend {
@@ -357,7 +361,14 @@ pub fn run_in(handle: &str, line: &str) -> bool {
             let mut argv = vec![program("hc", "HC_BIN"), "send".into(), "--force".into(), terminal.into(), line.into()];
             argv.push("--json".into());
             // Sent from a terminal, hc tags the text with its sender: a shell would run the tag.
-            Command::new(&argv[0]).args(&argv[1..]).env_remove("HC_TERMINAL_ID").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+            Command::new(&argv[0])
+                .args(&argv[1..])
+                .env_remove("HC_TERMINAL_ID")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
         }
         None => herdr(&["pane", "run", handle, line]).is_some(),
     }
@@ -366,7 +377,7 @@ pub fn run_in(handle: &str, line: &str) -> bool {
 /// Puts text at the prompt of an app terminal without sending it, through the clipboard, which gets its own text back
 /// a moment later.
 pub fn app_type(terminal: &str, text: &str) -> bool {
-    let before = Command::new("pbpaste").stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|o| o.status.success()).map(|o| o.stdout);
+    let before = clipboard();
     if !files::copy(text) {
         return false;
     }
@@ -379,16 +390,33 @@ pub fn app_type(terminal: &str, text: &str) -> bool {
     pasted
 }
 
+/// The clipboard's text, read with the same tools `files::copy` writes with: pbpaste, wl-paste, xclip.
+fn clipboard() -> Option<Vec<u8>> {
+    let tools: [&[&str]; 3] = [&["pbpaste"], &["wl-paste", "--no-newline"], &["xclip", "-selection", "clipboard", "-o"]];
+    tools.iter().find_map(|t| {
+        Command::new(t[0]).args(&t[1..]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|o| o.status.success()).map(|o| o.stdout)
+    })
+}
+
 /// Sends text to an app terminal's agent as its next prompt.
 pub fn app_prompt(terminal: &str, text: &str) -> bool {
     let argv = [program("hc", "HC_BIN"), "send".into(), terminal.into(), text.into(), "--json".into()];
-    Command::new(&argv[0]).args(&argv[1..]).env_remove("HC_TERMINAL_ID").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    Command::new(&argv[0])
+        .args(&argv[1..])
+        .env_remove("HC_TERMINAL_ID")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// Whether the handle's terminal still runs an agent (the TUI) or still lives (the app).
 pub fn alive(handle: &str) -> bool {
     match handle.strip_prefix(APP) {
-        Some(terminal) => hc(&["ls"]).is_some_and(|l| l["terminals"].as_array().into_iter().flatten().any(|t| t["address"] == terminal && t["state"] == "live")),
+        Some(terminal) => {
+            hc(&["ls"]).is_some_and(|l| l["terminals"].as_array().into_iter().flatten().any(|t| t["address"] == terminal && t["state"] == "live"))
+        }
         None => herdr(&["pane", "get", handle]).is_some_and(|f| truthy(&f["pane"]["agent"])),
     }
 }

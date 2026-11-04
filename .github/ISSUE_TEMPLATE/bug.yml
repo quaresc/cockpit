@@ -1,0 +1,42 @@
+name: Bug
+description: Something in cockpit does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the inbox
+        2. Press r on a failing CI run
+        3. …
+  - type: dropdown
+    id: frontend
+    attributes:
+      label: Where
+      options:
+        - Herdr app
+        - herdr (terminal)
+        - both
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      description: The coding agent involved, if any (Claude Code, Codex, OpenCode, …).
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and doctor
+      description: The cockpit version, your OS, the Herdr or herdr version, and the output of `cockpit doctor`. Remove anything private (tokens, URLs, names) first.
+      render: text
+    validations:
+      required: true

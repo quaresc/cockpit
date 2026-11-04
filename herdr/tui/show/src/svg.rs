@@ -73,7 +73,9 @@ impl Geometry {
     /// The point under pixel (x, y), the nearest one when between two.
     pub fn at(&self, x: f64, y: f64) -> usize {
         match *self {
-            Geometry::Line { left, width, points } => (((x - left) / width.max(1.0)) * points.saturating_sub(1) as f64).round().clamp(0.0, points.saturating_sub(1) as f64) as usize,
+            Geometry::Line { left, width, points } => {
+                (((x - left) / width.max(1.0)) * points.saturating_sub(1) as f64).round().clamp(0.0, points.saturating_sub(1) as f64) as usize
+            }
             Geometry::Bar { top, step, rows } => (((y - top) / step.max(1.0)).floor().max(0.0) as usize).min(rows.saturating_sub(1)),
         }
     }
@@ -118,7 +120,13 @@ pub fn line_chart(block: &Value, width: f64, height: f64, font: f64, hover: Opti
     let shown = (rows.len().min((pw / (font * 6.0)).floor().max(0.0) as usize)).max(2);
     let picked: std::collections::BTreeSet<usize> = (0..shown).map(|i| (i as f64 * last_k as f64 / (shown - 1) as f64).round() as usize).collect();
     for k in picked {
-        let anchor = if k == 0 { "start" } else if k == last_k { "end" } else { "middle" };
+        let anchor = if k == 0 {
+            "start"
+        } else if k == last_k {
+            "end"
+        } else {
+            "middle"
+        };
         let _ = write!(
             body,
             r#"<text x="{:.1}" y="{:.1}" font-size="{font:.1}" fill="{AXIS}" text-anchor="{anchor}">{}</text>"#,
@@ -153,11 +161,19 @@ pub fn line_chart(block: &Value, width: f64, height: f64, font: f64, hover: Opti
     }
     if let Some(k) = hover.filter(|k| *k < rows.len()) {
         let x = x_of(k);
-        let _ = write!(body, r#"<line x1="{x:.1}" x2="{x:.1}" y1="{top:.1}" y2="{:.1}" stroke="{TEXT}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1}"/>"#, top + ph, 1.4 * s, 3.0 * s, 3.0 * s);
+        let _ = write!(
+            body,
+            r#"<line x1="{x:.1}" x2="{x:.1}" y1="{top:.1}" y2="{:.1}" stroke="{TEXT}" stroke-width="{:.2}" stroke-dasharray="{:.1} {:.1}"/>"#,
+            top + ph,
+            1.4 * s,
+            3.0 * s,
+            3.0 * s
+        );
         for (n, &i) in ys.iter().enumerate() {
             if let Some(v) = number(at(&rows[k], i)) {
                 let color = SERIES[n % SERIES.len()];
-                let _ = write!(body, r#"<circle cx="{x:.1}" cy="{:.1}" r="{:.1}" fill="{color}" stroke="{BG}" stroke-width="{:.2}"/>"#, y_of(v), 5.5 * s, 2.0 * s);
+                let _ =
+                    write!(body, r#"<circle cx="{x:.1}" cy="{:.1}" r="{:.1}" fill="{color}" stroke="{BG}" stroke-width="{:.2}"/>"#, y_of(v), 5.5 * s, 2.0 * s);
             }
         }
     }
@@ -378,7 +394,12 @@ pub fn flow_chart(block: &Value, font: f64) -> (String, f64, f64) {
 /// An SVG file's own width and height, from its width/height or its viewBox.
 pub fn svg_size(text: &str) -> (f64, f64) {
     let head: String = text.chars().take(2000).collect();
-    let find = |re: &str| regex::Regex::new(re).ok().and_then(|r| r.captures(&head)).map(|c| (c[1].parse().unwrap_or(0.0), c.get(2).map_or(0.0, |m| m.as_str().parse().unwrap_or(0.0))));
+    let find = |re: &str| {
+        regex::Regex::new(re)
+            .ok()
+            .and_then(|r| r.captures(&head))
+            .map(|c| (c[1].parse().unwrap_or(0.0), c.get(2).map_or(0.0, |m| m.as_str().parse().unwrap_or(0.0))))
+    };
     if let (Some((w, _)), Some((h, _))) = (find(r#"\swidth="([\d.]+)"#), find(r#"\sheight="([\d.]+)"#)) {
         return (w, h);
     }

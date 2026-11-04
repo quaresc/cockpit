@@ -1188,7 +1188,7 @@ export default class Inbox {
           ["Priority", card?.priority && card.priority !== "No priority" ? card.priority : null],
           ["Branch", card?.branch ? Mono(card.branch, { color: k.foreground }) : null],
           ["Time", this.timeChip(row.key, k)],
-          ["Claude", t.cost ? Mono(`$${t.cost.toFixed(2)}`, { color: k.foreground }) : null],
+          ["Agent cost", t.cost ? Mono(`$${t.cost.toFixed(2)}`, { color: k.foreground }) : null],
           ["Labels", card?.labels?.length ? h_flex().gap(4).flex_wrap().children(card.labels.map((l) => Chip(l.name, { color: l.color }))) : null],
         ],
         k,

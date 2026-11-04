@@ -1,14 +1,14 @@
-//! Tabs and spaces named after their work, so the lists read like a to-do list: a tab takes its agent's task (the title
-//! Claude Code gives the session itself, else a few words from haiku run the lightest way), a space its ticket when its
-//! agents share one, else its repo. Only names still at their default, or ones this set earlier, ever change: a name
-//! the person typed stays. `names: false` in the config turns it off.
+//! Tabs and spaces named after their work: a tab takes its agent's task (the session's own title, else a few words from
+//! haiku while Claude Code is installed), a space its agents' shared ticket, else its repo. Only names still at their
+//! default or set here earlier ever change, and `names: false` in the config turns it off.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use cockpit_core::{files, frontend};
+use cockpit_core::transcripts::{self, Transcripts};
+use cockpit_core::{agent, files, frontend};
 use serde_json::{Value, json};
 
 use crate::config;
@@ -93,10 +93,11 @@ fn round() {
     }
 }
 
-/// A tab name nobody chose: empty, its number, the program's, or the one this gave it.
+/// A tab name nobody chose: empty, its number, the program's (a shell or an agent), or the one this gave it.
 fn is_default_tab(now: &str, frontend: &str, ours: Option<&String>) -> bool {
     let now = now.trim();
-    now.is_empty() || now.chars().all(|c| c.is_ascii_digit()) || ours.is_some_and(|o| o == now) || (frontend == "tui" && ["zsh", "bash", "fish", "sh", "claude"].contains(&now))
+    let program = || ["zsh", "bash", "fish", "sh"].contains(&now) || agent::of_program(now).is_some();
+    now.is_empty() || now.chars().all(|c| c.is_ascii_digit()) || ours.is_some_and(|o| o == now) || (frontend == "tui" && program())
 }
 
 /// A space name nobody chose: empty, its folder's, or the one this gave it; never a pinned space.
@@ -113,17 +114,17 @@ fn is_default_space(now: &str, folder: &str, pinned: &[String], ours: Option<&St
 fn task_of(row: &Value, facts: &Value) -> Option<String> {
     let session = row["session"].as_str().or(facts["session"].as_str())?;
     // The facts' path follows the checkout the session works in, not always the folder Claude keeps it under.
-    let transcript = facts["transcript"].as_str().map(PathBuf::from).filter(|p| p.is_file()).or_else(|| find_transcript(session))?;
+    let cwd = row["cwd"].as_str().unwrap_or_default();
+    let found = || transcripts::find(Transcripts::Claude, session, cwd);
+    let Some(transcript) = facts["transcript"].as_str().map(PathBuf::from).filter(|p| p.is_file()).or_else(found) else {
+        // Another agent's session: the title its own transcript gives.
+        let (kind, path) = transcripts::locate(session, cwd, None)?;
+        return transcripts::read(kind, &path).map(|t| tidy(&t.title)).filter(|t| !t.is_empty());
+    };
     if let Some(title) = session_title(&transcript) {
         return Some(tidy(&title));
     }
     named_by_haiku(session, &transcript).map(|t| tidy(&t))
-}
-
-/// A session's transcript wherever Claude Code keeps it: ~/.claude/projects/<any folder>/<session>.jsonl.
-fn find_transcript(session: &str) -> Option<PathBuf> {
-    let file = format!("{session}.jsonl");
-    std::fs::read_dir(files::home().join(".claude/projects")).ok()?.flatten().map(|d| d.path().join(&file)).find(|p| p.is_file())
 }
 
 /// The newest title Claude Code wrote into the transcript: the person's own (/rename) over its generated one.
@@ -156,8 +157,9 @@ fn tidy(title: &str) -> String {
 }
 
 /// A few words from haiku for a session Claude Code has not titled: once per session, cached, on its first prompt only,
-/// with no tools, MCP servers, settings or skills.
+/// with no tools, MCP servers, settings or skills. Its transcripts are Claude Code's, so only it is asked.
 fn named_by_haiku(session: &str, transcript: &Path) -> Option<String> {
+    let claude = agent::get("claude").filter(agent::Agent::installed)?.path();
     let cache = dir().join(format!("{session}.json"));
     if let Some(v) = files::load(&cache) {
         return v["name"].as_str().map(str::to_string);
@@ -167,7 +169,7 @@ fn named_by_haiku(session: &str, transcript: &Path) -> Option<String> {
     // Written before the run, so a slow or failed one is never asked again.
     let _ = files::write(&cache, &json!({"name": null}));
     let prompt = format!("Name this coding task in 2 to 5 plain words, no quotes, no punctuation:\n\n{}", first.chars().take(1500).collect::<String>());
-    let out = std::process::Command::new(files::claude())
+    let out = std::process::Command::new(claude)
         .args(["-p", &prompt, "--model", "haiku", "--output-format", "json", "--tools", "", "--no-session-persistence", "--strict-mcp-config"])
         .args(["--setting-sources", "", "--disable-slash-commands", "--system-prompt", "You name tasks in a few words."])
         .env_remove("CLAUDECODE")

@@ -172,7 +172,9 @@ impl ShowApp {
                     self.next_uid += 1;
                     let mut view = View::new(block, self.next_uid);
                     // A new call that redraws the same block in the same place updates it rather than fading it in.
-                    let same = before.as_ref().is_some_and(|b| b.spec["type"] == view.spec["type"] && b.spec["title"] == view.spec["title"] && b.spec["kind"] == view.spec["kind"]);
+                    let same = before
+                        .as_ref()
+                        .is_some_and(|b| b.spec["type"] == view.spec["type"] && b.spec["title"] == view.spec["title"] && b.spec["kind"] == view.spec["kind"]);
                     fresh.push(is_new && !same);
                     if let Some(before) = before.filter(|_| !is_new || same) {
                         view.inherit(before);
@@ -291,7 +293,8 @@ impl ShowApp {
         let Some((n, target)) = &self.focus else { return };
         let in_block = |i: &usize| self.rows[*i].block == *n;
         let here: Vec<usize> = (0..self.rows.len()).filter(|i| in_block(i) && self.rows[*i].here).collect();
-        let mine: Vec<usize> = if here.is_empty() { (0..self.rows.len()).filter(|i| in_block(i) && self.rows[*i].target.as_ref() == Some(target)).collect() } else { here };
+        let mine: Vec<usize> =
+            if here.is_empty() { (0..self.rows.len()).filter(|i| in_block(i) && self.rows[*i].target.as_ref() == Some(target)).collect() } else { here };
         let (Some(&first), Some(&last)) = (mine.first(), mine.last()) else { return };
         if last >= self.scroll + self.height() {
             self.scroll = (last + 1).saturating_sub(self.height());
@@ -522,7 +525,11 @@ impl ShowApp {
 
     fn header(&self) -> Line<'static> {
         let Some(spec) = &self.spec else { return Line::styled(format!("waiting for the view {}…", self.name), dim()) };
-        let at = chrono::Local.timestamp_millis_opt(spec["at"].as_f64().unwrap_or(0.0) as i64).single().map(|t| t.format("%H:%M:%S").to_string()).unwrap_or_default();
+        let at = chrono::Local
+            .timestamp_millis_opt(spec["at"].as_f64().unwrap_or(0.0) as i64)
+            .single()
+            .map(|t| t.format("%H:%M:%S").to_string())
+            .unwrap_or_default();
         let title = spec["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(&self.name).to_string();
         Line::from(vec![Span::styled("◆  ", fg(ORANGE)), Span::styled(title, bold(ORANGE)), Span::styled(format!("   {} · {at}", self.name), dim())])
     }
@@ -543,7 +550,9 @@ impl ShowApp {
         match self.focus.as_ref().map(|(_, t)| t) {
             _ if typing => keys.extend([("enter", "add the comment"), ("esc", "cancel")]),
             Some(Target::Table) => keys.extend([("←→", "scroll"), ("↑↓", "rows"), ("1-9", "sort"), ("esc", "leave")]),
-            Some(Target::Diff) => keys.extend([("j/k", "line"), ("[ ]", "file"), ("c", "comment"), ("S", "send comments"), ("s", "split"), ("enter", "fold"), ("esc", "leave")]),
+            Some(Target::Diff) => {
+                keys.extend([("j/k", "line"), ("[ ]", "file"), ("c", "comment"), ("S", "send comments"), ("s", "split"), ("enter", "fold"), ("esc", "leave")])
+            }
             Some(Target::Log) => keys.extend([("j/k", "scroll"), ("g/G", "top/follow"), ("esc", "leave")]),
             Some(Target::Chart) => keys.extend([("←→", "point"), ("+/-", "zoom"), ("0", "all"), ("esc", "leave")]),
             Some(Target::Compare) => keys.extend([("h/l", "split"), ("s", "side by side"), ("esc", "leave")]),

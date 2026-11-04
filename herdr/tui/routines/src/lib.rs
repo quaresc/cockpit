@@ -1,5 +1,5 @@
 //! The routines space: the routines in ~/.config/cockpit/routines/ as the hub pushes them, when each runs next, its runs
-//! and what the last one said; add one in a form, run, stop, pause, edit or delete it, and talk a Claude run over.
+//! and what the last one said; add one in a form, run, stop, pause, edit or delete it, and talk an agent's run over.
 
 pub mod app;
 pub mod data;

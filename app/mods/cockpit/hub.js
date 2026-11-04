@@ -3,10 +3,23 @@
 
 import net from "net";
 import { Buffer } from "buffer";
-import { exec, appHome, readTextFile } from "herdr";
+import { exec, appHome, readTextFile, window as win } from "herdr";
 
 /** Waits `ms` on the context's timer (mods have no setTimeout). */
 export const sleep = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
+
+const NOT_INSTALLED = "cockpit is not installed in this Herdr home";
+
+/** Whether an error (or a subscription's "error: …" state) says this Herdr home has no cockpit.json. */
+export const isNotInstalled = (e) => String(e?.message ?? e ?? "").includes(NOT_INSTALLED);
+
+/** Opens a URL or file in the system's default app: `open` on macOS, `start` on Windows, `xdg-open` elsewhere. */
+export function openUrl(url) {
+  const platform = win()?.platform;
+  if (platform === "macos") return exec("open", [url]);
+  if (platform === "windows") return exec("cmd", ["/c", "start", "", url]);
+  return exec("xdg-open", [url]);
+}
 
 /** Where cockpit lives, as `cockpit app install` wrote it: { bin, cache, home, version }. Read again every few seconds,
  *  so an install or update reaches a window that stays open. */
@@ -14,7 +27,7 @@ let installed = null;
 export async function install() {
   if (installed && Date.now() - installed.at < 3000) return installed.value;
   const text = await readTextFile(`${appHome()}/cockpit.json`);
-  if (!text) throw new Error("cockpit is not installed in this Herdr home: run `cockpit app install`");
+  if (!text) throw new Error(`${NOT_INSTALLED}: run \`cockpit app install\`, or install cockpit first: github.com/quaresc/cockpit#install`);
   installed = { at: Date.now(), value: installed?.text === text ? installed.value : JSON.parse(text), text };
   return installed.value;
 }
@@ -25,16 +38,35 @@ async function readInfo() {
   return text ? JSON.parse(text) : null;
 }
 
+// One `cockpit hub start` at a time for every view, and after a failure (the binary gone, a hub that won't start) the
+// next try waits 30 s: until then every caller gets the same error. Kept on globalThis, which every copy shares.
+async function startHub() {
+  const s = (globalThis.cockpitHubStart ??= { starting: null, failed: null });
+  if (s.failed && Date.now() - s.failed.at < 30_000) throw s.failed.error;
+  s.starting ??= (async () => {
+    try {
+      // The hub runs on the install's HOME and drives this Herdr window, whatever the app's own environment says.
+      const r = await cockpit(["hub", "start"]);
+      if (r.code !== 0) throw new Error(r.stderr.trim() || "the cockpit hub did not start");
+      s.failed = null;
+      return JSON.parse(r.stdout);
+    } catch (e) {
+      s.failed = { at: Date.now(), error: e instanceof Error ? e : new Error(String(e)) };
+      throw s.failed.error;
+    } finally {
+      s.starting = null;
+    }
+  })();
+  return s.starting;
+}
+
 /** hub.json's { port, token }: as written, else after `cockpit hub start` started a hub. */
 async function address(fresh) {
   if (!fresh) {
     const info = await readInfo();
     if (info?.port) return info;
   }
-  // The hub runs on the install's HOME and drives this Herdr window, whatever the app's own environment says.
-  const r = await cockpit(["hub", "start"]);
-  if (r.code !== 0) throw new Error(r.stderr.trim() || "the cockpit hub did not start");
-  return JSON.parse(r.stdout);
+  return startHub();
 }
 
 /** Splits a socket's bytes into lines, decoding each whole line (a UTF-8 character may span two reads). */
@@ -89,7 +121,7 @@ export async function request(op, fields = {}) {
   // A page opens from the window itself: macOS keeps the browser behind when a background process (the hub) asks.
   if (op === "act" && fields.action === "open_url" && typeof fields.args?.[0] === "string") {
     const url = fields.args[0];
-    const r = await exec("open", [url]);
+    const r = await openUrl(url);
     return r.code === 0 ? { note: `opened ${url}`, pending: {}, refreshing: {} } : { error: r.stderr.trim() || `could not open ${url}`, pending: {} };
   }
   const { socket, token } = await connect();

@@ -1,21 +1,22 @@
 #!/bin/sh
-# Sends a prompt to a Claude conversation: in its pane when Claude runs there, else resumed first, in that pane or,
-# when the pane is gone, in a new tab of the actions space (a new space without one). Focuses its tab so the answer is in view.
-# A pane `app:<terminal>` is a Herdr app terminal, driven with herdr-app and hc.
-#   ask-session.sh <pane or -> <session or -> <prompt>
+# Sends a prompt to an agent's conversation: in its pane when the agent runs there, else resumed first, in that pane
+# or, when the pane is gone, in a new tab of the actions space (a new space without one). Focuses its tab so the answer
+# is in view. A pane `app:<terminal>` is a Herdr app terminal, driven with herdr-app and hc. The agent is Claude Code
+# unless given.
+#   ask-session.sh <pane or -> <session or -> <prompt> [agent]
 . "$(dirname "$0")/lib.sh"
 PATH="$HOME/.local/bin:$PATH"
 HC=${COCKPIT_HC_BIN:-hc}
-pane=$1 session=$2 prompt=$3
+pane=$1 session=$2 prompt=$3 agent=${4:-claude}
 
-# The Herdr app: an agent's status from `herdr-app ls`, "shell" when no Claude runs there, nothing once it is gone.
+# The Herdr app: an agent's status from `herdr-app ls`, "shell" when a shell is in front, nothing once it is gone.
 app_state() {
   found=$(herdr-app ls 2>/dev/null | jq -r --arg t "${pane#app:}" '[.spaces[].tabs[].terminals[] | select(.terminal == $t)][0] // empty
     | .status // "none"' 2>/dev/null)
   [ "$found" = none ] || { printf '%s\n' "$found"; return; }
   case "$("$HC" get "${pane#app:}" --json 2>/dev/null | jq -r '.foreground.name // ""')" in
-    *claude*) echo idle ;;
-    *) echo shell ;;
+    "" | *sh | nu) echo shell ;;
+    *) echo idle ;;
   esac
 }
 herdr_state() { "$H" pane get "$pane" 2>/dev/null | jq -r '.result.pane | if .agent then .agent_status else "shell" end' 2>/dev/null; }
@@ -35,10 +36,12 @@ fi
 if [ "$st" = "shell" ]; then
   if [ "$session" != "-" ]; then
     sleep 1
-    run_in "claude --resume $session"
+    line=$(sh "$ROOT/cockpit.sh" agent argv resume --agent "$agent" --session "$session")
   else
-    run_in "claude"
+    line=$(sh "$ROOT/cockpit.sh" agent argv start --agent "$agent")
   fi
+  [ -n "$line" ] || exit 1
+  run_in "$line"
 fi
 i=0
 while :; do

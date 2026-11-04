@@ -1,6 +1,7 @@
 #!/bin/sh
-# After a ticket goes live: waits, has a headless Claude compare errors and latency before and after the deploy,
-# adds the verdict to the ticket's runbook, and notifies once.   watch-deploy.sh <ticket> <repo,repo> [version]
+# After a ticket goes live: waits, has a headless agent (deployWatch.agent, else the default) compare errors and latency
+# before and after the deploy, adds the verdict to the ticket's runbook, and notifies once.
+#   watch-deploy.sh <ticket> <repo,repo> [version]
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
 . "$(dirname "$0")/lib.sh"
 ticket=$1 repos=$2 version=${3:-}
@@ -23,11 +24,14 @@ Compare the 30 minutes before that time with the $after minutes after it, for th
 error rate, new error logs, p95 latency. Use the observability tools you have, read-only. $row
 Finish with exactly one line of JSON and nothing after it:
 {\"ok\": true or false, \"summary\": \"<at most 12 words>\", \"url\": \"<a link to the logs or dashboard you looked at, or empty>\"}"
-# Each entry of deployWatch.tools is one --allowedTools value, e.g. an observability MCP server.
+# Each entry of deployWatch.tools is one tool Claude Code may call without asking, e.g. an observability MCP server.
 set -- Read Edit Write
 for tool in $(jq -r '.deployWatch.tools // [] | .[]' "$SETTINGS"); do set -- "$@" "$tool"; done
-out=$(cd "$REPOS" && claude -p "$prompt" --model sonnet --permission-mode acceptEdits --add-dir "$HOME/.config/cockpit/runbooks" \
-  --allowedTools "$@" 2>/dev/null | grep '^{' | tail -1)
+agent=$(sh "$ROOT/cockpit.sh" agent id --agent "$(jq -r '.deployWatch.agent // empty' "$SETTINGS")")
+line=$(sh "$ROOT/cockpit.sh" agent argv run --agent "$agent" --prompt "$prompt" --model sonnet --edits --dir "$HOME/.config/cockpit/runbooks")
+[ "$agent" = claude ] && line="$line --allowedTools \"\$@\""
+out=""
+[ -n "$line" ] && out=$(cd "$REPOS" && eval "$line" </dev/null 2>/dev/null | grep '^{' | tail -1)
 
 ok=$(printf '%s' "$out" | jq -r '.ok // empty' 2>/dev/null)
 summary=$(printf '%s' "$out" | jq -r '.summary // empty' 2>/dev/null)

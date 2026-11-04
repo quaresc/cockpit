@@ -370,8 +370,14 @@ impl term::App for App {
         let (info, acts) = if self.compact { (Vec::new(), Vec::new()) } else { self.panel_content() };
         let panel_height = if self.compact { 0 } else { panel::panel_height(&info, &acts, area.width).min(area.height / 2) };
         let bar = u16::from(self.editing || self.tree.filtering());
-        let [head_area, filter, tree, bottom, footer] =
-            Layout::vertical([Constraint::Length(head_height), Constraint::Length(bar), Constraint::Min(1), Constraint::Length(panel_height), Constraint::Length(1)]).areas(area);
+        let [head_area, filter, tree, bottom, footer] = Layout::vertical([
+            Constraint::Length(head_height),
+            Constraint::Length(bar),
+            Constraint::Min(1),
+            Constraint::Length(panel_height),
+            Constraint::Length(1),
+        ])
+        .areas(area);
         panel::header(frame, head_area, &head);
         if bar > 0 {
             frame.render_widget(Paragraph::new(filter_line(&self.filter, self.editing, self.tree.matched())), panel::inset(filter));

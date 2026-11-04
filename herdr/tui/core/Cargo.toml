@@ -3,6 +3,10 @@ name = "cockpit-core"
 description = "What the Rust space apps share: theme, terminal, file watching, the bridge that runs actions through the hub, routines, palette, dialogs and toasts."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 chrono.workspace = true

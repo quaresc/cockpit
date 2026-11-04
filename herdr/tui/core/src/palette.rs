@@ -169,19 +169,27 @@ impl Palette {
         let inner = block.inner(box_);
         frame.render_widget(block, box_);
         let [input, list] = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(inner);
-        let prompt = Line::from(vec![Span::styled("❯ ", Style::new().fg(ORANGE)), Span::styled(self.query.clone(), Style::new().fg(FG)), Span::styled("▏", Style::new().fg(ORANGE))]);
+        let prompt = Line::from(vec![
+            Span::styled("❯ ", Style::new().fg(ORANGE)),
+            Span::styled(self.query.clone(), Style::new().fg(FG)),
+            Span::styled("▏", Style::new().fg(ORANGE)),
+        ]);
         frame.render_widget(Paragraph::new(prompt), input);
         let mut items: Vec<ListItem> = self
             .shown
             .iter()
             .map(|&i| {
                 let e = &self.entries[i];
-                ListItem::new(vec![Line::from(Span::styled(e.text.clone(), Style::new().fg(FG))), Line::from(Span::styled(format!("  {}", e.help), Style::new().fg(DIM)))])
+                ListItem::new(vec![
+                    Line::from(Span::styled(e.text.clone(), Style::new().fg(FG))),
+                    Line::from(Span::styled(format!("  {}", e.help), Style::new().fg(DIM))),
+                ])
             })
             .collect();
         items.extend(self.elsewhere.iter().map(|f| {
             // A kind that only repeats the app's name (a past session) is said once: "session · <title>".
-            let (app, help) = if f.kind == f.app { (format!("{} · ", f.app), f.help.clone()) } else { (format!("{} ", f.app), format!("{} · {}", f.kind, f.help)) };
+            let (app, help) =
+                if f.kind == f.app { (format!("{} · ", f.app), f.help.clone()) } else { (format!("{} ", f.app), format!("{} · {}", f.kind, f.help)) };
             ListItem::new(vec![
                 Line::from(vec![Span::styled(app, Style::new().fg(ORANGE)), Span::styled(f.title.clone(), Style::new().fg(FG))]),
                 Line::from(Span::styled(format!("  {help}"), Style::new().fg(DIM))),

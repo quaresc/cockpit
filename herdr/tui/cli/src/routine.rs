@@ -1,4 +1,4 @@
-//! `cockpit routine run <slug>`: a routine run now through the hub, waited for, and how it went, for a Claude session
+//! `cockpit routine run <slug>`: a routine run now through the hub, waited for, and how it went, for an agent session
 //! trying out a routine it just wrote.
 
 use std::time::{Duration, Instant};

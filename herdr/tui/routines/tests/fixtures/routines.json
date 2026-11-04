@@ -11,7 +11,10 @@
    "whenText": "weekdays 09:00",
    "trigger": "schedule",
    "error": null,
-   "run": "claude",
+   "run": "agent",
+   "agent": "claude",
+   "agentName": "Claude Code",
+   "agentSet": "",
    "cwd": "",
    "model": "sonnet",
    "tools": [
@@ -37,7 +40,10 @@
    "whenText": "on ci-failed checkout",
    "trigger": "event",
    "error": null,
-   "run": "claude",
+   "run": "agent",
+   "agent": "claude",
+   "agentName": "Claude Code",
+   "agentSet": "",
    "cwd": "/home/me/repos/checkout",
    "model": "",
    "tools": [
@@ -65,6 +71,9 @@
    "trigger": "every",
    "error": null,
    "run": "shell",
+   "agent": null,
+   "agentName": null,
+   "agentSet": "",
    "cwd": "/home/me/notes",
    "model": "",
    "tools": [],
@@ -84,7 +93,10 @@
    "whenText": "fri 16:00",
    "trigger": "schedule",
    "error": null,
-   "run": "claude",
+   "run": "agent",
+   "agent": "claude",
+   "agentName": "Claude Code",
+   "agentSet": "",
    "cwd": "",
    "model": "opus",
    "tools": [],
@@ -104,7 +116,10 @@
    "whenText": "every morning",
    "trigger": "broken",
    "error": "when? manual, every 30m, daily 09:00, weekdays 09:00, mon,thu 14:00, cron 0 9 * * 1-5 or on ci-failed",
-   "run": "claude",
+   "run": "agent",
+   "agent": "claude",
+   "agentName": "Claude Code",
+   "agentSet": "",
    "cwd": "",
    "model": "",
    "tools": [],
@@ -124,7 +139,10 @@
    "whenText": "daily 10:00",
    "trigger": "schedule",
    "error": null,
-   "run": "claude",
+   "run": "agent",
+   "agent": "claude",
+   "agentName": "Claude Code",
+   "agentSet": "",
    "cwd": "",
    "model": "lightest",
    "tools": [],
@@ -202,5 +220,18 @@
    }
   ]
  },
- "marks": {}
+ "marks": {},
+ "agents": {
+  "default": "claude",
+  "installed": [
+   {
+    "id": "claude",
+    "name": "Claude Code"
+   },
+   {
+    "id": "codex",
+    "name": "Codex"
+   }
+  ]
+ }
 }

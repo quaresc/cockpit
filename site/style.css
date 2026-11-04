@@ -480,6 +480,7 @@ main { display: block; }
   box-shadow: var(--shadow);
   overflow: hidden;
 }
+.term + .term { margin-top: 14px; }
 .term .bar { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid #26262b; color: #8d8d94; font-size: 0.82rem; }
 .term .dot { width: 11px; height: 11px; border-radius: 50%; background: #3a3a40; }
 .term .bar em { margin-left: 8px; font-style: normal; }

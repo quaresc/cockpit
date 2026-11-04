@@ -53,7 +53,8 @@ pub fn compact(value: f64) -> String {
 pub fn axes(block: &Value) -> (usize, Vec<usize>, Vec<String>) {
     let columns: Vec<String> = block["columns"].as_array().into_iter().flatten().map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)).collect();
     let x = block["x"].as_str().filter(|x| columns.iter().any(|c| c == x)).map_or_else(|| columns.first().cloned().unwrap_or_default(), str::to_string);
-    let mut ys: Vec<String> = block["y"].as_array().into_iter().flatten().filter_map(|y| y.as_str()).filter(|y| columns.iter().any(|c| c == y)).map(str::to_string).collect();
+    let mut ys: Vec<String> =
+        block["y"].as_array().into_iter().flatten().filter_map(|y| y.as_str()).filter(|y| columns.iter().any(|c| c == y)).map(str::to_string).collect();
     if ys.is_empty() {
         ys = columns.iter().filter(|c| **c != x).cloned().collect();
     }

@@ -1,8 +1,12 @@
 [package]
 name = "cockpit-routines"
-description = "The routines space: the Claude prompts and scripts the hub runs on a schedule or when something happens, their runs and what they said."
+description = "The routines space: the agent prompts and scripts the hub runs on a schedule or when something happens, their runs and what they said."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true

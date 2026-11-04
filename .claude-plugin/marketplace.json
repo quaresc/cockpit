@@ -3,12 +3,12 @@
   "owner": {
     "name": "quaresc"
   },
-  "description": "One space with everything, for Claude Code users who switch context all day",
+  "description": "Every coding agent beside its work, in herdr and the Herdr app",
   "plugins": [
     {
       "name": "cockpit",
       "source": "./plugin",
-      "description": "One space with everything, for Claude Code users who switch context all day: agents, tickets, PRs, CI, inbox and meetings side by side in herdr"
+      "description": "Every coding agent beside its work: Claude Code, Codex and every agent Herdr runs, each next to its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away"
     }
   ]
 }

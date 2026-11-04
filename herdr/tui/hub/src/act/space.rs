@@ -1,4 +1,4 @@
-//! The pinned actions space, a tab per one-off Claude session (see cockpit_core::actions), opened among the spaces the
+//! The pinned actions space, a tab per one-off agent session (see cockpit_core::actions), opened among the spaces the
 //! action's config pins.
 
 use crate::config::Config;

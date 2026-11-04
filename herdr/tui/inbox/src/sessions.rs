@@ -1,7 +1,8 @@
-//! What the inbox reads about the live Claude sessions: their heartbeats, herdr's spaces and each agent's status, listed
+//! What the inbox reads about the live agent sessions: their heartbeats, herdr's spaces and each agent's status, listed
 //! again at most every 10 s since every rebuild asks.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cockpit_core::files;
@@ -14,6 +15,8 @@ use crate::inputs::json_files;
 const FRESH: Duration = Duration::from_secs(10);
 /// A heartbeat older than this belongs to a session that is gone.
 const LIVE_MS: f64 = 3.0 * 60_000.0;
+/// The "[N] " herdr puts before a space's label.
+static PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\[\d+\]\s*").expect("a valid regex"));
 
 #[derive(Default)]
 pub struct Local {
@@ -42,13 +45,12 @@ impl Local {
     /// herdr's spaces by id, each label stripped of its "[N] " prefix.
     pub fn spaces(&mut self) -> &HashMap<String, Value> {
         if self.stale(&self.spaces) {
-            let prefix = Regex::new(r"^\[\d+\]\s*").expect("a valid regex");
             let listed = files::herdr(&["workspace", "list"]).unwrap_or(Value::Null);
             let by_id = list(&listed["result"], "workspaces")
                 .iter()
                 .map(|w| {
                     let mut w = w.clone();
-                    w["label"] = Value::from(prefix.replace(s(&w, "label"), "").into_owned());
+                    w["label"] = Value::from(PREFIX.replace(s(&w, "label"), "").into_owned());
                     (s(&w, "workspace_id").to_string(), w)
                 })
                 .collect();

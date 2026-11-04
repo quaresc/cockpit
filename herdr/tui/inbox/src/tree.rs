@@ -311,7 +311,13 @@ impl Tree {
         for (i, s) in shown.iter().enumerate().skip(self.offset).take(height) {
             let node = &self.nodes[s.node];
             let has_kids = !node.kids.is_empty();
-            let prefix = if !has_kids { "  " } else if self.visible_kids(s.node).is_empty() { "▶ " } else { "▼ " };
+            let prefix = if !has_kids {
+                "  "
+            } else if self.visible_kids(s.node).is_empty() {
+                "▶ "
+            } else {
+                "▼ "
+            };
             let room = (area.width as usize).saturating_sub(s.depth * self.guide_depth() + PREFIX);
             let on_cursor = i == at;
             let marked = self.marker_keys(s.node).into_iter().any(|key| paint.looked.is_marked(key));

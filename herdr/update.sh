@@ -1,10 +1,16 @@
 #!/bin/sh
 # Updates both halves of cockpit, then restarts what runs them: the space apps, the Herdr app's layout and mod, and idle
-# Claude sessions reload the plugin. Without herdr it updates the Herdr app half alone, from the Claude plugin's copy.
+# Claude sessions reload the plugin. Without herdr it updates the Herdr app half alone, from install.sh's copy or the Claude plugin's.
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
 . "$(dirname "$0")/lib.sh"
-claude plugin marketplace update cockpit
-claude plugin update cockpit@cockpit
+# An install made by install.sh, outside herdr and Claude Code, updates by running it again.
+if [ -z "$REGISTERED" ] && [ -f "$(dirname "$ROOT")/.cockpit-install" ]; then
+  COCKPIT_NO_SETUP=1 COCKPIT_HOME="$(dirname "$ROOT")" sh "$(dirname "$ROOT")/install.sh" || exit 1
+fi
+if command -v claude >/dev/null 2>&1; then
+  claude plugin marketplace update cockpit
+  claude plugin update cockpit@cockpit
+fi
 app_home=${HERDR_APP_HOME:-$HOME/.config/herdr-app}
 HC=${COCKPIT_HC_BIN:-hc}
 if [ -n "$REGISTERED" ]; then
@@ -46,5 +52,6 @@ if command -v herdr-app >/dev/null 2>&1 && [ -S "$app_home/herdr-app.sock" ]; th
     done
 fi
 
-version=$(jq -r .version "$(dirname "$root")/plugin/.claude-plugin/plugin.json" 2>/dev/null)
+version=$(jq -r .version "$(dirname "$root")/plugin/.claude-plugin/plugin.json" 2>/dev/null) ||
+  version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/herdr-plugin.toml")
 sh "$root/cockpit.sh" notify "Cockpit updated" "Now on ${version:-the latest version}; idle sessions reloaded the mod." "space:inbox"

@@ -91,7 +91,7 @@ pub struct App {
     /// Steps picked for a batch action, by key.
     pub picked: BTreeSet<String>,
     pub editor: Option<Editor>,
-    /// Background refreshes: the pid of their Claude and when they started.
+    /// Background refreshes: the pid of their agent and when they started.
     pub refreshing: HashMap<String, (u32, Instant)>,
     /// Refreshes asked of the bridge whose pid has not come back yet, so a second R does not start another.
     pub asking: HashSet<String>,

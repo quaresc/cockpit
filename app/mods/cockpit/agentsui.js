@@ -1,10 +1,10 @@
-// The agents, as the sidebar and the recap popup draw them: the hub's `agents` view (see app/README.md) followed live,
+// The agents, as the sidebar and the recap popup draw them: the hub's `agents` view (see docs/app.md) followed live,
 // its actions with their feedback, and the pieces both draw: stage marks, the question card answered in place, the
 // facts as chips, the quota bars with their pace tick, and the right-click menu of an agent.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, notify, openOverlay } from "herdr";
+import { run, notify, openOverlay, agents } from "herdr";
 import * as hub from "./hub.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
 
@@ -177,6 +177,9 @@ export class AgentsModel {
       },
       (state, cx) => {
         this.state = state;
+        // Down from the first failure until the hub answers again: the retries between say "connecting".
+        if (state === "live") this.down = false;
+        else if (state.startsWith("error")) this.down = true;
         cx.notify();
       },
     );
@@ -186,8 +189,19 @@ export class AgentsModel {
     this.sub?.stop();
   }
 
+  /** The hub's rows; while it doesn't answer, Herdr's own agents (status, title, place), so none vanishes. */
   get rows() {
-    return this.value?.agents ?? [];
+    if (!this.down) return this.value?.agents ?? [];
+    const stage = { blocked: "needs_you", working: "working", done: "done", idle: "idle" };
+    return agents().map((a) => ({
+      terminal: `app:${a.address}`,
+      address: a.address,
+      stage: stage[a.status] ?? "idle",
+      title: a.tab_name && !/^\d+$/.test(a.tab_name) ? a.tab_name : a.title || a.address,
+      space: { id: a.space, name: a.space_name },
+      tab: { id: a.tab, name: a.tab_name },
+      herdr: true,
+    }));
   }
 
   row(terminal) {
@@ -261,11 +275,13 @@ export class AgentsModel {
   go(cx, row) {
     run("agent.focus", { terminal: row.address });
     run("layout.select", { stack: "center", child: "work" });
-    this.act(cx, "seen", { terminal: row.terminal });
+    if (!row.herdr) this.act(cx, "seen", { terminal: row.terminal });
   }
 
   /** The right-click menu of an agent; its items come back as `cockpit.agents|<what>|<terminal>|<arg>`. */
   menu(row) {
+    // Every item is a hub action.
+    if (row.herdr) return;
     const t = row.terminal;
     const c = (what, arg = "") => `agents|${what}|${t}|${arg}`;
     const pinned = this.pins.includes(t);

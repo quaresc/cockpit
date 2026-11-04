@@ -90,7 +90,7 @@ export default class Routines {
       name: InputState.new({ placeholder: "From the prompt" }),
       when: InputState.new({ placeholder: "weekdays 09:00, every 30m, on ci-failed api, cron 0 9 * * 1-5" }),
       cwd: InputState.new({ placeholder: "A folder of its own" }),
-      body: TextareaState.new({ placeholder: "What Claude should do, unattended. A script for the shell.", rows: 5 }),
+      body: TextareaState.new({ placeholder: "What the agent should do, unattended. A script for the shell.", rows: 5 }),
     };
     this.fields.body.set_auto_grow(4, 10);
     this.fields.when.on("change", (_e, cx) => this.preview(cx));
@@ -315,6 +315,7 @@ export default class Routines {
     this.form = {
       slug: r?.slug ?? null,
       shell: r?.run === "shell",
+      agent: r?.agentSet ?? "",
       model: r?.model ?? "",
       worktree: Boolean(r?.worktree),
       notify: r?.notify ?? "always",
@@ -354,7 +355,7 @@ export default class Routines {
     const body = this.fields.body.value().trim();
     if (!body) return this.toasts.push(cx, f.shell ? "The script is empty" : "The prompt is empty", { kind: "error" });
     if (f.preview && !f.preview.ok) return this.toasts.push(cx, f.preview.error, { kind: "error" });
-    const fields = [this.fields.name.value().trim(), this.fields.when.value().trim(), body, this.fields.cwd.value().trim(), f.shell ? "shell" : "claude", f.shell ? "" : f.model, f.worktree, f.notify];
+    const fields = [this.fields.name.value().trim(), this.fields.when.value().trim(), body, this.fields.cwd.value().trim(), f.shell ? "shell" : f.agent, f.shell ? "" : f.model, f.worktree, f.notify];
     this.form = null;
     this.handle.focus();
     cx.spawn(async (cx) => (f.slug ? this.send(cx, "update", [f.slug, ...fields]) : this.send(cx, "add", fields)));
@@ -367,9 +368,25 @@ export default class Routines {
     cx.notify();
   }
 
+  /** The form's "Runs with": the shell, or an agent; only Claude Code keeps a model picked from MODELS. */
+  pickKind(f, v, claude, cx) {
+    f.shell = v === "shell";
+    if (!f.shell) f.agent = v;
+    if (!f.shell && !claude(v)) f.model = "";
+    cx.notify();
+  }
+
   formView(k, cx) {
     const f = this.form;
     const p = f.preview;
+    // The default agent first, then the others installed that run headless.
+    const agents = this.model?.agents ?? {};
+    const installed = agents.installed ?? [];
+    const fallback = agents.default || "claude";
+    const named = (id) => installed.find((a) => a.id === id)?.name ?? id;
+    const claude = (id) => (id || fallback) === "claude";
+    const kinds = [["", named(fallback)], ...installed.filter((a) => a.id !== fallback).map((a) => [a.id, a.name]), ["shell", "Shell"]];
+    if (f.agent && !kinds.some(([id]) => id === f.agent)) kinds.splice(kinds.length - 1, 0, [f.agent, f.agent]);
     const label = (text, hint) => h_flex().gap(8).items_center().child(div().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(text)).when(Boolean(hint), (e) => e.child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(hint)));
     const row = (...children) => v_flex().gap(6).children(children);
     const previewLine = !p
@@ -407,8 +424,8 @@ export default class Routines {
       )
       .child(row(label(f.shell ? "Script" : "Prompt"), div().rounded(RADIUS.md).border_1().border_color(k.input).bg(k.background).px(10).py(6).child(Textarea.new(this.fields.body).w_full().text_size(TEXT.base))))
       .child(row(label("Folder", f.shell ? "the repos folder when empty" : "a folder of its own when empty"), TextField(this.fields.cwd, { active: false, leading: Icon("folder", { size: 14, color: k.mutedFg }) })))
-      .child(row(label("Runs with"), Pills("form-kind", [["claude", "Claude"], ["shell", "Shell"]], f.shell ? "shell" : "claude", (v, cx) => ((f.shell = v === "shell"), cx.notify()))))
-      .when(!f.shell, (e) => e.child(row(label("Model", f.model === "lightest" ? "haiku with nothing loaded but the tools it lists" : ""), Pills("form-model", MODELS, f.model, (v, cx) => ((f.model = v), cx.notify())))))
+      .child(row(label("Runs with"), Pills("form-kind", kinds, f.shell ? "shell" : f.agent, (v, cx) => this.pickKind(f, v, claude, cx))))
+      .when(!f.shell && claude(f.agent), (e) => e.child(row(label("Model", f.model === "lightest" ? "haiku with nothing loaded but the tools it lists" : ""), Pills("form-model", MODELS, f.model, (v, cx) => ((f.model = v), cx.notify())))))
       .child(
         h_flex()
           .gap(12)
@@ -699,7 +716,7 @@ export default class Routines {
           icon: "dollar",
           tone: t.overBudget ? k.warning : k.foreground,
           tint: Boolean(t.overBudget),
-          hint: t.budget ? `${t.overBudget ? "over the" : "of"} $${t.budget.toFixed(2)} a week budgeted` : "estimated by Claude, over 7 days",
+          hint: t.budget ? `${t.overBudget ? "over the" : "of"} $${t.budget.toFixed(2)} a week budgeted` : "estimated by Claude Code, over 7 days",
         }),
         room >= 860
           ? Metric("tile-next", {
@@ -743,7 +760,7 @@ export default class Routines {
     const r = row.r;
     const flash = this.flashes.of(r.key);
     const wide = this.width >= 700;
-    const chips = [r.run === "shell" ? "shell" : r.model || "claude", r.worktree ? "worktree" : null, r.over ? "over budget" : null].filter(Boolean);
+    const chips = [r.run === "shell" ? "shell" : r.model || r.agent || "agent", r.worktree ? "worktree" : null, r.over ? "over budget" : null].filter(Boolean);
     const sub = r.running ? `running for ${r.running.for} · ${r.running.why}` : r.queued ? "waiting its turn" : r.paused ? "paused" : r.error ? r.error : r.problems[0] ?? (r.nextText ? `next ${r.nextText}` : r.trigger === "event" ? "on its event" : "by hand");
     return h_flex()
       .id(`row-${r.key}`)

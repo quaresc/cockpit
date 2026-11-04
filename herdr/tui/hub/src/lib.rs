@@ -38,7 +38,7 @@ fn idle_limit() -> u64 {
 }
 
 /// Serves until idle; returns at once when another hub already answers on the socket. Run with HUB_TASK set, it indexes
-/// the past Claude sessions once instead (see search::sessions).
+/// the past agent sessions once instead (see search::sessions).
 pub fn run() {
     if std::env::var_os(search::sessions::HUB_TASK).is_some() {
         search::sessions::index_once();

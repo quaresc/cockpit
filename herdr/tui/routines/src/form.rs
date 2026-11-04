@@ -1,6 +1,6 @@
 //! The form that adds a routine: its name, when it runs (read back in words as you type, with its next three runs), the
-//! prompt or script, the folder it runs in, whether Claude or the shell runs it, Claude's model, and whether each run
-//! gets a worktree of its own.
+//! prompt or script, the folder it runs in, whether the default agent or the shell runs it, Claude Code's model when it
+//! is the agent, and whether each run gets a worktree of its own.
 
 use chrono::Local;
 use cockpit_core::input::Input;
@@ -23,16 +23,19 @@ pub const FOLDER: usize = 3;
 pub const KIND: usize = 4;
 pub const MODEL: usize = 5;
 pub const WORKTREE: usize = 6;
-/// The model switch's choices, as the hub's `add` takes them: Claude's default first.
+/// The model switch's choices for Claude Code, as the hub's `add` takes them: its default first.
 const MODELS: [(&str, &str); 5] = [("", "default"), ("lightest", "lightest"), ("haiku", "haiku"), ("sonnet", "sonnet"), ("opus", "opus")];
 const LABELS: [&str; 4] = ["name", "when", "prompt", "folder"];
 
 #[derive(Default)]
 pub struct Form {
     pub fields: [Input; 4],
-    /// The field typed in, KIND for the claude/shell switch, MODEL for the model's.
+    /// The field typed in, KIND for the agent/shell switch, MODEL for the model's.
     pub at: usize,
     pub shell: bool,
+    /// The default agent's name, and whether it is Claude Code, the only one whose models the form offers.
+    pub agent: String,
+    pub claude: bool,
     /// Which of MODELS.
     pub model: usize,
     pub worktree: bool,
@@ -42,14 +45,15 @@ pub struct Form {
 pub enum Outcome {
     Stay,
     Cancel,
-    /// Name, when, prompt, folder, "claude" or "shell", the model and "true" for a worktree per run, as the hub's `add`
-    /// takes them.
+    /// Name, when, prompt, folder, "" for the default agent or "shell", the model and "true" for a worktree per run, as
+    /// the hub's `add` takes them.
     Submit(Vec<String>),
 }
 
 impl Form {
-    pub fn new() -> Self {
-        let mut form = Form::default();
+    /// A new form for the default agent: its name, and whether it is Claude Code.
+    pub fn new((agent, claude): (String, bool)) -> Self {
+        let mut form = Form { agent, claude, ..Form::default() };
         form.fields[WHEN] = Input::new("weekdays 09:00");
         form
     }
@@ -95,10 +99,10 @@ impl Form {
             KeyCode::Enter if self.at < FOLDER => self.at += 1,
             KeyCode::Enter => {
                 if self.problem().is_none() {
-                    let kind = if self.shell { "shell" } else { "claude" };
+                    let kind = if self.shell { "shell" } else { "" };
                     let mut values: Vec<String> = (0..4).map(|f| self.text(f).to_string()).collect();
                     values.push(kind.into());
-                    values.push(if self.shell { String::new() } else { MODELS[self.model].0.to_string() });
+                    values.push(if self.shell || !self.claude { String::new() } else { MODELS[self.model].0.to_string() });
                     values.push(if self.worktree { "true".into() } else { String::new() });
                     return Outcome::Submit(values);
                 }
@@ -112,8 +116,8 @@ impl Form {
             }
             _ => {}
         }
-        // A script has no model to pick.
-        if self.shell && self.at == MODEL {
+        // A script has no model to pick, nor an agent other than Claude Code here.
+        if (self.shell || !self.claude) && self.at == MODEL {
             self.at = if shift_tab || key.code == KeyCode::Up { KIND } else { WORKTREE };
         }
         Outcome::Stay
@@ -148,11 +152,16 @@ impl Form {
             }
         }
         let pill = |on: bool, text: &str| {
-            if on { Span::styled(format!(" {text} "), Style::new().fg(BG).bg(ORANGE).add_modifier(Modifier::BOLD)) } else { Span::styled(format!(" {text} "), Style::new().fg(FG).bg(LINE)) }
+            if on {
+                Span::styled(format!(" {text} "), Style::new().fg(BG).bg(ORANGE).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled(format!(" {text} "), Style::new().fg(FG).bg(LINE))
+            }
         };
         let kind_label = Span::styled(format!("{:<label_w$}", "runs"), if self.at == KIND { fg(ORANGE) } else { dim() });
-        lines.push(Line::from(vec![kind_label, pill(!self.shell, "Claude"), Span::raw(" "), pill(self.shell, "shell")]));
-        if !self.shell {
+        let agent = if self.agent.is_empty() { "agent" } else { &self.agent };
+        lines.push(Line::from(vec![kind_label, pill(!self.shell, agent), Span::raw(" "), pill(self.shell, "shell")]));
+        if !self.shell && self.claude {
             let mut spans = vec![Span::styled(format!("{:<label_w$}", "model"), if self.at == MODEL { fg(ORANGE) } else { dim() })];
             for (n, (_, label)) in MODELS.iter().enumerate() {
                 spans.push(pill(n == self.model, label));

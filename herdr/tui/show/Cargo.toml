@@ -1,8 +1,12 @@
 [package]
 name = "cockpit-show"
-description = "The view a Claude session shows beside itself: charts, tables, diagrams, pictures, diffs, logs and questions."
+description = "The view an agent session shows beside itself: charts, tables, diagrams, pictures, diffs, logs and questions."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 cockpit-core.workspace = true

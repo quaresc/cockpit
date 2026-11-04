@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { run, focused, shared, setShared, layout, exec } from "herdr";
+import { run, focused, shared, setShared, layout } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, counts } from "./fleet.js";
 import { show } from "./sidebar.js";
@@ -92,8 +92,8 @@ export default class Status {
     else if (c === "next-waiting" || c === "next:blocked" || c === "next:done") {
       const a = this.next(list, c === "next:done" ? "done" : c === "next:blocked" ? "needs" : null) ?? (c === "next-waiting" ? this.next(list, "done") : null);
       if (a) goToAgent(a.address);
-    } else if (c === "pr" && me?.pr?.url) cx.spawn(async () => exec("open", [me.pr.url]));
-    else if (c === "ticket" && me?.ticketUrl) cx.spawn(async () => exec("open", [me.ticketUrl]));
+    } else if (c === "pr" && me?.pr?.url) cx.spawn(async () => hub.openUrl(me.pr.url));
+    else if (c === "ticket" && me?.ticketUrl) cx.spawn(async () => hub.openUrl(me.ticketUrl));
     else if (c === "resume") cx.spawn(async () => hub.act("home", "resume", []));
     cx.notify();
   }
@@ -133,7 +133,7 @@ export default class Status {
 
     // The focused agent's links, on the right: branch, ticket, CI and PR, each opening its page.
     const right = [];
-    const open = (url) => (url ? (_e, cx) => cx.spawn(async () => exec("open", [url])) : undefined);
+    const open = (url) => (url ? (_e, cx) => cx.spawn(async () => hub.openUrl(url)) : undefined);
     if (me) {
       const ch = me.changes ?? {};
       const repoUrl = me.pr?.url?.replace(/\/pull\/\d+.*$/, "") ?? null;

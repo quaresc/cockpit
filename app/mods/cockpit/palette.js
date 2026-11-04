@@ -1,11 +1,11 @@
 // The palette (cmd-shift-p in the cockpit layout), a superset of Herdr's on its geometry: Herdr's commands with their
 // keys, layouts, then cockpit's apps and commands, the spaces, tabs and agents, and what the hub finds (tickets, PRs,
-// steps, meetings, releases, the week's events, past sessions). Over a Claude agent, a found item goes into it: put in
+// steps, meetings, releases, the week's events, past sessions). Over an agent, a found item goes into it: put in
 // its prompt (ctrl-r), asked about (ctrl-a) or looked into by a fork (ctrl-f). Enter runs, ↑/↓ move, Esc closes.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { commands, layouts, keys, spaces, agents, focused, terminals, run, props, closeOverlay, openOverlay, shared, setShared, exec, window as win } from "herdr";
+import { commands, layouts, keys, spaces, agents, focused, terminals, run, props, closeOverlay, openOverlay, shared, setShared, window as win } from "herdr";
 import * as hub from "./hub.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Spinner, Button } from "./ui.js";
 import { openInEditor, editorLabel } from "./editor.js";
@@ -50,7 +50,7 @@ const COCKPIT_COMMANDS = [
   ["cockpit.panel:files", "Side panel: Files", "folder", "tree"],
   ["cockpit.panel:changes", "Side panel: Changes", "git-fork", "git diff"],
   ["cockpit.queue", "Prompt queue", "list", "follow-ups send later"],
-  ["cockpit.resume", "Resume stopped agents", "play", "restart reboot claude --resume"],
+  ["cockpit.resume", "Resume stopped agents", "play", "restart reboot resume session"],
   ["cockpit.pr", "This branch's PR", "git-pull-request", "pull request github"],
   ["cockpit.ticket", "This branch's ticket", "ticket", "linear jira issue"],
 ];
@@ -176,7 +176,7 @@ export default class Palette {
     this.error = null;
     this.editor = "VS Code";
     this.recent = Array.isArray(shared("cockpit.palette.recent")) ? shared("cockpit.palette.recent") : [];
-    this.over = this.claudeBelow();
+    this.over = this.agentBelow();
     this.place = this.placeBelow();
     this.handle = cx.focus_handle();
     this.input = InputState.new({ placeholder: "Search cockpit or type a command…" });
@@ -194,18 +194,20 @@ export default class Palette {
     closeOverlay(props().overlay);
   }
 
-  /** The Claude agent focused when the palette opened: where found items can go. */
-  claudeBelow() {
+  /** The agent focused when the palette opened: where found items can go, with its program as the hub names it. */
+  agentBelow() {
     const f = focused();
     const address = f?.agent ?? f?.terminal;
     const a = address && agents().find((x) => x.address === address);
-    if (!a || !(a.program?.key === "claude" || /claude/.test(a.app ?? ""))) return null;
+    if (!a) return null;
+    // Herdr's program key, else what the agent reported ("claude-code", "codex"): the hub knows both spellings.
+    const agent = a.program?.key ?? a.app ?? "";
     const t = terminals().find((x) => x.address === a.address);
     const labels = t?.labels ?? {};
     const session = Object.entries(labels).find(([k]) => /session/.test(k))?.[1] ?? null;
     // A terminal titled after its program says less than the place it runs in.
     const title = a.title && a.title !== a.program?.name ? a.title : `${a.space_name} › ${a.tab_name}`;
-    return { terminal: a.address, title, cwd: t?.cwd ?? f.cwd ?? "", session };
+    return { terminal: a.address, title, cwd: t?.cwd ?? f.cwd ?? "", session, agent, name: a.program?.name ?? agent };
   }
 
   /** The folder of the focused terminal or space, and its machine, for Open in editor. */
@@ -253,8 +255,8 @@ export default class Palette {
 
     if (this.over) {
       const o = this.over;
-      add({ id: "fork-tab", group: "Session", icon: "git-fork", title: "Fork this session to a new tab", words: `claude ${o.title}`, act: () => this.agentsFork("tab") });
-      add({ id: "fork-right", group: "Session", icon: "git-fork", title: "Fork this session to the right", words: `claude split ${o.title}`, act: () => this.agentsFork("right") });
+      add({ id: "fork-tab", group: "Session", icon: "git-fork", title: "Fork this session to a new tab", words: `${o.agent} ${o.title}`, act: () => this.agentsFork("tab") });
+      add({ id: "fork-right", group: "Session", icon: "git-fork", title: "Fork this session to the right", words: `${o.agent} split ${o.title}`, act: () => this.agentsFork("right") });
     }
     if (this.place) {
       const p = this.place;
@@ -375,7 +377,7 @@ export default class Palette {
     });
   }
 
-  /** ctrl-r, ctrl-a, ctrl-f: the selected found item into the Claude agent below. */
+  /** ctrl-r, ctrl-a, ctrl-f: the selected found item into the agent below. */
   intoSession(action, cx) {
     const e = this.rows()[this.at]?.e;
     if (!this.over || !e?.found || this.busy) return false;
@@ -414,7 +416,7 @@ export default class Palette {
       if (key === "escape") this.page = null;
       else if (key === "down") this.page.at = Math.min(this.page.at + 1, rows.length - 1);
       else if (key === "up") this.page.at = Math.max(this.page.at - 1, 0);
-      else if (key === "enter" && rows[this.page.at]?.url) cx.spawn(async () => exec("open", [rows[this.page.at].url]));
+      else if (key === "enter" && rows[this.page.at]?.url) cx.spawn(async () => hub.openUrl(rows[this.page.at].url));
       else return false;
       return true;
     }
@@ -627,7 +629,7 @@ export default class Palette {
                   .rounded(RADIUS.md + 1)
                   .text_size(TEXT.base)
                   .when(i === p.at, (e) => e.bg(k.selected))
-                  .when(Boolean(r.url), (e) => e.cursor_pointer().hover((s) => s.bg(k.accent)).on_click(() => exec("open", [r.url])))
+                  .when(Boolean(r.url), (e) => e.cursor_pointer().hover((s) => s.bg(k.accent)).on_click(() => hub.openUrl(r.url)))
                   .child(div().pt(1).child(Icon(icon[r.tone] ?? "circle", { size: 15, color: tone[r.tone] ?? k.mutedFg })))
                   .child(
                     v_flex()
@@ -675,7 +677,7 @@ export default class Palette {
             .text_size(TEXT.xs)
             .font_medium()
             .text_color(k.info)
-            .tooltip("Found items go into this Claude session: ⌃R insert, ⌃A ask, ⌃F fork")
+            .tooltip(`Found items go into this ${over?.name ?? "agent"} session: ⌃R insert, ⌃A ask, ⌃F fork`)
             .child(Icon("bot", { size: 12, color: k.info }))
             .child(div().truncate().child(over?.title ?? "")),
         ),

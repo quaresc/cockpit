@@ -1,5 +1,5 @@
 #!/bin/sh
-# The Herdr app half's screenshots: each cockpit view in a sandbox window (app/sandbox.sh) on the acme demo world, in
+# The Herdr app half's screenshots: each cockpit view in a sandbox window (scripts/sandbox.sh) on the acme demo world, in
 # dark and light, at a normal and a narrow width, as PNGs in docs/app/ (`<view>-<theme>.png`, `<view>-<theme>-<width>.png`).
 #
 #   sh docs/screenshots/app_shots.sh [view ...]   default: home work inbox runbook todo meetings monitor routines palette recap kit
@@ -23,7 +23,7 @@ maxw=${MAXW:-1600}
 herdr_app=${HERDR_APP_BIN:-$HOME/.local/bin/herdr-app}
 app_home="$COCKPIT_SANDBOX/herdr-home"
 
-sandbox() { sh "$repo/app/sandbox.sh" "$@"; }
+sandbox() { sh "$repo/scripts/sandbox.sh" "$@"; }
 app() { HERDR_APP_HOME="$app_home" "$herdr_app" "$@"; }
 
 # The sandbox window's process: the Herdr whose environment names this sandbox's home.

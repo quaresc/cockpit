@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>cockpit · every Claude Code agent beside its work</title>
-  <meta name="description" content="cockpit puts each Claude Code agent beside its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away. For herdr and the Herdr app.">
+  <title>cockpit · every coding agent beside its work</title>
+  <meta name="description" content="cockpit puts each coding agent (Claude Code, Codex and every agent Herdr runs) beside its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away. For herdr and the Herdr app.">
   <meta name="color-scheme" content="light dark">
   <meta property="og:title" content="cockpit">
-  <meta property="og:description" content="Every Claude Code agent beside its ticket, PR, CI and deploy, and one place to work from.">
+  <meta property="og:description" content="Every coding agent beside its ticket, PR, CI and deploy, and one place to work from.">
   <meta property="og:image" content="img/app/home-dark.png">
   <link rel="icon" href="img/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
@@ -37,14 +37,14 @@
   <section class="hero">
     <div class="wrap">
       <a class="pill" href="desktop.html#show"><b>New in 0.31</b> Agents draw their own charts →</a>
-      <h1>Every Claude Code agent, <span class="grad">beside its work</span></h1>
-      <p class="sub">cockpit puts each agent next to its ticket, PR, CI and deploy, and tells you whose move it is.
+      <h1>Every coding agent, <span class="grad">beside its work</span></h1>
+      <p class="sub">Claude Code, Codex and every agent Herdr runs, each next to its ticket, PR, CI and deploy, and cockpit tells you whose move it is.
         Your inbox, runbooks, meetings and releases sit one key away.</p>
       <div class="buttons">
-        <a class="button primary" href="#install">Install in Claude Code</a>
+        <a class="button primary" href="#install">Install</a>
         <a class="button" href="#demo" data-play><svg class="i play" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>Watch the demo</a>
       </div>
-      <p class="note">Free and open source · macOS · for herdr and the Herdr desktop app</p>
+      <p class="note">Free and open source · macOS and Linux · for herdr and the Herdr desktop app</p>
 
       <figure class="frame" id="demo">
         <video controls muted playsinline preload="metadata" poster="img/app/home-dark.png" width="1600" height="1025">
@@ -56,7 +56,7 @@
     <div class="works wrap">
       <p>Works with what you already use</p>
       <ul class="chips">
-        <li>Claude Code</li><li>herdr</li><li>Herdr app</li><li>GitHub</li><li>Linear</li><li>Jira</li><li>CircleCI</li>
+        <li>Claude Code</li><li>Codex</li><li>herdr</li><li>Herdr app</li><li>GitHub</li><li>Linear</li><li>Jira</li><li>CircleCI</li>
         <li>Google Calendar</li><li>Datadog</li>
       </ul>
     </div>
@@ -71,7 +71,7 @@
       <ol class="steps">
         <li>
           <h3>Install</h3>
-          <p>Two commands in Claude Code. Setup picks your features and wires herdr, the Herdr app, or both.</p>
+          <p>Two commands, in Claude Code or a shell. Setup picks your agent and features and wires herdr, the Herdr app, or both.</p>
         </li>
         <li>
           <h3>Agents get context</h3>
@@ -159,7 +159,7 @@
         </article>
         <article class="fcard">
           <a class="fshot" href="desktop.html#routines"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/routines-light.png" media="(prefers-color-scheme: light)"><img src="img/app/routines-dark.png" alt="Routinesopt-in" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/routines.svg" alt="Routinesopt-in" width="977" height="557" loading="lazy"></a>
-          <div class="fbody"><h3>Routines<span class="badge">opt-in</span></h3><p>Claude prompts and scripts on a schedule or an event.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+          <div class="fbody"><h3>Routines<span class="badge">opt-in</span></h3><p>Agent prompts and scripts on a schedule or an event.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard only-tui">
           <a class="fshot" href="terminal.html#footer" data-note="In the app: the status bar"><img class="half-tui tui" src="img/footer.svg" alt="Footer links" width="960" height="395" loading="lazy"></a>
@@ -273,17 +273,17 @@
     <div class="wrap install">
       <div>
         <span class="eyebrow">Install</span>
-        <h2>Two commands in Claude Code</h2>
+        <h2>Two commands</h2>
         <p class="lead">Setup asks what you want, writes your config and installs both halves.</p>
         <ul class="needs">
-          <li><svg class="i"><use href="#i-check"/></svg><span>macOS, with <code>gh</code> signed in and <code>jq</code></span></li>
+          <li><svg class="i"><use href="#i-check"/></svg><span>macOS or Linux, with <code>gh</code> signed in and <code>jq</code></span></li>
           <li><svg class="i"><use href="#i-check"/></svg><span><a href="https://herdr.dev">herdr</a> 0.9+ (with a Nerd Font), the Herdr app, or both</span></li>
-          <li><svg class="i"><use href="#i-check"/></svg><span>Your Claude Code connectors for tickets, CI and calendar, if any</span></li>
+          <li><svg class="i"><use href="#i-check"/></svg><span>Any agent Herdr runs; with Claude Code, its connectors for tickets, CI and calendar</span></li>
         </ul>
       </div>
       <div>
         <div class="term">
-          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><em>claude</em>
+          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><em>Claude Code</em>
             <button class="copy" type="button" data-copy="/plugin install cockpit --marketplace quaresc/cockpit&#10;/cockpit:setup"><svg class="i"><use href="#i-copy"/></svg><span>Copy</span></button>
           </div>
 <pre><code><span class="p">&gt; </span>/plugin install cockpit --marketplace quaresc/cockpit
@@ -291,7 +291,16 @@
 <span class="c"># any time later</span>
 <span class="p">&gt; </span>/cockpit:doctor</code></pre>
         </div>
-        <p class="after"><code>/cockpit:doctor</code> checks every part and fixes what is broken.</p>
+        <div class="term">
+          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><em>shell, for any other agent</em>
+            <button class="copy" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/quaresc/cockpit/main/install.sh | sh&#10;cockpit setup"><svg class="i"><use href="#i-copy"/></svg><span>Copy</span></button>
+          </div>
+<pre><code><span class="p">$ </span>curl -fsSL https://raw.githubusercontent.com/quaresc/cockpit/main/install.sh | sh
+<span class="p">$ </span>cockpit setup
+<span class="c"># any time later</span>
+<span class="p">$ </span>cockpit doctor</code></pre>
+        </div>
+        <p class="after"><code>/cockpit:doctor</code> or <code>cockpit doctor</code> checks every part and fixes what is broken.</p>
       </div>
     </div>
   </section>
@@ -305,14 +314,14 @@
       <div class="faq">
         <details open>
           <summary>Do I need API tokens?</summary>
-          <p>No. GitHub goes through your <code>gh</code> login, and tickets, CI and meetings come from the Claude Code
-            connectors you already have, through one hidden, idle Claude session the hub keeps.</p>
+          <p>No. GitHub goes through your <code>gh</code> login. With Claude Code, tickets, CI and meetings come from the
+            connectors you already have, through one hidden, idle session the hub keeps.</p>
           <p>A Linear key, a CircleCI token or your calendar's secret iCal address are optional: with them the hub fetches
             that data itself.</p>
         </details>
         <details>
           <summary>What does it cost?</summary>
-          <p>cockpit is free and MIT-licensed. Its Claude features run on your own Claude Code plan: recaps on haiku,
+          <p>cockpit is free and MIT-licensed. What it asks an agent to do runs on your own agent's plan: recaps,
             meeting briefs, and routines, which take a weekly budget. Each one can be turned off.</p>
           <p>The hidden session that reads your connectors sits idle at its prompt and spends no tokens.</p>
         </details>
@@ -323,10 +332,10 @@
         </details>
         <details>
           <summary>Is my data sent anywhere?</summary>
-          <p>Not to cockpit: there is no cockpit server. The hub runs on your Mac, listens only on 127.0.0.1 with a token,
+          <p>Not to cockpit: there is no cockpit server. The hub runs on your machine, listens only on 127.0.0.1 with a token,
             and keeps its state in <code>~/.cache/cockpit</code>.</p>
-          <p>It talks to GitHub, your ticket and CI tools and your calendar as you, and Claude features go through your
-            own Claude Code. Search over past sessions uses a small model, downloaded once and run locally.</p>
+          <p>It talks to GitHub, your ticket and CI tools and your calendar as you, and agent features go through your
+            own agent. Search over past sessions uses a small model, downloaded once and run locally.</p>
         </details>
       </div>
     </div>
@@ -336,7 +345,7 @@
     <div class="wrap">
       <div class="cta">
         <h2>Stop hunting for the agent that needs you</h2>
-        <p>Install cockpit in Claude Code and let Home tell you whose move it is.</p>
+        <p>Install cockpit and let Home tell you whose move it is.</p>
         <div class="buttons">
           <a class="button primary" href="#install">Install</a>
           <a class="button" href="https://github.com/quaresc/cockpit"><svg class="i" style="fill:currentColor;stroke:none" viewBox="0 0 16 16"><use href="#i-gh"/></svg>Star on GitHub</a>

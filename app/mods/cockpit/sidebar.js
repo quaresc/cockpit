@@ -146,8 +146,9 @@ export default class Sidebar {
     const rows = model.rows;
     const waiting = rows.filter((r) => r.stage === "needs_you");
     const order = [...waiting, ...rows.filter((r) => r.stage !== "needs_you")];
-    // Home answers them in its NEXT MOVE and cards: there the waiting agents stay in the list below.
-    const band = active === "home" ? [] : waiting;
+    // Home answers them in its NEXT MOVE and cards: there the waiting agents stay in the list below. Without the hub
+    // nothing answers in place, so they stay in the list too.
+    const band = active === "home" || model.down ? [] : waiting;
     setAgentOrder(order.map((r) => r.address));
 
     const navItem = (child, label, icon, count, key, tone) => {
@@ -436,7 +437,10 @@ export default class Sidebar {
         .child(Button("agents-group", { icon: MODES[mode][0], variant: "ghost", size: "icon-sm", tooltip: `${MODES[mode][1]} · click for ${MODES[next][1].toLowerCase()}`, onClick: () => setShared("cockpit.agents.group", next) })),
     });
     if (!rows.length) {
-      const hint = this.agents.state === "live" ? "No agent yet. Agents show here once they report their status." : this.agents.state === "connecting" ? "Connecting to the cockpit hub…" : "The cockpit hub is not answering.";
+      const state = this.agents.state;
+      const hint = state === "live" || hub.isNotInstalled(state)
+        ? "No agent yet. Agents show here once they report their status."
+        : state === "connecting" ? "Connecting to the cockpit hub…" : "The cockpit hub is not answering. Not installed yet? See github.com/quaresc/cockpit#install";
       return [head, div().px(8).pb(8).text_size(TEXT.xs).text_color(k.dim).child(hint)];
     }
     const pinned = rest.filter((r) => this.agents.pins.includes(r.terminal));

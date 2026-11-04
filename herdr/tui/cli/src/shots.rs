@@ -11,7 +11,7 @@ use crate::proc::{dumps, fail};
 
 const USAGE: &str = "Screenshots of a page at phone, tablet and desktop sizes, taken in the terminal-browser beside a pane.
 
-    cockpit shots <url> <out dir> [--sizes mobile,tablet,desktop] [--full] [--session <Claude session id>]
+    cockpit shots <url> <out dir> [--sizes mobile,tablet,desktop] [--full] [--session <session id>]
 
 Prints the screenshots as JSON, {size: path}. Without terminal-browser beside a pane in herdr or the Herdr app, it exits 2 and says so.";
 
@@ -71,7 +71,8 @@ pub fn main(args: &[String]) {
         fail("could not open terminal-browser beside the pane");
     }
     // A browser just split in takes a moment to start.
-    let browsers = wait_for(|| Some(browsers_of(&tb, session)).filter(|b| !b.is_empty())).unwrap_or_else(|| fail("terminal-browser did not start beside the pane"));
+    let browsers =
+        wait_for(|| Some(browsers_of(&tb, session)).filter(|b| !b.is_empty())).unwrap_or_else(|| fail("terminal-browser did not start beside the pane"));
     let key = match &browsers[0]["key"] {
         Value::String(s) => s.clone(),
         other => other.to_string(),
@@ -82,7 +83,8 @@ pub fn main(args: &[String]) {
     let mut shots = Vec::new();
     for size in sizes {
         let opened = browse::run(&[&tb, "new-tab", "--browser", &key, url], Duration::from_secs(10)).filter(|o| o.ok());
-        let tab = opened.and_then(|o| serde_json::from_str::<Value>(&o.stdout).ok()).map(|v| v["openedTab"].clone()).filter(|t| !t.is_null() && t != "" && t != 0);
+        let tab =
+            opened.and_then(|o| serde_json::from_str::<Value>(&o.stdout).ok()).map(|v| v["openedTab"].clone()).filter(|t| !t.is_null() && t != "" && t != 0);
         let Some(tab) = tab else { fail(&format!("could not open a tab for {size}")) };
         let tab = match tab {
             Value::String(s) => s,

@@ -9,8 +9,5 @@ pub fn render(app: &mut impl App, width: u16, height: u16) -> String {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("a test terminal");
     terminal.draw(|frame| app.draw(frame)).expect("a frame");
     let buffer = terminal.backend().buffer();
-    (0..height)
-        .map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
+    (0..height).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect::<Vec<_>>().join("\n")
 }

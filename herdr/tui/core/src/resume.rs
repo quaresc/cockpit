@@ -1,24 +1,27 @@
-//! Agents a restart stopped, brought back where they were. While they run, the hub notes which Claude session each
-//! terminal holds (Claude Code's own `~/.claude/sessions/<pid>.json` in the Herdr app, herdr's `agent_session` in the
-//! TUI) in `~/.cache/cockpit/resume/agents.json`; after a reboot or a herdr-core restart, the ones not running again
-//! are resumed in their terminal, or in a new space when it is gone.
+//! Agents a restart stopped, brought back where they were. While they run, the hub notes which agent and session each
+//! terminal holds (Herdr's `agent_session`, else for Claude Code its own `~/.claude/sessions/<pid>.json`) in
+//! `~/.cache/cockpit/resume/agents.json`; after a reboot or a herdr-core restart, the ones not running again are resumed
+//! in their terminal, or in a new space when it is gone. Only agents that can resume a session by its id are noted.
 
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value, json};
 
+use crate::agent::{self, Agent};
 use crate::files;
 use crate::frontend::{self, APP, Frontend};
 
 /// A lost agent stays offered this long, then goes.
 const KEEP_LOST_MS: u64 = 7 * 86_400_000;
 
-/// One Claude session running in a terminal now.
+/// One agent's session running in a terminal now.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Seen {
     /// `app:t3` or a herdr pane id.
     pub handle: String,
+    /// The agent's id in cockpit's table (`claude`, `codex`).
+    pub agent: String,
     pub session: String,
     pub cwd: String,
     pub name: String,
@@ -49,21 +52,32 @@ pub fn boot_time() -> u64 {
     stat.lines().find_map(|l| l.strip_prefix("btime ")).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
 
-/// A Claude session id, the only kind of id ever typed into a shell.
+/// A session id as agents write them (a UUID, `ses_…`), the only kind of id ever typed into a shell.
 pub fn is_session_id(id: &str) -> bool {
-    id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+    (6..=128).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-/// The line that resumes the session in a shell, its folder quoted.
-pub fn resume_line(cwd: &str, session: &str) -> String {
+/// The line that resumes the agent's session in a shell, its folder quoted; None when the agent cannot resume one.
+pub fn resume_line(cwd: &str, agent: &Agent, session: &str) -> Option<String> {
+    let command = agent::shell_line(&agent.typed(&agent.resume_argv(session)?));
     let quoted = cwd.replace('\'', "'\\''");
-    if cwd.is_empty() { format!("claude --resume {session}") } else { format!("cd '{quoted}' && claude --resume {session}") }
+    Some(if cwd.is_empty() { command } else { format!("cd '{quoted}' && {command}") })
+}
+
+/// The agent of a record's entry: the one it names, else Claude Code, which entries named none for.
+fn agent_of(entry: &Value) -> Option<Agent> {
+    agent::get(entry["agent"].as_str().unwrap_or("claude"))
+}
+
+/// The agent Herdr says a terminal runs, when cockpit can resume its sessions.
+fn resumable(program: &str) -> Option<Agent> {
+    agent::of_program(program).filter(|a| !a.resume.is_empty())
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // What runs now
 
-/// The Claude sessions running in terminals now, per frontend; None for a frontend that could not be asked (its
+/// The agents' sessions running in terminals now, per frontend; None for a frontend that could not be asked (its
 /// terminals are then left as they were).
 pub fn seen_now() -> (Option<Vec<Seen>>, Option<Vec<Seen>>) {
     let app = frontend::app_home().join("herdr-app.sock").exists().then(seen_in_app).flatten();
@@ -71,12 +85,12 @@ pub fn seen_now() -> (Option<Vec<Seen>>, Option<Vec<Seen>>) {
     (app, tui)
 }
 
-/// The name of the terminal where the hub keeps a Claude session for the MCP-only sources (`cockpit-hub`'s fetcher).
+/// The name of the terminal where the hub keeps a Claude Code session for the MCP-only sources (`cockpit-hub`'s fetcher).
 pub const FETCHER: &str = "cockpit-fetch";
 
 /// Claude Code's registry of running sessions: pid → {sessionId, cwd, name}.
 fn claude_sessions() -> Map<String, Value> {
-    let dir = files::home().join(".claude/sessions");
+    let dir = crate::transcripts::claude_home().join("sessions");
     let mut out = Map::new();
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
@@ -92,26 +106,34 @@ fn claude_sessions() -> Map<String, Value> {
 
 fn seen_in_app() -> Option<Vec<Seen>> {
     let listed = frontend::hc(&["ls"])?;
-    let registry = claude_sessions();
+    let mut registry = None;
     let mut out = Vec::new();
     for t in listed["terminals"].as_array().into_iter().flatten() {
         let address = t["address"].as_str().unwrap_or_default();
         // The hub's own fetching session is not an agent to bring back: the hub starts it again.
-        if t["state"] != "live" || address.is_empty() || !t["agent"].as_str().unwrap_or_default().contains("claude") || t["name"] == FETCHER {
+        if t["state"] != "live" || address.is_empty() || t["name"] == FETCHER {
             continue;
         }
+        let program = t["agent"].as_str().unwrap_or_default();
+        let Some(agent) = resumable(if program.contains("claude") { "claude" } else { program }) else { continue };
         let Some(got) = frontend::hc(&["get", address]) else { continue };
-        let pid = got["foreground"]["pid"].as_u64().map(|p| p.to_string()).unwrap_or_default();
-        let Some(session) = registry.get(&pid) else { continue };
-        let id = session["sessionId"].as_str().unwrap_or_default();
-        if !is_session_id(id) {
+        // Herdr's report of the session, else for Claude Code its own registry by the foreground's pid.
+        let herdr = [&got["agent_session"], &t["agent_session"]].into_iter().find(|s| s["kind"] != "name" && s["value"].is_string()).cloned();
+        let own = herdr.is_none().then(|| agent.id == "claude").filter(|c| *c).and_then(|_| {
+            let pid = got["foreground"]["pid"].as_u64().map(|p| p.to_string()).unwrap_or_default();
+            registry.get_or_insert_with(claude_sessions).get(&pid).cloned()
+        });
+        let id = herdr.as_ref().map(|s| &s["value"]).or(own.as_ref().map(|s| &s["sessionId"])).and_then(Value::as_str).unwrap_or_default().to_string();
+        if !is_session_id(&id) {
             continue;
         }
+        let own = own.unwrap_or(Value::Null);
         out.push(Seen {
             handle: format!("{APP}{address}"),
-            session: id.to_string(),
-            cwd: session["cwd"].as_str().or_else(|| got["cwd"].as_str()).unwrap_or_default().to_string(),
-            name: session["name"].as_str().unwrap_or_default().to_string(),
+            agent: agent.id,
+            session: id,
+            cwd: own["cwd"].as_str().or_else(|| got["cwd"].as_str()).unwrap_or_default().to_string(),
+            name: own["name"].as_str().unwrap_or_default().to_string(),
             created: got["created_ms"].as_u64().unwrap_or(0),
         });
     }
@@ -127,11 +149,14 @@ fn seen_in_tui() -> Option<Vec<Seen>> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|p| p["agent_session"]["agent"] == "claude" && p["agent_session"]["kind"] == "id")
+        .filter(|p| p["agent_session"]["kind"] == "id")
         .filter_map(|p| {
             let id = p["agent_session"]["value"].as_str()?;
+            let program = p["agent_session"]["agent"].as_str().or(p["agent"].as_str())?;
+            let agent = resumable(program)?;
             is_session_id(id).then(|| Seen {
                 handle: p["pane_id"].as_str().unwrap_or_default().to_string(),
+                agent: agent.id,
                 session: id.to_string(),
                 cwd: p["cwd"].as_str().unwrap_or_default().to_string(),
                 name: p["terminal_title_stripped"].as_str().unwrap_or_default().to_string(),
@@ -153,7 +178,7 @@ pub fn merge(record: &Value, seen: &[Seen], asked: &dyn Fn(&str) -> bool, boot: 
     for s in seen {
         agents.insert(
             s.handle.clone(),
-            json!({"session": s.session, "cwd": s.cwd, "name": s.name, "at": now, "boot": boot, "created": s.created, "lost": false}),
+            json!({"agent": s.agent, "session": s.session, "cwd": s.cwd, "name": s.name, "at": now, "boot": boot, "created": s.created, "lost": false}),
         );
     }
     let running: Vec<&str> = seen.iter().map(|s| s.handle.as_str()).collect();
@@ -212,7 +237,8 @@ pub fn remember() -> (Value, usize) {
     (after, newly)
 }
 
-/// The agents a restart stopped, newest first: {handle, session, cwd, name, at}.
+/// The agents a restart stopped, newest first: {handle, agent, agentName, session, cwd, name, at, line}, `line` the
+/// command that resumes it.
 pub fn lost() -> Vec<Value> {
     let record = files::load(&path()).unwrap_or(Value::Null);
     let mut out: Vec<Value> = record["agents"]
@@ -223,6 +249,10 @@ pub fn lost() -> Vec<Value> {
         .map(|(handle, e)| {
             let mut e = e.clone();
             e["handle"] = json!(handle);
+            let agent = agent_of(&e);
+            e["agent"] = json!(agent.as_ref().map_or("claude".into(), |a| a.id.clone()));
+            e["agentName"] = json!(agent.as_ref().map(|a| a.name.clone()));
+            e["line"] = json!(agent.and_then(|a| resume_line("", &a, e["session"].as_str().unwrap_or_default())));
             e
         })
         .collect();
@@ -244,7 +274,8 @@ const SHELLS: [&str; 6] = ["zsh", "bash", "fish", "sh", "dash", "nu"];
 /// last status report outlives the agent), a pane with no agent in the TUI.
 fn at_shell(handle: &str) -> bool {
     match handle.strip_prefix(APP) {
-        Some(address) => frontend::hc(&["get", address]).is_some_and(|t| t["state"] == "live" && SHELLS.contains(&t["foreground"]["name"].as_str().unwrap_or_default().trim_start_matches('-'))),
+        Some(address) => frontend::hc(&["get", address])
+            .is_some_and(|t| t["state"] == "live" && SHELLS.contains(&t["foreground"]["name"].as_str().unwrap_or_default().trim_start_matches('-'))),
         None => frontend::exists(handle) && !frontend::alive(handle),
     }
 }
@@ -263,7 +294,8 @@ pub fn resume(handle: &str) -> Result<String, String> {
         return Err(format!("no stopped agent in {handle}"));
     }
     let cwd = entry["cwd"].as_str().unwrap_or_default().to_string();
-    let line = resume_line(&cwd, &session);
+    let agent = agent_of(&entry).ok_or_else(|| format!("{handle} ran an agent cockpit no longer knows"))?;
+    let line = resume_line(&cwd, &agent, &session).ok_or_else(|| format!("{} cannot resume a session", agent.name))?;
     let which = if handle.starts_with(APP) { Frontend::App } else { Frontend::Tui };
     let name = entry["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| folder_name(&cwd));
     let done = frontend::with(Some(which), || {
@@ -317,7 +349,11 @@ pub fn keep() {
         std::thread::sleep(Duration::from_secs(60));
         let (record, newly) = remember();
         if newly > 0 {
-            let names: Vec<String> = lost().iter().take(4).map(|e| e["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| folder_name(e["cwd"].as_str().unwrap_or_default()))).collect();
+            let names: Vec<String> = lost()
+                .iter()
+                .take(4)
+                .map(|e| e["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| folder_name(e["cwd"].as_str().unwrap_or_default())))
+                .collect();
             let count = record["agents"].as_object().into_iter().flatten().filter(|(_, e)| e["lost"] == true).count();
             let title = format!("↻ {count} agent{} stopped by the restart", if count == 1 { "" } else { "s" });
             crate::notify::post(&title, &format!("Click to resume them where they were: {}", names.join(", ")), "resume", &[]);
@@ -330,7 +366,7 @@ mod tests {
     use super::*;
 
     fn seen(handle: &str, session: &str, created: u64) -> Seen {
-        Seen { handle: handle.into(), session: session.into(), cwd: "/code/api".into(), name: "api".into(), created }
+        Seen { handle: handle.into(), agent: "claude".into(), session: session.into(), cwd: "/code/api".into(), name: "api".into(), created }
     }
 
     const A: &str = "0f0e0d0c-0b0a-0908-0706-050403020100";
@@ -363,8 +399,24 @@ mod tests {
 
     #[test]
     fn only_a_session_id_is_typed_and_the_folder_is_quoted() {
-        assert!(is_session_id(A));
+        assert!(is_session_id(A) && is_session_id("ses_7f3a9b2c"));
         assert!(!is_session_id("x; rm -rf ~"));
-        assert_eq!(resume_line("/code/it's", A), format!("cd '/code/it'\\''s' && claude --resume {A}"));
+        let mut claude = agent::builtin().remove(0);
+        claude.bin = "/bin/claude".into();
+        assert_eq!(resume_line("/code/it's", &claude, A), Some(format!("cd '/code/it'\\''s' && /bin/claude --resume {A}")));
+    }
+
+    #[test]
+    fn another_agents_session_is_noted_with_its_agent_and_resumed_its_way() {
+        let codex = Seen { agent: "codex".into(), ..seen("w1:p1", B, 0) };
+        let running = merge(&json!({}), &[codex], &|_| true, 100, 1_000, &|_| None);
+        assert_eq!((&running["agents"]["w1:p1"]["agent"], &running["agents"]["w1:p1"]["session"]), (&json!("codex"), &json!(B)));
+        let rebooted = merge(&running, &[], &|_| true, 200, 2_000, &|_| None);
+        let entry = &rebooted["agents"]["w1:p1"];
+        let mut agent = agent_of(entry).unwrap();
+        agent.bin = "/bin/codex".into();
+        assert_eq!((entry["lost"].clone(), resume_line("/code/api", &agent, B)), (json!(true), Some(format!("cd '/code/api' && /bin/codex resume {B}"))));
+        assert_eq!(agent_of(&json!({"session": A})).unwrap().id, "claude", "an entry naming no agent is Claude Code's");
+        assert!(resumable("copilot").is_some() && resumable("agy").is_some_and(|a| a.id == "antigravity-cli"));
     }
 }

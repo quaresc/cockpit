@@ -8,7 +8,7 @@ import { ownVersion } from './upkeep'
 type $ = EngineInterface
 
 // What this session tells the hub about itself for the `agents` view, in both frontends: the store document `agents`,
-// keyed by the session's handle (`app:t3`, or a herdr pane id). The shape is in app/README.md.
+// keyed by the session's handle (`app:t3`, or a herdr pane id). The shape is in docs/app.md.
 
 export type Facts = {
   session: string

@@ -92,8 +92,14 @@ fn cases() -> Vec<Case> {
         .config(r#"{"worktrees": true}"#),
         case("rerun asks first", "inbox", "rerun", format!("[{PR4}, {RUN1}]")),
         case("rerun", "inbox", "rerun", format!("[{PR4}, {RUN1}]")).armed("rerun-wf1"),
-        case("redeploy", "inbox", "redeploy", r#"[{"id": "pv-eng-401", "app": "api"}, "https://github.com/acme/api/pull/4"]"#)
-            .armed("redeploy-pv-eng-401-api"),
+        case(
+            "rerun github actions",
+            "inbox",
+            "rerun",
+            format!(r#"[{PR4}, {{"repo": "api", "slug": "acme/api", "branch": "me/eng-401-login", "workflowId": "900,901", "outcome": "failed"}}]"#),
+        )
+        .armed("rerun-900,901"),
+        case("redeploy", "inbox", "redeploy", r#"[{"id": "pv-eng-401", "app": "api"}, "https://github.com/acme/api/pull/4"]"#).armed("redeploy-pv-eng-401-api"),
         case("create a preview", "inbox", "create_preview", r#"[{"repo": "web", "branch": "me/eng-401-form", "url": "https://github.com/acme/web/pull/12"}]"#)
             .armed("preview-web-me/eng-401-form"),
         case("stop a preview", "inbox", "stop_preview", r#"["pv-eng-401"]"#).armed("stop-pv-eng-401"),

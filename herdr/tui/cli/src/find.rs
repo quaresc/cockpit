@@ -1,5 +1,5 @@
-//! `cockpit search` and `cockpit events`: the palette's search and the week's events as the hub's JSON, for a Claude
-//! session's tools. Starts the hub when none runs.
+//! `cockpit search` and `cockpit events`: the palette's search and the week's events as the hub's JSON, for an
+//! agent's tools. Starts the hub when none runs.
 
 use std::time::Duration;
 
@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 
 use crate::proc::fail;
 
-const SEARCH: &str = "cockpit search <query>: what the palette finds (PRs, tickets, runbooks, views, to-dos, meetings, releases, the week's events, past sessions)";
+const SEARCH: &str =
+    "cockpit search <query>: what the palette finds (PRs, tickets, runbooks, views, to-dos, meetings, releases, the week's events, past sessions)";
 const EVENTS: &str = "cockpit events [--since 30m|2h|1d|<epoch ms>] [--app inbox|monitor|routines]: what changed in the shared data, newest first";
 
 fn ask(what: &str, request: Value, timeout: Duration) -> Value {
@@ -23,17 +24,30 @@ pub fn search(args: &[String]) {
     println!("{answer}");
 }
 
+/// The hub's search answer for a query, for the MCP tool.
+pub fn search_json(query: &str) -> Result<Value, String> {
+    cockpit_core::hub::request(&json!({"op": "search", "query": query.trim()}), Duration::from_secs(10))
+}
+
 pub fn events(args: &[String]) {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-    let (since, app) = events_args(args, now).unwrap_or_else(|| fail(EVENTS));
-    let mut answer = ask("events", json!({"op": "events", "since": since, "app": app, "limit": 500}), Duration::from_secs(5));
-    // Each event's local time beside its epoch milliseconds, so a reader needs no conversion.
+    let (since, app) = events_args(args, now_ms()).unwrap_or_else(|| fail(EVENTS));
+    let answer = events_json(since, &app).unwrap_or_else(|error| fail(&format!("cockpit events: {error}")));
+    println!("{answer}");
+}
+
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// The hub's events since then, each with its local time beside its epoch milliseconds, so a reader needs no conversion.
+pub fn events_json(since: u64, app: &str) -> Result<Value, String> {
+    let mut answer = cockpit_core::hub::request(&json!({"op": "events", "since": since, "app": app, "limit": 500}), Duration::from_secs(5))?;
     for event in answer["events"].as_array_mut().into_iter().flatten() {
         if let Some(at) = event["at"].as_i64().and_then(chrono::DateTime::from_timestamp_millis) {
             event["when"] = Value::from(at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M").to_string());
         }
     }
-    println!("{answer}");
+    Ok(answer)
 }
 
 /// Since when (epoch milliseconds) and which app, from `--since` and `--app`; None when an argument is wrong.
@@ -52,7 +66,7 @@ pub fn events_args(args: &[String], now_ms: u64) -> Option<(u64, String)> {
 }
 
 /// "30m", "2h", "1d" back from now, or epoch milliseconds as is.
-fn since_ms(value: &str, now_ms: u64) -> Option<u64> {
+pub fn since_ms(value: &str, now_ms: u64) -> Option<u64> {
     let unit = match value.chars().last()? {
         'm' => 60_000,
         'h' => 3_600_000,

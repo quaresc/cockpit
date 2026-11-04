@@ -182,7 +182,10 @@ impl Fetched {
                         continue;
                     }
                     let first = list(thread, "comments").first().cloned().unwrap_or(Value::Null);
-                    let author = [s(thread, "author"), s(&thread["author"], "login"), s(&first["author"], "login"), s(&first, "author")].into_iter().find(|a| !a.is_empty()).unwrap_or("");
+                    let author = [s(thread, "author"), s(&thread["author"], "login"), s(&first["author"], "login"), s(&first, "author")]
+                        .into_iter()
+                        .find(|a| !a.is_empty())
+                        .unwrap_or("");
                     let body = if s(thread, "body").is_empty() { s(&first, "body") } else { s(thread, "body") };
                     let line = text(thread, "line");
                     let place = if line.is_empty() { s(thread, "path").to_string() } else { format!("{}:{line}", s(thread, "path")) };
@@ -197,7 +200,10 @@ impl Fetched {
             }
             "failed_tests" => {
                 for test in items(answer, &["tests", "items"]) {
-                    let name = test.as_str().map(str::to_string).unwrap_or_else(|| [s(test, "name"), s(test, "title"), s(test, "file")].into_iter().find(|n| !n.is_empty()).unwrap_or("").to_string());
+                    let name = test
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| [s(test, "name"), s(test, "title"), s(test, "file")].into_iter().find(|n| !n.is_empty()).unwrap_or("").to_string());
                     if !name.is_empty() {
                         self.tests.push(name);
                     }
@@ -235,7 +241,10 @@ mod tests {
         fetched.absorb("review_threads", &threads);
         fetched.absorb("failed_tests", &json!(["test_login", {"name": "test_logout"}]));
         fetched.absorb("ci_log", &json!({"log": "one\ntwo\n\nthree\nfour\nfive\n"}));
-        assert_eq!(fetched.threads, vec![("src/a.rs:12".into(), "ana".into(), "Could this be a constant?".into()), ("README.md".into(), "cy".into(), "typo".into())]);
+        assert_eq!(
+            fetched.threads,
+            vec![("src/a.rs:12".into(), "ana".into(), "Could this be a constant?".into()), ("README.md".into(), "cy".into(), "typo".into())]
+        );
         assert_eq!(fetched.tests, vec!["test_login", "test_logout"]);
         assert_eq!(fetched.log, vec!["two", "three", "four", "five"]);
     }

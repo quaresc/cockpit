@@ -1,5 +1,5 @@
-//! Routines: a Claude prompt or a shell script in ~/.config/cockpit/routines/<slug>.md that the hub runs on its own, on
-//! a schedule, every so often or when something happens. A file is a front matter of `key: value` lines, then the
+//! Routines: an agent's prompt or a shell script in ~/.config/cockpit/routines/<slug>.md that the hub runs on its own,
+//! on a schedule, every so often or when something happens. A file is a front matter of `key: value` lines, then the
 //! prompt (or the script); `when` says when it runs, in words or as cron.
 
 use std::path::{Path, PathBuf};
@@ -113,15 +113,7 @@ impl Cron {
     fn at(times: &[(u32, u32)], weekdays: u8) -> Vec<Cron> {
         times
             .iter()
-            .map(|(h, m)| Cron {
-                minutes: 1 << m,
-                hours: 1 << h,
-                days: u32::MAX,
-                months: u16::MAX,
-                weekdays,
-                any_day: true,
-                any_weekday: weekdays == 0x7f,
-            })
+            .map(|(h, m)| Cron { minutes: 1 << m, hours: 1 << h, days: u32::MAX, months: u16::MAX, weekdays, any_day: true, any_weekday: weekdays == 0x7f })
             .collect()
     }
 
@@ -252,7 +244,13 @@ impl When {
             When::Manual => "by hand".into(),
             When::Every(secs) => match secs {
                 s if s % 86_400 == 0 => plural(s / 86_400, "day"),
-                s if s % 3600 == 0 => if *s == 3600 { "every hour".into() } else { format!("every {} h", s / 3600) },
+                s if s % 3600 == 0 => {
+                    if *s == 3600 {
+                        "every hour".into()
+                    } else {
+                        format!("every {} h", s / 3600)
+                    }
+                }
                 s => format!("every {} min", s / 60),
             },
             When::Cron(_) => {
@@ -316,10 +314,10 @@ fn plural(n: u64, unit: &str) -> String {
     if n == 1 { format!("every {unit}") } else { format!("every {n} {unit}s") }
 }
 
-/// What a routine runs.
+/// What a routine runs: a prompt for a coding agent, or a script.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Run {
-    Claude,
+    Agent,
     Shell,
 }
 
@@ -331,8 +329,8 @@ pub enum Notify {
     Never,
 }
 
-/// The models a routine picks from, cheapest first after Claude's default: `lightest` is haiku at low effort with
-/// nothing loaded but the tools the routine lists.
+/// The models a Claude Code routine picks from, cheapest first after its default: `lightest` is haiku at low effort
+/// with nothing loaded but the tools the routine lists.
 pub const MODELS: [&str; 5] = ["", "lightest", "haiku", "sonnet", "opus"];
 
 /// One routine as its file says.
@@ -345,6 +343,8 @@ pub struct Routine {
     pub when_text: String,
     pub when: Result<When, String>,
     pub run: Run,
+    /// The agent's id (`claude`, `codex`), empty for the configured default.
+    pub agent: String,
     /// The prompt, or the script.
     pub body: String,
     /// Where it runs, `~` expanded; empty for the configured reposDir.
@@ -352,7 +352,7 @@ pub struct Routine {
     pub model: String,
     pub tools: Vec<String>,
     pub mode: String,
-    /// Dollars a Claude routine may spend over the last seven days, as Claude estimates its runs.
+    /// Dollars a Claude Code routine may spend over the last seven days, as it estimates its runs.
     pub budget: Option<f64>,
     /// Minutes a run may take before it is stopped.
     pub timeout: u64,
@@ -450,7 +450,8 @@ impl Routine {
             name: Some(get("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| slug.replace('-', " ")),
             when: When::parse(&when_text),
             when_text,
-            run: if get("run").eq_ignore_ascii_case("shell") { Run::Shell } else { Run::Claude },
+            run: if get("run").eq_ignore_ascii_case("shell") { Run::Shell } else { Run::Agent },
+            agent: get("agent").to_lowercase(),
             body,
             cwd: expand(&get("cwd")),
             model: get("model"),
@@ -501,8 +502,7 @@ pub fn read_all(dir: &Path) -> Vec<Routine> {
 
 /// A file name of the name's words, lowercased, unique in the folder.
 pub fn slug_for(dir: &Path, name: &str) -> String {
-    let words: Vec<String> =
-        name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).take(6).map(|w| w.to_lowercase()).collect();
+    let words: Vec<String> = name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).take(6).map(|w| w.to_lowercase()).collect();
     let base = if words.is_empty() { "routine".to_string() } else { words.join("-") };
     let mut slug = base.clone();
     let mut n = 2;
@@ -594,7 +594,10 @@ mod tests {
         let r = Routine::parse("morning-sweep", Path::new("/r/morning-sweep.md"), text);
         assert_eq!((r.name.as_str(), r.body.as_str(), r.model.as_str()), ("Morning sweep", "Sum up my PRs.", "sonnet"));
         assert_eq!(r.tools, ["Read", "Bash(gh pr list:*)"]);
-        assert_eq!((r.budget, r.timeout, r.notify, r.paused, r.run), (Some(0.5), 30, Notify::Failed, false, Run::Claude));
+        assert_eq!((r.budget, r.timeout, r.notify, r.paused, r.run), (Some(0.5), 30, Notify::Failed, false, Run::Agent));
+        assert_eq!(r.agent, "", "the default agent");
+        let codex = Routine::parse("c", Path::new("/r/c.md"), "---\nagent: Codex\n---\nGo.");
+        assert_eq!((codex.run, codex.agent.as_str()), (Run::Agent, "codex"));
         assert!(r.cwd.ends_with("/work") && !r.cwd.starts_with('~'));
         assert_eq!(r.when_shown(), "weekdays at 09:00");
         assert_eq!([dollars("2"), dollars("$1.5 a week"), dollars("0"), dollars("lots")], [Some(2.0), Some(1.5), None, None]);

@@ -302,7 +302,12 @@ impl Diff {
             [(path, line, _, text)] => Key::Comment(json!({"path": path, "line": line, "text": text}), format!("{path}:{line}")),
             many => {
                 let comments: Vec<Value> = many.iter().map(|(path, line, old, text)| json!({"path": path, "line": line, "old": old, "text": text})).collect();
-                let label = many.iter().enumerate().map(|(i, (path, line, _, text))| format!("{}) {path}:{line}: {}", i + 1, text.split_whitespace().collect::<Vec<_>>().join(" "))).collect::<Vec<_>>().join(" ");
+                let label = many
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (path, line, _, text))| format!("{}) {path}:{line}: {}", i + 1, text.split_whitespace().collect::<Vec<_>>().join(" ")))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 Key::Review(json!({"comments": comments}), label)
             }
         };
@@ -554,7 +559,17 @@ mod tests {
         let patch = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n x = 1\n-y = 2\n+y = 3\n";
         let mut diff = Diff::new(&json!({"patch": patch}));
         diff.arrived(1, Some(crate::patch::prepare(patch)), None);
-        for code in [KeyCode::Char('j'), KeyCode::Char('c'), KeyCode::Char('a'), KeyCode::Enter, KeyCode::Char('j'), KeyCode::Char('j'), KeyCode::Char('c'), KeyCode::Char('b'), KeyCode::Enter] {
+        for code in [
+            KeyCode::Char('j'),
+            KeyCode::Char('c'),
+            KeyCode::Char('a'),
+            KeyCode::Enter,
+            KeyCode::Char('j'),
+            KeyCode::Char('j'),
+            KeyCode::Char('c'),
+            KeyCode::Char('b'),
+            KeyCode::Enter,
+        ] {
             press(&mut diff, code);
         }
         assert_eq!(diff.drafts(), 2);

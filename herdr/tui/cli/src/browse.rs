@@ -13,10 +13,10 @@ use crate::proc::{self, Out, dumps, fail, open_url, quote};
 
 const USAGE: &str = "Opens a page in terminal-browser, split right of a pane, else in the default browser.
 
-    cockpit browse [--size <fraction>] [--reload] <url> [<Claude session id>]   beside the session's pane, else the calling one
-    cockpit browse --beside [<Claude session id>]                               the browser beside it, as JSON ({} when none)
-    cockpit browse --external [<Claude session id>]                             its page, opened in the default browser
-    cockpit browse --browsers [<Claude session id>]                             every browser beside it, as JSON";
+    cockpit browse [--size <fraction>] [--reload] <url> [<session id>]          beside the session's pane, else the calling one
+    cockpit browse --beside [<session id>]                                      the browser beside it, as JSON ({} when none)
+    cockpit browse --external [<session id>]                                    its page, opened in the default browser
+    cockpit browse --browsers [<session id>]                                    every browser beside it, as JSON";
 
 /// herdr sends a picture of at most 16 MiB through a file, a larger one inline through the terminal, which is far slower.
 const MAX_FRAME: f64 = 16.0 * 1024.0 * 1024.0;
@@ -88,7 +88,7 @@ pub fn terminal_browser() -> Option<String> {
 // ---------------------------------------------------------------------------------------------------------------------
 // The Herdr app
 
-/// The app terminal of a Claude session (as the agents document has it), else the calling one; None in the herdr TUI.
+/// The app terminal of an agent session (as the agents document has it), else the calling one; None in the herdr TUI.
 fn app_terminal(session: Option<&str>) -> Option<String> {
     if frontend::current() != Frontend::App {
         return None;
@@ -106,7 +106,11 @@ fn tab_mates(terminal: &str) -> Vec<(String, String)> {
         for tab in space["tabs"].as_array().into_iter().flatten() {
             let terminals = tab["terminals"].as_array().cloned().unwrap_or_default();
             if terminals.iter().any(|t| t["terminal"] == terminal) {
-                return terminals.iter().filter(|t| t["terminal"] != terminal).filter_map(|t| Some((t["terminal"].as_str()?.into(), t["pane"].as_str()?.into()))).collect();
+                return terminals
+                    .iter()
+                    .filter(|t| t["terminal"] != terminal)
+                    .filter_map(|t| Some((t["terminal"].as_str()?.into(), t["pane"].as_str()?.into())))
+                    .collect();
             }
         }
     }
@@ -175,7 +179,12 @@ fn app_open_beside(tb: &str, terminal: &str, url: &str, reload: bool) -> bool {
 }
 
 fn app_pane_of(terminal: &str) -> Option<(String, String)> {
-    frontend::app_spaces().iter().flat_map(|s| s["tabs"].as_array().cloned().unwrap_or_default()).flat_map(|t| t["terminals"].as_array().cloned().unwrap_or_default()).find(|t| t["terminal"] == terminal).and_then(|t| Some((terminal.to_string(), t["pane"].as_str()?.to_string())))
+    frontend::app_spaces()
+        .iter()
+        .flat_map(|s| s["tabs"].as_array().cloned().unwrap_or_default())
+        .flat_map(|t| t["terminals"].as_array().cloned().unwrap_or_default())
+        .find(|t| t["terminal"] == terminal)
+        .and_then(|t| Some((terminal.to_string(), t["pane"].as_str()?.to_string())))
 }
 
 /// A page already open in one of the browsers comes to the front (reloaded when asked), else a new tab in the first
@@ -199,7 +208,7 @@ fn reuse(tb: &str, browsers: &[Value], url: &str, reload: bool) -> Option<bool> 
 // ---------------------------------------------------------------------------------------------------------------------
 // herdr
 
-/// The pane of a Claude session, else the calling one, with its tab and space; None outside herdr.
+/// The pane of an agent session, else the calling one, with its tab and space; None outside herdr.
 pub fn pane_of(session: Option<&str>) -> Option<Value> {
     let listed = herdr(&["pane", "list"]).unwrap_or(Value::Null);
     let panes = listed["panes"].as_array().cloned().unwrap_or_default();

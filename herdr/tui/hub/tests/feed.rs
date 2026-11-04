@@ -98,8 +98,11 @@ fn github_and_linear_land_in_the_caches_beside_the_mods_fields() {
         ("GET", "/repos/acme/api/actions/jobs/111", _) => (200, vec![], json!({"steps": [{"name": "Run clippy", "conclusion": "failure"}]}).to_string()),
         _ => (404, vec![], json!({"message": "Not Found"}).to_string()),
     }));
-    let sandbox = Sandbox::new(&json!({}), &json!({"ci": {"enabled": true, "name": "GitHub", "server": "", "imageJob": "docker_build"},
-        "tickets": {"enabled": true, "name": "Linear", "server": "claude.ai Linear", "token": LINEAR_TOKEN}}));
+    let sandbox = Sandbox::new(
+        &json!({}),
+        &json!({"ci": {"enabled": true, "name": "GitHub", "server": "", "imageJob": "docker_build"},
+        "tickets": {"enabled": true, "name": "Linear", "server": "claude.ai Linear", "token": LINEAR_TOKEN}}),
+    );
     let cache = sandbox.home().join(".cache/cockpit");
     // The mod's last fetch: no direct review request yet, and the run of my PR still going.
     edit(&cache.join("inbox.json"), |inbox| inbox["direct"] = json!([]));

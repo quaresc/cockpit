@@ -624,7 +624,7 @@ export default class Todo {
       return Empty({
         icon: "list-todo",
         title: "Nothing to do",
-        description: "Add a to-do here, or with /todo from any Claude session.",
+        description: "Add a to-do here, or with /todo from a Claude Code session.",
         action: Button("empty-add", { label: "Add a to-do", icon: "plus", kbd: "a", onClick: (_e, cx) => this.startEdit(cx) }),
       });
     }

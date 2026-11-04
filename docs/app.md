@@ -1,9 +1,9 @@
 # cockpit in the Herdr app
 
-The Herdr desktop app half of cockpit: a layout (`layouts/cockpit.json`) and one mod (`mods/cockpit/`), drawn natively
-by Herdr from JavaScript, on the same hub as the herdr TUI half. `cockpit app install` copies them into the Herdr home
-(`HERDR_APP_HOME`, else `~/.config/herdr-app`), writes `cockpit.json` there (where the binary and cache are), merges
-`keys.json`, and switches the window to the cockpit layout the first time.
+The Herdr desktop app half of cockpit: a layout (`app/layouts/cockpit.json`) and one mod (`app/mods/cockpit/`), drawn
+natively by Herdr from JavaScript, on the same hub as the herdr TUI half. `cockpit app install` copies them into the
+Herdr home (`HERDR_APP_HOME`, else `~/.config/herdr-app`), writes `cockpit.json` there (where the binary and cache are),
+merges `keys.json`, and switches the window to the cockpit layout the first time.
 
 ## How it fits
 
@@ -32,7 +32,7 @@ Claude Code ─── plugin hooks ─────────── cockpit CLI
    ```
    The hub rebuilds the view when one of `docs` changes, a file in `dirs` changes, or after its own action, and pushes
    it only when it differs. `cockpit_todo::gui` is the reference, with its test.
-2. **JS**: `mods/cockpit/<app>.js`, a class with `init(props, cx)`, `render(cx)`, optional `key(e, cx)` (returns true
+2. **JS**: `app/mods/cockpit/<app>.js`, a class with `init(props, cx)`, `render(cx)`, optional `key(e, cx)` (returns true
    when it used the key), `command(c, cx)` and `close()`; add it to `VIEWS` in `main.js`. The layout already has a
    block `{ "mod": "cockpit", "props": { "app": "<app>" } }` in the `center` stack. `todo.js` is the reference.
 3. Every TUI key and action exists, as a visible button with its key as a `Kbd` hint, plus the pointer patterns below.
@@ -46,14 +46,18 @@ await hub.act("todo", "add", ["text"]);   // {note, pending, refreshing, error}
 await hub.view("todo");  await hub.search("quota");  await hub.go(target);  await hub.fetchDetails("ci_log", args);
 await hub.events("inbox", sinceMs);  await hub.history("ci_duration", key);
 await hub.cockpit(["focus", "space:inbox"]);  // the cockpit binary, on the install's HOME, driving this window
+await hub.openUrl(url);  // open (macOS), xdg-open (Linux), start (Windows): never exec("open") directly
+hub.isNotInstalled(state);  // a subscription's "error: …" when the Herdr home has no cockpit.json
 ```
 
-`subscribe` reconnects by itself and starts the hub when none runs; stop it in `close()`. `{focus, target}` arrives
-when the palette or a notification asks the view to bring `target.key` into view (`cockpit focus`, `hub.go`).
+`subscribe` reconnects by itself and starts the hub when none runs (a failed `cockpit hub start` is tried again after
+30 s, for every view at once); stop it in `close()`. `{focus, target}` arrives when the palette or a notification asks
+the view to bring `target.key` into view (`cockpit focus`, `hub.go`). Without `cockpit.json` Home draws the install
+panel and `AgentsModel` (agentsui.js) falls back to Herdr's `agents()`.
 
 ## Window-wide plumbing (the sidebar copy owns it)
 
-- Keys (`keys.json`, section `layout:cockpit`): `cmd-shift-p` → `cockpit.palette` (cockpit's palette, a superset of
+- Keys (`app/keys.json`, section `layout:cockpit`): `cmd-shift-p` → `cockpit.palette` (cockpit's palette, a superset of
   Herdr's), `cmd-alt-1..6` → `cockpit.go:<inbox|runbook|todo|meetings|monitor|routines>`. A `cockpit.<command>`
   reaches every shown copy's `command()`; prefix your own with your view's name (`todo:delete:<key>`).
 - `show(child)` from `sidebar.js` switches the `center` stack and gives that view the keyboard (`show:<app>`).
@@ -74,7 +78,7 @@ when the palette or a notification asks the view to bring `target.key` into view
 
 ## The shell: layout, Home, status bar, bell, side panel, queue
 
-`layouts/cockpit.json`: sidebar · a top bar (`tabs` + `bell`) · the `center` stack, `home` first and shown at start
+`app/layouts/cockpit.json`: sidebar · a top bar (`tabs` + `bell`) · the `center` stack, `home` first and shown at start
 (the board, with a hidden `home-agent` column: `agent-head` over `{agent: "focused"}`), `work` (a `view` stack: `main` =
 the tab, `agent` = the focused agent alone), the apps · the `status` bar; in `work`, the right `panel` (stack
 `panel-body`: `show`, `review`, `runbook-panel` (`runbook {scope: "focused"}`), `files`, `changes`, then the `activity`
@@ -335,7 +339,7 @@ deletions, files, reviewers, checks}}`; `ticket_card` `{id}` → `{description, 
 ## Design kit (`ui.js`)
 
 shadcn/ui's components and proportions on Herdr's `theme()` (light and dark follow the person's theme). Build every
-screen from these; add what is missing to the kit, not inline. `sh app/sandbox.sh kit [charts]` shows them all.
+screen from these; add what is missing to the kit, not inline. `sh scripts/sandbox.sh kit [charts]` shows them all.
 
 | Area | API |
 | --- | --- |
@@ -358,9 +362,9 @@ abbreviations).
 ## Testing
 
 ```sh
-COCKPIT_SANDBOX=$TMPDIR/cockpit-gui-inbox sh app/sandbox.sh start   # one sandbox per person or agent working at once
-sh app/sandbox.sh show todo; sh app/sandbox.sh key j; sh app/sandbox.sh shot /tmp/x.png; sh app/sandbox.sh check
-sh app/sandbox.sh notify "🔴 CI failed: api main" "lint" "space:inbox"; sh app/sandbox.sh light; sh app/sandbox.sh stop
+COCKPIT_SANDBOX=$TMPDIR/cockpit-gui-inbox sh scripts/sandbox.sh start   # one sandbox per person or agent working at once
+sh scripts/sandbox.sh show todo; sh scripts/sandbox.sh key j; sh scripts/sandbox.sh shot /tmp/x.png; sh scripts/sandbox.sh check
+sh scripts/sandbox.sh notify "🔴 CI failed: api main" "lint" "space:inbox"; sh scripts/sandbox.sh light; sh scripts/sandbox.sh stop
 ```
 
 The sandbox is a separate Herdr window (its own `HERDR_APP_HOME`) on a fake HOME with the acme demo world, its own hub,
@@ -400,9 +404,9 @@ wide, into `docs/app/` (`OUT`, `WIDTHS`, `THEMES` change that). It brings the wi
   [herdr-linear](https://github.com/mrolafsson/herdr-linear) (MIT); PR alerts by diff, the agent-time ledger read on
   ticket rows and the merged-worktree cleanup follow herdr-relevo (Apache-2.0, ideas); hover cards fetched on hover
   follow [herdr-gh-board](https://github.com/meviusisback/herdr-gh-board) (MIT).
-- The code view (`mods/cockpit/code.js`) is ported from [yama-lei/herdr-editor-layout](https://github.com/yama-lei/herdr-editor-layout)'s
+- The code view (`app/mods/cockpit/code.js`) is ported from [yama-lei/herdr-editor-layout](https://github.com/yama-lei/herdr-editor-layout)'s
   editor pane (Apache-2.0).
-- The show view's Mermaid flowchart parser and layered layout (`mods/cockpit/diagram.js`) are ported from
+- The show view's Mermaid flowchart parser and layered layout (`app/mods/cockpit/diagram.js`) are ported from
   [herdr-blueprint-app](https://github.com/chappse6/herdr-blueprint-app)'s `mermaid.js` and `layout.js` (MIT, Copyright
   (c) 2026 chappse6), its node drawing and done/active marks after its `main.js`; the living blueprint (a plan the
   agent keeps current in a `.mmd` file, a click on a box asking it for a change, Fit / − / % / +, the dot grid) is its

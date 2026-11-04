@@ -146,17 +146,33 @@ impl Log {
         let shown = total.min(SHOWN);
         let scrolls = total > SHOWN;
         let room = if scrolls { cols.saturating_sub(2) } else { cols };
-        let (size, start) = ((shown * shown / total.max(1)).max(1), if total > shown { top * (shown - (shown * shown / total).max(1)) / last.max(1) } else { 0 });
+        let (size, start) =
+            ((shown * shown / total.max(1)).max(1), if total > shown { top * (shown - (shown * shown / total).max(1)) / last.max(1) } else { 0 });
         let mut out: Vec<Row> = lines[top..top + shown]
             .iter()
             .enumerate()
             .map(|(n, text)| {
                 let low = text.to_lowercase();
-                let style = if ERROR.is_match(&low) { fg(RED) } else if WARN.is_match(&low) { fg(ORANGE) } else { ratatui::style::Style::new() };
+                let style = if ERROR.is_match(&low) {
+                    fg(RED)
+                } else if WARN.is_match(&low) {
+                    fg(ORANGE)
+                } else {
+                    ratatui::style::Style::new()
+                };
                 let mut row = Row::text(fit(text, room), style);
                 if scrolls {
                     let thumb = (start..start + size).contains(&n);
-                    row = row.add(" ", style).add(if thumb { "┃" } else { "│" }, fg(if thumb && focused { ORANGE } else if thumb { THUMB } else { LINE }));
+                    row = row.add(" ", style).add(
+                        if thumb { "┃" } else { "│" },
+                        fg(if thumb && focused {
+                            ORANGE
+                        } else if thumb {
+                            THUMB
+                        } else {
+                            LINE
+                        }),
+                    );
                 }
                 row.target(Target::Log)
             })
@@ -165,7 +181,11 @@ impl Log {
         let mark = if *code == 0 { "✓".to_string() } else { format!("✗ exit {code}") };
         let mut status = Row::text(format!("{mark} · every {}s · {at}", self.every), if *code == 0 { dim() } else { fg(RED) });
         if scrolls {
-            let place = if self.top.is_some() { format!("   lines {}–{} of {total} · G follows", top + 1, top + shown) } else { format!("   following the last {shown} of {total}") };
+            let place = if self.top.is_some() {
+                format!("   lines {}–{} of {total} · G follows", top + 1, top + shown)
+            } else {
+                format!("   following the last {shown} of {total}")
+            };
             status = status.add(place, dim());
         }
         out.push(status.target(Target::Log));

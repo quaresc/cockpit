@@ -1,4 +1,4 @@
-//! The monitor's actions: Claude sessions in the actions space that investigate how a release, an error or a monitor
+//! The monitor's actions: agent sessions in the actions space that investigate how a release, an error or a monitor
 //! does, fix an error, draft a bug or roll a release back, each in the app's repo; plus pins, refreshes and links.
 //! Each takes the app as the monitor document has it, with its `env`.
 
@@ -168,7 +168,7 @@ pub fn investigate(ctx: &mut Ctx, args: &[Value]) -> Res {
     let name = s(app, "name")?;
     let label = if subject.name.is_empty() { format!("investigate {name}") } else { format!("investigate {name} {}", subject.name) };
     let dir = inbox::repo_dir(ctx, &s(app, "repo")?);
-    inbox::start_action(ctx, &dir, &label, &prompt, &[]);
+    inbox::start_action(ctx, &dir, &label, &prompt, &inbox::Launch::new());
     Ok(())
 }
 
@@ -182,13 +182,13 @@ pub fn fix(ctx: &mut Ctx, args: &[Value]) -> Res {
         .map(|r| format!(" It came with the release {}.", text(get(r, "tag"))))
         .unwrap_or_default();
     let prompt = format!(
-        "Fix {} in {}: {}.{shipped} Use your observability tools (Datadog) to read the issue's stack trace and sample events, find the cause in this repo, reproduce it in a failing test, then fix it. Follow the repo's conventions (its CLAUDE.md and mine): branch off an updated main, name the branch as they say and ask me for the ticket key when it needs one, then open a draft PR with a short description that links the Datadog issue.",
+        "Fix {} in {}: {}.{shipped} Use your observability tools (Datadog) to read the issue's stack trace and sample events, find the cause in this repo, reproduce it in a failing test, then fix it. Follow the repo's conventions (its CLAUDE.md or AGENTS.md, and mine): branch off an updated main, name the branch as they say and ask me for the ticket key when it needs one, then open a draft PR with a short description that links the Datadog issue.",
         subject.phrase,
         who(app)?,
         subject.facts.join("; ")
     );
     let dir = inbox::repo_dir(ctx, &s(app, "repo")?);
-    inbox::start_action(ctx, &dir, &format!("fix {} {}", s(app, "name")?, subject.name), &prompt, &[]);
+    inbox::start_action(ctx, &dir, &format!("fix {} {}", s(app, "name")?, subject.name), &prompt, &inbox::Launch::new());
     Ok(())
 }
 
@@ -199,15 +199,29 @@ pub fn bug(ctx: &mut Ctx, args: &[Value]) -> Res {
     let mut facts = subject.facts.clone();
     facts.extend(context(app, target)?);
     let prompt = format!(
-        "Draft a Linear bug for {} in {}. The evidence cockpit's monitor has: {}. Links: {}. Add what the bug needs from Datadog (through your observability tools: the stack trace, sample events, when it started, how many requests or users it hits), then write it following my conventions for Linear issues in CLAUDE.md. Show me the draft and ask before filing it: file nothing until I say so.",
+        "Draft a Linear bug for {} in {}. The evidence cockpit's monitor has: {}. Links: {}. Add what the bug needs from Datadog (through your observability tools: the stack trace, sample events, when it started, how many requests or users it hits), then write it following my conventions for Linear issues (CLAUDE.md or AGENTS.md). Show me the draft and ask before filing it: file nothing until I say so.",
         subject.phrase,
         who(app)?,
         facts.join("; "),
         links(app, &subject)
     );
     let dir = inbox::repo_dir(ctx, &s(app, "repo")?);
-    inbox::start_action(ctx, &dir, &format!("bug {} {}", s(app, "name")?, subject.name), &prompt, &[]);
+    inbox::start_action(ctx, &dir, &format!("bug {} {}", s(app, "name")?, subject.name), &prompt, &inbox::Launch::new());
     Ok(())
+}
+
+/// The deploy platform's tools the config maps, as " (the platform's deploys_status and deploys_history tools)", else nothing.
+fn platform_tools(ctx: &Ctx) -> String {
+    let platform = &ctx.cfg.0["platform"];
+    if !truthy(&platform["enabled"]) {
+        return String::new();
+    }
+    let tools: Vec<&str> = ["deployStatus", "deployHistory"].iter().filter_map(|k| platform["tools"][*k]["tool"].as_str()).filter(|t| !t.is_empty()).collect();
+    match tools.as_slice() {
+        [] => String::new(),
+        [one] => format!(" (the platform's {one} tool)"),
+        many => format!(" (the platform's {} tools)", many.join(" and ")),
+    }
 }
 
 /// Once confirmed, a session that checks the previous tag and proposes its deploy through the deploy platform, asking before it.
@@ -219,11 +233,12 @@ pub fn roll_back(ctx: &mut Ctx, args: &[Value]) -> Res {
         return Ok(());
     }
     let prompt = format!(
-        "Roll {name} back in {env} from {tag} to {previous}. Why: {}. First check {previous}: what changed between it and {tag} (git log {previous}..{tag} in this repo, and the PRs in between), whether anything {tag} shipped makes going back unsafe (a migration, a message or API contract other apps rely on), and what your deploy platform says runs now. Then propose the deploy of {previous} to {env}, naming the environment, the app and the version, and ask me before deploying. Deploy nothing until I say yes; once deployed, follow it until it ends.",
-        subject.facts.join("; ")
+        "Roll {name} back in {env} from {tag} to {previous}. Why: {}. First check {previous}: what changed between it and {tag} (git log {previous}..{tag} in this repo, and the PRs in between), whether anything {tag} shipped makes going back unsafe (a migration, a message or API contract other apps rely on), and what your deploy platform says runs now{}. Then propose the deploy of {previous} to {env} through your deploy platform's tools, naming the environment, the app and the version, and ask me before deploying. Deploy nothing until I say yes; once deployed, follow it until it ends.",
+        subject.facts.join("; "),
+        platform_tools(ctx)
     );
     let dir = inbox::repo_dir(ctx, &s(app, "repo")?);
-    inbox::start_action(ctx, &dir, &format!("roll back {name} {tag}"), &prompt, &[]);
+    inbox::start_action(ctx, &dir, &format!("roll back {name} {tag}"), &prompt, &inbox::Launch::new());
     Ok(())
 }
 

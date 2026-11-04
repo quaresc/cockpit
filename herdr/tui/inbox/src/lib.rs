@@ -6,6 +6,7 @@ mod changes;
 mod details;
 pub mod facts;
 mod filter;
+pub mod gui;
 mod history;
 mod icons;
 pub mod inputs;
@@ -21,7 +22,6 @@ mod test_home;
 mod tree;
 mod work;
 pub mod worktrees;
-pub mod gui;
 
 /// `cockpit inbox`: the inbox in the terminal until it quits.
 pub fn run() -> std::io::Result<()> {

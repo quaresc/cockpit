@@ -88,9 +88,7 @@ fn without_the_actions_space_an_action_gets_a_space() {
 
 #[test]
 fn continue_moves_the_plan_out_of_the_actions_space() {
-    let sandbox = with_herdr(
-        r#"{"pane get": {"pane": {"pane_id": "w9:p2", "tab_id": "w9:t2", "agent": "claude"}}, "pane move": {"workspace_id": "wN"}}"#,
-    );
+    let sandbox = with_herdr(r#"{"pane get": {"pane": {"pane_id": "w9:p2", "tab_id": "w9:t2", "agent": "claude"}}, "pane move": {"workspace_id": "wN"}}"#);
     let (reply, calls) = act(&sandbox, "continue_ticket", &format!("[{TICKET1}, []]"));
     assert!(calls.contains(&["pane", "move", "w9:p2", "--new-workspace", "--label", "eng-401", "--focus"].map(String::from).to_vec()), "{calls:?}");
     assert!(!calls.iter().any(|c| c[0] == "workspace" && c[1] == "create" || c[0] == "pane" && c[1] == "run"), "{calls:?}");

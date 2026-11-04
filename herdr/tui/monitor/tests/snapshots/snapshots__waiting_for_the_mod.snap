@@ -4,8 +4,8 @@ expression: "render(&mut App::with(Some(clock()), Density::Comfortable, false), 
 ---
    Monitor   waiting for the mod
 
- A Claude session connected to your deploy platform and Datadog
- fills this.
+ A Claude Code session connected to your deploy platform
+ and Datadog fills this.
 
 
 

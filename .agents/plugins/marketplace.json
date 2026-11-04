@@ -1,0 +1,12 @@
+{
+  "name": "cockpit",
+  "interface": { "displayName": "cockpit" },
+  "plugins": [
+    {
+      "name": "cockpit",
+      "source": { "source": "local", "path": "./codex" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

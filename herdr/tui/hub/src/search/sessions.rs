@@ -1,8 +1,8 @@
-//! Past Claude sessions, searchable by their words and by what they meant: a tantivy index of the transcripts in Claude's
-//! projects folder, one document per passage with its vector (see embed), kept in ~/.cache/cockpit/sessions-index. A
-//! process of its own (the hub's command run again with HUB_TASK set) indexes the transcripts whose size or time
-//! changed, when the hub starts, on a watch of the projects folder and every few minutes, so the memory indexing takes
-//! goes back to the system each time; the hub only reads.
+//! Past agent sessions, searchable by their words and by what they meant: a tantivy index of the transcripts of every
+//! agent cockpit reads (`cockpit_core::transcripts`), one document per passage with its vector (see embed), kept in
+//! ~/.cache/cockpit/sessions-index. A process of its own (the hub's command run again with HUB_TASK set) indexes the
+//! transcripts whose size or time changed, when the hub starts, on a watch of the agents' folders and every few minutes,
+//! so the memory indexing takes goes back to the system each time; the hub only reads.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, NaiveDate};
 use cockpit_core::files;
+use cockpit_core::transcripts::{self as reader, Transcripts};
 use notify::{RecursiveMode, Watcher};
 use serde_json::{Value, json};
 use tantivy::collector::TopDocs;
@@ -41,7 +42,7 @@ const SCAN: Duration = Duration::from_secs(300);
 const QUIET: Duration = Duration::from_secs(5);
 const SPACING: Duration = Duration::from_secs(30);
 /// Bumped when the schema or what a document holds changes: the old index is dropped and built again.
-const VERSION: &str = "2";
+const VERSION: &str = "3";
 const TITLE_BOOST: f32 = 3.0;
 /// A passage: about this many characters of a session, cut at a line.
 const PASSAGE: usize = 1500;
@@ -61,9 +62,9 @@ pub fn search(query: &str) -> Vec<Value> {
     INDEX.get().map(|index| index.search(query, Local::now().date_naive())).unwrap_or_default()
 }
 
-/// Claude's projects folder, under CLAUDE_CONFIG_DIR when set.
-pub fn projects_dir() -> PathBuf {
-    std::env::var("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|_| files::home().join(".claude")).join("projects")
+/// Each format's folder of transcripts (Claude's projects, Codex's sessions, ...), where it is on this machine.
+pub fn sources() -> Vec<(Transcripts, PathBuf)> {
+    reader::KINDS.into_iter().filter_map(|k| Some((k, reader::root(k)?))).collect()
 }
 
 fn index_dir() -> PathBuf {
@@ -74,13 +75,13 @@ fn index_dir() -> PathBuf {
 pub fn index_once() {
     embed::fetch();
     if let Ok(index) = Sessions::open(&index_dir()) {
-        let _ = index.update(&projects_dir());
+        let _ = index.update(&sources());
     }
 }
 
 /// Keeps the index current for as long as the hub runs, reading it as soon as it exists.
 pub fn keep() {
-    let projects = projects_dir();
+    let sources = sources();
     let (tx, changes) = channel();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if event.is_ok() {
@@ -88,11 +89,15 @@ pub fn keep() {
         }
     })
     .ok();
-    let mut watching = false;
+    let mut watching = vec![false; sources.len()];
     loop {
-        // Watching before indexing, so a change made while it runs still brings the next run.
-        if !watching && let Some(w) = watcher.as_mut() {
-            watching = w.watch(&projects, RecursiveMode::Recursive).is_ok();
+        // Watching before indexing, so a change made while it runs still brings the next run; a folder an agent makes
+        // later is watched from the next round on.
+        if let Some(w) = watcher.as_mut() {
+            for ((_, dir), on) in sources.iter().zip(watching.iter_mut()) {
+                // Each watch restarts the macOS event stream: only folders that exist and aren't watched yet.
+                *on = *on || (dir.is_dir() && w.watch(dir, RecursiveMode::Recursive).is_ok());
+            }
         }
         let started = Instant::now();
         run_indexer();
@@ -135,6 +140,7 @@ fn run_indexer() {
 
 struct Fields {
     path: Field,
+    agent: Field,
     id: Field,
     cwd: Field,
     title: Field,
@@ -161,9 +167,11 @@ type Manifest = BTreeMap<String, (u64, u128)>;
 
 fn schema() -> (Schema, Fields) {
     let mut builder = Schema::builder();
-    let words = TextOptions::default().set_indexing_options(TextFieldIndexing::default().set_tokenizer("en_stem").set_index_option(IndexRecordOption::WithFreqsAndPositions));
+    let words = TextOptions::default()
+        .set_indexing_options(TextFieldIndexing::default().set_tokenizer("en_stem").set_index_option(IndexRecordOption::WithFreqsAndPositions));
     let fields = Fields {
         path: builder.add_text_field("path", STRING | STORED),
+        agent: builder.add_text_field("agent", STORED),
         id: builder.add_text_field("id", STORED),
         cwd: builder.add_text_field("cwd", STORED),
         title: builder.add_text_field("title", words.clone() | STORED),
@@ -217,21 +225,23 @@ impl Sessions {
         std::fs::read_to_string(&self.manifest).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
     }
 
-    /// Indexes the transcripts added or changed since the last update and drops the removed ones, a batch per commit;
-    /// how many it indexed or dropped.
-    pub fn update(&self, projects: &Path) -> tantivy::Result<usize> {
+    /// Indexes the transcripts added or changed in these folders since the last update and drops the removed ones, a
+    /// batch per commit; how many it indexed or dropped.
+    pub fn update(&self, sources: &[(Transcripts, PathBuf)]) -> tantivy::Result<usize> {
         let mut manifest = self.read_manifest();
-        let found = transcripts(projects);
+        let found: BTreeMap<String, (Transcripts, reader::Stamp)> =
+            sources.iter().flat_map(|(kind, dir)| reader::all_in(*kind, dir).into_iter().map(|(path, stamp)| (path, (*kind, stamp)))).collect();
         let gone: Vec<String> = manifest.keys().filter(|p| !found.contains_key(*p)).cloned().collect();
-        let changed: Vec<(&String, &(u64, u128))> = found.iter().filter(|(path, stamp)| manifest.get(*path) != Some(stamp)).collect();
-        let work: Vec<(&String, Option<&(u64, u128)>)> = gone.iter().map(|p| (p, None)).chain(changed.iter().map(|(p, s)| (*p, Some(*s)))).collect();
+        let changed: Vec<(&String, &(Transcripts, reader::Stamp))> = found.iter().filter(|(path, (_, stamp))| manifest.get(*path) != Some(stamp)).collect();
+        let work: Vec<(&String, Option<&(Transcripts, reader::Stamp)>)> =
+            gone.iter().map(|p| (p, None)).chain(changed.iter().map(|(p, s)| (*p, Some(*s)))).collect();
         for batch in work.chunks(BATCH) {
             let mut writer = self.index.writer_with_num_threads::<TantivyDocument>(1, WRITER_HEAP)?;
             for &(path, stamp) in batch {
                 writer.delete_term(Term::from_field_text(self.fields.path, path));
                 match stamp {
-                    Some(stamp) => {
-                        if let Some(session) = transcript::read(Path::new(path)) {
+                    Some((kind, stamp)) => {
+                        if let Some(session) = transcript::read(*kind, Path::new(path)) {
                             for passage in self.documents(path, &session) {
                                 writer.add_document(passage)?;
                             }
@@ -259,7 +269,7 @@ impl Sessions {
             .into_iter()
             .map(|passage| {
                 let vector = model.and_then(|m| m.embed(&format!("{}\n{passage}", session.title))).map(|v| embed::pack(&v)).unwrap_or_default();
-                doc!(f.path => path, f.id => session.id.as_str(), f.cwd => session.cwd.as_str(), f.title => session.title.as_str(),
+                doc!(f.path => path, f.agent => session.agent, f.id => session.id.as_str(), f.cwd => session.cwd.as_str(), f.title => session.title.as_str(),
                     f.text => passage, f.first => session.first.as_str(), f.last => session.last.as_str(), f.vector => vector)
             })
             .collect()
@@ -358,13 +368,13 @@ impl Sessions {
 
     fn entry(&self, found: &TantivyDocument, today: NaiveDate, snippet: &str) -> Value {
         let get = |field: Field| found.get_first(field).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let (id, cwd, title, last) = (get(self.fields.id), get(self.fields.cwd), get(self.fields.title), get(self.fields.last));
+        let (agent, id, cwd, title, last) = (get(self.fields.agent), get(self.fields.id), get(self.fields.cwd), get(self.fields.title), get(self.fields.last));
         let project = Path::new(&cwd).file_name().map(|n| n.to_string_lossy().into_owned());
         let when = DateTime::parse_from_rfc3339(&last).ok().map(|t| t.with_timezone(&Local).date_naive());
         let quoted = (!snippet.is_empty()).then(|| format!("“{snippet}”"));
         let help: Vec<String> =
             project.into_iter().chain(when.map(|d| d.format("%a %d %b").to_string())).chain(when.map(|d| age(d, today))).chain(quoted).collect();
-        json!({"app": "session", "kind": "session", "title": title, "help": help.join(" · "), "target": {"app": "session", "key": id, "cwd": cwd, "title": title}})
+        json!({"app": "session", "kind": "session", "title": title, "help": help.join(" · "), "target": {"app": "session", "key": id, "cwd": cwd, "title": title, "agent": agent}})
     }
 }
 
@@ -384,23 +394,6 @@ fn passages(text: &str) -> Vec<String> {
     }
     out.retain(|p| !p.trim().is_empty());
     out
-}
-
-/// The session transcripts, `<projects>/<project>/<session>.jsonl`, with their stamps; subagents' are left out.
-fn transcripts(projects: &Path) -> BTreeMap<String, (u64, u128)> {
-    let mut found = BTreeMap::new();
-    for project in std::fs::read_dir(projects).into_iter().flatten().flatten() {
-        for file in std::fs::read_dir(project.path()).into_iter().flatten().flatten() {
-            let path = file.path();
-            let is_session = path.extension().is_some_and(|e| e == "jsonl") && !file.file_name().to_string_lossy().starts_with("agent-");
-            let Ok(meta) = file.metadata() else { continue };
-            if is_session && meta.is_file() {
-                let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or_default();
-                found.insert(path.to_string_lossy().into_owned(), (meta.len(), modified));
-            }
-        }
-    }
-    found
 }
 
 /// How long ago a day was, in the unit that reads best.
@@ -423,15 +416,23 @@ mod tests {
         NaiveDate::from_ymd_opt(2026, 10, 28).unwrap()
     }
 
-    /// The fixture box's projects folder, copied, with an index beside it.
+    /// The fixture box's Claude projects folder, copied, with an index beside it.
     fn indexed() -> (tempfile::TempDir, PathBuf, Sessions) {
         let dir = tempfile::tempdir().unwrap();
-        let projects = dir.path().join("projects");
-        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/box/home/.claude/projects");
-        copy(&fixtures, &projects);
+        copy(&home().join(".claude/projects"), &dir.path().join("projects"));
         let index = Sessions::open(&dir.path().join("index")).unwrap();
-        index.update(&projects).unwrap();
+        index.update(&in_box(dir.path())).unwrap();
+        let projects = dir.path().join("projects");
         (dir, projects, index)
+    }
+
+    fn home() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/box/home")
+    }
+
+    /// The folders a copy of the box holds: Claude's projects, and Codex's sessions when copied.
+    fn in_box(dir: &Path) -> Vec<(Transcripts, PathBuf)> {
+        vec![(Transcripts::Claude, dir.join("projects")), (Transcripts::Codex, dir.join("codex"))]
     }
 
     fn copy(from: &Path, to: &Path) {
@@ -457,8 +458,24 @@ mod tests {
         assert_eq!(found[0]["title"], "Google sign-in for ENG-401");
         assert!(found[0]["help"].as_str().unwrap().starts_with("api · Tue 27 Oct · yesterday · “"), "{}", found[0]["help"]);
         assert!(found[0]["help"].as_str().unwrap().contains("callback"), "the passage that matched shows");
-        assert_eq!(found[0]["target"], json!({"app": "session", "key": "s-login", "cwd": "@BOX@/repos/api", "title": "Google sign-in for ENG-401"}));
+        assert_eq!(
+            found[0]["target"],
+            json!({"app": "session", "key": "s-login", "cwd": "@BOX@/repos/api", "title": "Google sign-in for ENG-401", "agent": "claude"})
+        );
         assert!(index.search("dark mode", today())[0]["help"].as_str().unwrap().starts_with("web · Wed 02 Sep · 8 weeks ago · “"));
+    }
+
+    #[test]
+    fn codex_sessions_are_found_with_their_agent() {
+        let (dir, projects, index) = indexed();
+        copy(&home().join(".codex/sessions"), &dir.path().join("codex"));
+        assert_eq!(index.update(&in_box(projects.parent().unwrap())).unwrap(), 1);
+        let found = index.search("quota limit", today());
+        assert_eq!(keys(&found), ["0c0dec5e-0412-7a11-9e00-ac3e00000412"]);
+        assert_eq!(found[0]["target"]["agent"], "codex");
+        assert!(found[0]["help"].as_str().unwrap().starts_with("api · Mon 26 Oct · 2 days ago · “"), "{}", found[0]["help"]);
+        assert!(index.search("narwhal", today()).is_empty(), "tool output is not indexed");
+        assert_eq!(index.search("callback", today())[0]["target"]["agent"], "claude");
     }
 
     #[test]
@@ -481,12 +498,12 @@ mod tests {
     #[test]
     fn only_changed_transcripts_are_indexed_again() {
         let (_dir, projects, index) = indexed();
-        assert_eq!(index.update(&projects).unwrap(), 0);
+        assert_eq!(index.update(&in_box(projects.parent().unwrap())).unwrap(), 0);
         let dark = projects.join("-box-repos-web/s-dark.jsonl");
         let mut text = std::fs::read_to_string(&dark).unwrap();
         text += r#"{"type":"user","timestamp":"2026-10-28T08:00:00Z","message":{"role":"user","content":"Also the walrus banner"}}"#;
         std::fs::write(&dark, text).unwrap();
-        assert_eq!(index.update(&projects).unwrap(), 1);
+        assert_eq!(index.update(&in_box(projects.parent().unwrap())).unwrap(), 1);
         let found = index.search("walrus", today());
         assert_eq!(keys(&found), ["s-dark"]);
         assert!(found[0]["help"].as_str().unwrap().starts_with("web · Wed 28 Oct · today · “"));
@@ -498,7 +515,7 @@ mod tests {
     fn a_removed_transcript_leaves_the_index() {
         let (_dir, projects, index) = indexed();
         std::fs::remove_file(projects.join("-box-repos-api/s-login.jsonl")).unwrap();
-        assert_eq!(index.update(&projects).unwrap(), 1);
+        assert_eq!(index.update(&in_box(projects.parent().unwrap())).unwrap(), 1);
         assert!(index.search("callback", today()).is_empty());
     }
 
@@ -507,7 +524,7 @@ mod tests {
         let (dir, projects, index) = indexed();
         drop(index);
         let index = Sessions::open(&dir.path().join("index")).unwrap();
-        assert_eq!(index.update(&projects).unwrap(), 0);
+        assert_eq!(index.update(&in_box(projects.parent().unwrap())).unwrap(), 0);
         assert_eq!(keys(&index.search("callback", today())), ["s-login"]);
         drop(index);
         std::fs::create_dir_all(dir.path().join("index/v0")).unwrap();

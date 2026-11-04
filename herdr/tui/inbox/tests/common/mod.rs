@@ -23,7 +23,12 @@ pub fn inputs() -> Inputs {
 }
 
 pub fn series() -> HashMap<String, Vec<f64>> {
-    fixture("history.json").as_object().expect("series by ticket").iter().map(|(k, v)| (k.clone(), v.as_array().expect("values").iter().filter_map(Value::as_f64).collect())).collect()
+    fixture("history.json")
+        .as_object()
+        .expect("series by ticket")
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_array().expect("values").iter().filter_map(Value::as_f64).collect()))
+        .collect()
 }
 
 pub fn app(compact: bool) -> App {

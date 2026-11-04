@@ -23,12 +23,7 @@ pub fn base(var: &str, default: &str) -> String {
 }
 
 static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .http_status_as_error(false)
-        .user_agent("cockpit-hub")
-        .build()
-        .into()
+    ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).http_status_as_error(false).user_agent("cockpit-hub").build().into()
 });
 
 pub fn get(url: &str, headers: &[(&str, &str)]) -> Fetched {
@@ -154,7 +149,10 @@ mod tests {
     #[test]
     fn other_failures_say_why_in_one_short_line() {
         assert_eq!(judge(401, &Retry::default(), json!({"message": "Bad credentials"})), Err(Failure::Other("HTTP 401: token refused".into())));
-        assert_eq!(judge(403, &retry("4000", 0), json!({"message": "Resource protected\nby SAML"})), Err(Failure::Other("HTTP 403: Resource protected".into())));
+        assert_eq!(
+            judge(403, &retry("4000", 0), json!({"message": "Resource protected\nby SAML"})),
+            Err(Failure::Other("HTTP 403: Resource protected".into()))
+        );
         assert_eq!(judge(200, &Retry::default(), json!({"data": 1})), Ok(json!({"data": 1})));
     }
 }

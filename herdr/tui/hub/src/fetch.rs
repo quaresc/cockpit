@@ -139,7 +139,7 @@ fn ci_log(config: &Config, args: &Value) -> Result<Value, String> {
     let name = ci["name"].as_str().unwrap_or("GitHub");
     let is_github = name.eq_ignore_ascii_case("github") || ci["server"].as_str().unwrap_or_default().is_empty();
     if !is_github {
-        return Ok(json!({"lines": [], "message": format!("The {name} logs need a Claude session with its connector: fix ci opens one.")}));
+        return Ok(json!({"lines": [], "message": format!("The {name} logs need an agent session with its connector: fix ci opens one.")}));
     }
     let repo = full_repo(config, args)?;
     let branch = args["branch"].as_str().filter(|b| !b.is_empty()).ok_or("no branch given")?;

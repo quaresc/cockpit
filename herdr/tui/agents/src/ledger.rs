@@ -121,7 +121,11 @@ pub fn covered(intervals: &[(u64, u64)], from: u64, to: u64) -> u64 {
 pub fn day_and_week_start(now: u64) -> (u64, u64) {
     let local = Local.timestamp_millis_opt(now as i64).single().unwrap_or_else(Local::now);
     let midnight = local.with_time(NaiveTime::MIN).single().map(|d| d.timestamp_millis() as u64).unwrap_or(now);
-    let monday = (local - Duration::days(local.weekday().num_days_from_monday() as i64)).with_time(NaiveTime::MIN).single().map(|d| d.timestamp_millis() as u64).unwrap_or(midnight);
+    let monday = (local - Duration::days(local.weekday().num_days_from_monday() as i64))
+        .with_time(NaiveTime::MIN)
+        .single()
+        .map(|d| d.timestamp_millis() as u64)
+        .unwrap_or(midnight);
     (midnight, monday)
 }
 
@@ -151,7 +155,8 @@ pub fn totals(stretches: &[Stretch], now: u64) -> Totals {
             day.and_then(|d| d.with_time(NaiveTime::MIN).single()).map(|d| d.timestamp_millis() as u64).unwrap_or(monday + d as u64 * 86_400_000)
         })
         .collect();
-    let days = starts[..7].iter().map(|s| Local.timestamp_millis_opt(*s as i64).single().map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default()).collect();
+    let days =
+        starts[..7].iter().map(|s| Local.timestamp_millis_opt(*s as i64).single().map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default()).collect();
     let mut tickets = BTreeMap::new();
     let mut week = BTreeMap::new();
     for (k, iv) in by_ticket {

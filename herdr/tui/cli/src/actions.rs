@@ -1,4 +1,4 @@
-//! `cockpit actions`: the pinned actions space's tabs, and its sidebar row listing the Claude sessions running there.
+//! `cockpit actions`: the pinned actions space's tabs, and its sidebar row listing the agent sessions running there.
 
 use cockpit_core::actions::{herdr, open_tab, pinned, space};
 use cockpit_core::text::fit;
@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::proc::fail;
 
-const USAGE: &str = "The pinned actions space: a tab per one-off Claude session the inbox or the runbook starts.
+const USAGE: &str = "The pinned actions space: a tab per one-off agent session the inbox or the runbook starts.
 
     cockpit actions tab <cwd> <label> [key]   a new tab there, in view, its pane id printed; nothing without the space
     cockpit actions sidebar                    the space's sidebar row lists its sessions again";
@@ -66,7 +66,9 @@ pub fn tokens(ws: &str, tabs: &[Value], room: usize) -> Vec<String> {
         }
         let waiting = tab.is_some_and(|t| t["agent_status"] == "blocked");
         let text = text.filter(|t| !t.is_empty());
-        for (name, value) in [(format!("act_{}", i + 1), if waiting { None } else { text.clone() }), (format!("act_{}_wait", i + 1), if waiting { text.clone() } else { None })] {
+        for (name, value) in
+            [(format!("act_{}", i + 1), if waiting { None } else { text.clone() }), (format!("act_{}_wait", i + 1), if waiting { text.clone() } else { None })]
+        {
             match value {
                 Some(value) => args.extend(["--token".to_string(), format!("{name}={value}")]),
                 None => args.extend(["--clear-token".to_string(), name]),
@@ -76,7 +78,7 @@ pub fn tokens(ws: &str, tabs: &[Value], room: usize) -> Vec<String> {
     args
 }
 
-/// Lists the space's Claude sessions under its sidebar row, one line each with its state; a waiting one stands out.
+/// Lists the space's agent sessions under its sidebar row, one line each with its state; a waiting one stands out.
 fn sidebar() {
     let Some(ws) = space(&pinned()) else { return };
     let listed = herdr(&["tab", "list"]).unwrap_or(Value::Null);

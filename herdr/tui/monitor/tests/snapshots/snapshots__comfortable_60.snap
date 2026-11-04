@@ -5,7 +5,7 @@ expression: "render(&mut app(Density::Comfortable), 60, 30)"
    Monitor   3 apps · 3 releases today · updated 17:56
 
  ▼  api       v2026.10.28.1  1 h ago by… 12 ok · 1 alert
-   ├  [api] Sign-in availability          Alert
+   ├  [api] Sign-in availability                     Alert
    ├  new Req.TransportError: socket c…  140×  since 16:55
    ├ ⚠️  v2026.10.28.1  16:58 you     ENG-412  errors 0.13%…
    └ ✅  v2026.10.28    16:34 jonas   errors 0.12% → 0.13% …

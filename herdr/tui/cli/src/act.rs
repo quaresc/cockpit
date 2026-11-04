@@ -8,12 +8,12 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "What a notification's button does, with the inbox app's own actions and the inbox cache.
 
-    cockpit act review <PR url>       a Claude review of the PR in the actions space
-    cockpit act ci <PR url>           a Claude investigation of the PR's failing CI in a new space
-    cockpit act rerun <PR url>        the PR's failed CI jobs rerun, by the next Claude session
-    cockpit act plan <ticket id>      a Claude plan for the ticket in the actions space
+    cockpit act review <PR url>       an agent's review of the PR in the actions space
+    cockpit act ci <PR url>           an agent's investigation of the PR's failing CI in a new space
+    cockpit act rerun <PR url>        the PR's failed CI jobs rerun
+    cockpit act plan <ticket id>      an agent's plan for the ticket in the actions space
     cockpit act merge <PR url>        the PR merged (or queued) by its repo's preferred method
-    cockpit act routine <slug>        the routine's last Claude run resumed in the actions space";
+    cockpit act routine <slug>        the routine's last agent run resumed in the actions space";
 
 pub fn main(args: &[String]) {
     match press(args) {
@@ -84,13 +84,7 @@ fn pr_of(url: &str) -> Result<Value, String> {
 /// The CI run of the PR's branch, null when the CI cache has none.
 fn ci_run_of(pr: &Value) -> Value {
     let runs = files::load(&files::cache().join("ci.json")).unwrap_or(Value::Null);
-    runs["runs"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|r| r["repo"] == pr["repo"] && r["branch"] == pr["branch"])
-        .cloned()
-        .unwrap_or(Value::Null)
+    runs["runs"].as_array().into_iter().flatten().find(|r| r["repo"] == pr["repo"] && r["branch"] == pr["branch"]).cloned().unwrap_or(Value::Null)
 }
 
 /// A ticket's URL: the configured template's, else an assigned ticket's URL cut where its id is a path segment, with the
@@ -111,7 +105,8 @@ fn ticket_url(id: &str) -> Option<String> {
 
 /// The template with `{id}` filled in, URL-quoted, and any other `{name}` left empty.
 fn fill(template: &str, id: &str) -> String {
-    let quoted: String = id.bytes().map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+    let quoted: String =
+        id.bytes().map(|b| if b.is_ascii_alphanumeric() || b"_.-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
     let mut out = String::new();
     let mut rest = template;
     while let Some(open) = rest.find('{') {

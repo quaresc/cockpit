@@ -26,7 +26,8 @@ pub fn github_fields(github: &super::github::Github) -> [Value; 5] {
 
 /// Whether the inbox holds GitHub data someone fetched, to compare a new fetch against.
 pub fn has_github(inbox: &Value) -> bool {
-    inbox["version"].as_i64() == Some(INBOX_VERSION) && (inbox["hub"]["github"].is_number() || inbox["modAt"].is_number() || (inbox["hub"].is_null() && inbox["at"].is_number()))
+    inbox["version"].as_i64() == Some(INBOX_VERSION)
+        && (inbox["hub"]["github"].is_number() || inbox["modAt"].is_number() || (inbox["hub"].is_null() && inbox["at"].is_number()))
 }
 
 /// The inbox with the hub's part merged in; another version's file, or none, starts over.
@@ -63,7 +64,8 @@ pub fn merge_ci(file: &Value, runs: Result<Vec<Value>, String>, now: u64) -> Val
     match runs {
         Ok(runs) => json!({"at": now, "runs": runs, "version": CI_VERSION, "by": "hub"}),
         Err(error) => {
-            let mut ci = json!({"at": file["at"].as_u64().unwrap_or(0), "runs": file["runs"].as_array().cloned().unwrap_or_default(), "error": error, "by": "hub"});
+            let mut ci =
+                json!({"at": file["at"].as_u64().unwrap_or(0), "runs": file["runs"].as_array().cloned().unwrap_or_default(), "error": error, "by": "hub"});
             if file["version"].as_i64() == Some(CI_VERSION) {
                 ci["version"] = json!(CI_VERSION);
             }
@@ -134,7 +136,10 @@ mod tests {
     #[test]
     fn a_ci_error_keeps_the_runs_and_their_time() {
         let file = json!({"at": 50, "runs": [{"repo": "api"}], "version": 3});
-        assert_eq!(merge_ci(&file, Err("GitHub HTTP 502".into()), 99), json!({"at": 50, "runs": [{"repo": "api"}], "error": "GitHub HTTP 502", "version": 3, "by": "hub"}));
+        assert_eq!(
+            merge_ci(&file, Err("GitHub HTTP 502".into()), 99),
+            json!({"at": 50, "runs": [{"repo": "api"}], "error": "GitHub HTTP 502", "version": 3, "by": "hub"})
+        );
         assert_eq!(merge_ci(&file, Ok(vec![]), 99), json!({"at": 99, "runs": [], "version": 3, "by": "hub"}));
     }
 

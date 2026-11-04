@@ -1,0 +1,33 @@
+{
+  "calls": [
+    {
+      "args": [
+        "run",
+        "rerun",
+        "900",
+        "--failed",
+        "-R",
+        "acme/api"
+      ],
+      "cmd": "gh",
+      "stdin": ""
+    },
+    {
+      "args": [
+        "run",
+        "rerun",
+        "901",
+        "--failed",
+        "-R",
+        "acme/api"
+      ],
+      "cmd": "gh",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "rerun api#4: failed jobs rerunning",
+  "pending": {},
+  "refreshing": []
+}

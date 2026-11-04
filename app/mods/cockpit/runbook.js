@@ -1276,7 +1276,7 @@ export default class Runbook {
           Empty({
             icon: "book",
             title: has ? "No runbook for this agent" : "No agent focused",
-            description: has ? "Nothing it works on has a runbook yet: ask the agent for /runbook." : "Focus an agent working on a ticket to see its runbook here.",
+            description: has ? "Nothing it works on has a runbook yet: in Claude Code, ask the agent for /runbook." : "Focus an agent working on a ticket to see its runbook here.",
             action: Button("panel-open-all", { label: "All runbooks", icon: "book", variant: "outline", size: "sm", onClick: () => hub.go({ app: "runbook", key: this.books()[0]?.slug ?? "" }).catch(() => {}) }),
           }),
         ),
@@ -1337,7 +1337,7 @@ export default class Runbook {
     if (!m) return this.overlays(root.child(this.loading(k)), k, cx);
     if (!book) {
       return this.overlays(
-        root.child(Empty({ icon: "book", title: "No runbook yet", description: "Run /runbook in a Claude session working on a ticket: its deploy steps, PRs and commands land here." })),
+        root.child(Empty({ icon: "book", title: "No runbook yet", description: "Run /runbook in a Claude Code session working on a ticket: its deploy steps, PRs and commands land here." })),
         k,
         cx,
       );

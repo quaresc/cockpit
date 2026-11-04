@@ -1,6 +1,6 @@
 //! The palette's search across the apps: one index of the inbox's PRs and tickets, the runbooks and their steps, the
 //! show views and their blocks, the to-do items, the meetings, the monitor's releases and the routines, rebuilt when the
-//! watcher says a file changed; then the week's events (what changed, and when), then the past Claude sessions from
+//! watcher says a file changed; then the week's events (what changed, and when), then the past agent sessions from
 //! their own index.
 
 mod embed;
@@ -283,8 +283,7 @@ mod tests {
             &json!({"title": "Quotas demo", "blocks": [{"type": "chart", "title": "Blocked previews"}, {"type": "markdown"}]}),
         )
         .unwrap();
-        files::write(&cache.join("meetings.json"), &json!({"meetings": [{"id": "m1", "title": "Team daily", "start": "2026-10-28T09:45:00+01:00"}]}))
-            .unwrap();
+        files::write(&cache.join("meetings.json"), &json!({"meetings": [{"id": "m1", "title": "Team daily", "start": "2026-10-28T09:45:00+01:00"}]})).unwrap();
         std::fs::write(home.path().join(".config/cockpit/todo.md"), "# To-do\n\n- [ ] call the bank\n- [x] ship ENG-401\n").unwrap();
         std::fs::write(home.path().join(".config/cockpit/runbooks/eng-401.md"), "# ENG-401 · Google sign-in\nupdated: today\n\n| # | Step | Where | Status | Command |\n|---|---|---|---|---|\n| 1 | Run the migration | api | ⬜ to do | mix ecto.migrate |\n").unwrap();
         home

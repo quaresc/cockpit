@@ -39,11 +39,17 @@ pub fn is_image_job(name: &str, image_job: &str) -> bool {
 
 /// The runs of my PRs; `step` reads an Actions job's failing step, asked only when the previous runs do not have it.
 pub fn runs(prs: &[Value], prev: &Value, image_job: &str, step: &mut dyn FnMut(&str, u64) -> Option<String>) -> Vec<Value> {
-    let cached: HashMap<String, &Value> =
-        list(&prev["runs"]).iter().map(|r| (format!("{}/{}/{}", r["repo"].as_str().unwrap_or_default(), r["branch"].as_str().unwrap_or_default(), r["runId"].as_str().unwrap_or_default()), r)).collect();
+    let cached: HashMap<String, &Value> = list(&prev["runs"])
+        .iter()
+        .map(|r| {
+            (format!("{}/{}/{}", r["repo"].as_str().unwrap_or_default(), r["branch"].as_str().unwrap_or_default(), r["runId"].as_str().unwrap_or_default()), r)
+        })
+        .collect();
     let mut out = Vec::new();
     for pr in prs {
-        let (Some(branch), Some(repo), Some(slug)) = (pr["headRefName"].as_str(), pr["repository"]["name"].as_str(), pr["repository"]["nameWithOwner"].as_str()) else {
+        let (Some(branch), Some(repo), Some(slug)) =
+            (pr["headRefName"].as_str(), pr["repository"]["name"].as_str(), pr["repository"]["nameWithOwner"].as_str())
+        else {
             continue;
         };
         let commit = &pr["commits"]["nodes"][0]["commit"];
@@ -129,7 +135,8 @@ mod tests {
 
     #[test]
     fn a_known_failing_step_is_not_asked_again() {
-        let prev = json!({"runs": [{"repo": "api", "branch": "me/eng-401-login", "runId": "c0ffee4", "failed": {"job": "lint", "jobId": "111", "step": "Lint"}}]});
+        let prev =
+            json!({"runs": [{"repo": "api", "branch": "me/eng-401-login", "runId": "c0ffee4", "failed": {"job": "lint", "jobId": "111", "step": "Lint"}}]});
         let runs = runs(&prs(), &prev, "", &mut |_, _| panic!("asked again"));
         assert_eq!(runs[0]["failed"]["step"], "Lint");
         assert!(runs[0].get("dockerTag").is_none());

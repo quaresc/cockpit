@@ -31,10 +31,7 @@ pub fn sparkline(values: &[f64], width: usize) -> String {
     const BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     let values = &values[values.len().saturating_sub(width)..];
     let (lo, hi) = values.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-    values
-        .iter()
-        .map(|&v| if hi > lo { BARS[(((v - lo) / (hi - lo)) * 7.0).round() as usize] } else { BARS[3] })
-        .collect()
+    values.iter().map(|&v| if hi > lo { BARS[(((v - lo) / (hi - lo)) * 7.0).round() as usize] } else { BARS[3] }).collect()
 }
 
 /// The "/ filter" bar shown while a filter is typed or kept, with how many rows match.

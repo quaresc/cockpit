@@ -1,8 +1,10 @@
-//! The inbox's actions: Claude sessions in new spaces, tabs of the actions space or worktrees, mutes, the brief, and the
+//! The inbox's actions: agent sessions in new spaces, tabs of the actions space or worktrees, mutes, the brief, and the
 //! requests (rerun, redeploy, preview, release) the mod carries out.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use cockpit_core::agent::{self, Agent};
 use cockpit_core::{files, frontend};
 use serde_json::{Value, json};
 
@@ -10,7 +12,7 @@ use super::{Ctx, arg, opt, space};
 use crate::config;
 use crate::herdr;
 use crate::proc;
-use crate::value::{Res, cut, get, join, key, list, now, now_ms, or, quote, s, text, truthy};
+use crate::value::{Res, cut, get, join, key, list, now, now_ms, or, s, text, truthy};
 
 fn requests_dir() -> PathBuf {
     files::cache().join("requests")
@@ -21,7 +23,7 @@ fn muted_path() -> PathBuf {
 }
 
 fn projects_dir() -> PathBuf {
-    std::env::var("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|_| files::home().join(".claude")).join("projects")
+    cockpit_core::transcripts::claude_home().join("projects")
 }
 
 fn is_dir(path: &str) -> bool {
@@ -50,8 +52,47 @@ pub fn details(ctx: &mut Ctx, args: &[Value]) -> Res {
     Ok(())
 }
 
-/// A Claude session in a new space; when a space of that label already runs, it comes into view instead.
-pub(super) fn start_space(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[String]) {
+/// What a new terminal starts: an agent on a prompt, fresh or on a past session of it, after the environment it gets.
+pub(crate) struct Launch {
+    pub agent: Agent,
+    /// A past session, carried on (`resume`) rather than branched from.
+    pub session: Option<(String, bool)>,
+    /// `NAME=value` words put before the command.
+    pub env: Vec<String>,
+}
+
+impl Launch {
+    /// The default agent, fresh.
+    pub fn new() -> Launch {
+        Launch { agent: agent::default(), session: None, env: Vec::new() }
+    }
+
+    /// A new branch of the agent's session.
+    pub fn fork(agent: Agent, session: &str) -> Launch {
+        Launch { agent, session: Some((session.to_string(), false)), env: Vec::new() }
+    }
+
+    /// The agent's session carried on.
+    pub fn resume(agent: Agent, session: &str) -> Launch {
+        Launch { agent, session: Some((session.to_string(), true)), env: Vec::new() }
+    }
+
+    /// The shell line with the prompt; an agent that cannot fork or resume starts fresh on it.
+    pub fn line(&self, prompt: &str) -> String {
+        let a = &self.agent;
+        let prompt = Some(prompt).filter(|p| !p.is_empty());
+        let argv = match &self.session {
+            Some((session, true)) => a.resume_with(session, prompt),
+            Some((session, false)) => a.fork_with(session, prompt),
+            None => None,
+        };
+        let argv = argv.unwrap_or_else(|| a.start_argv(prompt, None));
+        join(&self.env.iter().cloned().chain(a.typed(&argv)).collect::<Vec<_>>())
+    }
+}
+
+/// An agent session in a new space; when a space of that label already runs, it comes into view instead.
+pub(super) fn start_space(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, launch: &Launch) {
     if frontend::focus_space_named(label) {
         ctx.note(format!("\"{label}\" already runs: focused it"));
         return;
@@ -69,22 +110,13 @@ pub(super) fn start_space(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, f
         Ok(pane) => pane,
         Err(note) => return ctx.note(note),
     };
-    frontend::run_in(&pane, &claude_line(flags, prompt));
+    frontend::run_in(&pane, &launch.line(prompt));
     ctx.note(format!("started \"{label}\" in a new space"));
 }
 
-/// `claude <flags> <prompt>` as a shell line; leading `NAME=value` flags are the session's environment, put first.
-fn claude_line(flags: &[String], prompt: &str) -> String {
-    let is_env = |f: &String| f.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(|c| c.is_ascii_uppercase() || c == '_'));
-    let env = flags.iter().take_while(|f| is_env(f)).cloned();
-    let rest = flags.iter().skip_while(|f| is_env(f)).cloned();
-    let words: Vec<String> = env.chain(std::iter::once("claude".to_string())).chain(rest).chain([prompt.to_string()]).collect();
-    join(&words)
-}
-
-/// A one-off Claude session in a tab of the actions space, else in a new space; pressed again while it runs, its tab
+/// A one-off agent session in a tab of the actions space, else in a new space; pressed again while it runs, its tab
 /// comes back into view.
-pub(crate) fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, flags: &[String]) {
+pub(crate) fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, launch: &Launch) {
     if let Some(pane) = space::pane_of(label)
         && space::focus(&pane)
     {
@@ -92,10 +124,10 @@ pub(crate) fn start_action(ctx: &mut Ctx, cwd: &str, label: &str, prompt: &str, 
         return;
     }
     let Some(pane) = space::open_tab(&ctx.cfg, cwd, label, Some(label)) else {
-        start_space(ctx, cwd, label, prompt, flags);
+        start_space(ctx, cwd, label, prompt, launch);
         return;
     };
-    frontend::run_in(&pane, &claude_line(flags, prompt));
+    frontend::run_in(&pane, &launch.line(prompt));
     ctx.note(format!("started \"{label}\" in the actions space"));
 }
 
@@ -145,7 +177,7 @@ pub(super) fn space_on(path: &str) -> Option<Value> {
     herdr::spaces().into_iter().find(|w| w["worktree"]["checkout_path"].as_str().is_some_and(|p| !p.is_empty() && real(p) == wanted))
 }
 
-/// A herdr worktree of the PR's branch, from its remote head, with Claude in its space; false when herdr refuses.
+/// A herdr worktree of the PR's branch, from its remote head, with the agent in its space; false when herdr refuses.
 fn new_worktree(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res<bool> {
     let main = format!("{}/{}", ctx.repos(), s(pr, "repo")?);
     let branch = get(pr, "branch");
@@ -159,12 +191,12 @@ fn new_worktree(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res<boo
     let Some(pane) = herdr::result_of(&created).and_then(|r| r["root_pane"]["pane_id"].as_str().map(str::to_string)) else {
         return Ok(false);
     };
-    herdr::run(&["pane", "run", &pane, &format!("claude {}", quote(prompt))]);
+    herdr::run(&["pane", "run", &pane, &Launch::new().line(prompt)]);
     ctx.note(format!("started \"{label}\" in a new worktree"));
     Ok(true)
 }
 
-/// Claude on the PR's branch: the space open on its checkout, else a new space there, else a new worktree with
+/// The agent on the PR's branch: the space open on its checkout, else a new space there, else a new worktree with
 /// `worktrees` on, else the main checkout where it checks the branch out.
 fn on_branch(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res {
     let branch = get(pr, "branch");
@@ -175,14 +207,14 @@ fn on_branch(ctx: &mut Ctx, pr: &Value, label: &str, prompt: &str) -> Res {
             ctx.note(format!("{} is already open in \"{}\": focused it", text(branch), text(&open["label"])));
             return Ok(());
         }
-        start_space(ctx, &path, label, &format!("{prompt} The branch {} is checked out here, in {path}: work in it.", text(branch)), &[]);
+        start_space(ctx, &path, label, &format!("{prompt} The branch {} is checked out here, in {path}: work in it.", text(branch)), &Launch::new());
         return Ok(());
     }
     if truthy(get(&ctx.cfg.0, "worktrees")) && new_worktree(ctx, pr, label, &format!("{prompt} This is a new worktree of {}: work in it.", text(branch)))? {
         return Ok(());
     }
     let dir = repo_dir(ctx, &repo);
-    start_space(ctx, &dir, label, &format!("{prompt} Check the branch {} out first.", text(branch)), &[]);
+    start_space(ctx, &dir, label, &format!("{prompt} Check the branch {} out first.", text(branch)), &Launch::new());
     Ok(())
 }
 
@@ -193,11 +225,20 @@ pub fn review(ctx: &mut Ctx, args: &[Value]) -> Res {
     let target = if is_dir(&format!("{}/{repo}", ctx.repos())) { number.clone() } else { url.clone() };
     let dir = repo_dir(ctx, &repo);
     // The session reviews this PR, not whatever branch the checkout it runs in has: its links and facts follow the PR.
-    let mut focus = vec![format!("COCKPIT_REVIEW_PR={url}")];
+    let mut launch = Launch::new();
+    launch.env.push(format!("COCKPIT_REVIEW_PR={url}"));
     if let Some(branch) = get(pr, "branch").as_str().filter(|b| !b.is_empty()) {
-        focus.push(format!("COCKPIT_REVIEW_BRANCH={branch}"));
+        launch.env.push(format!("COCKPIT_REVIEW_BRANCH={branch}"));
     }
-    start_action(ctx, &dir, &format!("review {repo}#{number}"), &format!("/code-review {target}"), &focus);
+    // Claude Code has a code-review skill; another agent is asked in words.
+    let prompt = if launch.agent.id == "claude" {
+        format!("/code-review {target}")
+    } else {
+        format!(
+            "Review the pull request {target} ({url}): read its diff and discussion, then list the bugs and risks you find, most serious first. Post nothing."
+        )
+    };
+    start_action(ctx, &dir, &format!("review {repo}#{number}"), &prompt, &launch);
     Ok(())
 }
 
@@ -228,7 +269,7 @@ pub fn fix_ci(ctx: &mut Ctx, args: &[Value]) -> Res {
         text(get(pr, "branch"))
     );
     let dir = repo_dir(ctx, &repo);
-    start_space(ctx, &dir, &label, &format!("CI is failing on {url}.{job}{github}{plan} Explain the cause and propose a fix. Do not push."), &[]);
+    start_space(ctx, &dir, &label, &format!("CI is failing on {url}.{job}{github}{plan} Explain the cause and propose a fix. Do not push."), &Launch::new());
     Ok(())
 }
 
@@ -237,7 +278,7 @@ pub fn plan(ctx: &mut Ctx, args: &[Value]) -> Res {
     let id = s(ticket, "id")?;
     let prompt = format!("Pick up {id} ({}): read the ticket, find the repos involved, and propose a plan before coding.", s(ticket, "url")?);
     let repos = ctx.repos();
-    start_action(ctx, &repos, &format!("plan {}", id.to_lowercase()), &prompt, &[]);
+    start_action(ctx, &repos, &format!("plan {}", id.to_lowercase()), &prompt, &Launch::new());
     Ok(())
 }
 
@@ -270,11 +311,11 @@ pub fn continue_ticket(ctx: &mut Ctx, args: &[Value]) -> Res {
         "Continue {id} ({url}). Find its branch (named after {lower}) in the repo it touches, check it out, and summarize where it stands before changing anything."
     );
     let repos = ctx.repos();
-    start_space(ctx, &repos, &lower, &prompt, &[]);
+    start_space(ctx, &repos, &lower, &prompt, &Launch::new());
     Ok(())
 }
 
-/// The folder a Claude session started in, read from its transcript; None once the transcript is gone.
+/// The folder a Claude Code session started in, read from its transcript; None once the transcript is gone.
 fn session_cwd(session: &str) -> Option<String> {
     let mut projects: Vec<PathBuf> = std::fs::read_dir(projects_dir()).ok()?.flatten().map(|e| e.path()).collect();
     projects.sort();
@@ -367,37 +408,58 @@ pub fn talk_over(ctx: &mut Ctx, ticket: &Value, prs: &[Value], data: &Value, own
     let brief = ticket_brief(ticket, prs, data)? + news;
     let hands_off = " Change nothing (no edits, commits, pushes or ticket updates) unless I ask.";
     let id = s(ticket, "id")?;
-    let owned = owner.filter(|o| !o.is_empty()).and_then(|o| session_cwd(o).map(|cwd| (o.to_string(), cwd)));
     let label = format!("talk {}", id.to_lowercase());
-    if let Some((session, cwd)) = owned.or_else(|| ticket_session(&id)) {
+    // The sessions found by their transcript or their cost are Claude Code's, forked only while it is installed.
+    let claude = agent::get("claude").filter(Agent::installed);
+    let owned = owner.filter(|o| !o.is_empty() && claude.is_some()).and_then(|o| session_cwd(o).map(|cwd| (o.to_string(), cwd)));
+    let found = owned.or_else(|| claude.as_ref().and_then(|_| ticket_session(&id)));
+    if let (Some(claude), Some((session, cwd))) = (claude, found) {
         let prompt = format!(
             "This is a fork of your session on {id}, opened to talk it over. Per the inbox now: {brief} Catch up on what changed since (the ticket's comments, the PRs' reviews and CI), sum it up in a few lines, then wait for my questions.{hands_off}"
         );
-        start_action(ctx, &cwd, &label, &prompt, &proc::strings(&["--resume", &session, "--fork-session"]));
+        start_action(ctx, &cwd, &label, &prompt, &Launch::fork(claude, &session));
         return Ok(());
     }
     let prompt = format!(
         "Let's talk {id} over. Per the inbox: {brief} Read the ticket with its comments and the PRs with their reviews and CI, sum up where it stands in a few lines, then wait for my questions.{hands_off}"
     );
     let repos = ctx.repos();
-    start_action(ctx, &repos, &label, &prompt, &[]);
+    start_action(ctx, &repos, &label, &prompt, &Launch::new());
     Ok(())
 }
 
-/// Files a request the mod carries out, and the row's pending entry the app follows to its outcome.
+/// Files a request the mod carries out, and the row's pending entry the app follows to its outcome. A Claude Code
+/// session with the cockpit plugin takes it, so without Claude Code it is refused at once.
 fn request(ctx: &mut Ctx, payload: Value, row: &str, working: &str) -> Res {
+    if !agent::get("claude").is_some_and(|a| a.installed()) {
+        return Err(format!("{} needs Claude Code: the cockpit plugin carries it out in a Claude Code session", s(&payload, "label")?));
+    }
     let name = format!("{}-{}.json", now_ms(), s(&payload, "type")?);
     files::write(&requests_dir().join(&name), &payload).map_err(|e| e.to_string())?;
     ctx.pending.insert(row.into(), json!({"file": name, "working": working, "label": payload["label"], "at": now()}));
     Ok(())
 }
 
+/// Reruns a CI run's failed jobs: a GitHub Actions run (it carries the repo's slug) through gh here, other CI through
+/// a request.
 pub fn rerun(ctx: &mut Ctx, args: &[Value]) -> Res {
     let (pr, ci_run) = (arg(args, 0)?, arg(args, 1)?);
-    if ctx.confirmed(&format!("rerun-{}", s(ci_run, "workflowId")?)) {
-        let label = format!("rerun {}#{}", s(pr, "repo")?, s(pr, "number")?);
-        request(ctx, json!({"type": "rerun", "workflowId": key(ci_run, "workflowId")?, "label": label}), &s(pr, "url")?, "rerunning failed jobs…")?;
+    let workflows = s(ci_run, "workflowId")?;
+    if !ctx.confirmed(&format!("rerun-{workflows}")) {
+        return Ok(());
     }
+    let label = format!("rerun {}#{}", s(pr, "repo")?, s(pr, "number")?);
+    let slug = get(ci_run, "slug").as_str().unwrap_or_default();
+    if slug.is_empty() {
+        return request(ctx, json!({"type": "rerun", "workflowId": key(ci_run, "workflowId")?, "label": label}), &s(pr, "url")?, "rerunning failed jobs…");
+    }
+    for id in workflows.split(',').filter(|id| !id.is_empty()) {
+        let out = proc::run(&proc::strings(&["gh", "run", "rerun", id, "--failed", "-R", slug]), Duration::from_secs(40), None);
+        if !out.ok() {
+            return Err(format!("gh run rerun {id}: {}", out.stderr.trim().lines().next().unwrap_or("failed")));
+        }
+    }
+    ctx.note(format!("{label}: failed jobs rerunning"));
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Screenshots of a page at phone, tablet and desktop sizes in the terminal-browser beside the calling pane.
-#   shots.sh <url> <out dir> [--sizes mobile,tablet,desktop] [--full] [--session <Claude session id>]
+#   shots.sh <url> <out dir> [--sizes mobile,tablet,desktop] [--full] [--session <session id>]
 # Exits 2 when they cannot be taken here, so the caller takes them in Chrome instead.
 PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 dir=$(dirname "$0")

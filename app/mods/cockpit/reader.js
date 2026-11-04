@@ -3,7 +3,8 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
-import { props, readTextFile, openOverlay, closeOverlay, exec } from "herdr";
+import { props, readTextFile, openOverlay, closeOverlay } from "herdr";
+import { openUrl } from "./hub.js";
 import { tokens, TEXT, RADIUS, Icon, Button, Toaster, Skeleton } from "./ui.js";
 
 /** Opens the reader window on a file or a text. */
@@ -13,7 +14,7 @@ export function openReader({ path, text, title, meta }) {
 
 /** Markdown as cockpit draws it in a panel: selectable, links to the browser. */
 export function Markdown(id, text, { size = TEXT.sm } = {}) {
-  return TextView.markdown(id, String(text ?? "")).selectable(true).text_size(size).on_link_click((url) => exec("open", [url]));
+  return TextView.markdown(id, String(text ?? "")).selectable(true).text_size(size).on_link_click((url) => openUrl(url));
 }
 
 export default class Reader {

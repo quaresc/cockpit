@@ -1,0 +1,21 @@
+name: Feature
+description: Something cockpit could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The situation and what gets in your way today, rather than the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How cockpit could help
+      description: What you picture, in the Herdr app, in herdr, or both.
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      description: The coding agent you use with cockpit, if it matters here.

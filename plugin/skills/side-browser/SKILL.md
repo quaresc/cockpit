@@ -6,15 +6,19 @@ description: Use the browser pane beside this conversation (terminal-browser in 
 The person sees this browser beside the conversation and it keeps their sign-ins, so they watch what you do and the pages
 you open are already logged in.
 
+<!-- agent: claude-code -->
 **Which browser?** Run `command -v terminal-browser; echo "$HERDR_PANE_ID $HC_TERMINAL_ID"; jq -r '.e2eBrowser // .checksBrowser // "terminal-browser"'
 ~/.config/cockpit/config.json`. Use Claude in Chrome (the `claude-in-chrome` skill) instead, and skip the rest of this
 skill, when terminal-browser is missing, there is neither a herdr pane id nor a Herdr app terminal id, the setting says
 `chrome`, or the person asks for Chrome.
 The person flips the setting with `/cockpit e2e chrome` or `/cockpit e2e terminal-browser`.
+<!-- /agent -->
 
+<!-- agent: claude-code -->
 **Not for showing results.** Charts, figures, tables and diagrams go through the show tool (`mcp__cockpit__show`),
 drawn natively beside the session; cockpit refuses to open a hand-made HTML file here unless show ran in the turn, the
 person asked for a page, or the command starts with `COCKPIT_SHOW_FALLBACK="<what show cannot draw>"`.
+<!-- /agent -->
 
 **Open a page** with `sh ~/.config/cockpit/herdr/browse.sh <url>`, never with `terminal-browser open`. A URL, a
 `localhost:<port>` or an absolute path to an HTML file all work. It opens the page as a tab of the browser already beside
@@ -40,6 +44,7 @@ and what you saw, with the screenshot paths.
 that tab with `terminal-browser action -- tab close` when done, so the
 person's tabs keep their own size.
 
+<!-- agent: claude-code -->
 **Before and after, for a PR description**: `sh ~/.config/cockpit/herdr/shots.sh <url> <dir>` screenshots a page at
 phone, tablet and desktop sizes in throwaway tabs (`--sizes mobile,desktop`, `--full` for the whole page) and prints the
 paths. Take it once for before, into `~/.cache/cockpit/shots/<repo>-<branch>/before`: on `main` with the dev server
@@ -49,6 +54,7 @@ into `…/after`. Dismiss cookie banners first so both sides match. Show them to
 GitHub only takes pictures uploaded through its own editor: open the PR's edit form (or the new PR page) beside you,
 `upload` the screenshots into the description field, check their links appeared, arrange them in a small Before | After
 table, and leave Save or Create to the person.
+<!-- /agent -->
 
 **Anything that publishes in the person's name stays theirs**: a GitHub review, a comment, a message, a form that
 sends. Fill it in (the review's inline comments, the summary), leave the page on the Submit button and tell the person

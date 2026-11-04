@@ -268,7 +268,8 @@ mod tests {
     #[test]
     fn a_ci_run_that_ends_says_how() {
         let before = json!({"version": 3, "runs": [{"repo": "api", "branch": "b", "runId": "1", "isRunning": true}]});
-        let after = json!({"version": 3, "runs": [{"repo": "api", "branch": "b", "runId": "1", "isRunning": false, "outcome": "failed", "failed": {"job": "lint"}}]});
+        let after =
+            json!({"version": 3, "runs": [{"repo": "api", "branch": "b", "runId": "1", "isRunning": false, "outcome": "failed", "failed": {"job": "lint"}}]});
         let inbox = json!({"mine": [{"repo": "api", "branch": "b", "url": "u4"}]});
         let events = of("ci", &before, &after, &inbox);
         assert_eq!(titles(&events), ["🔴 CI failed: api b · lint"]);

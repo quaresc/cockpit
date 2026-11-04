@@ -13,6 +13,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::{Local, NaiveDateTime, TimeZone};
+use cockpit_core::agent::{self, Agent, Headless};
 use cockpit_core::files;
 use cockpit_core::routines::{self, Notify, Routine, Run, When};
 use serde_json::{Map, Value, json};
@@ -49,11 +50,22 @@ pub fn light_prompt(r: &Routine) -> String {
     format!("You run one unattended task for cockpit, with only the tools it names. {load}Reply in one short line saying what you did.")
 }
 
-/// What a Claude routine's file lacks to do its job unattended: permissions for what needs approval, and for a lightest
-/// one its tools and servers that have them.
-fn problems(r: &Routine, servers: &[String]) -> Vec<String> {
-    if r.run != Run::Claude {
-        return Vec::new();
+/// What a routine's file lacks to do its job unattended: an agent that runs headless, and for Claude Code permissions
+/// for what needs approval, and for a lightest one its tools and servers that have them.
+fn problems(r: &Routine, agent: Option<&Agent>, servers: &[String]) -> Vec<String> {
+    let Some(agent) = agent.filter(|_| r.run == Run::Agent) else {
+        return if r.run == Run::Agent { vec![format!("runs agent {:?}, which cockpit does not know", r.agent)] } else { Vec::new() };
+    };
+    if !agent.can_run() {
+        return vec![format!("{} has no headless mode: it cannot run a routine", agent.name)];
+    }
+    if agent.id != "claude" {
+        let claude_only = r.is_lightest() || !r.tools.is_empty() || r.budget.is_some();
+        return if claude_only {
+            vec![format!("its tools, budget and lightest model are Claude Code's: {} runs it without them", agent.name)]
+        } else {
+            Vec::new()
+        };
     }
     if !r.is_lightest() {
         let unattended = r.tools.is_empty() && r.mode.is_empty();
@@ -76,11 +88,13 @@ fn lists(r: &Routine, called: &str) -> bool {
     r.tools.iter().any(|t| t == called || t.split('(').next().is_some_and(|name| name.trim() == called))
 }
 
-/// Where routines are read, where their runs go, and what runs Claude.
+/// Where routines are read, where their runs go, and the agents that run them.
 pub struct Setup {
     pub routines: PathBuf,
     pub runs: PathBuf,
-    pub claude: String,
+    /// The agents' table, and the id of the one a routine naming none runs.
+    pub agents: Vec<Agent>,
+    pub default_agent: String,
     pub repos: String,
     /// Where runs' worktrees go: ~/.herdr/worktrees, as the Herdr apps put theirs.
     pub worktrees: PathBuf,
@@ -88,9 +102,15 @@ pub struct Setup {
 
 impl Setup {
     pub fn live() -> Setup {
-        let claude = files::claude();
         let worktrees = files::home().join(".herdr/worktrees");
-        Setup { routines: routines::dir(), runs: files::cache().join("routines"), claude, repos: crate::config::load().repos(), worktrees }
+        let (agents, default_agent) = (agent::all(), agent::default().id);
+        Setup { routines: routines::dir(), runs: files::cache().join("routines"), agents, default_agent, repos: crate::config::load().repos(), worktrees }
+    }
+
+    /// The agent a routine runs: its own when it names one, else the default; None for a script or an unknown agent.
+    pub fn agent_of(&self, r: &Routine) -> Option<&Agent> {
+        let id = if r.agent.is_empty() { &self.default_agent } else { &r.agent };
+        (r.run == Run::Agent).then(|| self.agents.iter().find(|a| &a.id == id || a.aliases.contains(id))).flatten()
     }
 
     fn run_file(&self, slug: &str, id: &str, ext: &str) -> PathBuf {
@@ -202,7 +222,9 @@ pub fn round(store: &mut Store, setup: &Setup, now: u64, notify: Notifier) {
     listen(&mut doc, &all, &events, now);
     start_queued(&mut doc, setup, &all, now, notify);
     let servers = known_servers(setup);
-    doc["routines"] = Value::Array(all.iter().map(|r| shown(r, &doc, now, &servers)).collect());
+    doc["routines"] = Value::Array(all.iter().map(|r| shown(r, setup, &doc, now, &servers)).collect());
+    let installed: Vec<Value> = setup.agents.iter().filter(|a| a.can_run() && a.installed()).map(|a| json!({"id": a.id, "name": a.name})).collect();
+    doc["agents"] = json!({"default": setup.default_agent, "installed": installed});
     save(store, doc, now);
 }
 
@@ -321,7 +343,7 @@ fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notif
             continue;
         }
         let why = q["why"].as_str().unwrap_or_default();
-        let left_this_week = r.budget.filter(|_| r.run == Run::Claude).map(|b| b - spent(doc, slug, now));
+        let left_this_week = r.budget.filter(|_| is_claude(setup, r)).map(|b| b - spent(doc, slug, now));
         if let Some(left) = left_this_week.filter(|l| *l < 0.01) {
             over_budget(doc, r, left, notify);
             continue;
@@ -341,6 +363,10 @@ fn start_queued(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notif
 
 fn failed_to_start(now: u64, why: &str, err: &str) -> Value {
     json!({"id": now.to_string(), "started": now, "ended": now, "ok": false, "code": null, "why": why, "summary": format!("did not start: {err}")})
+}
+
+fn is_claude(setup: &Setup, r: &Routine) -> bool {
+    setup.agent_of(r).is_some_and(|a| a.id == "claude")
 }
 
 /// A random version 4 UUID, for the session a Claude run is asked to use.
@@ -373,10 +399,22 @@ pub fn prompt(r: &Routine, why: &str, event: &Value, now: u64) -> String {
     out
 }
 
+/// The headless command of another agent: its model when the routine names one it takes, and file edits when the
+/// routine gives a permission mode that allows them.
+pub fn agent_argv(agent: &Agent, r: &Routine, prompt: &str) -> Result<Vec<String>, String> {
+    let edits = matches!(r.mode.as_str(), "acceptEdits" | "auto" | "bypassPermissions" | "dontAsk");
+    let model = Some(r.model.as_str()).filter(|m| !m.is_empty() && !r.is_lightest());
+    agent
+        .headless(prompt, &Headless { model, edits, ..Default::default() })
+        .ok_or_else(|| format!("{} has no headless mode: it cannot run a routine", agent.name))
+}
+
 /// The MCP servers Claude Code connected in the routines' runs, as their init events listed them: the lightest runs
 /// connect only their own, so the list only grows.
 fn known_servers(setup: &Setup) -> Vec<String> {
-    files::load(&setup.runs.join("mcp-servers.json")).map(|v| list(&v["servers"]).iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default()
+    files::load(&setup.runs.join("mcp-servers.json"))
+        .map(|v| list(&v["servers"]).iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
 }
 
 /// The headless Claude command for a routine, `cap` the dollars it may still spend this week. A routine that lists its
@@ -428,7 +466,7 @@ pub fn claude_argv(claude: &str, r: &Routine, prompt: String, session: &str, cap
         if !unused.is_empty() {
             argv.extend(["--settings".into(), json!({"deniedMcpServers": unused}).to_string()]);
         }
-        argv.extend(["--system-prompt".into(), light_prompt(r)]);
+        argv.extend(["--append-system-prompt".into(), light_prompt(r)]);
     }
     argv
 }
@@ -438,15 +476,19 @@ fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Op
     let id = now.to_string();
     let dir = setup.runs.join(&r.slug);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let session = if r.run == Run::Claude { uuid() } else { String::new() };
-    let command = match r.run {
-        Run::Claude => claude_argv(&setup.claude, r, prompt(r, why, event, now), &session, cap, &known_servers(setup)),
-        Run::Shell => vec!["sh".into(), "-c".into(), r.body.clone()],
+    let agent = setup.agent_of(r);
+    let is_claude = agent.is_some_and(|a| a.id == "claude");
+    let session = if is_claude { uuid() } else { String::new() };
+    let command = match agent {
+        Some(a) if is_claude => claude_argv(&a.path(), r, prompt(r, why, event, now), &session, cap, &known_servers(setup)),
+        Some(a) => agent_argv(a, r, &prompt(r, why, event, now))?,
+        None if r.run == Run::Agent => return Err(format!("no agent {:?}", r.agent)),
+        None => vec!["sh".into(), "-c".into(), r.body.clone()],
     };
-    // A Claude run without a folder gets its own, where no project's CLAUDE.md and memory are read.
+    // An agent's run without a folder gets its own, where no project's instructions and memory are read.
     let cwd = match (r.cwd.is_empty(), r.run) {
         (false, _) => r.cwd.clone(),
-        (true, Run::Claude) => dir.to_string_lossy().into_owned(),
+        (true, Run::Agent) => dir.to_string_lossy().into_owned(),
         (true, Run::Shell) => setup.repos.clone(),
     };
     if !Path::new(&cwd).is_dir() {
@@ -457,6 +499,8 @@ fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Op
     let exit = setup.run_file(&r.slug, &id, "exit");
     let mut argv = vec!["sh".to_string(), "-c".into(), "\"$@\"; echo \"$?\" > \"$0\"".into(), exit.to_string_lossy().into_owned()];
     argv.extend(command);
+    // The command as run, to replay a run that went wrong.
+    let _ = files::write(&setup.run_file(&r.slug, &id, "cmd"), &json!({"argv": argv, "cwd": cwd}));
     let out = std::fs::File::create(setup.run_file(&r.slug, &id, "out")).map_err(|e| e.to_string())?;
     let err = std::fs::File::create(setup.run_file(&r.slug, &id, "err")).map_err(|e| e.to_string())?;
     let mut child = Command::new(&argv[0]);
@@ -476,12 +520,16 @@ fn start(setup: &Setup, r: &Routine, why: &str, event: &Value, now: u64, cap: Op
     let pid = child.id();
     // Reaped as soon as it ends; its end is read from its exit file.
     std::thread::spawn(move || child.wait());
-    Ok(json!({"id": id, "pid": pid, "started": now, "why": why, "session": session, "event": event, "timeout": r.timeout, "worktree": worktree}))
+    let agent = agent.map(|a| a.id.clone());
+    Ok(
+        json!({"id": id, "pid": pid, "started": now, "why": why, "session": session, "agent": agent, "event": event, "timeout": r.timeout, "worktree": worktree}),
+    )
 }
 
 /// git in a folder, never taking its index lock: its output, or what it said on failing.
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(["--no-optional-locks", "-c", "core.fsmonitor=false"]).args(args).output().map_err(|e| e.to_string())?;
+    let out =
+        Command::new("git").arg("-C").arg(dir).args(["--no-optional-locks", "-c", "core.fsmonitor=false"]).args(args).output().map_err(|e| e.to_string())?;
     let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
     if out.status.success() { Ok(text(&out.stdout)) } else { Err(text(&out.stderr)) }
 }
@@ -511,7 +559,8 @@ pub fn settle(wt: &Value) -> Value {
         return wt;
     }
     let dirty = git(&path, &["status", "--porcelain"]).map(|s| !s.is_empty()).unwrap_or(true);
-    let commits: u64 = git(&path, &["rev-list", "--count", &format!("{}..HEAD", wt["base"].as_str().unwrap_or("HEAD"))]).ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+    let commits: u64 =
+        git(&path, &["rev-list", "--count", &format!("{}..HEAD", wt["base"].as_str().unwrap_or("HEAD"))]).ok().and_then(|n| n.parse().ok()).unwrap_or(0);
     wt["dirty"] = json!(dirty);
     wt["commits"] = json!(commits);
     if !dirty && commits == 0 && remove_worktree(&wt).is_ok() {
@@ -610,23 +659,34 @@ fn finish(doc: &mut Value, setup: &Setup, all: &[Routine], now: u64, notify: Not
     }
 }
 
-/// The run's record from what it left: Claude's JSON answer or the script's output, in <id>.txt for the app. A lightest
-/// run that called none of the tools its routine lists failed, whatever it answered.
+/// The run's record from what it left: Claude Code's JSON answer, another agent's answer or the script's output, in
+/// <id>.txt for the app. A lightest run that called none of the tools its routine lists failed, whatever it answered.
 fn ended(setup: &Setup, slug: &str, run: &Value, code: Option<i32>, r: Option<&Routine>, now: u64) -> Value {
-    let kind = r.map_or(Run::Shell, |r| r.run);
+    // A run from before runs named their agent was Claude Code's when it had a session.
+    let claude = run["agent"] == "claude" || (run["agent"].is_null() && run["session"].as_str().is_some_and(|s| !s.is_empty()));
     let id = run["id"].as_str().unwrap_or_default();
     let out = std::fs::read_to_string(setup.run_file(slug, id, "out")).unwrap_or_default();
     let err = std::fs::read_to_string(setup.run_file(slug, id, "err")).unwrap_or_default();
     let mut record = json!({
         "id": id, "started": run["started"], "ended": now, "code": code, "why": run["why"], "session": run["session"], "ok": code == Some(0),
     });
+    if !run["agent"].is_null() {
+        record["agent"] = run["agent"].clone();
+    }
+    // Another agent's session, as its headless run printed it.
+    if !claude
+        && !run["agent"].is_null()
+        && let Some(session) = agent::session_in(&err)
+    {
+        record["session"] = json!(session);
+    }
     if run["late"] == true {
         record["late"] = json!(true);
     }
     if !run["worktree"].is_null() {
         record["worktree"] = settle(&run["worktree"]);
     }
-    let events: Vec<Value> = if kind == Run::Claude { out.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect() } else { Vec::new() };
+    let events: Vec<Value> = if claude { out.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect() } else { Vec::new() };
     let answer = events.iter().rev().find(|e| e["type"] == "result").cloned();
     let called: Vec<&str> = events
         .iter()
@@ -697,7 +757,7 @@ fn record(doc: &mut Value, setup: &Setup, slug: &str, run: Value) {
     let runs = doc["runs"][slug].as_array().cloned().unwrap_or_default();
     let mut runs: Vec<Value> = std::iter::once(run).chain(runs).collect();
     for old in runs.iter().skip(KEEP_RUNS) {
-        for ext in ["out", "err", "exit", "txt"] {
+        for ext in ["out", "err", "exit", "txt", "cmd"] {
             let _ = std::fs::remove_file(setup.run_file(slug, old["id"].as_str().unwrap_or_default(), ext));
         }
     }
@@ -705,8 +765,8 @@ fn record(doc: &mut Value, setup: &Setup, slug: &str, run: Value) {
     doc["runs"][slug] = Value::Array(runs);
 }
 
-/// The run's end as a notification, as the routine asks: a click opens it in the routines space; a Claude run can be
-/// talked over.
+/// The run's end as a notification, as the routine asks: a click opens it in the routines space; an agent's run with a
+/// session can be talked over.
 fn tell(r: &Routine, run: &Value, notify: Notifier) {
     let ok = run["ok"] == true;
     if r.notify == Notify::Never || (r.notify == Notify::Failed && ok) {
@@ -725,7 +785,9 @@ fn tell(r: &Routine, run: &Value, notify: Notifier) {
 }
 
 /// A routine as the app shows it, with its state and its next run.
-fn shown(r: &Routine, doc: &Value, now: u64, servers: &[String]) -> Value {
+fn shown(r: &Routine, setup: &Setup, doc: &Value, now: u64, servers: &[String]) -> Value {
+    let agent = setup.agent_of(r);
+    let claude = agent.is_some_and(|a| a.id == "claude");
     let base = mark(doc, &r.slug, "seen").max(mark(doc, &r.slug, "fired"));
     let next = match &r.when {
         _ if r.paused => None,
@@ -751,9 +813,10 @@ fn shown(r: &Routine, doc: &Value, now: u64, servers: &[String]) -> Value {
     }
     json!({
         "slug": r.slug, "name": r.name, "path": r.path, "when": r.when_shown(), "whenText": r.when_text, "trigger": trigger,
-        "error": r.when.as_ref().err(), "run": if r.run == Run::Claude { "claude" } else { "shell" }, "cwd": r.cwd, "model": r.model,
+        "error": r.when.as_ref().err(), "run": if r.run == Run::Agent { "agent" } else { "shell" }, "agent": agent.map(|a| &a.id),
+        "agentName": agent.map(|a| &a.name), "agentSet": r.agent, "cwd": r.cwd, "model": r.model,
         "tools": r.tools, "mode": r.mode, "budget": r.budget, "timeout": r.timeout, "paused": r.paused, "prompt": prompt, "next": next,
-        "spentWeek": spent(doc, &r.slug, now), "lastCost": last_cost(doc, &r.slug), "problems": problems(r, servers), "over": r.run == Run::Claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
+        "spentWeek": spent(doc, &r.slug, now), "lastCost": last_cost(doc, &r.slug), "problems": problems(r, agent, servers), "over": claude && r.budget.is_some_and(|b| spent(doc, &r.slug, now) > b - 0.01),
         "notify": match r.notify { Notify::Always => "always", Notify::Failed => "failed", Notify::Never => "never" },
         "worktree": r.worktree, "catchUp": r.catch_up, "nextRuns": next_runs,
     })
@@ -815,24 +878,43 @@ mod tests {
     impl World {
         fn new() -> World {
             let dir = tempfile::tempdir().unwrap();
+            let bin = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
+            let agents = agent::builtin()
+                .into_iter()
+                .map(|mut a| {
+                    a.bin = bin(&a.id);
+                    a
+                })
+                .collect();
             let setup = Setup {
                 routines: dir.path().join("routines"),
                 runs: dir.path().join("runs"),
-                claude: dir.path().join("claude").to_string_lossy().into_owned(),
+                agents,
+                default_agent: "claude".into(),
                 repos: dir.path().to_string_lossy().into_owned(),
                 worktrees: dir.path().join("worktrees"),
             };
             std::fs::create_dir_all(&setup.routines).unwrap();
+            // A Codex that answers like `codex exec`: its session on stderr, its answer on stdout, keeping what it was asked.
+            std::fs::write(
+                bin("codex"),
+                format!(
+                    "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}/codex-argv\necho 'session id: 01a1a225-4c95-7690-83de-431af47ed55f' >&2\necho 'Looked at 2 PRs'\necho 'both green'\n",
+                    dir.path().display()
+                ),
+            )
+            .unwrap();
+            std::process::Command::new("chmod").args(["+x", &bin("codex")]).status().unwrap();
             // A Claude that answers like `claude -p --output-format stream-json --verbose`, keeping what it was asked.
             std::fs::write(
-                &setup.claude,
+                bin("claude"),
                 format!(
                     "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}/argv\necho '{{\"type\":\"system\",\"subtype\":\"init\",\"mcp_servers\":[{{\"name\":\"claude.ai Slack\"}},{{\"name\":\"claude.ai Datadog\"}},{{\"name\":\"platform\"}}]}}'\necho '{{\"type\":\"assistant\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"mcp__claude_ai_Slack__slack_send_message\"}}]}}}}'\nprintf '{{\"type\":\"result\",\"is_error\":false,\"result\":\"Swept 3 PRs\\\\nall green\",\"session_id\":\"%s\",\"total_cost_usd\":0.12}}\\n' \"$7\"\n",
                     dir.path().display()
                 ),
             )
             .unwrap();
-            std::process::Command::new("chmod").args(["+x", &setup.claude]).status().unwrap();
+            std::process::Command::new("chmod").args(["+x", &bin("claude")]).status().unwrap();
             let store = Store::open(&dir.path().join("cache"), Duration::ZERO);
             World { _dir: dir, store, setup, told: Vec::new() }
         }
@@ -847,9 +929,9 @@ mod tests {
             self.store.get(DOC)
         }
 
-        /// Rounds until nothing runs, a second at most.
+        /// Rounds until nothing runs, five seconds at most: the runs are processes, slow while every test runs at once.
         fn settle(&mut self, now: u64) -> Value {
-            for _ in 0..100 {
+            for _ in 0..500 {
                 let doc = self.round(now);
                 if doc["running"].as_object().is_none_or(Map::is_empty) {
                     return doc;
@@ -951,7 +1033,10 @@ mod tests {
         w.round(now);
         let doc = w.settle(now);
         let run = &doc["runs"]["fix"][0];
-        assert_eq!((&run["ok"], &run["code"], &run["summary"], &run["why"]), (&json!(false), &json!(3), &json!("ci_failing u1"), &json!("🔴 CI failing: api#1")));
+        assert_eq!(
+            (&run["ok"], &run["code"], &run["summary"], &run["why"]),
+            (&json!(false), &json!(3), &json!("ci_failing u1"), &json!("🔴 CI failing: api#1"))
+        );
         assert_eq!(w.told, ["❌ fix | ci_failing u1 | Open=routine:fix"]);
         // The same PR failing again within ten minutes sets off nothing more.
         w.store.update("inbox", |_| fail(2));
@@ -979,17 +1064,79 @@ mod tests {
     }
 
     #[test]
+    fn a_routine_runs_on_the_agent_it_names_headless_without_claudes_settings() {
+        let mut w = World::new();
+        w.write("sweep", "---\nname: Sweep\nagent: codex\nmodel: sonnet\nmode: acceptEdits\ntools: Read\nbudget: $1/week\n---\nSweep my PRs.");
+        let doc = w.round(1_000);
+        assert_eq!(
+            (&doc["routines"][0]["agent"], &doc["routines"][0]["agentName"], &doc["routines"][0]["run"]),
+            (&json!("codex"), &json!("Codex"), &json!("agent"))
+        );
+        assert_eq!(doc["routines"][0]["problems"], json!(["its tools, budget and lightest model are Claude Code's: Codex runs it without them"]));
+        run_now(&mut w.store, &w.setup, "sweep", 2_000, &mut |_, _, _, _| {});
+        let doc = w.settle(3_000);
+        let run = &doc["runs"]["sweep"][0];
+        assert_eq!((&run["ok"], &run["summary"], &run["agent"], &run["cost"]), (&json!(true), &json!("Looked at 2 PRs"), &json!("codex"), &Value::Null));
+        assert_eq!(run["session"], "01a1a225-4c95-7690-83de-431af47ed55f", "talked over by resuming it");
+        let argv = std::fs::read_to_string(w._dir.path().join("codex-argv")).unwrap();
+        let argv: Vec<&str> = argv.lines().collect();
+        assert_eq!(argv[..4], ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"], "a Claude model is never passed to Codex: {argv:?}");
+        assert_eq!((argv[4], argv[6], argv[7].starts_with("cockpit runs this as the routine")), ("Sweep my PRs.", "---", true), "{argv:?}");
+        assert_eq!(w.told, ["✅ Sweep | Looked at 2 PRs | Open=routine:sweep Talk=act:routine:sweep"]);
+        // The default agent runs a routine naming none; one that names an agent cockpit does not know does not start.
+        w.setup.default_agent = "codex".into();
+        w.write("plain", "---\nnotify: never\n---\nSay hi.");
+        w.write("nobody", "---\nagent: nobody\nnotify: never\n---\nSay hi.");
+        w.round(4_000);
+        run_now(&mut w.store, &w.setup, "plain", 5_000, &mut |_, _, _, _| {});
+        run_now(&mut w.store, &w.setup, "nobody", 5_000, &mut |_, _, _, _| {});
+        let doc = w.settle(6_000);
+        assert_eq!((&doc["runs"]["plain"][0]["agent"], &doc["runs"]["plain"][0]["ok"]), (&json!("codex"), &json!(true)));
+        assert_eq!(doc["runs"]["nobody"][0]["summary"], "did not start: no agent \"nobody\"");
+    }
+
+    #[test]
+    fn an_agent_without_a_headless_mode_is_refused() {
+        let r = Routine::parse("s", Path::new("/r/s.md"), "---\nagent: x\n---\nGo.");
+        let mut x = agent::builtin().remove(0);
+        x.run.clear();
+        assert_eq!(agent_argv(&x, &r, "Go."), Err("Claude Code has no headless mode: it cannot run a routine".to_string()));
+        assert_eq!(problems(&r, Some(&x), &[]), ["Claude Code has no headless mode: it cannot run a routine"]);
+    }
+
+    #[test]
     fn the_claude_command_carries_the_routines_settings() {
-        let r = Routine::parse("s", Path::new("/r/s.md"), "---\nname: S\nmodel: opus\nmode: acceptEdits\nbudget: 1.5\ntools: Read, Bash(gh:*), mcp__x__y\n---\nGo.");
+        let r = Routine::parse(
+            "s",
+            Path::new("/r/s.md"),
+            "---\nname: S\nmodel: opus\nmode: acceptEdits\nbudget: 1.5\ntools: Read, Bash(gh:*), mcp__x__y\n---\nGo.",
+        );
         let servers = ["x".to_string(), "claude.ai Datadog".to_string()];
         let argv = claude_argv("claude", &r, "P".into(), "id", Some(1.234), &servers);
         let tail: Vec<&str> = argv[3..].iter().map(String::as_str).collect();
         assert_eq!(
             tail,
             [
-                "--output-format", "stream-json", "--verbose", "--session-id", "id", "--name", "routine: S", "--model", "opus", "--permission-mode",
-                "acceptEdits", "--max-budget-usd", "1.23", "--disable-slash-commands", "--tools", "ToolSearch,Read,Bash", "--allowedTools", "Read",
-                "Bash(gh:*)", "mcp__x__y"
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--session-id",
+                "id",
+                "--name",
+                "routine: S",
+                "--model",
+                "opus",
+                "--permission-mode",
+                "acceptEdits",
+                "--max-budget-usd",
+                "1.23",
+                "--disable-slash-commands",
+                "--tools",
+                "ToolSearch,Read,Bash",
+                "--allowedTools",
+                "Read",
+                "Bash(gh:*)",
+                "mcp__x__y"
             ],
             "only the lightest routines deny servers"
         );
@@ -1004,8 +1151,19 @@ mod tests {
         assert_eq!(
             tail,
             [
-                "--model", "haiku", "--effort", "low", "--disable-slash-commands", "--tools", "ToolSearch", "--allowedTools", "mcp__x__y", "--settings",
-                r#"{"deniedMcpServers":[{"serverName":"claude.ai Datadog"}]}"#, "--system-prompt", &light_prompt(&light)
+                "--model",
+                "haiku",
+                "--effort",
+                "low",
+                "--disable-slash-commands",
+                "--tools",
+                "ToolSearch",
+                "--allowedTools",
+                "mcp__x__y",
+                "--settings",
+                r#"{"deniedMcpServers":[{"serverName":"claude.ai Datadog"}]}"#,
+                "--append-system-prompt",
+                &light_prompt(&light)
             ]
         );
         let p = prompt(&r, "🔴 CI failed: api main", &json!({"title": "🔴 CI failed: api main", "key": "u1"}), ms("2026-10-29 09:00"));
@@ -1096,19 +1254,30 @@ mod tests {
         assert_eq!((&doc["runs"]["dm"][0]["ok"], &doc["runs"]["dm"][0]["called"]), (&json!(true), &json!(["mcp__claude_ai_Slack__slack_send_message"])));
     }
 
+    fn problems_of(r: &Routine, servers: &[String]) -> Vec<String> {
+        let claude = agent::builtin().remove(0);
+        problems(r, Some(&claude), servers)
+    }
+
     #[test]
     fn a_lightest_routine_says_what_its_file_lacks() {
         let servers = ["claude.ai Slack".to_string()];
         let parse = |text: &str| Routine::parse("r", Path::new("/r/r.md"), text);
-        assert_eq!(problems(&parse("---\nmodel: lightest\n---\nGo."), &servers), ["lists no tools: a lightest run loads nothing else, so it can call nothing"]);
         assert_eq!(
-            problems(&parse("---\nmodel: lightest\ntools: mcp__claude_ai_Slack__slack_send_message, mcp__claude_ai_Slak__x, Read\n---\nGo."), &servers),
+            problems_of(&parse("---\nmodel: lightest\n---\nGo."), &servers),
+            ["lists no tools: a lightest run loads nothing else, so it can call nothing"]
+        );
+        assert_eq!(
+            problems_of(&parse("---\nmodel: lightest\ntools: mcp__claude_ai_Slack__slack_send_message, mcp__claude_ai_Slak__x, Read\n---\nGo."), &servers),
             ["mcp__claude_ai_Slak__x belongs to no MCP server Claude Code connects"]
         );
-        assert!(problems(&parse("---\nmodel: lightest\ntools: mcp__a__b\n---\nGo."), &[]).is_empty(), "no server known yet: nothing to say");
-        assert_eq!(problems(&parse("---\nmodel: haiku\n---\nGo."), &servers), ["lists no tools and no mode: nobody approves its gh, git or file calls, so they are refused"]);
-        assert!(problems(&parse("---\nmodel: haiku\nmode: auto\n---\nGo."), &servers).is_empty(), "a mode decides for it");
-        assert!(problems(&parse("---\nrun: shell\n---\necho hi"), &servers).is_empty(), "a script asks nobody");
+        assert!(problems_of(&parse("---\nmodel: lightest\ntools: mcp__a__b\n---\nGo."), &[]).is_empty(), "no server known yet: nothing to say");
+        assert_eq!(
+            problems_of(&parse("---\nmodel: haiku\n---\nGo."), &servers),
+            ["lists no tools and no mode: nobody approves its gh, git or file calls, so they are refused"]
+        );
+        assert!(problems_of(&parse("---\nmodel: haiku\nmode: auto\n---\nGo."), &servers).is_empty(), "a mode decides for it");
+        assert!(problems_of(&parse("---\nrun: shell\n---\necho hi"), &servers).is_empty(), "a script asks nobody");
         let prompt = light_prompt(&parse("---\nmodel: lightest\ntools: mcp__a__b, Read\n---\nGo."));
         assert!(prompt.contains("ToolSearch with query \"select:mcp__a__b\""), "{prompt}");
     }

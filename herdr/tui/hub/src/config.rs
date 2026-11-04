@@ -165,7 +165,8 @@ pub fn pr_url(repo: &str, number: &Value, config: &Config, inbox: &Value) -> Opt
 /// The tool-name prefix Claude Code gives an MCP server, e.g. "claude.ai Linear" -> mcp__claude_ai_Linear.
 pub fn tool_prefix(server: &str) -> String {
     let cleaned: String = server.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
-    let squeezed = regex::Regex::new("_+").expect("a valid pattern").replace_all(&cleaned, "_");
+    static RUNS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new("_+").expect("a valid pattern"));
+    let squeezed = RUNS.replace_all(&cleaned, "_");
     format!("mcp__{}", squeezed.trim_end_matches('_'))
 }
 
