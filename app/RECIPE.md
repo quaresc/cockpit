@@ -1,15 +1,14 @@
 # Cockpit
 
-A Herdr window built around your coding agents (Claude Code, Codex and the other agents Herdr runs). A sidebar answers
-the agents that wait on you without leaving what you're doing; a Home board says whose move it is, agent by agent, next
-to its ticket, PR, CI and deploy; the inbox, runbooks, to-do, meetings, releases and routines are one key away. This
-layout is the front of [cockpit](https://github.com/quaresc/cockpit): the data, the actions and the agent hooks live in
-the `cockpit` binary and its hub, which the mod talks to. Without them Home shows how to install cockpit and the sidebar
-lists Herdr's own agents.
+See at a glance which of your coding agents needs you, and answer it without leaving what you're doing. Each agent
+sits next to its ticket, PR and CI; your inbox, runbooks and meetings are one key away.
 
 ![Cockpit](preview.png)
 
 The preview shows the sidebar's agents list and Home's NEXT MOVE card, cropped from the real window on demo data.
+
+Works with Claude Code, Codex and the other agents Herdr runs. The layout needs the
+[cockpit](https://github.com/quaresc/cockpit) app for its data; without it, Home shows how to install it.
 
 ## What you see
 
