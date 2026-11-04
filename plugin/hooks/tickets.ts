@@ -11,7 +11,8 @@ type $ = EngineInterface
 // My tickets through whatever MCP tools the ticket connector offers (Linear, Jira, Trello…). The config maps each
 // capability to a tool and each value cockpit reads to a path in its answers; /cockpit:setup writes both.
 
-export type TicketCapability = 'listMine' | 'get' | 'comments' | 'listStates' | 'setState'
+// assign, create and details are the hub's, through a ticket server of its own.
+export type TicketCapability = 'listMine' | 'get' | 'comments' | 'listStates' | 'setState' | 'assign' | 'create' | 'details'
 
 // Cockpit's status types are Linear's categories; the open ones, in the order the inbox lists them.
 const ACTIVE = ['started', 'unstarted', 'triage', 'backlog']

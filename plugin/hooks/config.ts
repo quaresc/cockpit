@@ -27,7 +27,8 @@ export type PlatformFields = Partial<Record<
 // and how its status categories read as Linear's (`statusTypes`).
 export type TicketFields = Partial<Record<
   | 'tickets' | 'id' | 'title' | 'url' | 'status' | 'statusType' | 'parentId' | 'project'
-  | 'description' | 'attachments' | 'attachmentUrl' | 'states' | 'stateId' | 'stateName' | 'stateType',
+  | 'description' | 'attachments' | 'attachmentUrl' | 'states' | 'stateId' | 'stateName' | 'stateType'
+  | 'labels' | 'labelName' | 'priority' | 'assignee' | 'branch' | 'createdId' | 'createdUrl',
   string
 >>
 
@@ -167,10 +168,15 @@ const LINEAR: Tickets = {
     comments: { tool: 'list_comments', args: { issueId: '{ticket}' } },
     listStates: { tool: 'list_issue_statuses', args: { team: '{team}' } },
     setState: { tool: 'save_issue', args: { id: '{ticket}', state: '{state}' } },
+    assign: { tool: 'save_issue', args: { id: '{ticket}', assignee: '{assignee}' } },
+    create: { tool: 'save_issue', args: { team: '{team}', title: '{title}', description: '{description}', assignee: 'me' } },
+    details: { tool: 'get_issue', args: { id: '{ticket}', fields: ['id', 'title', 'url', 'description', 'labels', 'priority', 'assignee', 'status', 'statusType', 'gitBranchName'] } },
   },
   fields: {
     tickets: 'issues', id: 'id', title: 'title', url: 'url', status: 'status', statusType: 'statusType', parentId: 'parentId', project: 'project',
     description: 'description', attachments: 'attachments', attachmentUrl: 'url', states: '', stateId: 'id', stateName: 'name', stateType: 'type',
+    labels: 'labels', labelName: 'name', priority: 'priority.name|priority', assignee: 'assignee.name|assignee', branch: 'gitBranchName',
+    createdId: 'id|identifier', createdUrl: 'url',
   },
   statusTypes: {},
 }

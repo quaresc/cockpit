@@ -1,5 +1,5 @@
-//! Tickets changed from the inbox: a Linear issue's state, its assignee, a new issue, through Linear's GraphQL API when
-//! the config gives `tickets.token`, a state through the hub's own ticket server; otherwise an agent session in the
+//! Tickets changed from the inbox: a state, an assignee, a new ticket, and a ticket's card, through Linear's GraphQL API
+//! when the config gives `tickets.token`, else through the hub's own ticket server; otherwise an agent session in the
 //! actions space makes the change with the ticket connector.
 
 use cockpit_core::files;
@@ -110,6 +110,17 @@ fn ticket_id(v: &Value) -> String {
     v["id"].as_str().or(v.as_str()).unwrap_or_default().to_uppercase()
 }
 
+/// The hub's own ticket server and the tickets mapping, when there is no Linear token.
+fn served() -> Option<(cockpit_connectors::Server, Value)> {
+    if token().is_some() {
+        return None;
+    }
+    let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
+    let config = crate::config::load();
+    let server = crate::feed::mcp::server(&raw, &config.0, "tickets")?;
+    Some((server, cockpit_connectors::tickets::mapping(&raw["tickets"])))
+}
+
 /// A change the ticket connector makes, in an agent session of the actions space.
 fn by_session(ctx: &mut Ctx, id: &str, what: &str) {
     let name = ctx.cfg.0["tickets"]["name"].as_str().unwrap_or("the ticket tool").to_string();
@@ -122,12 +133,8 @@ fn by_session(ctx: &mut Ctx, id: &str, what: &str) {
 pub fn set_state(ctx: &mut Ctx, args: &[Value]) -> Res {
     let id = ticket_id(arg(args, 0)?);
     let name = text(arg(args, 1)?);
-    let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
-    if token().is_none()
-        && let Some(server) = crate::feed::mcp::server(&raw, &ctx.cfg.0, "tickets")
-    {
+    if let Some((server, mapping)) = served() {
         use cockpit_connectors::{tickets, tools::Mapped};
-        let mapping = tickets::mapping(&raw["tickets"]);
         let moved = crate::feed::mcp::with(&server, async |c| tickets::set_state(&Mapped { connection: c, section: &mapping }, &mapping, &id, &name).await)?;
         refresh();
         ctx.note(format!("moved {id} to {moved}"));
@@ -153,6 +160,13 @@ pub fn set_state(ctx: &mut Ctx, args: &[Value]) -> Res {
 pub fn assign(ctx: &mut Ctx, args: &[Value]) -> Res {
     let id = ticket_id(arg(args, 0)?);
     let who = opt(args, 1).as_str().filter(|w| !w.is_empty()).unwrap_or("me").to_string();
+    if let Some((server, mapping)) = served().filter(|(_, m)| m["tools"]["assign"]["tool"].is_string()) {
+        use cockpit_connectors::{tickets, tools::Mapped};
+        crate::feed::mcp::with(&server, async |c| tickets::assign(&Mapped { connection: c, section: &mapping }, &id, &who).await)?;
+        refresh();
+        ctx.note(format!("assigned {id} to {}", if who == "me" { "you" } else { &who }));
+        return Ok(());
+    }
     let Some(token) = token() else {
         by_session(ctx, &id, &format!("Assign {id} to {who}"));
         return Ok(());
@@ -181,6 +195,15 @@ pub fn file_issue(ctx: &mut Ctx, args: &[Value]) -> Res {
     let keys: Vec<String> = list(&ctx.cfg.0["tickets"]["keys"]).iter().map(text).collect();
     let team = spec["team"].as_str().filter(|t| !t.is_empty()).map(str::to_uppercase).or_else(|| keys.first().cloned()).ok_or("say which team files it")?;
     let description = spec["description"].as_str().unwrap_or_default().to_string();
+    if let Some((server, mapping)) = served().filter(|(_, m)| m["tools"]["create"]["tool"].is_string()) {
+        use cockpit_connectors::{tickets, tools::Mapped};
+        let (made, url) = crate::feed::mcp::with(&server, async |c| {
+            tickets::create(&Mapped { connection: c, section: &mapping }, &mapping, &team, &title, &description).await
+        })?;
+        refresh();
+        ctx.note(format!("filed {made} {url}").trim().to_string());
+        return Ok(());
+    }
     let Some(token) = token() else {
         let what = format!(
             "File a new issue in the team {team}, assigned to me, titled \"{title}\"{}",
@@ -203,8 +226,15 @@ pub fn file_issue(ctx: &mut Ctx, args: &[Value]) -> Res {
 /// The `ticket_card` details: description, labels, priority, assignee, the team's states.
 pub fn card(args: &Value) -> Res<Value> {
     let id = ticket_id(&args["id"]);
+    if let Some((server, mapping)) = served() {
+        use cockpit_connectors::{tickets, tools::Mapped};
+        let mut card = crate::feed::mcp::with(&server, async |c| tickets::details(&Mapped { connection: c, section: &mapping }, &mapping, &id).await)?;
+        let mine = list(&crate::store::global().get("inbox")["tickets"]).iter().any(|t| t["id"] == id.as_str());
+        card["mine"] = mine.into();
+        return Ok(card);
+    }
     let Some(issue) = issue(&id)? else {
-        return Err("no Linear token (tickets.token): the card shows what the inbox knows".into());
+        return Err("no ticket server nor Linear token: the card shows what the inbox knows".into());
     };
     let mut states: Vec<Value> = list(&issue["team"]["states"]["nodes"]).to_vec();
     let order = |t: &str| ["triage", "backlog", "unstarted", "started", "completed", "canceled"].iter().position(|x| *x == t).unwrap_or(9);

@@ -138,7 +138,13 @@ function statsError(block: Block, at: string): string | undefined {
 function sourceError(source: Block, at: string): string | undefined {
   const metabase = source?.metabase as Block | undefined
   const datadog = source?.datadog as Block | undefined
-  if (!metabase === !datadog) return `at ${at}: either {metabase: {question | query}} or {datadog: {queries, from?}}`
+  const metrics = source?.metrics as Block | undefined
+  if ([metabase, datadog, metrics].filter(Boolean).length !== 1) return `at ${at}: one of {metabase: {question | query}}, {datadog: {queries, from?}} or {metrics: {queries, from?}}`
+  if (metrics) {
+    const queries = metrics.queries
+    if (!Array.isArray(queries) || queries.length === 0 || !queries.every(isText)) return `at ${at}/metrics/queries: a list of metric queries in your metrics tool's language`
+    return metrics.from === undefined || isText(metrics.from) ? undefined : `at ${at}/metrics/from: a start such as now-1h`
+  }
   if (metabase) {
     const isQuestion = typeof metabase.question === 'number' && metabase.question >= 1
     const isQuery = typeof metabase.query === 'object' && metabase.query !== null
@@ -350,8 +356,18 @@ export async function show($: $, input: Record<string, unknown>, here: Here | un
     url: input.url as string | undefined,
     terminal: here?.terminal,
   }
-  // A block with a source gets its first rows before the pane opens.
-  spec.blocks = await Promise.all(spec.blocks.map(b => (b.source ? refreshed($, b) : b)))
+  // A metrics source is read by cockpit itself, through the observability server setup mapped; the others get their
+  // first rows from this session's connectors before the pane opens.
+  const cockpit = await cockpitCommand($)
+  const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
+  spec.blocks = await Promise.all(spec.blocks.map(b => {
+    const source = b.source as Block | undefined
+    if (source?.metrics && cockpit) {
+      const { source: _, ...rest } = b
+      return { ...rest, command: [...cockpit.map(quote), 'connector', 'rows', quote(JSON.stringify(source))].join(' '), every: typeof b.every === 'number' ? b.every : 60 }
+    }
+    return source ? refreshed($, b) : b
+  }))
   if (!hasPlan) return present($, name, spec, here)
   // The call's text is the plan until the session writes the file: a new file, so Write needs no Read first.
   const file = `${await showDir($)}/${name}.mmd`

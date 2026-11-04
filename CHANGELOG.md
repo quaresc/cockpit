@@ -5,6 +5,17 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.35.0 (2026-11-04)
+
+- The release monitor and live chart panes work with any metrics and errors tool, not only Datadog: an `observability`
+  mapping (`metric`, `monitors` and `issues` verbs, the errors, hits and p95 queries in the tool's own language) feeds
+  each release's verdict, its monitors and open errors, and show blocks take `source: {metrics: {queries, from?}}`.
+  `cockpit setup` offers Datadog and Sentry, and has your agent map Grafana, Prometheus, New Relic or any other server.
+- Tickets gain `assign`, `create` and `details` verbs: assigning a ticket, filing one and its card go through the
+  hub's ticket server, for any tracker, without a Linear token or an agent session. Linear's mapping has them built in.
+- `cockpit connector tools <server> --json` lists each tool's input schema, `cockpit connector ticket <server> <id>`
+  shows a ticket's card.
+
 ## 0.34.1 (2026-11-04)
 
 - Show panes and the doctor call Metabase's MCP tools by their current names (`run_saved_question`, `execute_query`)

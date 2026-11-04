@@ -2,6 +2,7 @@
 //! source's `server` gives: `{"servers": {"claude.ai Linear": {"url": "https://mcp.linear.app/mcp"}}}`, or a local
 //! `{"command": "npx", "args": [...]}`. The source's mapping is the one the Claude plugin reads.
 
+use cockpit_connectors::observability::{self, Signals};
 use cockpit_connectors::tools::Mapped;
 use cockpit_connectors::{Connection, Server, block_on, calendar, ci, connect, monitor, platform, tickets};
 use serde_json::Value;
@@ -27,10 +28,9 @@ pub fn serves(raw: &Value, config: &Value, kind: &str) -> bool {
     server(raw, config, section).is_some()
 }
 
-/// The Datadog server the hub calls for the monitor space: `datadog.server`'s entry.
-pub fn datadog(raw: &Value, config: &Value) -> Option<Server> {
-    let name = config["datadog"]["server"].as_str().filter(|s| !s.is_empty())?;
-    Server::from_entry(&raw["servers"][name]).filter(Server::is_ready)
+/// The server the hub reads the monitor's numbers from, and its section (see `observability::server`).
+pub fn observability(raw: &Value) -> Option<(Server, Value)> {
+    cockpit_connectors::observability::server(raw)
 }
 
 /// One connection to the server for the work `f` does with it, closed after.
@@ -117,7 +117,7 @@ pub fn platform_part(server: &Server, section: &Value, inbox: &Value) -> Fetched
 /// The monitor space's document, through the platform's server and Datadog's; None when the platform maps no deploys.
 pub fn monitor_doc(
     platform_server: &Server,
-    datadog: &Server,
+    signals: &(Server, Value),
     raw: &Value,
     config: &Value,
     previous: &Value,
@@ -146,8 +146,15 @@ pub fn monitor_doc(
     let previous = previous.is_object().then_some(previous);
     block_on(async {
         let p = connect(platform_server).await?;
-        let d = connect(datadog).await?;
-        let doc = monitor::refresh(&Mapped { connection: &p, section: &mapping }, &Mapped { connection: &d, section: &Value::Null }, &ctx, previous).await;
+        let (server, section) = signals;
+        let d = connect(server).await?;
+        let tools = Mapped { connection: &d, section };
+        let signals = if observability::is_datadog(section, section["server"].as_str().unwrap_or("")) {
+            Signals::Datadog(&tools)
+        } else {
+            Signals::Mapped { tools: &tools, section }
+        };
+        let doc = monitor::refresh(&Mapped { connection: &p, section: &mapping }, &signals, &ctx, previous).await;
         p.close().await;
         d.close().await;
         doc

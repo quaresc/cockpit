@@ -176,7 +176,7 @@ fn setup(io: &mut Io) {
 
     // 4. Features
     println!("\nFeatures: 1 GitHub PRs inbox, 2 tickets, 3 CI runs (GitHub checks otherwise), 4 meetings, 5 E2E tests in terminal-browser");
-    println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog)");
+    println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog, Grafana, Sentry…)");
     println!("Tickets, CI, meetings, deploys and the monitor come from MCP servers: cockpit calls them itself, with any agent.");
     let picked = io.ask("Which ones, by number (e.g. 1 2 5)?", "1");
     let on = |n: char| picked.contains(n);
@@ -193,15 +193,21 @@ fn setup(io: &mut Io) {
     let mapper = agent_id.as_deref().and_then(agent::get).or_else(|| installed.first().cloned());
     let mut servers = serde_json::Map::new();
     let mut spaces: Vec<&str> = SPACES.to_vec();
-    for (n, section) in [('2', "tickets"), ('3', "ci"), ('4', "calendar"), ('7', "platform"), ('8', "datadog")] {
+    for (n, section) in [('2', "tickets"), ('3', "ci"), ('4', "calendar"), ('7', "platform"), ('8', "observability")] {
         if !on(n) {
             let off = if section == "ci" { json!({"enabled": true, "name": "GitHub", "server": ""}) } else { json!({"enabled": false}) };
-            if section != "datadog" {
+            if section != "observability" {
                 values.push((section, off));
             }
             continue;
         }
         let mut block = match source(io, section, claude, mapper.as_ref()) {
+            // Claude's Datadog connector is the monitor's `datadog.server`.
+            Source::Claude if section == "observability" => {
+                values.push(("datadog", json!({"server": CLAUDE_NAMES[section_at(section)].1})));
+                spaces.push("monitor");
+                continue;
+            }
             Source::Claude => json!({"enabled": true, "name": CLAUDE_NAMES[section_at(section)].0, "server": CLAUDE_NAMES[section_at(section)].1}),
             Source::Server { key, entry, name, mapping, mapped } => {
                 servers.insert(key.clone(), entry);
@@ -219,9 +225,9 @@ fn setup(io: &mut Io) {
                 let keys = io.ask("Ticket key prefixes, such as ENG in ENG-123 (space separated)?", "");
                 block["keys"] = json!(keys.split_whitespace().collect::<Vec<_>>());
             }
-            "datadog" => {
+            "observability" => {
                 if let Some(b) = block.as_object_mut() {
-                    b.retain(|k, _| k == "server");
+                    b.remove("enabled");
                 }
                 if block["server"].as_str().is_some_and(|s| !s.is_empty()) {
                     spaces.push("monitor");
@@ -321,7 +327,7 @@ const CLAUDE_NAMES: [(&str, &str); 5] =
     [("Linear", "claude.ai Linear"), ("CircleCI", "circleci"), ("Calendar", "claude.ai Google Calendar"), ("Platform", ""), ("Datadog", "claude.ai Datadog")];
 
 fn section_at(section: &str) -> usize {
-    ["tickets", "ci", "calendar", "platform", "datadog"].iter().position(|s| *s == section).unwrap_or(0)
+    ["tickets", "ci", "calendar", "platform", "observability"].iter().position(|s| *s == section).unwrap_or(0)
 }
 
 /// Where a source's data comes from.
@@ -402,7 +408,7 @@ fn choices(section: &str) -> Vec<Choice> {
 /// Asks where a source comes from, logs cockpit in to the server picked and maps it when no mapping is known.
 fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent>) -> Source {
     use cockpit_connectors::Server;
-    let title = ["Tickets", "CI runs", "Meetings", "Deploys and previews", "The release monitor's Datadog"][section_at(section)];
+    let title = ["Tickets", "CI runs", "Meetings", "Deploys and previews", "The release monitor's metrics and errors"][section_at(section)];
     let options = choices(section);
     let mut listed: Vec<String> = Vec::new();
     if claude {
@@ -450,7 +456,8 @@ fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent
     }
     let (mapping, mapped) = match (choice.mapping, section) {
         (Some(mapping), _) => (Some(mapping), true),
-        (None, "datadog") => (None, true),
+        // Datadog's own tools need no mapping.
+        (None, "observability") if choice.key == "datadog" || choice.name == "Datadog" => (Some(json!({})), true),
         (None, _) => match mapper {
             Some(agent) => {
                 println!("{} maps {}'s tools for cockpit (a minute or two)…", agent.name, choice.name);

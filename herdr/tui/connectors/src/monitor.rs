@@ -1,10 +1,11 @@
 //! The monitor space's document: every app of the watched environment from the platform connector, and for those with a
 //! release in the last day (or pinned) their deploys, alerting monitors, open errors and a verdict on each release from
-//! Datadog's numbers before and after it.
+//! the numbers before and after it (Datadog's, or any observability tool's through its mapping).
 
 use serde_json::{Value, json};
 
 use crate::mapping::{pick, text};
+use crate::observability::Signals;
 use crate::tools::Tools;
 
 pub const DAY_MS: i64 = 86_400_000;
@@ -426,7 +427,14 @@ fn failed(errors: &mut Vec<String>, app: &str, label: &str, error: &str) {
 
 /// One app's details: its releases with their verdicts (a settled one kept from the last round), monitors, errors and a
 /// day of numbers. A source that fails leaves its part as it was and says so in `errors`.
-pub async fn watch(platform: &impl Tools, datadog_tools: &impl Tools, app: &mut Value, previous: Option<&Value>, ctx: &Context<'_>, errors: &mut Vec<String>) {
+pub async fn watch<D: Tools>(
+    platform: &impl Tools,
+    signals: &Signals<'_, D>,
+    app: &mut Value,
+    previous: Option<&Value>,
+    ctx: &Context<'_>,
+    errors: &mut Vec<String>,
+) {
     let name = app["name"].as_str().unwrap_or("").to_string();
     let site = app["datadogUrl"]
         .as_str()
@@ -448,21 +456,21 @@ pub async fn watch(platform: &impl Tools, datadog_tools: &impl Tools, app: &mut 
     if service.is_empty() {
         return;
     }
-    app["monitors"] = match monitors_of(datadog_tools, &service, &site).await {
+    app["monitors"] = match signals.monitors(ctx.monitor, &service, &site).await {
         Ok(monitors) => monitors,
         Err(e) => {
             failed(errors, &name, "monitors", &e);
             kept("monitors", Value::Null)
         }
     };
-    app["series"] = match series_of(datadog_tools, ctx.monitor, &service, ctx.now).await {
+    app["series"] = match signals.day(ctx.monitor, &service, ctx.now).await {
         Ok(series) => series,
         Err(e) => {
             failed(errors, &name, "series", &e);
             kept("series", Value::Null)
         }
     };
-    app["issues"] = match issues_of(datadog_tools, ctx.monitor, &service, ctx.now).await {
+    app["issues"] = match signals.issues(ctx.monitor, &service, ctx.now).await {
         Ok(issues) => Value::Array(issues),
         Err(e) => {
             failed(errors, &name, "errors", &e);
@@ -485,8 +493,8 @@ pub async fn watch(platform: &impl Tools, datadog_tools: &impl Tools, app: &mut 
         let Some(start) = release["startedAt"].as_str().and_then(parse_ms) else { continue };
         let end = release["finishedAt"].as_str().and_then(parse_ms).filter(|&t| t != 0).unwrap_or(start);
         let until = iso(end + window);
-        let before = health(datadog_tools, ctx.monitor, &service, start - window, start).await.ok().flatten();
-        let after = if ctx.now > end { health(datadog_tools, ctx.monitor, &service, end, ctx.now.min(end + window)).await.ok().flatten() } else { None };
+        let before = signals.health(ctx.monitor, &service, start - window, start).await.ok().flatten();
+        let after = if ctx.now > end { signals.health(ctx.monitor, &service, end, ctx.now.min(end + window)).await.ok().flatten() } else { None };
         let tag = release["tag"].as_str().unwrap_or("");
         let fresh: Vec<String> = issues
             .iter()
@@ -500,7 +508,7 @@ pub async fn watch(platform: &impl Tools, datadog_tools: &impl Tools, app: &mut 
 
 /// The new monitor document (`MonitorState`): every app the platform deploys, the watched ones in detail, most recent
 /// deploy first. None when the platform maps no `deployStatus` or `deployHistory`.
-pub async fn refresh(platform: &impl Tools, datadog_tools: &impl Tools, ctx: &Context<'_>, previous: Option<&Value>) -> Result<Option<Value>, String> {
+pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, ctx: &Context<'_>, previous: Option<&Value>) -> Result<Option<Value>, String> {
     if !platform.has("deployStatus") || !platform.has("deployHistory") {
         return Ok(None);
     }
@@ -539,7 +547,7 @@ pub async fn refresh(platform: &impl Tools, datadog_tools: &impl Tools, ctx: &Co
     let mut errors = Vec::new();
     for app in apps.iter_mut().filter(|a| a["watched"] == true) {
         let before = previous.and_then(|p| p["apps"].as_array()).and_then(|ps| ps.iter().find(|p| p["id"] == app["id"]));
-        watch(platform, datadog_tools, app, before, ctx, &mut errors).await;
+        watch(platform, signals, app, before, ctx, &mut errors).await;
     }
     apps.sort_by_key(|a| std::cmp::Reverse(a["deployedAt"].as_str().and_then(parse_ms).unwrap_or(0)));
     Ok(Some(json!({"version": 1, "at": ctx.now, "env": ctx.monitor["env"], "errors": errors, "apps": apps})))
@@ -877,7 +885,7 @@ mod tests {
             now: at("2026-11-04T12:00:00Z"),
             utc_offset_minutes: 60,
         };
-        let doc = block_on(refresh(&platform, &datadog, &ctx, Some(&previous))).unwrap().unwrap();
+        let doc = block_on(refresh(&platform, &Signals::Datadog(&datadog), &ctx, Some(&previous))).unwrap().unwrap();
 
         assert_eq!((doc["version"].as_i64(), doc["env"].as_str(), doc["errors"].as_array().map(Vec::len)), (Some(1), Some("production"), Some(0)));
         let ids: Vec<&str> = doc["apps"].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
@@ -956,12 +964,12 @@ mod tests {
             now: at("2026-11-04T12:00:00Z"),
             utc_offset_minutes: 0,
         };
-        let doc = block_on(refresh(&platform, &datadog, &ctx, Some(&previous))).unwrap().unwrap();
+        let doc = block_on(refresh(&platform, &Signals::Datadog(&datadog), &ctx, Some(&previous))).unwrap().unwrap();
         assert_eq!(doc["apps"][0]["monitors"]["ok"], 3);
         assert_eq!(doc["apps"][0]["series"], Value::Null);
         let errors: Vec<&str> = doc["errors"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         assert_eq!(errors.len(), 3);
         assert!(errors[0].starts_with("API monitors: Datadog no tool mapped"), "{errors:?}");
-        assert!(block_on(refresh(&Fake::default(), &datadog, &ctx, None)).unwrap().is_none(), "no platform tools");
+        assert!(block_on(refresh(&Fake::default(), &Signals::Datadog(&datadog), &ctx, None)).unwrap().is_none(), "no platform tools");
     }
 }

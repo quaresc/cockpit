@@ -44,8 +44,9 @@ runbooks, meetings, routines, and the show, search and changes tools over MCP.
 
 Tickets, CI runs, meetings, deploys and previews, and the release monitor come from MCP servers, which cockpit calls
 itself, whatever your agent. `cockpit setup` finds the servers your agents already use (Codex's, OpenCode's, Gemini's…),
-offers the ones it knows (Linear, Jira, GitHub Issues, GitLab, CircleCI, Datadog), logs cockpit in once through your
-browser, and has your agent map any other server's tools. In Claude Code, `/cockpit:setup` uses its connectors instead.
+offers the ones it knows (Linear, Jira, GitHub Issues, GitLab, CircleCI, Datadog, Sentry), logs cockpit in once through
+your browser, and has your agent map any other server's tools: any ticket tracker, CI, calendar, deploy platform, or
+metrics and errors tool (Grafana, Prometheus, New Relic…) for the release monitor and live chart panes. In Claude Code, `/cockpit:setup` uses its connectors instead.
 
 A few parts read Claude Code itself: the quota bars and Agent spend, the footer under the prompt, the `/runbook` and
 `/todo` commands, and the morning brief.

@@ -126,8 +126,10 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
 - **Servers** (`connectors/`, `hub/src/feed/mcp.rs`): the hub is an MCP client. A source whose `server` names an entry
   of `servers` in `config.json` (a URL cockpit logged in to with `cockpit connector login`, a URL with headers or a
   `bearerCommand`, or a local command) is fetched by the hub itself through the section's mapping, the same `tools` and
-  `fields` the Claude plugin reads: tickets, CI runs, meetings, deploys and previews, the monitor (with `datadog.server`),
-  and the show panes' Metabase and Datadog sources (`cockpit connector rows`). Logins live in the macOS keychain
+  `fields` the Claude plugin reads: tickets (with their assign, create and details verbs), CI runs, meetings, deploys and
+  previews, the monitor's numbers (`observability`: Datadog's own tools, or any metrics and errors tool through `metric`,
+  `monitors` and `issues` verbs and `queries` in its own language), and the show panes' Metabase, Datadog and `metrics`
+  sources (`cockpit connector rows`). Logins live in the macOS keychain
   (`cockpit-mcp`), else in `~/.config/cockpit/credentials/`. The hub also carries out the apps' requests (reruns, preview
   actions, ticket releases) for those sources, and warns of meetings where no Claude Code runs. `cockpit setup` finds the
   servers the agents' own configs hold, logs cockpit in, and has the default agent map a server cockpit has no mapping

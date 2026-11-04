@@ -401,15 +401,20 @@ fn open_pane(dir: &Path, here: &Here, name: &str, session: &str, placement: &str
 }
 
 /// Writes the view and makes sure a pane shows it: the open one redraws, else one opens beside the agent.
-/// Blocks whose Metabase or Datadog source cockpit reaches itself become blocks running `cockpit connector rows`.
+/// Blocks whose Metabase, Datadog or metrics source cockpit reaches itself become blocks running `cockpit connector rows`.
 pub fn with_sources(input: &Value) -> Value {
     let mut input = input.clone();
     let config = cockpit_core::files::config();
     let bin = std::env::current_exe().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|_| "cockpit".into());
     for block in input["blocks"].as_array_mut().into_iter().flatten() {
         let Some(source) = block.get("source").cloned() else { continue };
-        let name = cockpit_connectors::sources::server(&source, &config);
-        if crate::connector::configured(&name).is_none() {
+        let reachable = if source["metrics"].is_object() {
+            let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
+            cockpit_connectors::observability::server(&raw).is_some()
+        } else {
+            crate::connector::configured(&cockpit_connectors::sources::server(&source, &config)).is_some()
+        };
+        if !reachable {
             continue;
         }
         let quoted = format!("'{}'", source.to_string().replace('\'', "'\\''"));

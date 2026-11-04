@@ -17,10 +17,13 @@ pub fn brief(section: &str) -> Option<&'static str> {
         "tickets" => {
             "Map these capabilities, each `{\"tool\", \"args\"}` with the placeholders {ticket} (its key or id), {team} (the key's prefix) and {state} \
              (an id listStates gives): listMine (my open tickets, e.g. a search for assignee = me and not done), get (one ticket with description and \
-             attachments), comments (a ticket's comments), listStates (the states a ticket can move to), setState (moves a ticket to one). \
+             attachments), comments (a ticket's comments), listStates (the states a ticket can move to), setState (moves a ticket to one), assign (assigns a ticket to {assignee}: \
+             \"me\" or a name), create (files a ticket in {team} titled {title} with {description}, assigned to me), details (one ticket \
+             with its labels, priority, assignee, state and branch). \
              Fill `fields` with dotted paths into the answers (`a.b`, `a.0.b`, `a|b` for the first that has one; \"\" is the answer itself): tickets (the \
              list in listMine's answer), id, title, url, status (the state's name), statusType (its category), parentId, project, description, \
-             attachments, attachmentUrl, and in listStates' answer states, stateId, stateName, stateType. cockpit reads Linear's categories (triage, \
+             attachments, attachmentUrl, in details' answer labels, labelName (a label's name when labels are objects), priority, assignee, branch, \
+             in create's answer createdId and createdUrl, and in listStates' answer states, stateId, stateName, stateType. cockpit reads Linear's categories (triage, \
              backlog, unstarted, started, completed, canceled): map the tool's own to them in `statusTypes`, e.g. Jira's {\"new\": \"unstarted\", \
              \"indeterminate\": \"started\", \"done\": \"completed\"}. Answer {\"tools\", \"fields\", \"statusTypes\"}."
         }
@@ -53,6 +56,19 @@ pub fn brief(section: &str) -> Option<&'static str> {
              appHealth, appDeployedAt, appBehind, appService, appDatadog, deployId, deployActor, deployPhase, deployStarted, deployFinished, and \
              `skipKinds` with app kinds that never build from a repo. Answer {\"tools\", \"fields\"}."
         }
+        "observability" => {
+            "Map these capabilities, each `{\"tool\", \"args\"}`: metric (a metric query over a window, with the placeholders {query}, \
+             {from} and {to} (ISO times), {fromSeconds}, {toSeconds}, {fromMs}, {toMs} and {step} (seconds between points)), monitors (a \
+             service's alert rules or monitors, with {service} and {env}), issues (a service's open errors of the last day, with {service}, \
+             {env}, {from}, {fromSeconds} or {fromMs}). Fill `fields` with dotted paths (`a.b`, `a.0.b`, `a|b`; \"\" is the answer itself): \
+             series (the list of series in metric's answer), seriesName, points (a series' list of points), pointTime and pointValue (in a \
+             point, `0` and `1` for a [time, value] pair; times in epoch seconds, milliseconds or ISO); monitors, monitorId, monitorName, \
+             monitorStatus, monitorUrl; issues, issueId, issueType, issueMessage, issueCount, issueFirstSeen, issueFirstVersion, issueUrl. \
+             Map monitor statuses to ok, warn, alert and no data in `statuses`. Write `queries` in the tool's own query language with \
+             {service} and {env} placeholders: errors (failed requests counted per point), hits (requests counted per point) and p95 \
+             (the 95th percentile latency in seconds). Leave out a capability no tool covers. Answer {\"tools\", \"fields\", \"statuses\", \
+             \"queries\"}."
+        }
         _ => return None,
     })
 }
@@ -79,6 +95,16 @@ async fn trial(connection: &Connection, section: &str, mapping: &Value) -> Resul
             let tools = Mapped { connection, section: &mapping };
             platform::deployed_apps(&tools, &mapping).await.map(|apps| sample(apps.iter().map(|a| serde_json::to_value(a).unwrap_or_default()).collect()))
         }
+        "observability" => {
+            use cockpit_connectors::observability::{self, Signals};
+            let mapping = observability::mapping(mapping);
+            let tools = Mapped { connection, section: &mapping };
+            let signals = Signals::Mapped { tools: &tools, section: &mapping };
+            let monitor = json!({"env": "production"});
+            let monitors = signals.monitors(&monitor, "", "").await?;
+            let issues = signals.issues(&monitor, "", now_ms()).await?;
+            Ok(format!("{} monitors alerting, {} open errors", monitors["alerting"].as_array().map_or(0, Vec::len), issues.len()))
+        }
         _ => Err(format!("no trial for {section}")),
     }
 }
@@ -89,6 +115,7 @@ async fn raw_answer(connection: &Connection, section: &str, mapping: &Value) -> 
         "tickets" => "listMine",
         "ci" => "listRuns",
         "calendar" => "listEvents",
+        "observability" => "issues",
         _ => "deployStatus",
     };
     match cockpit_connectors::call_mapped(connection, mapping, verb, &json!({})).await {
@@ -117,7 +144,7 @@ fn ask_agent(agent: &agent::Agent, prompt: &str) -> Result<String, String> {
 /// Writes a mapping for `section` from the server's tools, tried on the server; Ok holds the mapping and the trial's
 /// sample.
 pub fn map(section: &str, server: &Server, name: &str, agent: &agent::Agent) -> Result<(Value, String), String> {
-    let brief = brief(section).ok_or_else(|| format!("cockpit maps tickets, ci, calendar and platform, not {section}"))?;
+    let brief = brief(section).ok_or_else(|| format!("cockpit maps tickets, ci, calendar, platform and observability, not {section}"))?;
     cockpit_connectors::block_on(async {
         let connection = cockpit_connectors::connect(server).await?;
         let tools = connection.tool_list().await?;
@@ -152,6 +179,10 @@ pub fn map(section: &str, server: &Server, name: &str, agent: &agent::Agent) -> 
         connection.close().await;
         Err(format!("no working mapping after {ROUNDS} tries: {last}"))
     })
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 #[cfg(test)]

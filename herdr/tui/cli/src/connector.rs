@@ -5,8 +5,8 @@ use serde_json::Value;
 
 use crate::proc;
 
-const USAGE: &str = "usage: cockpit connector login <url or servers key> | logout <url> | tools <server> | call <server> <tool> [json args] | tickets <server>
-       | rows <source json> (a show block's Metabase or Datadog source, as {columns, rows})
+const USAGE: &str = "usage: cockpit connector login <url or servers key> | logout <url> | tools <server> [--json] | call <server> <tool> [json args] | tickets <server> | ticket <server> <id>
+       | rows <source json> (a show block's Metabase, Datadog or metrics source, as {columns, rows})
        | map <tickets|ci|calendar|platform> <servers key> (your default agent maps the server's tools into config.json)
 <server> is a servers key of config.json, an MCP server's URL, or the command that starts it";
 
@@ -25,6 +25,12 @@ pub fn main(args: &[String]) {
             cockpit_connectors::credentials::Store::new(url).forget();
             Ok(format!("Forgot the login to {url}"))
         }
+        ["tools", server, "--json"] => block_on(async {
+            let c = connect(&resolve(server)).await?;
+            let tools = c.tool_list().await;
+            c.close().await;
+            Ok(serde_json::to_string_pretty(&tools?).unwrap_or_default())
+        }),
         ["tools", server] => block_on(async {
             let c = connect(&resolve(server)).await?;
             let tools = c.tools().await;
@@ -45,6 +51,14 @@ pub fn main(args: &[String]) {
             let mine = tickets::mine(&cockpit_connectors::tools::Mapped { connection: &c, section: &mapping }, &mapping).await;
             c.close().await;
             Ok(serde_json::to_string_pretty(&mine?).unwrap_or_default())
+        }),
+        ["ticket", server, id] => block_on(async {
+            let config = cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null);
+            let mapping = tickets::mapping(&config["tickets"]);
+            let c = connect(&resolve(server)).await?;
+            let card = tickets::details(&cockpit_connectors::tools::Mapped { connection: &c, section: &mapping }, &mapping, id).await;
+            c.close().await;
+            Ok(serde_json::to_string_pretty(&card?).unwrap_or_default())
         }),
         ["rows", source] => rows(source),
         ["map", section, key] => map(section, key),
@@ -67,6 +81,26 @@ fn rows(source: &str) -> Result<String, String> {
     use cockpit_connectors::sources;
     let source: Value = serde_json::from_str(source).map_err(|e| format!("source: {e}"))?;
     let config = cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null);
+    if source["metrics"].is_object() {
+        use cockpit_connectors::observability::{self, Signals};
+        let (server, section) = observability::server(&config).ok_or("no metrics server of cockpit's own (observability or datadog in config.json)")?;
+        let queries: Vec<String> = source["metrics"]["queries"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+        let from = source["metrics"]["from"].as_str().unwrap_or("now-1h").to_string();
+        let now = crate::find::now_ms() as i64;
+        return block_on(async {
+            let c = connect(&server).await?;
+            let tools = cockpit_connectors::tools::Mapped { connection: &c, section: &section };
+            let signals = if observability::is_datadog(&section, section["server"].as_str().unwrap_or("")) {
+                Signals::Datadog(&tools)
+            } else {
+                Signals::Mapped { tools: &tools, section: &section }
+            };
+            let offset = i64::from(chrono::Local::now().offset().local_minus_utc() / 60);
+            let rows = signals.rows(&queries, &from, now, offset).await;
+            c.close().await;
+            Ok(rows?.to_string())
+        });
+    }
     let name = sources::server(&source, &config);
     let server = configured(&name).ok_or_else(|| format!("no server of cockpit's own for {name} (servers.{name} in config.json)"))?;
     block_on(async {

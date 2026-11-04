@@ -77,10 +77,19 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "datadog",
         name: "Datadog",
-        sources: &["datadog"],
+        sources: &["observability"],
         url: "https://mcp.datadoghq.com/v1/mcp",
         bearer_command: &[],
         marks: &["mcp.datadoghq.", "datadog-mcp"],
+        mapping: None,
+    },
+    Preset {
+        id: "sentry",
+        name: "Sentry",
+        sources: &["observability"],
+        url: "https://mcp.sentry.dev/mcp",
+        bearer_command: &[],
+        marks: &["mcp.sentry.dev", "sentry-mcp"],
         mapping: None,
     },
 ];
@@ -102,7 +111,9 @@ pub fn hints(source: &str) -> &'static [&'static str] {
         "ci" => &["circle", "gitlab", "buildkite", "jenkins", "travis", "drone", "teamcity", "azure", "bitrise", "pipeline", "github"],
         "calendar" => &["calendar", "outlook", "gcal", "cal.com", "fastmail", "ical", "agenda"],
         "platform" => &["deploy", "platform", "backstage", "argo", "vercel", "render", "fly", "heroku", "railway", "preview", "kube"],
-        "datadog" => &["datadog"],
+        "observability" => {
+            &["datadog", "grafana", "prometheus", "sentry", "newrelic", "new-relic", "honeycomb", "signoz", "elastic", "loki", "dynatrace", "metrics"]
+        }
         _ => &[],
     }
 }

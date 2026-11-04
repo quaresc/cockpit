@@ -6,6 +6,7 @@ pub mod client;
 pub mod credentials;
 pub mod mapping;
 pub mod monitor;
+pub mod observability;
 pub mod platform;
 pub mod presets;
 pub mod sources;

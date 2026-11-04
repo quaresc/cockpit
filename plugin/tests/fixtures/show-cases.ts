@@ -770,6 +770,18 @@ export const SHOW_CASES: { name: string; spec: Record<string, unknown>; error: s
   "mcp": "at /blocks/0/source: no server of cockpit's own for this source (servers in config.json, set up by cockpit setup); give rows, or a command printing JSON"
  },
  {
+  "name": "a chart refreshed from any metrics tool",
+  "spec": {"pane": "latency", "title": "Latency", "blocks": [{"type": "chart", "kind": "line", "source": {"metrics": {"queries": ["histogram_quantile(0.95, rate(http_seconds_bucket[5m]))"], "from": "now-6h"}}}]},
+  "error": null,
+  "mcp": "at /blocks/0/source: no server of cockpit's own for this source (servers in config.json, set up by cockpit setup); give rows, or a command printing JSON"
+ },
+ {
+  "name": "a metrics source needs its queries",
+  "spec": {"pane": "latency", "title": "Latency", "blocks": [{"type": "chart", "kind": "line", "source": {"metrics": {"queries": []}}}]},
+  "error": "at /blocks/0/source/metrics/queries: a list of metric queries in your metrics tool's language",
+  "mcp": "at /blocks/0/source: no server of cockpit's own for this source (servers in config.json, set up by cockpit setup); give rows, or a command printing JSON"
+ },
+ {
   "name": "a browser view takes no log",
   "spec": {
    "pane": "quota",

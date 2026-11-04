@@ -65,9 +65,9 @@ struct Plan {
     /// The MCP servers the hub calls for CI runs and meetings.
     ci_server: Option<cockpit_connectors::Server>,
     calendar_server: Option<cockpit_connectors::Server>,
-    /// The platform's server, and Datadog's for the monitor space when it is pinned.
+    /// The platform's server, and the observability one (with its section) for the monitor space when it is pinned.
     platform_server: Option<cockpit_connectors::Server>,
-    datadog_server: Option<cockpit_connectors::Server>,
+    signals: Option<(cockpit_connectors::Server, Value)>,
     circleci: Option<String>,
     /// The calendar's secret iCal address.
     calendar: Option<String>,
@@ -94,7 +94,7 @@ fn plan() -> Plan {
         circleci: token("ci", "circleci").filter(|_| !ci_server.is_empty()),
         calendar: calendar::address(&raw["calendar"]["ics"]).filter(|_| c["calendar"]["enabled"] != false),
         platform_server: mcp::server(&raw, c, "platform").filter(|_| c["platform"]["enabled"] == true),
-        datadog_server: mcp::datadog(&raw, c).filter(|_| config.space_names().iter().any(|s| s == "monitor")),
+        signals: mcp::observability(&raw).filter(|_| config.space_names().iter().any(|s| s == "monitor")),
         raw: raw.clone(),
         config,
     }
@@ -232,12 +232,12 @@ impl Feed {
             self.note("Platform", error.map(|e| format!("Deploys and previews: {e}")));
             part = Some(InboxPart { platform: fetched.ok(), ..part.unwrap_or_default() });
         }
-        if let (Some(server), Some(datadog)) = (&plan.platform_server, &plan.datadog_server)
+        if let (Some(server), Some(signals)) = (&plan.platform_server, &plan.signals)
             && self.monitor.is_due(now, is_asked)
         {
             let before = crate::store::global().get("monitor");
             let inbox = crate::store::global().get("inbox");
-            let fetched = mcp::monitor_doc(server, datadog, &plan.raw, &plan.config.0, &before, &inbox, now_ms() as i64);
+            let fetched = mcp::monitor_doc(server, signals, &plan.raw, &plan.config.0, &before, &inbox, now_ms() as i64);
             let _ = self.monitor.after(&fetched.as_ref().map(|_| ()).map_err(|e| Failure::Other(e.clone())), now);
             if let Ok(Some(mut doc)) = fetched {
                 doc["by"] = "hub".into();
