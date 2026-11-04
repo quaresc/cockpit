@@ -1,6 +1,7 @@
 //! `cockpit actions`: the pinned actions space's tabs, and its sidebar row listing the agent sessions running there.
 
 use cockpit_core::actions::{herdr, open_tab, pinned, space};
+use cockpit_core::frontend::{sidebar_width, status_mark as mark};
 use cockpit_core::text::fit;
 use serde_json::Value;
 
@@ -14,16 +15,6 @@ const USAGE: &str = "The pinned actions space: a tab per one-off agent session t
 /// The sessions the sidebar lists under the actions space, the last line saying how many more there are.
 const SLOTS: usize = 6;
 
-fn mark(status: &str) -> Option<&'static str> {
-    Some(match status {
-        "working" => "◐",
-        "blocked" => "⏸",
-        "done" => "✓",
-        "idle" => "○",
-        _ => return None,
-    })
-}
-
 pub fn main(args: &[String]) {
     match args {
         [cmd] if cmd == "sidebar" => sidebar(),
@@ -34,20 +25,6 @@ pub fn main(args: &[String]) {
         }
         _ => fail(USAGE),
     }
-}
-
-/// herdr's sidebar width from its config, 34 when it sets none.
-fn sidebar_width() -> usize {
-    let config = std::fs::read_to_string(cockpit_core::files::home().join(".config/herdr/config.toml")).unwrap_or_default();
-    width_in(&config).unwrap_or(34)
-}
-
-fn width_in(config: &str) -> Option<usize> {
-    config.lines().find_map(|line| {
-        let value = line.trim_start().strip_prefix("sidebar_width")?.trim_start().strip_prefix('=')?.trim_start();
-        let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
-        digits.parse().ok()
-    })
 }
 
 /// The herdr arguments that list the sessions under the space's row: one token per slot, a waiting one under its own
@@ -100,13 +77,6 @@ mod tests {
 
     fn tab(label: &str, status: &str) -> Value {
         json!({"workspace_id": "w3", "label": label, "agent_status": status})
-    }
-
-    #[test]
-    fn the_width_herdr_sets() {
-        assert_eq!(width_in("[ui]\n  sidebar_width = 40 # wide\n"), Some(40));
-        assert_eq!(width_in("sidebar_widths = 3\n"), None);
-        assert_eq!(width_in("theme = \"x\"\n"), None);
     }
 
     #[test]

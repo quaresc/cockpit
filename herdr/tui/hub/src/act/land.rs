@@ -309,8 +309,23 @@ fn mutate(query: &str, vars: &[(&str, &str)]) -> Res {
 
 /// `merge [pr, method]`: merges now, pinned to the head commit GitHub reported a moment ago; where the base branch has
 /// a merge queue, the PR joins it.
+/// A merge, ready or draft through the code host's MCP server, when the hub reaches one (`code` in the config); None
+/// when the PRs are GitHub's.
+fn by_code_server(ctx: &mut Ctx, verb: &str, pr: &Value, done: &str) -> Option<Res> {
+    let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
+    let server = crate::feed::mcp::server(&raw, &ctx.cfg.0, "code")?;
+    use cockpit_connectors::{code, tools::Mapped};
+    let mapping = code::mapping(&raw["code"]);
+    let outcome = crate::feed::mcp::with(&server, async |c| code::act(&Mapped { connection: c, section: &mapping }, verb, pr).await);
+    let repo = pr["repo"].as_str().unwrap_or_default().to_string();
+    Some(outcome.map(|()| after_change(ctx, format!("{repo}#{} {done}", text(&pr["number"])))))
+}
+
 pub fn merge(ctx: &mut Ctx, args: &[Value]) -> Res {
     let pr = arg(args, 0)?;
+    if let Some(done) = by_code_server(ctx, "merge", pr, "merged") {
+        return done;
+    }
     let d = detail(&ctx.cfg, pr)?;
     let (owner, name, n) = coords(&ctx.cfg, pr)?;
     let head = d["pr"]["headRefOid"].as_str().unwrap_or_default().to_string();
@@ -364,10 +379,16 @@ fn set_draft(ctx: &mut Ctx, args: &[Value], draft: bool) -> Res {
 }
 
 pub fn ready(ctx: &mut Ctx, args: &[Value]) -> Res {
+    if let Some(done) = by_code_server(ctx, "ready", arg(args, 0)?, "is ready for review") {
+        return done;
+    }
     set_draft(ctx, args, false)
 }
 
 pub fn draft(ctx: &mut Ctx, args: &[Value]) -> Res {
+    if let Some(done) = by_code_server(ctx, "draft", arg(args, 0)?, "is a draft again") {
+        return done;
+    }
     set_draft(ctx, args, true)
 }
 

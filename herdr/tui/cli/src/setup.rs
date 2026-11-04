@@ -175,8 +175,8 @@ fn setup(io: &mut Io) {
     };
 
     // 4. Features
-    println!("\nFeatures: 1 GitHub PRs inbox, 2 tickets, 3 CI runs (GitHub checks otherwise), 4 meetings, 5 E2E tests in terminal-browser");
-    println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog, Grafana, Sentry…)");
+    println!("\nFeatures: 1 PRs inbox (GitHub, GitLab…), 2 tickets, 3 CI runs (GitHub checks otherwise), 4 meetings, 5 E2E tests in terminal-browser");
+    println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog, Grafana, Sentry…), 9 mail");
     println!("Tickets, CI, meetings, deploys and the monitor come from MCP servers: cockpit calls them itself, with any agent.");
     let picked = io.ask("Which ones, by number (e.g. 1 2 5)?", "1");
     let on = |n: char| picked.contains(n);
@@ -193,7 +193,11 @@ fn setup(io: &mut Io) {
     let mapper = agent_id.as_deref().and_then(agent::get).or_else(|| installed.first().cloned());
     let mut servers = serde_json::Map::new();
     let mut spaces: Vec<&str> = SPACES.to_vec();
-    for (n, section) in [('2', "tickets"), ('3', "ci"), ('4', "calendar"), ('7', "platform"), ('8', "observability")] {
+    for (n, section) in [('1', "code"), ('2', "tickets"), ('3', "ci"), ('4', "calendar"), ('7', "platform"), ('8', "observability"), ('9', "mail")] {
+        // GitHub's PRs come through gh, and need no server.
+        if section == "code" && (!on(n) || choices("code").is_empty()) {
+            continue;
+        }
         if !on(n) {
             let off = if section == "ci" { json!({"enabled": true, "name": "GitHub", "server": ""}) } else { json!({"enabled": false}) };
             if section != "observability" {
@@ -218,6 +222,7 @@ fn setup(io: &mut Io) {
                 block
             }
             Source::Ics(address) => json!({"enabled": true, "name": "Calendar", "server": "", "ics": address}),
+            Source::Off if section == "code" || section == "mail" => continue,
             Source::Off => json!({"enabled": section == "ci", "name": "GitHub", "server": ""}),
         };
         match section {
@@ -323,11 +328,18 @@ fn setup(io: &mut Io) {
 }
 
 /// What each source is called and its server named, for Claude Code's connectors (/cockpit:setup corrects them).
-const CLAUDE_NAMES: [(&str, &str); 5] =
-    [("Linear", "claude.ai Linear"), ("CircleCI", "circleci"), ("Calendar", "claude.ai Google Calendar"), ("Platform", ""), ("Datadog", "claude.ai Datadog")];
+const CLAUDE_NAMES: [(&str, &str); 7] = [
+    ("Linear", "claude.ai Linear"),
+    ("CircleCI", "circleci"),
+    ("Calendar", "claude.ai Google Calendar"),
+    ("Platform", ""),
+    ("Datadog", "claude.ai Datadog"),
+    ("GitHub", ""),
+    ("Mail", ""),
+];
 
 fn section_at(section: &str) -> usize {
-    ["tickets", "ci", "calendar", "platform", "observability"].iter().position(|s| *s == section).unwrap_or(0)
+    ["tickets", "ci", "calendar", "platform", "observability", "code", "mail"].iter().position(|s| *s == section).unwrap_or(0)
 }
 
 /// Where a source's data comes from.
@@ -408,9 +420,11 @@ fn choices(section: &str) -> Vec<Choice> {
 /// Asks where a source comes from, logs cockpit in to the server picked and maps it when no mapping is known.
 fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent>) -> Source {
     use cockpit_connectors::Server;
-    let title = ["Tickets", "CI runs", "Meetings", "Deploys and previews", "The release monitor's metrics and errors"][section_at(section)];
+    let title =
+        ["Tickets", "CI runs", "Meetings", "Deploys and previews", "The release monitor's metrics and errors", "Pull requests", "Mail"][section_at(section)];
     let options = choices(section);
     let mut listed: Vec<String> = Vec::new();
+    let claude = claude && !["code", "mail"].contains(&section);
     if claude {
         listed.push("Claude Code's connector (/cockpit:setup in Claude Code maps it)".into());
     }
@@ -418,7 +432,11 @@ fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent
     if section == "calendar" {
         listed.push("the calendar's secret iCal address".into());
     }
-    listed.push(if section == "ci" { "GitHub's checks".into() } else { "none".into() });
+    listed.push(match section {
+        "ci" => "GitHub's checks".into(),
+        "code" => "GitHub, through gh".into(),
+        _ => "none".into(),
+    });
     let numbered: Vec<String> = listed.iter().enumerate().map(|(i, l)| format!("{} {l}", i + 1)).collect();
     let picked = io.ask(&format!("\n{title} from? {}", numbered.join(", ")), "1").parse::<usize>().unwrap_or(1).max(1) - 1;
     let at = picked.checked_sub(usize::from(claude));

@@ -133,12 +133,21 @@ fn failed_tests(args: &Value) -> Value {
     json!({"job": failed["job"], "step": failed["step"], "tests": failed.get("tests").cloned().unwrap_or(json!([])), "logs": failed["logs"]})
 }
 
-/// The last lines of the branch's failed GitHub Actions run; with another CI, a message that its logs need a session.
+/// The last lines of the branch's failed run: GitHub Actions' through gh, another CI's through the hub's own server; else
+/// a message that its logs need a session.
 fn ci_log(config: &Config, args: &Value) -> Result<Value, String> {
     let ci = &config.0["ci"];
     let name = ci["name"].as_str().unwrap_or("GitHub");
     let is_github = name.eq_ignore_ascii_case("github") || ci["server"].as_str().unwrap_or_default().is_empty();
     if !is_github {
+        let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
+        let job = ci_run(args)["failed"]["jobId"].as_str().unwrap_or_default().to_string();
+        if let Some(server) = crate::feed::mcp::server(&raw, &config.0, "ci").filter(|_| !job.is_empty()) {
+            let mapping = cockpit_connectors::ci::mapping(&raw["ci"]);
+            let log = crate::feed::mcp::with(&server, async |c| cockpit_connectors::call_mapped_text(c, &mapping, "logs", &json!({"job": job})).await)?;
+            let lines: Vec<&str> = log.lines().collect();
+            return Ok(json!({"lines": lines[lines.len().saturating_sub(LOG_LINES)..]}));
+        }
         return Ok(json!({"lines": [], "message": format!("The {name} logs need an agent session with its connector: fix ci opens one.")}));
     }
     let repo = full_repo(config, args)?;

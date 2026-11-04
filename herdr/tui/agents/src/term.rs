@@ -374,9 +374,20 @@ fn status_word(s: &str) -> String {
     }
 }
 
+/// herdr's last pane and space listings, kept for the space rows to reuse; taken once per listing.
+static TUI_LISTING: Mutex<Option<(Value, Value)>> = Mutex::new(None);
+
+/// The spaces and panes the last look at herdr listed, when none took them since.
+pub fn take_tui_listing() -> Option<(Value, Value)> {
+    TUI_LISTING.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
 fn tui_list() -> Vec<Live> {
     let panes = json_of(herdr(&["pane", "list"]));
     let spaces = json_of(herdr(&["workspace", "list"]));
+    if !panes.is_null() && !spaces.is_null() {
+        *TUI_LISTING.lock().unwrap_or_else(|e| e.into_inner()) = Some((spaces.clone(), panes.clone()));
+    }
     let label = |id: &str| -> String {
         let l = spaces["result"]["workspaces"]
             .as_array()

@@ -56,6 +56,26 @@ pub fn brief(section: &str) -> Option<&'static str> {
              appHealth, appDeployedAt, appBehind, appService, appDatadog, deployId, deployActor, deployPhase, deployStarted, deployFinished, and \
              `skipKinds` with app kinds that never build from a repo. Answer {\"tools\", \"fields\"}."
         }
+        "mail" => {
+            "Map these capabilities, each `{\"tool\", \"args\"}` with the placeholders {message} (a message's id) and {thread} (its \
+             thread's id, when the tool works on threads): listInbox (my unread or important inbox messages, newest first, about 30, e.g. \
+             a search for is:unread in:inbox), get (one message with its body), archive (moves {message} or its {thread} out of the inbox), \
+             markRead (marks {message} read). Fill `fields` with dotted paths (`a.b`, `a.0.b`, `a|b`; \"\" is the answer itself): messages \
+             (the list in listInbox's answer), id, threadId, from (the sender's address or \"Name <address>\"), fromName, subject, snippet, \
+             url (a link opening the message in the mail client's web page), date (ISO, RFC 2822 or epoch), unread (a flag, or a label list \
+             holding UNREAD), and body in get's answer. When the answers carry no link, give `urlTemplate` with {id} and {threadId} \
+             (Gmail: https://mail.google.com/mail/u/0/#all/{threadId}). Use read-only tools for listInbox and get, and never map a tool \
+             that sends mail. Answer {\"tools\", \"fields\", \"urlTemplate\"}."
+        }
+        "code" => {
+            "Map these capabilities, each `{\"tool\", \"args\"}`: listMine (my open pull or merge requests), listReviews (open ones \
+             asking for my review), listMerged (mine merged in the last week), merge, ready (out of draft) and draft, the last three with \
+             the placeholders {repo} (the repo's path, e.g. group/project), {number} and {url}. Fill `fields` with dotted paths (`a.b`, \
+             `a.0.b`, `a|b`; \"\" is the answer itself): prs (the list), repo (the repo's path), number, title, url, author, authorName, \
+             updatedAt, isDraft, review (its review or approval state), ci (its pipeline state), branch, base, mergeSha and mergedAt. \
+             Map the review states to APPROVED, CHANGES_REQUESTED and REVIEW_REQUIRED in `reviews`, the pipeline states to SUCCESS, \
+             FAILURE and PENDING in `checks`. Answer {\"tools\", \"fields\", \"reviews\", \"checks\"}."
+        }
         "observability" => {
             "Map these capabilities, each `{\"tool\", \"args\"}`: metric (a metric query over a window, with the placeholders {query}, \
              {from} and {to} (ISO times), {fromSeconds}, {toSeconds}, {fromMs}, {toMs} and {step} (seconds between points)), monitors (a \
@@ -95,6 +115,21 @@ async fn trial(connection: &Connection, section: &str, mapping: &Value) -> Resul
             let tools = Mapped { connection, section: &mapping };
             platform::deployed_apps(&tools, &mapping).await.map(|apps| sample(apps.iter().map(|a| serde_json::to_value(a).unwrap_or_default()).collect()))
         }
+        "mail" => {
+            let mapping = cockpit_connectors::mail::mapping(mapping);
+            cockpit_connectors::mail::inbox(&Mapped { connection, section: &mapping }, &mapping).await.map(sample)
+        }
+        "code" => {
+            let mapping = cockpit_connectors::code::mapping(mapping);
+            let [direct, _, _, mine, _] = cockpit_connectors::code::inbox(&Mapped { connection, section: &mapping }, &mapping).await?;
+            let mine = mine.as_array().cloned().unwrap_or_default();
+            Ok(format!(
+                "{} of mine, {} asking for my review; the first: {}",
+                mine.len(),
+                direct.as_array().map_or(0, Vec::len),
+                mine.first().map(Value::to_string).unwrap_or_default()
+            ))
+        }
         "observability" => {
             use cockpit_connectors::observability::{self, Signals};
             let mapping = observability::mapping(mapping);
@@ -116,6 +151,8 @@ async fn raw_answer(connection: &Connection, section: &str, mapping: &Value) -> 
         "ci" => "listRuns",
         "calendar" => "listEvents",
         "observability" => "issues",
+        "code" => "listMine",
+        "mail" => "listInbox",
         _ => "deployStatus",
     };
     match cockpit_connectors::call_mapped(connection, mapping, verb, &json!({})).await {
@@ -144,7 +181,7 @@ fn ask_agent(agent: &agent::Agent, prompt: &str) -> Result<String, String> {
 /// Writes a mapping for `section` from the server's tools, tried on the server; Ok holds the mapping and the trial's
 /// sample.
 pub fn map(section: &str, server: &Server, name: &str, agent: &agent::Agent) -> Result<(Value, String), String> {
-    let brief = brief(section).ok_or_else(|| format!("cockpit maps tickets, ci, calendar, platform and observability, not {section}"))?;
+    let brief = brief(section).ok_or_else(|| format!("cockpit maps tickets, ci, calendar, platform, observability, code and mail, not {section}"))?;
     cockpit_connectors::block_on(async {
         let connection = cockpit_connectors::connect(server).await?;
         let tools = connection.tool_list().await?;

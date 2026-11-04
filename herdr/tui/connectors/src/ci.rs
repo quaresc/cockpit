@@ -188,7 +188,7 @@ fn logs_hint(ci: &Value, job: &str) -> String {
     let tools: Vec<&str> = ["getJob", "listTests", "logs"].iter().filter_map(|c| ci["tools"][c]["tool"].as_str().filter(|t| !t.is_empty())).collect();
     let name = text(Some(&ci["name"])).unwrap_or_default();
     let list = if tools.is_empty() { String::new() } else { format!(" ({}; keep log tails small)", tools.join(", ")) };
-    format!("the {name} MCP{list}, job id {job}")
+    format!("cockpit's cockpit_read tool (source ci, verb logs or getJob, values {{\"job\": \"{job}\"}}), else the {name} MCP{list}, job id {job}")
 }
 
 /// A connector's outcome as cockpit's, through the mapping's outcomes.
@@ -329,7 +329,7 @@ mod tests {
             runs[0]["failed"],
             json!({
                 "job": "test", "jobId": "j1", "step": "mix test", "tests": ["quota test", "QuotaTest", "c"],
-                "logs": "the CircleCI MCP (get_job, list_job_tests, get_job_logs; keep log tails small), job id j1"
+                "logs": "cockpit's cockpit_read tool (source ci, verb logs or getJob, values {\"job\": \"j1\"}), else the CircleCI MCP (get_job, list_job_tests, get_job_logs; keep log tails small), job id j1"
             })
         );
         assert_eq!(calls(&fake, "getJob")[0], json!({"job": "j1"}));
@@ -362,7 +362,10 @@ mod tests {
         assert_eq!((runs[0]["done"].as_u64(), runs[0]["total"].as_u64()), (Some(2), Some(3)));
         assert_eq!(runs[0]["workflowId"], "7");
         assert_eq!(runs[0]["dockerTag"], "succeeded");
-        assert_eq!(runs[0]["failed"], json!({"job": "rspec", "jobId": "1", "tests": [], "logs": "the GitLab MCP, job id 1"}));
+        assert_eq!(
+            runs[0]["failed"],
+            json!({"job": "rspec", "jobId": "1", "tests": [], "logs": "cockpit's cockpit_read tool (source ci, verb logs or getJob, values {\"job\": \"1\"}), else the GitLab MCP, job id 1"})
+        );
         assert_eq!(calls(&fake, "listJobs")[0], json!({"run": "7", "workflow": "7"}));
     }
 

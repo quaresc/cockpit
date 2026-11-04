@@ -8,7 +8,7 @@ import { recordCost, startCosts } from './costs'
 import { DRAWING_SECTION, artifactRefusal, freshTurn, pageRefusal } from './drawing'
 import { forgetFacts, reportFacts } from './facts'
 import { home } from './config'
-import { CHANGES_SPEC, CHANGES_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, searchArgs } from './find'
+import { CHANGES_SPEC, CHANGES_TOOL_FULL, HEALTH_SPEC, HEALTH_TOOL_FULL, READ_SPEC, READ_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, healthArgs, readArgs, searchArgs } from './find'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, recordRunbookOwner, reportStep, settleTurn } from './handoffs'
 import { herdrHere, hereSoon, isBackgroundJob, pageContext, setBackground } from './herdr'
@@ -49,6 +49,8 @@ export const register: Register = on => {
     await $.tool.register(SHOW_SPEC).catch(() => undefined)
     await $.tool.register(SEARCH_SPEC).catch(() => undefined)
     await $.tool.register(CHANGES_SPEC).catch(() => undefined)
+    await $.tool.register(READ_SPEC).catch(() => undefined)
+    await $.tool.register(HEALTH_SPEC).catch(() => undefined)
     // A background session only needs the tools: the session at the prompt refreshes and reports for it.
     if (await setBackground($, e.isInteractive)) return next(e)
     const fetches = !isBackgroundJob()
@@ -159,8 +161,10 @@ export const register: Register = on => {
 
   on('tool.call', { tool: SEARCH_TOOL_FULL }, async ($, e) => find($, e as unknown as Record<string, unknown>, searchArgs))
   on('tool.call', { tool: CHANGES_TOOL_FULL }, async ($, e) => find($, e as unknown as Record<string, unknown>, changesArgs))
+  on('tool.call', { tool: READ_TOOL_FULL }, async ($, e) => find($, e as unknown as Record<string, unknown>, readArgs))
+  on('tool.call', { tool: HEALTH_TOOL_FULL }, async ($, e) => find($, e as unknown as Record<string, unknown>, healthArgs))
   // Both only read what cockpit keeps, so they need no permission prompt.
-  on('tool.check', { tool: [SEARCH_TOOL_FULL, CHANGES_TOOL_FULL] }, async () => ({ decision: 'allow' }))
+  on('tool.check', { tool: [SEARCH_TOOL_FULL, CHANGES_TOOL_FULL, READ_TOOL_FULL, HEALTH_TOOL_FULL] }, async () => ({ decision: 'allow' }))
 
   on('tool.call', async ($, e, next) => {
     await trackWork($, e as unknown as Record<string, unknown>).catch(() => undefined)

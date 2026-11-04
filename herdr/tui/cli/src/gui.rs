@@ -23,7 +23,7 @@ pub fn register() {
     cockpit_agents::gui::start(|| views::touch("agents"));
     views::register(Def {
         name: "inbox",
-        docs: &["inbox", "ci", "brief"],
+        docs: &["inbox", "ci", "brief", "mail"],
         dirs: cockpit_inbox::gui::dirs,
         build: cockpit_inbox::gui::view,
         act: cockpit_inbox::gui::act,

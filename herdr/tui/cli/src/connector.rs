@@ -7,7 +7,9 @@ use crate::proc;
 
 const USAGE: &str = "usage: cockpit connector login <url or servers key> | logout <url> | tools <server> [--json] | call <server> <tool> [json args] | tickets <server> | ticket <server> <id>
        | rows <source json> (a show block's Metabase, Datadog or metrics source, as {columns, rows})
-       | map <tickets|ci|calendar|platform> <servers key> (your default agent maps the server's tools into config.json)
+       | map <tickets|ci|calendar|platform|observability|code|mail> <servers key> (your default agent maps the server's tools)
+       | read <source> <verb> [json values] (a read verb of a source, through the server the config names for it)
+       | health <service> [from] [to] (a service's errors, hits, p95, alerting monitors and open errors; from as now-1h)
 <server> is a servers key of config.json, an MCP server's URL, or the command that starts it";
 
 pub fn main(args: &[String]) {
@@ -60,6 +62,15 @@ pub fn main(args: &[String]) {
             c.close().await;
             Ok(serde_json::to_string_pretty(&card?).unwrap_or_default())
         }),
+        ["read", source, verb, rest @ ..] => serde_json::from_str::<Value>(rest.first().copied().unwrap_or("{}"))
+            .map_err(|e| format!("values: {e}"))
+            .and_then(|values| cockpit_connectors::reads::read(&raw_config(), source, verb, &values)),
+        ["health", service, rest @ ..] => {
+            let now = crate::find::now_ms() as i64;
+            let start = |at: usize, default: &str| cockpit_connectors::observability::start_of(rest.get(at).copied().unwrap_or(default), now);
+            let (from, to) = (start(0, "now-1h"), if rest.len() > 1 { start(1, "now-0m") } else { now });
+            cockpit_connectors::reads::health(&raw_config(), service, from, to, now).map(|v| v.to_string())
+        }
         ["rows", source] => rows(source),
         ["map", section, key] => map(section, key),
         _ => Err(USAGE.to_string()),
@@ -139,4 +150,8 @@ fn configured_url(spec: &str) -> String {
 fn resolve(spec: &str) -> Server {
     let raw = cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null);
     Server::from_entry(&raw["servers"][spec]).unwrap_or_else(|| Server::parse(spec))
+}
+
+fn raw_config() -> Value {
+    cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null)
 }

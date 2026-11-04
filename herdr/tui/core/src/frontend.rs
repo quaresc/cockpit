@@ -272,6 +272,31 @@ fn tui_spaces() -> Vec<Value> {
         .collect()
 }
 
+/// herdr's sidebar width from its config, 34 when it sets none.
+pub fn sidebar_width() -> usize {
+    let config = std::fs::read_to_string(files::home().join(".config/herdr/config.toml")).unwrap_or_default();
+    width_in(&config).unwrap_or(34)
+}
+
+fn width_in(config: &str) -> Option<usize> {
+    config.lines().find_map(|line| {
+        let value = line.trim_start().strip_prefix("sidebar_width")?.trim_start().strip_prefix('=')?.trim_start();
+        let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().ok()
+    })
+}
+
+/// The glyph herdr's sidebar rows give an agent status; None for a status it does not show.
+pub fn status_mark(status: &str) -> Option<&'static str> {
+    Some(match status {
+        "working" => "◐",
+        "blocked" => "⏸",
+        "done" => "✓",
+        "idle" => "○",
+        _ => return None,
+    })
+}
+
 fn root_pane(created: &Value) -> Option<String> {
     created["root_pane"]["pane_id"].as_str().map(str::to_string)
 }
@@ -503,5 +528,12 @@ mod tests {
         assert_eq!(with(Some(Frontend::Tui), current), Frontend::Tui);
         assert_eq!(Frontend::parse("app"), Some(Frontend::App));
         assert_eq!(Frontend::parse("nope"), None);
+    }
+
+    #[test]
+    fn the_width_herdr_sets() {
+        assert_eq!(width_in("[ui]\n  sidebar_width = 40 # wide\n"), Some(40));
+        assert_eq!(width_in("sidebar_widths = 3\n"), None);
+        assert_eq!(width_in("theme = \"x\"\n"), None);
     }
 }

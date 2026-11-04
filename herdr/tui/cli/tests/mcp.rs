@@ -64,7 +64,7 @@ fn an_agent_in_a_herdr_pane_gets_a_view_beside_it_and_the_persons_answer_back() 
     let hello = server.ask("initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex", "version": "0"}}));
     assert_eq!(hello["result"]["protocolVersion"], "2025-06-18");
     server.tell("notifications/initialized");
-    assert_eq!(server.ask("tools/list", json!({}))["result"]["tools"].as_array().unwrap().len(), 4);
+    assert_eq!(server.ask("tools/list", json!({}))["result"]["tools"].as_array().unwrap().len(), 6);
 
     let view = json!({"pane": "deploy", "title": "Deploy", "blocks": [{"type": "choice", "prompt": "Which env?", "options": [{"label": "staging"}, {"label": "prod"}]}]});
     let shown = server.ask("tools/call", json!({"name": "show", "arguments": view}));
@@ -177,4 +177,59 @@ fn a_config_that_does_not_read_is_left_alone() {
     assert!(!out.status.success());
     assert!(common::stderr(&out).contains("does not read as the agent's config"), "{}", common::stderr(&out));
     assert_eq!(std::fs::read_to_string(sandbox.home().join(".qwen/settings.json")).unwrap(), "{ \"a\": }");
+}
+
+/// A fake MCP server's entry for the sandbox's config, answering from these canned answers.
+fn fake_server(sandbox: &Sandbox, name: &str, answers: Value) -> Value {
+    let path = sandbox.root.join(format!("{name}.json"));
+    std::fs::write(&path, answers.to_string()).unwrap();
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../hub/tests/fixtures/mcp/fake_mcp.py");
+    json!({"command": "python3", "args": [script.to_string_lossy(), path.to_string_lossy()]})
+}
+
+#[test]
+fn any_agent_reads_any_tool_through_cockpit() {
+    let sandbox = Sandbox::new();
+    let jira = fake_server(&sandbox, "jira", json!({"jira_issue": {"key": "ACME-7", "fields": {"summary": "Quota banner"}}}));
+    let grafana = fake_server(
+        &sandbox,
+        "grafana",
+        json!({
+            "query_prometheus": {"_range": true},
+            "list_alert_rules": {"rules": [{"uid": "r1", "title": "API 5xx", "state": "firing"}]},
+            "search_issues": {"_list": [{"shortId": "API-1", "title": "KeyError", "count": 3}]}
+        }),
+    );
+    let config = json!({
+        "servers": {"jira": jira, "grafana": grafana},
+        "tickets": {"enabled": true, "name": "Jira", "server": "jira", "tools": {"details": {"tool": "jira_issue", "args": {"key": "{ticket}"}}}},
+        "observability": {"name": "Grafana", "server": "grafana",
+            "tools": {"metric": {"tool": "query_prometheus", "args": {"expr": "{query}", "startTime": "{from}", "endTime": "{to}", "stepSeconds": "{step}"}},
+                "monitors": {"tool": "list_alert_rules"}, "issues": {"tool": "search_issues"}},
+            "fields": {"series": "data.result", "points": "values", "pointTime": "0", "pointValue": "1", "monitors": "rules", "monitorName": "title",
+                "monitorStatus": "state", "issues": "", "issueId": "shortId", "issueMessage": "title", "issueCount": "count"},
+            "statuses": {"firing": "alert"},
+            "queries": {"errors": "sum(errors{service=\"{service}\"})", "hits": "sum(hits{service=\"{service}\"})", "p95": "histogram_quantile(0.95, x)"}}
+    });
+    sandbox.write("home/.config/cockpit/config.json", &config.to_string());
+    let mut server = Server::start(&sandbox, &[]);
+    let tools = server.ask("tools/list", json!({}));
+    let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"cockpit_read") && names.contains(&"cockpit_health"), "{names:?}");
+
+    let text = |answer: &Value| answer["result"]["content"][0]["text"].as_str().unwrap_or_default().to_string();
+    let read = server.ask("tools/call", json!({"name": "cockpit_read", "arguments": {"source": "tickets", "verb": "details", "values": {"ticket": "ACME-7"}}}));
+    assert_eq!(serde_json::from_str::<Value>(&text(&read)).unwrap()["fields"]["summary"], "Quota banner");
+    let refused = server.ask("tools/call", json!({"name": "cockpit_read", "arguments": {"source": "tickets", "verb": "setState"}}));
+    assert_eq!(refused["result"]["isError"], true);
+
+    let health = server.ask("tools/call", json!({"name": "cockpit_health", "arguments": {"service": "api", "from": "now-1h"}}));
+    let health: Value = serde_json::from_str(&text(&health)).unwrap();
+    assert_eq!((&health["numbers"]["errors"].as_f64().map(|e| e > 0.0), &health["monitors"]["alert"]), (&Some(true), &json!(1)));
+    assert_eq!(health["issues"][0]["id"], "API-1");
+
+    let rows = sandbox.cockpit(&["connector", "rows", r#"{"metrics": {"queries": ["sum(hits{service=\"api\"})"], "from": "now-1h"}}"#], &[]);
+    let rows: Value = serde_json::from_str(&stdout(&rows)).unwrap();
+    assert_eq!(rows["columns"][0], "time");
+    assert!(rows["rows"].as_array().is_some_and(|r| !r.is_empty()));
 }

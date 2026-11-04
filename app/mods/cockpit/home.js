@@ -33,6 +33,7 @@ const OVERVIEW = [
       return { text: c.direct ? `${many(c.direct, "review")} for you` : "nothing for you" };
     },
   },
+  { view: "inbox", space: "inbox", label: "Mail", icon: "mail", line: (v) => (typeof v.counts?.mail === "number" ? { text: v.counts.mail ? `${v.counts.mail} unread` : "nothing unread", tone: v.counts.mail ? "warning" : null } : null) },
   { view: "meetings", space: "meetings", label: "Next", icon: "calendar", line: (v) => ({ text: v.banner?.title ? `${v.banner.title} · ${v.banner.when}` : "no meeting", tone: v.banner?.soon ? "warning" : null }) },
   { view: "runbook", space: "runbook", label: "Runbooks", icon: "book", line: (v) => (v.books?.length ? { text: `${many(v.left ?? 0, "step")} left` } : null) },
   { view: "todo", space: "to-do", label: "To-do", icon: "list-todo", line: (v) => ({ text: v.open ? `${v.open} open` : "all done" }) },
@@ -730,7 +731,7 @@ export default class Home {
       "layout-dashboard",
       items.map((o) =>
         h_flex()
-          .id(`ov-${o.view}`)
+          .id(`ov-${o.label}`)
           .h(28)
           .px(6)
           .mx(-6)

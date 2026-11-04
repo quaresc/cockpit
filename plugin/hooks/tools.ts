@@ -155,6 +155,81 @@ export const MCP = {
         }
       }
     },
+    "cockpit_read": {
+      "name": "cockpit_read",
+      "description": [
+        "Reads from the person's tools through the MCP servers cockpit itself is connected to, whatever they are (Linear, Jira, ",
+        "GitLab, CircleCI, a calendar, a deploy platform, Grafana, Sentry, a mail server…), as cockpit's setup mapped them: ",
+        "tickets (listMine, get, details, comments, listStates; values {ticket}), ci (listRuns, listWorkflows, listJobs, getJob, ",
+        "listTests, logs; values {run}, {workflow}, {job}), calendar (listEvents, getEvent; {event}), platform (deployStatus, ",
+        "deployHistory, listPreviews, previewStatus; {appId}, {login}, {preview}), observability (metric, monitors, issues; ",
+        "{query}, {from}, {to}, {service}, {env}), mail (listInbox, get; {message}), code (listMine, listReviews, listMerged, ",
+        "details). Read-only. Returns the tool's answer as JSON; a source cockpit does not reach itself says so."
+      ],
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "tickets",
+              "ci",
+              "calendar",
+              "platform",
+              "observability",
+              "mail",
+              "code"
+            ]
+          },
+          "verb": {
+            "type": "string",
+            "description": "One of the source's read verbs listed above"
+          },
+          "values": {
+            "type": "object",
+            "description": "The verb's placeholders, e.g. {\"ticket\": \"ENG-412\"}"
+          }
+        },
+        "required": [
+          "source",
+          "verb"
+        ]
+      }
+    },
+    "cockpit_health": {
+      "name": "cockpit_health",
+      "description": [
+        "A service's health from the metrics and errors tool cockpit is connected to (Datadog, Grafana, Sentry or any other ",
+        "it mapped): errors, hits and p95 latency over a window, its alerting monitors and its open errors of the day. Use it ",
+        "to compare before and after a deploy. Read-only. Returns JSON {service, from, to, numbers, monitors, issues}."
+      ],
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "The service's name as the metrics tool knows it"
+          },
+          "from": {
+            "type": "string",
+            "description": "Where the window starts: now-1h (the default), now-30m, now-2d, or an ISO time"
+          },
+          "to": {
+            "type": "string",
+            "description": "Where it ends: now (the default) or an ISO time"
+          }
+        },
+        "required": [
+          "service"
+        ]
+      }
+    },
     "report_step": {
       "name": "report_step",
       "description": [

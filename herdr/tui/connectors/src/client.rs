@@ -223,6 +223,17 @@ pub async fn call_mapped(connection: &Connection, section: &Value, verb: &str, v
     connection.call(tool, args).await
 }
 
+/// One call to the tool a section maps to a verb, its answer's text as it is (logs, which are no JSON).
+pub async fn call_mapped_text(connection: &Connection, section: &Value, verb: &str, values: &Value) -> Result<String, String> {
+    let recipe = &section["tools"][verb];
+    let tool = recipe["tool"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| format!("no tool mapped for {verb}"))?;
+    let empty = Map::new();
+    let args = crate::mapping::fill_args(recipe.get("args").unwrap_or(&Value::Object(Map::new())), values.as_object().unwrap_or(&empty))
+        .and_then(|a| a.as_object().cloned())
+        .unwrap_or_default();
+    connection.call_text(tool, args).await
+}
+
 /// Runs a future on a runtime of its own, for the synchronous callers; TLS goes through ring.
 pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
     let _ = rustls::crypto::ring::default_provider().install_default();

@@ -49,6 +49,12 @@ pub fn tickets(server: &Server, section: &Value) -> Fetched<Vec<Value>> {
     with(server, async |c| tickets::mine(&Mapped { connection: c, section: &mapping }, &mapping).await).map_err(Failure::Other)
 }
 
+/// The inbox's PR fields (direct, team, botRepos, mine, merged) from a code host's server.
+pub fn code(server: &Server, section: &Value) -> Fetched<[Value; 5]> {
+    let mapping = cockpit_connectors::code::mapping(section);
+    with(server, async |c| cockpit_connectors::code::inbox(&Mapped { connection: c, section: &mapping }, &mapping).await).map_err(Failure::Other)
+}
+
 /// My latest CI runs through the server, the ended ones taken from ci.json as it was.
 pub fn ci_runs(server: &Server, section: &Value, prev: &Value) -> Fetched<Vec<Value>> {
     let mapping = ci::mapping(section);
@@ -102,7 +108,12 @@ pub fn login(token: &str) -> String {
 pub fn platform_part(server: &Server, section: &Value, inbox: &Value) -> Fetched<(Value, Value)> {
     let mapping = platform::mapping(section);
     let token = super::github::token().unwrap_or_default();
-    let login = if token.is_empty() { String::new() } else { login(&token) };
+    // The platform's own name for me, else my GitHub login.
+    let login = match section["login"].as_str().filter(|l| !l.is_empty()) {
+        Some(login) => login.to_string(),
+        None if token.is_empty() => String::new(),
+        None => login(&token),
+    };
     let tickets = inbox["tickets"].as_array().cloned().unwrap_or_default();
     let merged = inbox["merged"].as_array().cloned().unwrap_or_default();
     with(server, async |c| {

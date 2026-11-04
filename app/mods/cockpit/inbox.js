@@ -1,5 +1,5 @@
 // The inbox: the `inbox` view the hub pushes (the TUI inbox's own rows, built in Rust), with every TUI key and action
-// plus the pointer's: a tree of sections with PR, review and ticket rows, details beside it (GitHub's merge readiness,
+// plus the pointer's: a tree of sections with PR, review, ticket and mail rows, details beside it (GitHub's merge readiness,
 // the merge menu, review threads, failing tests, the Linear card with its states), hover cards fetched on demand,
 // multi-select with shared actions, a right-click menu, a command list on ctrl+p, start dialogs that check first, and
 // the outcomes of the requests the rows filed.
@@ -31,6 +31,7 @@ function bySort(model) {
   const review = keep("review");
   const out = [keep("today"), keep("alerts")].filter(Boolean);
   if (review) out.push({ ...review, title: "Reviews", name: "Reviews" });
+  if (keep("mail")) out.push(keep("mail"));
   if (prs.length) out.push(section("prs", "Your PRs", "git-pull-request", prs));
   if (tickets.length) out.push(section("tickets", "Tickets", "ticket", tickets));
   if (trees.length) out.push(section("cleanup", "To clean up", "folder-git", trees));
@@ -38,7 +39,7 @@ function bySort(model) {
 }
 
 const H = { heading: 52, pr: 34, ticket: 34, group: 30, line: 26, text: 32 };
-const KIND_NAME = { pr: ["PR", "PRs"], review: ["review request", "review requests"], ticket: ["ticket", "tickets"], alert: ["alert", "alerts"], brief: ["brief line", "brief lines"], muted: ["muted repo", "muted repos"], worktree: ["worktree", "worktrees"] };
+const KIND_NAME = { pr: ["PR", "PRs"], review: ["review request", "review requests"], ticket: ["ticket", "tickets"], alert: ["alert", "alerts"], brief: ["brief line", "brief lines"], muted: ["muted repo", "muted repos"], worktree: ["worktree", "worktrees"], mail: ["message", "messages"] };
 const FRESH_MS = 120_000;
 
 const words = (q) => q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -60,6 +61,7 @@ function signature(row) {
   if (row.kind === "pr" || row.kind === "review") return `${it.ci}|${it.review}|${it.isDraft}|${it.updatedAt}`;
   if (row.kind === "ticket") return row.cells?.ref ?? "";
   if (row.kind === "alert" || row.kind === "worktree") return spansText(row.text);
+  if (row.kind === "mail") return `${it.unread}`;
   return null;
 }
 
@@ -925,7 +927,7 @@ export default class Inbox {
   height({ row, depth }) {
     if (depth === 0) return H.heading;
     if (row.kind === "pr" || row.kind === "review") return H.pr;
-    if (row.kind === "ticket") return H.ticket;
+    if (row.kind === "ticket" || row.kind === "mail") return H.ticket;
     if (row.kind === "plain") return row.children?.length ? H.group : H.line;
     return H.text;
   }
@@ -949,6 +951,7 @@ export default class Inbox {
     }
     if (row.cells && (row.kind === "pr" || row.kind === "review")) return this.prBody(row, k);
     if (row.cells && row.kind === "ticket") return this.ticketBody(row, k);
+    if (row.cells && row.kind === "mail") return this.mailBody(row, k);
     if (row.kind === "plain") return this.spans(row.text, k, { size: TEXT.sm, grow: true });
     return this.spans(row.text, k, { grow: true });
   }
@@ -1012,6 +1015,21 @@ export default class Inbox {
       .when(Boolean(t?.cost), (e) => e.child(Mono(`$${t.cost.toFixed(2)}`)));
   }
 
+  /** A message: unread dot, sender, subject, age; read ones dimmed. */
+  mailBody(row, k) {
+    const c = row.cells;
+    const unread = Boolean(row.item?.unread);
+    return h_flex()
+      .flex_1()
+      .min_w(0)
+      .gap(10)
+      .items_center()
+      .child(unread ? div().size(8).mx(3).flex_none().rounded(4).bg(k.warning) : Icon("mail", { size: 14, color: k.mutedFg }))
+      .child(div().w(150).flex_none().truncate().text_size(TEXT.sm).when(unread, (e) => e.font_semibold()).text_color(unread ? personColor(c.ref) : k.mutedFg).child(c.ref))
+      .child(div().flex_1().min_w(0).truncate().text_color(unread ? k.foreground : k.mutedFg).child(c.title))
+      .child(div().w(36).flex_none().text_right().text_size(TEXT.xs).text_color(k.mutedFg).child(c.age ?? ""));
+  }
+
   // -------------------------------------------------------------------------------------------------------------------
   // Drawing: the details beside the list
 
@@ -1034,8 +1052,8 @@ export default class Inbox {
     } else {
       const row = this.current();
       if (!row) return null;
-      title = row.cells ? `${row.cells.ref.split(/\s+/)[0]}  ${row.cells.title}` : row.title ?? row.name;
-      description = row.section || null;
+      title = row.kind === "mail" ? row.cells.title : row.cells ? `${row.cells.ref.split(/\s+/)[0]}  ${row.cells.title}` : row.title ?? row.name;
+      description = row.kind === "mail" ? `${row.cells.ref} · ${row.cells.age}` : row.section || null;
       if (row.kind === "pr" || row.kind === "review") children = this.prPanel(row, k, cx);
       else if (row.kind === "ticket") children = this.ticketPanel(row, k, cx);
       else if (row.kind === "plain" && row.children?.length) children = [this.childList(row, k)];
@@ -1453,4 +1471,7 @@ const ICON = {
   "remove worktree": "trash",
   remove: "trash",
   go: "chevron-right",
+  reply: "reply",
+  archive: "archive",
+  "mark read": "mail-check",
 };

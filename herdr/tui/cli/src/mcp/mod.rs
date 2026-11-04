@@ -125,6 +125,24 @@ fn call(name: &str, args: &Value) -> Option<Result<String, String>> {
         "cockpit_changes" => {
             changes(args).and_then(|(since, app)| find::events_json(since, &app).map(|v| v.to_string()).map_err(|e| format!("cockpit events: {e}")))
         }
+        "cockpit_read" => {
+            let raw = cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null);
+            let (source, verb) = (args["source"].as_str().unwrap_or_default(), args["verb"].as_str().unwrap_or_default());
+            let values = if args["values"].is_object() { args["values"].clone() } else { json!({}) };
+            cockpit_connectors::reads::read(&raw, source, verb, &values)
+        }
+        "cockpit_health" => {
+            let raw = cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null);
+            let now = find::now_ms() as i64;
+            let at =
+                |key: &str, default: i64| args[key].as_str().filter(|t| *t != "now").map_or(default, |t| cockpit_connectors::observability::start_of(t, now));
+            let service = args["service"].as_str().unwrap_or_default().trim();
+            if service.is_empty() {
+                Err("service: the service's name as the metrics tool knows it".to_string())
+            } else {
+                cockpit_connectors::reads::health(&raw, service, at("from", now - 3_600_000), at("to", now), now).map(|v| v.to_string())
+            }
+        }
         "report_step" => report::report(&cockpit_core::files::cache().join("handoffs"), args),
         _ => return None,
     })
@@ -172,10 +190,10 @@ mod tests {
     }
 
     #[test]
-    fn it_lists_the_plugins_four_tools() {
+    fn it_lists_the_plugins_tools() {
         let tools = ask("tools/list", json!({}));
         let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["show", "cockpit_search", "cockpit_changes", "report_step"]);
+        assert_eq!(names, ["show", "cockpit_search", "cockpit_changes", "cockpit_read", "cockpit_health", "report_step"]);
     }
 
     #[test]

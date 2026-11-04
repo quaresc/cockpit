@@ -1,4 +1,4 @@
-//! The four tools and the drawing guidance as the plugin declares them in `plugin/hooks/tools.ts`, read at build time so
+//! The tools and the drawing guidance as the plugin declares them in `plugin/hooks/tools.ts`, read at build time so
 //! an agent on `cockpit mcp` reads the same words a plugin session does.
 
 use std::sync::LazyLock;
@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 const SHARED_TS: &str = include_str!("../../../../../plugin/hooks/tools.ts");
 
 /// The tools in the order `tools/list` gives them.
-pub const NAMES: [&str; 4] = ["show", "cockpit_search", "cockpit_changes", "report_step"];
+pub const NAMES: [&str; 6] = ["show", "cockpit_search", "cockpit_changes", "cockpit_read", "cockpit_health", "report_step"];
 pub const PLACEMENTS: [&str; 4] = ["right", "down", "zoomed", "browser"];
 pub const BLOCKS: [&str; 15] =
     ["markdown", "stats", "table", "chart", "flow", "sequence", "mermaid", "blueprint", "image", "compare", "diff", "log", "ci", "choice", "confirm"];
@@ -60,7 +60,8 @@ mod tests {
         assert!(said(0).contains("the person's next message") && said(0).contains(r"`---\ntitle:"));
         assert!(said(1).starts_with("Searches everything cockpit knows") && said(1).ends_with("a ticket's its id."));
         assert!(said(2).starts_with("What changed in the person's work") && said(2).ends_with("title}]}."));
-        assert!(said(3).starts_with("Records how a runbook step") && said(3).ends_with("before it runs."));
+        assert!(said(3).starts_with("Reads from the person's tools") && said(4).starts_with("A service's health"));
+        assert!(said(5).starts_with("Records how a runbook step") && said(5).ends_with("before it runs."));
         assert_eq!((&tools[1]["annotations"]["readOnlyHint"], &tools[0]["annotations"]), (&json!(true), &Value::Null));
         assert!(instructions().starts_with("# Drawing results\n") && !instructions().contains("{show}"));
     }

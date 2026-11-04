@@ -22,13 +22,18 @@ rows = [
   [{ token = "$ci_fail", fg = "#FF8080" }, { token = "$ci_ok", dim = true }],
   [{ token = "$tickets", dim = true }],
   [{ token = "$limits", dim = true }],
-  [{ token = "$todo", dim = true }],
-  [{ token = "$runbook", dim = true }],
-  [{ token = "$meetings", fg = "#FFC799" }],
-  # The monitor space, when pinned: red when a release moved or failed or a monitor alerts.
-  [{ token = "$monitor_bad", fg = "#FF8080" }, { token = "$monitor", dim = true }],
-  # The routines space, when pinned: red when a routine's last run failed.
-  [{ token = "$routines_bad", fg = "#FF8080" }, { token = "$routines", dim = true }],
+  # Each app space's count, one row for all since a space has one app (the inbox's unread mail too); monitor and routines
+  # red when something failed.
+  [
+    { token = "$mail", dim = true },
+    { token = "$todo", dim = true },
+    { token = "$runbook", dim = true },
+    { token = "$meetings", fg = "#FFC799" },
+    { token = "$monitor_bad", fg = "#FF8080" },
+    { token = "$monitor", dim = true },
+    { token = "$routines_bad", fg = "#FF8080" },
+    { token = "$routines", dim = true },
+  ],
   # The actions space's sessions, one per line with its state; one waiting for you in the accent colour.
   [{ token = "$act_1", dim = true }, { token = "$act_1_wait", fg = "#FFC799" }],
   [{ token = "$act_2", dim = true }, { token = "$act_2_wait", fg = "#FFC799" }],
@@ -36,6 +41,11 @@ rows = [
   [{ token = "$act_4", dim = true }, { token = "$act_4_wait", fg = "#FFC799" }],
   [{ token = "$act_5", dim = true }, { token = "$act_5_wait", fg = "#FFC799" }],
   [{ token = "$act_6", dim = true }, { token = "$act_6_wait", fg = "#FFC799" }],
+  # What runs in the other pinned spaces, one terminal per line with its agent and state; one waiting for you in the accent colour.
+  [{ token = "$term_1", dim = true }, { token = "$term_1_wait", fg = "#FFC799" }],
+  [{ token = "$term_2", dim = true }, { token = "$term_2_wait", fg = "#FFC799" }],
+  [{ token = "$term_3", dim = true }, { token = "$term_3_wait", fg = "#FFC799" }],
+  [{ token = "$term_4", dim = true }, { token = "$term_4_wait", fg = "#FFC799" }],
 ]
 
 # Agents: state, task and the pane beside it, context percentage; under it repo · ticket, red when its PR fails CI.

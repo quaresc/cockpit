@@ -1,4 +1,4 @@
-//! The documents the apps, the mod and the hub share: inbox, ci, meetings, brief, monitor, routines and queue. The hub is their
+//! The documents the apps, the mod and the hub share: inbox, ci, meetings, brief, monitor, routines, queue, agents and mail. The hub is their
 //! only writer. Each lives in ~/.cache/cockpit/store.redb with a week of its past versions, and is mirrored to
 //! <name>.json, written whole through a rename, for whatever reads files. Subscribers get each new version pushed, and
 //! leases let one Claude session at a time do a job for all of them, such as fetching the tickets.
@@ -13,7 +13,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use serde_json::{Map, Value, json};
 
 /// The documents the store keeps; any other name is refused, so no request names a file of its own.
-pub const DOCS: [&str; 8] = ["inbox", "ci", "meetings", "brief", "monitor", "routines", "queue", "agents"];
+pub const DOCS: [&str; 9] = ["inbox", "ci", "meetings", "brief", "monitor", "routines", "queue", "agents", "mail"];
 
 const CURRENT: TableDefinition<&str, &[u8]> = TableDefinition::new("current");
 const PAST: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("past");

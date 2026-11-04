@@ -129,7 +129,10 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   `fields` the Claude plugin reads: tickets (with their assign, create and details verbs), CI runs, meetings, deploys and
   previews, the monitor's numbers (`observability`: Datadog's own tools, or any metrics and errors tool through `metric`,
   `monitors` and `issues` verbs and `queries` in its own language), and the show panes' Metabase, Datadog and `metrics`
-  sources (`cockpit connector rows`). Logins live in the macOS keychain
+  sources (`cockpit connector rows`), pull requests from a code host other than GitHub (`code`, with merge, ready and
+  draft), and unread mail (`mail`, with archive and mark read; a reply is drafted by an agent, never sent). Agents read
+  every source through the `cockpit_read` and `cockpit_health` tools (`cockpit mcp`, and the Claude plugin), which
+  meeting briefs, deploy watches, runbook refreshes and CI investigations point to. Logins live in the macOS keychain
   (`cockpit-mcp`), else in `~/.config/cockpit/credentials/`. The hub also carries out the apps' requests (reruns, preview
   actions, ticket releases) for those sources, and warns of meetings where no Claude Code runs. `cockpit setup` finds the
   servers the agents' own configs hold, logs cockpit in, and has the default agent map a server cockpit has no mapping

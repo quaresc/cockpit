@@ -232,6 +232,12 @@ impl Config {
         flag(platform, "enabled") && (tools.get("createPreview").is_some() || tools.as_array().is_some_and(|t| t.iter().any(|t| t == "createPreview")))
     }
 
+    /// Whether the mail section maps a tool to this verb (`archive`, `markRead`, `get`).
+    pub fn maps_mail(&self, verb: &str) -> bool {
+        let tools = &self.raw["mail"]["tools"];
+        tools[verb]["tool"].as_str().is_some_and(|t| !t.is_empty()) || tools.as_array().is_some_and(|t| t.iter().any(|t| t == verb))
+    }
+
     /// The CI connector's name when GitHub checks only mirror its jobs.
     pub fn mirror(&self) -> Option<String> {
         let ci = &self.raw["ci"];

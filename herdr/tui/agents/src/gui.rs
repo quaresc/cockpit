@@ -163,6 +163,9 @@ pub fn poll() -> bool {
     let _one = POLLING.lock().unwrap_or_else(|e| e.into_inner());
     let now = now_ms();
     let lives = term::list(None);
+    if let Some((spaces, panes)) = term::take_tui_listing() {
+        crate::spaces::report(&spaces, &panes, &cockpit_core::actions::pinned());
+    }
     let before: HashMap<String, Agent> = snap().agents.iter().map(|a| (a.live.handle.clone(), a.clone())).collect();
     let mut changed = !snap().polled || before.len() != lives.len();
     let mut agents = Vec::new();

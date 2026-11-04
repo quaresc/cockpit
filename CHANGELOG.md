@@ -5,6 +5,21 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.36.0 (2026-11-04)
+
+- Every source and action works with any tool and any agent through cockpit's own MCP servers:
+  - pull requests from GitLab, Bitbucket or any code host (`code`), merged, readied and drafted through it;
+  - mail: unread messages in the inbox and on Home, archived, marked read, or answered with a reply an agent drafts
+    for you to send (`mail`, for Gmail, Outlook, Fastmail or any mail server your agent maps);
+  - the CI logs panel reads another CI's logs through its server.
+- `cockpit_read` and `cockpit_health`, two read-only tools for every agent (through `cockpit mcp` and the Claude
+  plugin), read any source and a service's health; meeting briefs, deploy watches, runbook refreshes and CI
+  investigations use them, so they need no connector of the agent's own.
+- The sidebar lists what runs in each space, agent or terminal, with its state, in the Herdr app and in herdr
+  (`$term_1`…`$term_4` rows); the inbox space's counts, unread mail included, show in herdr without Claude Code.
+- The platform's own name for you (`platform.login`) lists your previews without a GitHub login.
+- Tests run the hub against a fake MCP server for every source, request and ticket action.
+
 ## 0.35.0 (2026-11-04)
 
 - The release monitor and live chart panes work with any metrics and errors tool, not only Datadog: an `observability`

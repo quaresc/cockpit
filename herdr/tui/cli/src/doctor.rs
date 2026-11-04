@@ -448,10 +448,10 @@ impl Doctor {
         // Each source with a server of cockpit's own, and tickets from a Claude session's connector otherwise.
         let inbox = self.cache.join("inbox.json");
         let mut hub_tickets = false;
-        for section in ["tickets", "ci", "calendar", "platform", "observability", "datadog"] {
+        for section in ["code", "tickets", "ci", "calendar", "platform", "observability", "datadog", "mail"] {
             let name = self.config.as_ref().map(|c| raw(&c[section]["server"])).unwrap_or_default();
             let entry = self.config.as_ref().map(|c| c["servers"][name.as_str()].clone()).filter(Value::is_object);
-            let on = ["observability", "datadog"].contains(&section) || self.config.as_ref().is_some_and(|c| c[section]["enabled"] != false);
+            let on = ["observability", "datadog", "code"].contains(&section) || self.config.as_ref().is_some_and(|c| c[section]["enabled"] != false);
             let Some(entry) = entry.filter(|_| on) else { continue };
             use cockpit_connectors::Server;
             match Server::from_entry(&entry) {

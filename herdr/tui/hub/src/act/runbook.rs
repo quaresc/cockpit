@@ -162,7 +162,7 @@ fn memory_dir(ctx: &Ctx) -> PathBuf {
 }
 
 fn tools(ctx: &Ctx) -> Vec<String> {
-    let mut tools = proc::strings(&["Bash(gh:*)", "Bash(git:*)", "Bash(jq:*)", "Read", "Write", "Edit", "Grep", "Glob"]);
+    let mut tools = proc::strings(&["Bash(gh:*)", "Bash(git:*)", "Bash(jq:*)", "Read", "Write", "Edit", "Grep", "Glob", "mcp__cockpit__cockpit_read"]);
     for source in ["tickets", "ci", "platform"] {
         let conf = &ctx.cfg.0[source];
         if truthy(&conf["enabled"]) && truthy(&conf["server"]) {
@@ -187,6 +187,7 @@ fn refresh_prompt(ctx: &Ctx, book: &Value) -> Res<String> {
         format!("Update the runbook at {}: read it first, keep its step order and numbering, refresh every status from live facts, add the steps that appeared and mark the ones finished.", s(book, "path")?),
         format!("Gather the facts, never from memory alone: every PR across repos (gh: state, review, CI), whether merged ones are live in production ({deploy_facts}), the ticket status, and deploy order, migrations and post-deploy commands from the PRs, the memory notes and the code."),
         "Keep the file's format: `# <TICKET> · <feature>`, `updated: <YYYY-MM-DD HH:MM>`, one `| # | Step | Where | Status | Command |` table, statuses from ✅ done, 🚀 live, 🟡 in progress, ⏳ waiting, ⬜ to do, ❌ blocked, optional `## Notes` of three bullets.".into(),
+        "cockpit's cockpit_read tool reads tickets, CI runs and deploys through cockpit's own servers (source tickets, ci or platform; verbs such as details, listRuns, deployStatus) when your own tools do not reach them.".into(),
         "Do not run any production command or deploy. Write the file, nothing else.".into(),
         format!("It is now {} local time: use it for `updated:` and any \"as of\" in a status.", chrono::Local::now().format("%Y-%m-%d %H:%M")),
     ]

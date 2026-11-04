@@ -576,7 +576,9 @@ export default class Sidebar {
         .when(urgent, (e) => e.child(div().size(7).flex_none().rounded(4).bg(k[s.status])));
     };
     const head = SectionHeader("Spaces", { action: Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space  ⌘N", onClick: () => run("space.new") }) });
-    if (!machines.length) return [head, ...ordered.map(row)];
+    const byAddress = new Map(this.agents.rows.map((r) => [r.address, r]));
+    const withTerms = (r) => [row(r), ...this.termRows(k, r.s, ps, byAddress, r.tree)];
+    if (!machines.length) return [head, ...ordered.flatMap(withTerms)];
     const out = [head];
     for (const m of [null, ...machines]) {
       out.push(
@@ -592,8 +594,54 @@ export default class Sidebar {
           .child(div().flex_1().child(m ?? "This computer"))
           .child(Button(`machine-new-${m ?? "local"}`, { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space there", onClick: () => run("space.new", m ? { machine: m } : {}) })),
       );
-      out.push(...ordered.filter((r) => (r.s.machine ?? null) === m).map(row));
+      out.push(...ordered.filter((r) => (r.s.machine ?? null) === m).flatMap(withTerms));
     }
+    return out;
+  }
+
+  /** The terminals running in a space, one line each with its agent or program and its state, waiting ones first;
+   * four lines at most, the last one then counting the rest. */
+  termRows(k, s, ps, byAddress, tree) {
+    const tabs = new Set((s.tabs ?? []).map((t) => t.id));
+    const STATUS = { blocked: "needs_you", working: "working", done: "done", idle: "idle" };
+    const terms = ps
+      .filter((p) => tabs.has(p.tab) && p.terminal)
+      .map((p) => {
+        const r = byAddress.get(p.terminal);
+        return { p, r, stage: r?.stage ?? STATUS[p.status] ?? null };
+      })
+      .sort((a, b) => (b.stage === "needs_you") - (a.stage === "needs_you"));
+    const MAX = 4;
+    const shown = terms.length > MAX ? terms.slice(0, MAX - 1) : terms;
+    const pad = tree ? 38 : 34;
+    const line = ({ p, r, stage }) => {
+      const name = p.program?.name || (r ? "Agent" : "Terminal");
+      // A shell's title is often `user@host:folder`: the folder says more.
+      const title = (r?.title || p.title || "").replace(/^[^@\s]+@[^:\s]+:\s*/, "");
+      const state = stage ? STAGES[stage]?.label ?? stage : null;
+      return h_flex()
+        .id(`term-${p.terminal}`)
+        .h(22)
+        .pl(pad)
+        .pr(8)
+        .gap(6)
+        .items_center()
+        .rounded(RADIUS.md)
+        .cursor_pointer()
+        .hover((st) => st.bg(k.accent))
+        .tooltip(state ? `${name} · ${state}` : name)
+        .on_click((_e, cx) => {
+          if (r) return this.agents.go(cx, r);
+          run("tab.select", { id: p.tab });
+          run("pane.focus", { pane: p.pane });
+          show("work");
+        })
+        .child(h_flex().w(12).flex_none().justify_center().child(stage ? StageMark(`term-${p.terminal}`, stage, { size: 6 }) : Icon("terminal", { size: 11, color: k.dim })))
+        .child(div().flex_none().text_size(TEXT.sm).text_color(stage === "needs_you" ? k.blocked : k.mutedFg).child(name))
+        .when(Boolean(title) && title !== name && title !== p.terminal, (e) => e.child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(title)));
+    };
+    const out = shown.map(line);
+    if (terms.length > shown.length) out.push(h_flex().h(20).pl(pad + 18).items_center().text_size(TEXT.xs).text_color(k.dim).child(`+${terms.length - shown.length} more`));
     return out;
   }
 

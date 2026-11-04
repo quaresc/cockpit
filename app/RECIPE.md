@@ -26,7 +26,8 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
     and its choices as numbered rows or checkboxes, a Submit button, a reply arrow and a snooze alarm), then "N more
     waiting"; then **Agents** and their count, grouped by ticket ("ENG-412 Store and enforce… 2h 54m"), by space or by
     whose move (a button cycles), each agent a row with its status mark, title, PR number, `+adds −dels` and age; then
-    Herdr's spaces list.
+    Herdr's spaces list, each space followed by what runs in it, one line per terminal (status mark, agent or program,
+    title; waiting ones first, four lines at most, then "+N more").
   - **Footer**, 69px: Herdr's `workspace-chrome` footer (Settings, Add machine).
 - **Top bar**, 42px: Herdr's `tabs`, and at the right a 52px **bell**.
 - **Center**, a stack with 8px padding; each view is a card with a 10px radius, a 1px `border` (`#2d2f32` dark), the

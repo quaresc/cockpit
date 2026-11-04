@@ -4,6 +4,7 @@
 mod book;
 mod inbox;
 mod land;
+mod mail;
 mod meetings;
 mod monitor;
 mod routines;
@@ -88,6 +89,10 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("inbox", "set_state") => tickets::set_state,
         ("inbox", "assign") => tickets::assign,
         ("inbox", "file_issue") => tickets::file_issue,
+        ("inbox", "mail_open") => mail::open,
+        ("inbox", "mail_archive") => mail::archive,
+        ("inbox", "mail_read") => mail::read,
+        ("inbox", "mail_reply") => mail::reply,
         ("runbook", "run_step") => runbook::run_step,
         ("runbook", "mark_done") => runbook::mark_done,
         ("runbook", "open_pr") => runbook::open_pr,

@@ -21,11 +21,12 @@ row=""
 keeping the file's format."
 prompt="$ticket went live in production around $deployed (repos: $repos${version:+, version $version}).
 Compare the 30 minutes before that time with the $after minutes after it, for the services these repos run in production:
-error rate, new error logs, p95 latency. Use the observability tools you have, read-only. $row
+error rate, new error logs, p95 latency. Use cockpit's cockpit_health tool (a service, from and to) when you have it,
+else the observability tools you have, read-only. $row
 Finish with exactly one line of JSON and nothing after it:
 {\"ok\": true or false, \"summary\": \"<at most 12 words>\", \"url\": \"<a link to the logs or dashboard you looked at, or empty>\"}"
 # Each entry of deployWatch.tools is one tool Claude Code may call without asking, e.g. an observability MCP server.
-set -- Read Edit Write
+set -- Read Edit Write mcp__cockpit__cockpit_health mcp__cockpit__cockpit_read
 for tool in $(jq -r '.deployWatch.tools // [] | .[]' "$SETTINGS"); do set -- "$@" "$tool"; done
 agent=$(sh "$ROOT/cockpit.sh" agent id --agent "$(jq -r '.deployWatch.agent // empty' "$SETTINGS")")
 line=$(sh "$ROOT/cockpit.sh" agent argv run --agent "$agent" --prompt "$prompt" --model sonnet --edits --dir "$HOME/.config/cockpit/runbooks")

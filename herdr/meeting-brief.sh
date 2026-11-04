@@ -22,7 +22,7 @@ tickets=$(jq -r '.tickets // {} | if .enabled then .server // "claude.ai Linear"
 ticket_tools=$(jq -r '(.tickets.tools // {get: {tool: "get_issue"}, comments: {tool: "list_comments"}}) | .get.tool, .comments.tool | select(. != null)' "$SETTINGS")
 prefix() { printf 'mcp__%s' "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_$//')"; }
 
-set -- Read Write "$(prefix "$calendar")__$get_event"
+set -- Read Write "$(prefix "$calendar")__$get_event" mcp__cockpit__cockpit_read
 [ -n "$tickets" ] && for tool in $ticket_tools; do set -- "$@" "$(prefix "$tickets")__$tool"; done
 for tool in $(jq -r '.meetingBrief.tools // [] | .[]' "$SETTINGS"); do set -- "$@" "$tool"; done
 
@@ -35,8 +35,10 @@ live=$(jq -c '{tickets: [.tickets[] | {id, status}],
 prompt="Write the brief for this meeting to $DIR/$name.md, so I come prepared. Meeting, from my calendar:
 $meeting
 
-Read the full event with $get_event (id $id) for its description and attachments. Open the Notion pages and tickets it
-links or names, with the tools you have; my assigned tickets and PRs are in $CACHE/inbox.json, and a ticket's runbook,
+Read the full event with $get_event (id $id) for its description and attachments; without that tool, cockpit's
+cockpit_read tool reads it (source calendar, verb getEvent, values {\"event\": \"$id\"}), and tickets the same way (source
+tickets, verb details or comments, values {\"ticket\": \"<key>\"}). Open the Notion pages and tickets it links or names,
+with the tools you have; my assigned tickets and PRs are in $CACHE/inbox.json, and a ticket's runbook,
 when it has one, in ~/.config/cockpit/runbooks/<ticket lowercased>.md. Use nothing else: no Slack, no web.
 
 Live state of my work, fetched minutes ago: ${live:-{}}

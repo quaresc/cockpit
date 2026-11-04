@@ -7,11 +7,13 @@
 
 mod calendar;
 mod circleci;
+mod dashboard;
 mod github;
 mod github_ci;
 pub(crate) mod http;
 mod ics;
 mod linear;
+mod mail;
 pub(crate) mod mcp;
 pub mod merge;
 mod news;
@@ -62,6 +64,8 @@ struct Plan {
     linear: Option<String>,
     /// The MCP server the hub calls for my tickets, when the config's `servers` block names one.
     tickets_server: Option<cockpit_connectors::Server>,
+    /// The code host's server, when the PRs are not GitHub's.
+    code_server: Option<cockpit_connectors::Server>,
     /// The MCP servers the hub calls for CI runs and meetings.
     ci_server: Option<cockpit_connectors::Server>,
     calendar_server: Option<cockpit_connectors::Server>,
@@ -89,6 +93,7 @@ fn plan() -> Plan {
         github_ci: github && c["ci"]["enabled"] != false && ci_server.is_empty(),
         linear: token("tickets", "linear"),
         tickets_server: mcp::server(&raw, c, "tickets"),
+        code_server: mcp::server(&raw, c, "code"),
         ci_server: mcp::server(&raw, c, "ci").filter(|_| raw["ci"]["token"].as_str().is_none_or(|t| t.trim().is_empty())),
         calendar_server: mcp::server(&raw, c, "calendar").filter(|_| c["calendar"]["enabled"] == true && calendar::address(&raw["calendar"]["ics"]).is_none()),
         circleci: token("ci", "circleci").filter(|_| !ci_server.is_empty()),
@@ -108,6 +113,7 @@ struct Feed {
     mcp_ci: Schedule,
     mcp_platform: Schedule,
     monitor: Schedule,
+    mail: Schedule,
     circleci: Schedule,
     calendar: Schedule,
     circle: circleci::CircleCi,
@@ -117,7 +123,7 @@ struct Feed {
 }
 
 fn run() {
-    let mut feed = Feed { calendar: Schedule::every(calendar::EVERY), monitor: Schedule::every(120), ..Feed::default() };
+    let mut feed = Feed { calendar: Schedule::every(calendar::EVERY), monitor: Schedule::every(120), mail: Schedule::every(120), ..Feed::default() };
     loop {
         feed.round(&files::cache(), &plan());
         std::thread::sleep(TICK);
@@ -142,7 +148,18 @@ impl Feed {
         let now = now_secs();
         let mut part: Option<InboxPart> = None;
         let mut runs: Option<Result<Vec<Value>, String>> = None;
-        if plan.github && self.github.is_due(now, is_asked) {
+        if let Some(server) = &plan.code_server
+            && self.github.is_due(now, is_asked)
+        {
+            let name = plan.raw["code"]["name"].as_str().unwrap_or("Code").to_string();
+            let fetched = mcp::code(server, &plan.raw["code"]);
+            let error = self.github.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            self.note("GitHub", error.map(|e| format!("{name} {e}")));
+            part = Some(match fetched {
+                Ok(fields) => InboxPart { github: Some(fields), ..InboxPart::default() },
+                Err(_) => InboxPart::default(),
+            });
+        } else if plan.github && self.github.is_due(now, is_asked) {
             let fetched = github::token().ok_or_else(|| Failure::Other("no token: run gh auth login, or set GH_TOKEN".into())).and_then(|token| {
                 let org = plan.config.0["github"]["org"].as_str().unwrap_or_default();
                 let data = github::fetch(&token, org)?;
@@ -248,11 +265,23 @@ impl Feed {
                 }
             }
         }
+        if self.mail.is_due(now, is_asked)
+            && let Some(fetched) = mail::fetch(&plan.raw, &plan.config.0)
+        {
+            let error = self.mail.after(&fetched.as_ref().map(|_| ()).map_err(|e| Failure::Other(e.clone())), now);
+            let fetched = fetched.map_err(|_| format!("Mail: {}", error.unwrap_or_default()));
+            let (before, after) = crate::store::global().update("mail", |doc| mail::merge(doc, fetched, now_ms()));
+            for (title, body, action) in mail::news(&before, &after) {
+                news::notify(&plan.config, &title, &body, &action, &[]);
+            }
+            dashboard::report(&plan.config);
+        }
         warn_meetings(&plan.config, now_ms());
         requests::take(cache, &plan.config, &plan.raw);
         if let Some(mut part) = part {
             part.errors = self.errors.iter().map(|(_, e)| e.clone()).collect();
             write_inbox(&plan.config, &part);
+            dashboard::report(&plan.config);
         }
         if let Some(runs) = runs {
             write_ci(&plan.config, runs);

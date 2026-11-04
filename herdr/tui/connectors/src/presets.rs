@@ -59,7 +59,7 @@ pub const PRESETS: &[Preset] = &[
     Preset {
         id: "gitlab",
         name: "GitLab",
-        sources: &["tickets", "ci"],
+        sources: &["tickets", "ci", "code"],
         url: "https://gitlab.com/api/v4/mcp",
         bearer_command: &[],
         marks: &["/api/v4/mcp", "gitlab-mcp", "server-gitlab"],
@@ -109,8 +109,10 @@ pub fn hints(source: &str) -> &'static [&'static str] {
     match source {
         "tickets" => &["jira", "linear", "asana", "trello", "youtrack", "shortcut", "clickup", "monday", "plane", "issue", "ticket", "github", "gitlab"],
         "ci" => &["circle", "gitlab", "buildkite", "jenkins", "travis", "drone", "teamcity", "azure", "bitrise", "pipeline", "github"],
+        "mail" => &["gmail", "outlook", "mail", "fastmail", "proton", "imap"],
         "calendar" => &["calendar", "outlook", "gcal", "cal.com", "fastmail", "ical", "agenda"],
         "platform" => &["deploy", "platform", "backstage", "argo", "vercel", "render", "fly", "heroku", "railway", "preview", "kube"],
+        "code" => &["gitlab", "bitbucket", "gitea", "forgejo", "azure", "codeberg", "sourcehut"],
         "observability" => {
             &["datadog", "grafana", "prometheus", "sentry", "newrelic", "new-relic", "honeycomb", "signoz", "elastic", "loki", "dynatrace", "metrics"]
         }
@@ -129,6 +131,7 @@ mod tests {
         assert_eq!(of(&Server::parse("https://gitlab.example.com/api/v4/mcp")).map(|p| p.id), Some("gitlab"));
         assert!(of(&Server::parse("https://example.com/mcp")).is_none());
         assert_eq!(for_source("ci").map(|p| p.id).collect::<Vec<_>>(), ["circleci", "gitlab"]);
+        assert_eq!(for_source("code").map(|p| p.id).collect::<Vec<_>>(), ["gitlab"]);
         assert_eq!(PRESETS[2].entry(), json!({"url": "https://api.githubcopilot.com/mcp/", "bearerCommand": ["gh", "auth", "token"]}));
     }
 }
