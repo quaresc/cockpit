@@ -291,6 +291,24 @@ pub fn mark_briefable(meetings: &mut [Value], skip: &[String]) {
     }
 }
 
+/// A meeting's start in milliseconds since the epoch; 0 when it does not read.
+pub fn start_ms(meeting: &Value) -> u64 {
+    meeting["start"].as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|t| t.timestamp_millis().max(0) as u64).unwrap_or(0)
+}
+
+/// The meetings starting within five minutes that were not warned of yet.
+pub fn soon(doc: &Value, now: u64) -> Vec<Value> {
+    let notified = list(&doc["notified"]);
+    list(&doc["meetings"])
+        .iter()
+        .filter(|m| {
+            let start = start_ms(m);
+            start > now && start - now <= 5 * 60_000 && !notified.contains(&m["id"])
+        })
+        .cloned()
+        .collect()
+}
+
 /// meetings.json with the hub's fetch: the meetings it read, the notifications already sent for those still listed;
 /// after a failure, the meetings it had beside the error.
 pub fn merge(doc: &Value, fetched: Result<Vec<Value>, String>, now: u64) -> Value {
@@ -486,6 +504,10 @@ mod tests {
 
     #[test]
     fn a_fetch_keeps_the_notifications_of_meetings_still_listed_and_a_failure_keeps_the_meetings() {
+        let doc = json!({"meetings": [{"id": "a", "start": "2026-11-04T10:04:00Z"}, {"id": "b", "start": "2026-11-04T10:04:00Z"},
+            {"id": "c", "start": "2026-11-04T10:30:00Z"}], "notified": ["b"]});
+        let now = start_ms(&json!({"start": "2026-11-04T10:00:00Z"}));
+        assert_eq!(soon(&doc, now).iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(), ["a"]);
         let before = json!({"at": 5, "meetings": [{"id": "a"}], "notified": ["a", "gone"], "error": "Calendar: old"});
         let after = merge(&before, Ok(vec![json!({"id": "a"}), json!({"id": "b"})]), 9);
         assert_eq!(after, json!({"at": 9, "meetings": [{"id": "a"}, {"id": "b"}], "notified": ["a"], "by": "hub"}));

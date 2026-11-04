@@ -201,6 +201,24 @@ impl Target {
         }
     }
 
+    /// The other MCP servers this agent's config holds, as `servers` entries of cockpit's config (`{url}`, or
+    /// `{command, args, env}`); disabled ones and cockpit's own are left out.
+    pub fn servers(&self) -> Vec<(String, Value)> {
+        let text = std::fs::read_to_string(self.path()).unwrap_or_default();
+        let all: Vec<(String, Value)> = match self.shape {
+            Shape::Toml(_) => {
+                let Ok(doc) = text.parse::<toml_edit::DocumentMut>() else { return Vec::new() };
+                let Some(servers) = doc.get("mcp_servers").and_then(|s| s.as_table_like()) else { return Vec::new() };
+                servers.iter().map(|(name, item)| (name.to_string(), toml_json(item))).collect()
+            }
+            _ => match jsonedit::get(&text, &[], self.json_path()) {
+                Ok(Some(Value::Object(map))) => map.into_iter().collect(),
+                _ => Vec::new(),
+            },
+        };
+        all.into_iter().filter(|(name, _)| name != NAME).filter_map(|(name, raw)| Some((name, normalized(&raw)?))).collect()
+    }
+
     /// The config's text with cockpit's server in it.
     fn with(&self, text: &str, bin: &str) -> Result<String, String> {
         match self.shape {
@@ -420,6 +438,47 @@ pub fn main(args: &[String]) {
     }
 }
 
+/// A TOML item as JSON: strings, numbers, booleans, arrays and tables.
+fn toml_json(item: &toml_edit::Item) -> Value {
+    fn value(v: &toml_edit::Value) -> Value {
+        match v {
+            toml_edit::Value::String(s) => json!(s.value()),
+            toml_edit::Value::Integer(i) => json!(i.value()),
+            toml_edit::Value::Float(f) => json!(f.value()),
+            toml_edit::Value::Boolean(b) => json!(b.value()),
+            toml_edit::Value::Array(a) => Value::Array(a.iter().map(value).collect()),
+            toml_edit::Value::InlineTable(t) => Value::Object(t.iter().map(|(k, v)| (k.to_string(), value(v))).collect()),
+            toml_edit::Value::Datetime(d) => json!(d.value().to_string()),
+        }
+    }
+    match item {
+        toml_edit::Item::Value(v) => value(v),
+        toml_edit::Item::Table(t) => Value::Object(t.iter().map(|(k, v)| (k.to_string(), toml_json(v))).collect()),
+        toml_edit::Item::ArrayOfTables(a) => Value::Array(a.iter().map(|t| toml_json(&toml_edit::Item::Table(t.clone()))).collect()),
+        toml_edit::Item::None => Value::Null,
+    }
+}
+
+/// An agent's server entry in cockpit's terms, whatever its agent calls the fields; None when it is off.
+fn normalized(raw: &Value) -> Option<Value> {
+    if raw["enabled"] == false || raw["disabled"] == true {
+        return None;
+    }
+    let url = ["url", "httpUrl", "serverUrl"].iter().find_map(|k| raw[*k].as_str()).filter(|u| !u.is_empty());
+    if let Some(url) = url {
+        return Some(json!({"url": url}));
+    }
+    // opencode's command is the whole argv; the others' a program with args.
+    let (command, mut args): (String, Vec<Value>) = match &raw["command"] {
+        Value::String(c) => (c.clone(), raw["args"].as_array().cloned().unwrap_or_default()),
+        Value::Array(argv) => (argv.first()?.as_str()?.to_string(), argv[1..].to_vec()),
+        _ => return None,
+    };
+    args.retain(Value::is_string);
+    let env = raw.get("env").or_else(|| raw.get("environment")).filter(|e| e.is_object()).cloned().unwrap_or(json!({}));
+    Some(json!({"command": command, "args": args, "env": env}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,5 +508,23 @@ mod tests {
         let grok = by("grok").with("", "/c").unwrap();
         assert_eq!(grok, "[mcp_servers.cockpit]\ncommand = \"/c\"\nargs = [\"mcp\"]\n");
         assert_eq!(by("grok").without(&grok).unwrap().unwrap(), "");
+    }
+
+    #[test]
+    fn other_servers_read_in_each_agents_shape() {
+        assert_eq!(
+            normalized(&json!({"command": "npx", "args": ["-y", "x"], "env": {"K": "v"}})),
+            Some(json!({"command": "npx", "args": ["-y", "x"], "env": {"K": "v"}}))
+        );
+        assert_eq!(
+            normalized(&json!({"type": "local", "command": ["linear-mcp", "--stdio"], "environment": {}})),
+            Some(json!({"command": "linear-mcp", "args": ["--stdio"], "env": {}}))
+        );
+        assert_eq!(normalized(&json!({"httpUrl": "https://mcp.linear.app/mcp"})), Some(json!({"url": "https://mcp.linear.app/mcp"})));
+        assert_eq!(normalized(&json!({"url": "https://x", "enabled": false})), None);
+        let doc: toml_edit::DocumentMut =
+            "[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\n[mcp_servers.cockpit]\ncommand = \"cockpit\"\n".parse().unwrap();
+        let servers = doc["mcp_servers"].as_table_like().unwrap();
+        assert_eq!(normalized(&toml_json(servers.get("linear").unwrap())), Some(json!({"url": "https://mcp.linear.app/mcp"})));
     }
 }

@@ -767,7 +767,7 @@ export const SHOW_CASES: { name: string; spec: Record<string, unknown>; error: s
    ]
   },
   "error": null,
-  "mcp": "at /blocks/0/source: Metabase and Datadog sources refresh through a Claude session's connectors; give rows, or a command printing JSON"
+  "mcp": "at /blocks/0/source: no server of cockpit's own for this source (servers in config.json, set up by cockpit setup); give rows, or a command printing JSON"
  },
  {
   "name": "a browser view takes no log",

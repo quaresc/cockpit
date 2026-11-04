@@ -5,6 +5,23 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.34.0 (2026-11-04)
+
+- cockpit's hub is an MCP client: tickets, CI runs, meetings, deploys and previews, the release monitor and the show
+  panes' Metabase and Datadog sources come from your MCP servers with any agent, no Claude Code needed. A `servers`
+  block in `config.json` names each one (a URL, a URL with headers or `bearerCommand`, or a local command), read with
+  the same mappings as the Claude plugin's connectors.
+- `cockpit setup` asks where each source comes from: servers your agents' configs already hold, the ones cockpit
+  knows (Linear, Jira, GitHub Issues, GitLab, CircleCI, Datadog), or Claude Code's connectors. It logs cockpit in once
+  through your browser (OAuth, kept in the macOS keychain) and has your default agent map a server it has no mapping
+  for, trying the mapping on the real server.
+- `cockpit connector login|logout|tools|call|tickets|map|rows` to log in, explore a server and map it by hand.
+- The hub carries out the inbox's requests (CI reruns, preview create, redeploy, stop and extend, marking a ticket
+  done) and ticket moves through those servers, announces tickets going live in production, and warns of meetings
+  five minutes ahead where no Claude Code runs.
+- The hidden Claude Code session only starts for sources the hub cannot reach itself; `cockpit doctor` says which
+  server each source uses and whether cockpit is logged in.
+
 ## 0.33.1 (2026-11-04)
 
 - After the shell install, `cockpit app install` finds the Herdr app layout and mod: paths follow the

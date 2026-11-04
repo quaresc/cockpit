@@ -123,12 +123,20 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
 
 ## The hub on its own
 
-- **Fetcher** (`hub/src/fetcher.rs`): while a source needs an MCP connector (Linear or CircleCI without a token, the
-  calendar without `calendar.ics`, the platform, the monitor), the hub keeps one Claude Code session idle at its prompt
-  in a hidden herdr-core terminal named `cockpit-fetch` (no space, no pane, haiku, no tokens spent while idle); its
-  plugin refreshes the inbox, CI, meetings and monitor like any session. `fetcher: false` turns it off. The store also
-  refuses Claude Code's "$.mcp.call is not available in this mode" errors, so a session that cannot call MCP yet never
-  writes over good data.
+- **Servers** (`connectors/`, `hub/src/feed/mcp.rs`): the hub is an MCP client. A source whose `server` names an entry
+  of `servers` in `config.json` (a URL cockpit logged in to with `cockpit connector login`, a URL with headers or a
+  `bearerCommand`, or a local command) is fetched by the hub itself through the section's mapping, the same `tools` and
+  `fields` the Claude plugin reads: tickets, CI runs, meetings, deploys and previews, the monitor (with `datadog.server`),
+  and the show panes' Metabase and Datadog sources (`cockpit connector rows`). Logins live in the macOS keychain
+  (`cockpit-mcp`), else in `~/.config/cockpit/credentials/`. The hub also carries out the apps' requests (reruns, preview
+  actions, ticket releases) for those sources, and warns of meetings where no Claude Code runs. `cockpit setup` finds the
+  servers the agents' own configs hold, logs cockpit in, and has the default agent map a server cockpit has no mapping
+  for (`cockpit connector map`).
+- **Fetcher** (`hub/src/fetcher.rs`): while a source needs Claude Code's connectors (no server of the hub's own and no
+  token), the hub keeps one Claude Code session idle at its prompt in a hidden herdr-core terminal named `cockpit-fetch`
+  (no space, no pane, haiku, no tokens spent while idle); its plugin refreshes the inbox, CI, meetings and monitor like
+  any session. `fetcher: false` turns it off. The store also refuses Claude Code's "$.mcp.call is not available in this
+  mode" errors, so a session that cannot call MCP yet never writes over good data.
 - **Names** (`hub/src/names.rs`): every 20 s a tab still at its default name (its number, a shell's) takes its agent's
   task, the title Claude Code gives the session (else a few words from haiku with no tools, once per session), and a
   space at its folder's name takes its agents' ticket ("ENG-412 · Store and enforce") or repo. A name the person typed

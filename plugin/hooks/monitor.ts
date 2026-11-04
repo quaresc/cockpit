@@ -6,6 +6,7 @@ import { githubLogin, notify } from './ci'
 import { cacheDir, home, loadConfig } from './config'
 import type { Config } from './config'
 import { call, can, list, pick, platform, text } from './platform'
+import { hubOwnsMonitor } from './feed'
 import { withLease, writeDoc } from './store'
 
 type $ = EngineInterface
@@ -281,6 +282,7 @@ export function refreshMonitor($: $, isForced = false) {
       // The monitor app asks for a refresh by touching this file, as the inbox does.
       const asked = await $.fs.stat(`${await cacheDir($)}/refresh-request`).then(st => st.mtimeMs, () => 0)
       if (!isForced && kept && Date.now() - kept.at < REFRESH_MS && asked <= kept.at) return
+      if (hubOwnsMonitor(kept)) return
       await withLease($, 'monitor', async () => {
         const previous = (await readJson<MonitorState>($, path)) ?? kept
         const now = Date.now()

@@ -133,7 +133,7 @@ fn block_error(block: &Block, at: &str) -> Option<String> {
     // A table or chart gets its rows from the call or from a command; a source needs a Claude session's connectors.
     if block.get("source").is_some() {
         return Some(format!(
-            "at {at}/source: Metabase and Datadog sources refresh through a Claude session's connectors; give rows, or a command printing JSON"
+            "at {at}/source: no server of cockpit's own for this source (servers in config.json, set up by cockpit setup); give rows, or a command printing JSON"
         ));
     }
     if let Some(command) = block.get("command") {
@@ -401,7 +401,29 @@ fn open_pane(dir: &Path, here: &Here, name: &str, session: &str, placement: &str
 }
 
 /// Writes the view and makes sure a pane shows it: the open one redraws, else one opens beside the agent.
+/// Blocks whose Metabase or Datadog source cockpit reaches itself become blocks running `cockpit connector rows`.
+pub fn with_sources(input: &Value) -> Value {
+    let mut input = input.clone();
+    let config = cockpit_core::files::config();
+    let bin = std::env::current_exe().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|_| "cockpit".into());
+    for block in input["blocks"].as_array_mut().into_iter().flatten() {
+        let Some(source) = block.get("source").cloned() else { continue };
+        let name = cockpit_connectors::sources::server(&source, &config);
+        if crate::connector::configured(&name).is_none() {
+            continue;
+        }
+        let quoted = format!("'{}'", source.to_string().replace('\'', "'\\''"));
+        let every = block["every"].as_f64().unwrap_or(60.0);
+        let object = block.as_object_mut().expect("a block is an object");
+        object.remove("source");
+        object.insert("command".into(), format!("'{bin}' connector rows {quoted}").into());
+        object.insert("every".into(), every.into());
+    }
+    input
+}
+
 pub fn show(input: &Value, here: Option<&Here>, session: &str) -> Result<String, String> {
+    let input = &with_sources(input);
     if let Some(error) = view_error(input) {
         return Err(error);
     }

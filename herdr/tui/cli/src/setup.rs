@@ -175,8 +175,9 @@ fn setup(io: &mut Io) {
     };
 
     // 4. Features
-    println!("\nFeatures: 1 GitHub PRs inbox, 2 Linear tickets (an API key), 3 CircleCI runs (a token; GitHub checks otherwise),");
-    println!("4 meetings from a calendar's secret iCal address, 5 E2E tests in terminal-browser beside the agent, 6 routines space");
+    println!("\nFeatures: 1 GitHub PRs inbox, 2 tickets, 3 CI runs (GitHub checks otherwise), 4 meetings, 5 E2E tests in terminal-browser");
+    println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog)");
+    println!("Tickets, CI, meetings, deploys and the monitor come from MCP servers: cockpit calls them itself, with any agent.");
     let picked = io.ask("Which ones, by number (e.g. 1 2 5)?", "1");
     let on = |n: char| picked.contains(n);
     let repos = io.ask("\nThe folder holding your git checkouts?", &repos_dir(&home));
@@ -188,33 +189,56 @@ fn setup(io: &mut Io) {
         String::new()
     };
     let mut values: Vec<(&str, Value)> = vec![("reposDir", repos.into()), ("github", json!({"enabled": on('1'), "org": org}))];
-    if on('2') {
-        let keys = io.ask("Ticket key prefixes, such as ENG in ENG-123 (space separated)?", "");
-        let mut tickets = json!({"enabled": true, "name": "Linear", "server": "", "keys": keys.split_whitespace().collect::<Vec<_>>(), "urlTemplate": ""});
-        let token = io.secret("A Linear personal API key (Settings → Security & access; never shown, optional)?");
-        if !token.is_empty() {
-            tickets["token"] = token.into();
-        }
-        values.push(("tickets", tickets));
-    } else {
-        values.push(("tickets", json!({"enabled": false})));
-    }
-    let mut ci = json!({"enabled": true, "name": "GitHub", "server": "", "imageJob": ""});
-    if on('3') {
-        let token = io.secret("A CircleCI personal API token (never shown)?");
-        ci = json!({"enabled": true, "name": "CircleCI", "server": "circleci", "imageJob": ""});
-        if !token.is_empty() {
-            ci["token"] = token.into();
-        }
-    }
-    values.push(("ci", ci));
+    let claude = installed.iter().any(|a| a.id == "claude");
+    let mapper = agent_id.as_deref().and_then(agent::get).or_else(|| installed.first().cloned());
+    let mut servers = serde_json::Map::new();
     let mut spaces: Vec<&str> = SPACES.to_vec();
-    if on('4') {
-        let ics = io.secret("The calendar's secret address in iCal format (never shown)?");
-        values.push(("calendar", json!({"enabled": !ics.is_empty(), "name": "Calendar", "server": "", "ics": ics})));
-    } else {
-        values.push(("calendar", json!({"enabled": false})));
+    for (n, section) in [('2', "tickets"), ('3', "ci"), ('4', "calendar"), ('7', "platform"), ('8', "datadog")] {
+        if !on(n) {
+            let off = if section == "ci" { json!({"enabled": true, "name": "GitHub", "server": ""}) } else { json!({"enabled": false}) };
+            if section != "datadog" {
+                values.push((section, off));
+            }
+            continue;
+        }
+        let mut block = match source(io, section, claude, mapper.as_ref()) {
+            Source::Claude => json!({"enabled": true, "name": CLAUDE_NAMES[section_at(section)].0, "server": CLAUDE_NAMES[section_at(section)].1}),
+            Source::Server { key, entry, name, mapping, mapped } => {
+                servers.insert(key.clone(), entry);
+                let mut block = mapping.unwrap_or_else(|| json!({}));
+                block["enabled"] = mapped.into();
+                block["name"] = name.into();
+                block["server"] = key.into();
+                block
+            }
+            Source::Ics(address) => json!({"enabled": true, "name": "Calendar", "server": "", "ics": address}),
+            Source::Off => json!({"enabled": section == "ci", "name": "GitHub", "server": ""}),
+        };
+        match section {
+            "tickets" if block["enabled"] == true => {
+                let keys = io.ask("Ticket key prefixes, such as ENG in ENG-123 (space separated)?", "");
+                block["keys"] = json!(keys.split_whitespace().collect::<Vec<_>>());
+            }
+            "datadog" => {
+                if let Some(b) = block.as_object_mut() {
+                    b.retain(|k, _| k == "server");
+                }
+                if block["server"].as_str().is_some_and(|s| !s.is_empty()) {
+                    spaces.push("monitor");
+                }
+            }
+            _ => {}
+        }
+        if section == "calendar" && block["enabled"] != true {
+            spaces.retain(|s| *s != "meetings");
+        }
+        values.push((section, block));
+    }
+    if !on('4') {
         spaces.retain(|s| *s != "meetings");
+    }
+    if !servers.is_empty() {
+        values.push(("servers", Value::Object(servers)));
     }
     if on('6') {
         spaces.push("routines");
@@ -290,6 +314,164 @@ fn setup(io: &mut Io) {
         println!("\nClaude Code: /plugin install cockpit --marketplace quaresc/cockpit, then /cockpit:setup maps your connectors (tickets, CI, calendar).");
     }
     println!("\nDone. cockpit doctor checks the whole setup at any time.");
+}
+
+/// What each source is called and its server named, for Claude Code's connectors (/cockpit:setup corrects them).
+const CLAUDE_NAMES: [(&str, &str); 5] =
+    [("Linear", "claude.ai Linear"), ("CircleCI", "circleci"), ("Calendar", "claude.ai Google Calendar"), ("Platform", ""), ("Datadog", "claude.ai Datadog")];
+
+fn section_at(section: &str) -> usize {
+    ["tickets", "ci", "calendar", "platform", "datadog"].iter().position(|s| *s == section).unwrap_or(0)
+}
+
+/// Where a source's data comes from.
+enum Source {
+    /// Claude Code's connectors, through cockpit's plugin.
+    Claude,
+    /// An MCP server cockpit calls itself: its `servers` key and entry, its name, the section's mapping, and whether it
+    /// is mapped (an unmapped one stays off until `cockpit connector map`).
+    Server {
+        key: String,
+        entry: Value,
+        name: String,
+        mapping: Option<Value>,
+        mapped: bool,
+    },
+    /// The calendar's secret iCal address.
+    Ics(String),
+    Off,
+}
+
+struct Choice {
+    label: String,
+    key: String,
+    entry: Value,
+    name: String,
+    mapping: Option<Value>,
+}
+
+/// The servers that can feed a section: the ones the agents' configs hold (known ones first, then any whose name tells
+/// the section), and the known ones' public addresses.
+fn choices(section: &str) -> Vec<Choice> {
+    use cockpit_connectors::{Server, presets};
+    let mut known = Vec::new();
+    let mut other = Vec::new();
+    for target in connect::TARGETS.iter().filter(|t| t.installed()) {
+        for (name, entry) in target.servers() {
+            let Some(server) = Server::from_entry(&entry) else { continue };
+            match presets::of(&server).filter(|p| p.sources.contains(&section)) {
+                Some(preset) => known.push(Choice {
+                    label: format!("{} through \"{name}\" in {}'s config", preset.name, target.name),
+                    key: name,
+                    entry,
+                    name: preset.name.to_string(),
+                    mapping: preset.mapping.map(|m| m()),
+                }),
+                None if presets::of(&server).is_none() => {
+                    let text = format!("{name} {}", server.describe()).to_lowercase();
+                    if presets::hints(section).iter().any(|h| text.contains(h)) {
+                        other.push(Choice {
+                            label: format!("\"{name}\" from {}'s config (your agent maps it)", target.name),
+                            key: name.clone(),
+                            entry,
+                            name,
+                            mapping: None,
+                        });
+                    }
+                }
+                None => {}
+            }
+        }
+    }
+    for preset in presets::for_source(section) {
+        if !known.iter().any(|c| c.name == preset.name) {
+            let mapped = if preset.mapping.is_some() { "" } else { ", your agent maps it" };
+            known.push(Choice {
+                label: format!("{} ({}{mapped})", preset.name, preset.url),
+                key: preset.id.to_string(),
+                entry: preset.entry(),
+                name: preset.name.to_string(),
+                mapping: preset.mapping.map(|m| m()),
+            });
+        }
+    }
+    known.extend(other);
+    known
+}
+
+/// Asks where a source comes from, logs cockpit in to the server picked and maps it when no mapping is known.
+fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent>) -> Source {
+    use cockpit_connectors::Server;
+    let title = ["Tickets", "CI runs", "Meetings", "Deploys and previews", "The release monitor's Datadog"][section_at(section)];
+    let options = choices(section);
+    let mut listed: Vec<String> = Vec::new();
+    if claude {
+        listed.push("Claude Code's connector (/cockpit:setup in Claude Code maps it)".into());
+    }
+    listed.extend(options.iter().map(|c| c.label.clone()));
+    if section == "calendar" {
+        listed.push("the calendar's secret iCal address".into());
+    }
+    listed.push(if section == "ci" { "GitHub's checks".into() } else { "none".into() });
+    let numbered: Vec<String> = listed.iter().enumerate().map(|(i, l)| format!("{} {l}", i + 1)).collect();
+    let picked = io.ask(&format!("\n{title} from? {}", numbered.join(", ")), "1").parse::<usize>().unwrap_or(1).max(1) - 1;
+    let at = picked.checked_sub(usize::from(claude));
+    if claude && picked == 0 {
+        return Source::Claude;
+    }
+    let Some(choice) = at.and_then(|i| options.into_iter().nth(i)) else {
+        if section == "calendar" && at == Some(listed.len() - usize::from(claude) - 2) {
+            let ics = io.secret("The calendar's secret address in iCal format (never shown)?");
+            return if ics.is_empty() { Source::Off } else { Source::Ics(ics) };
+        }
+        return Source::Off;
+    };
+    let Some(server) = Server::from_entry(&choice.entry) else { return Source::Off };
+    if let Server::Http(url) = &server
+        && !server.is_ready()
+    {
+        if !io.yes(&format!("Log cockpit in to {} now (it opens your browser)?", choice.name), true) {
+            println!("Later: cockpit connector login {url}");
+            let mapped = choice.mapping.is_some();
+            return Source::Server { key: choice.key, entry: choice.entry, name: choice.name, mapping: choice.mapping, mapped };
+        }
+        let done = cockpit_connectors::block_on(cockpit_connectors::login(url, |link| {
+            println!("If the browser does not open: {link}");
+            let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(link).status();
+        }));
+        match done {
+            Ok(()) => println!("Logged in to {}.", choice.name),
+            Err(e) => {
+                println!("Not logged in ({e}). cockpit connector login {url} tries again; until then the hub leaves it.");
+                let mapped = choice.mapping.is_some();
+                return Source::Server { key: choice.key, entry: choice.entry, name: choice.name, mapping: choice.mapping, mapped };
+            }
+        }
+    }
+    let (mapping, mapped) = match (choice.mapping, section) {
+        (Some(mapping), _) => (Some(mapping), true),
+        (None, "datadog") => (None, true),
+        (None, _) => match mapper {
+            Some(agent) => {
+                println!("{} maps {}'s tools for cockpit (a minute or two)…", agent.name, choice.name);
+                match crate::mapper::map(section, &server, &choice.name, agent) {
+                    Ok((mapping, sample)) => {
+                        println!("Mapped: {sample}");
+                        (Some(mapping), true)
+                    }
+                    Err(e) => {
+                        println!("Not mapped ({e}): cockpit connector map {section} {} tries again.", choice.key);
+                        (None, false)
+                    }
+                }
+            }
+            None => {
+                println!("No agent to map {}: cockpit connector map {section} {} once one is installed.", choice.name, choice.key);
+                (None, false)
+            }
+        },
+    };
+    Source::Server { key: choice.key, entry: choice.entry, name: choice.name, mapping, mapped }
 }
 
 /// cockpit's keys (prefix+i/t/a/d/u/m) and sidebar in herdr's config.toml, merged once the person agrees, then reloaded.

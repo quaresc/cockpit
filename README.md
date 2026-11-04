@@ -37,16 +37,18 @@ everything. Needs `gh` signed in and `jq`. Release binaries for macOS and Linux 
 use a small notifier app, Linux `notify-send`. What cockpit asks an agent to do (recaps, routines, meeting briefs)
 runs on the agent you pick in setup.
 
-## Agents
+## Agents and tools
 
 cockpit works with every agent Herdr runs: their status, questions answered from the sidebar, recaps, Home, the inbox,
-runbooks, meetings, routines, and the show, search and changes tools over MCP. A few parts need Claude Code, as they
-read its plugin hooks or its connectors:
+runbooks, meetings, routines, and the show, search and changes tools over MCP.
 
-- the monitor and the fetchers that use Claude's connectors (Datadog, your deploy platform);
-- the quota bars and Agent spend;
-- the footer under the prompt;
-- the `/runbook` and `/todo` commands, and the morning brief.
+Tickets, CI runs, meetings, deploys and previews, and the release monitor come from MCP servers, which cockpit calls
+itself, whatever your agent. `cockpit setup` finds the servers your agents already use (Codex's, OpenCode's, Gemini's…),
+offers the ones it knows (Linear, Jira, GitHub Issues, GitLab, CircleCI, Datadog), logs cockpit in once through your
+browser, and has your agent map any other server's tools. In Claude Code, `/cockpit:setup` uses its connectors instead.
+
+A few parts read Claude Code itself: the quota bars and Agent spend, the footer under the prompt, the `/runbook` and
+`/todo` commands, and the morning brief.
 
 ## Develop
 

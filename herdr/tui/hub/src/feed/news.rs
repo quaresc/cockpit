@@ -79,6 +79,20 @@ pub fn pr_changes(prev: &Value, next: &Value) -> Vec<News> {
     out
 }
 
+/// Tickets whose merged PRs all reached production since the last look.
+pub fn deploy_changes(prev: &Value, next: &Value) -> Vec<News> {
+    let all_live = |prs: &Value| prs.as_array().is_some_and(|p| !p.is_empty() && p.iter().all(|pr| pr["isLive"] == true));
+    let mut out = Vec::new();
+    for (ticket, prs) in next["deploys"].as_object().into_iter().flatten() {
+        if all_live(prs) && !all_live(&prev["deploys"][ticket]) {
+            let shipped: Vec<String> = prs.as_array().into_iter().flatten().map(|p| format!("{} {}", s(p, "repo"), s(p, "tag"))).collect();
+            let url = list(&next["tickets"]).iter().find(|t| t["id"] == ticket.as_str()).map(|t| s(t, "url").to_string()).unwrap_or_default();
+            out.push(news(format!("🚀 Live in production: {ticket} ({})", shipped.join(", ")), if url.is_empty() { "space:inbox".into() } else { url }, &[]));
+        }
+    }
+    out
+}
+
 /// Tickets newly assigned to me, once there was a list to compare with.
 pub fn ticket_changes(prev: &Value, next: &Value) -> Vec<News> {
     let before = list(&prev["tickets"]);
@@ -149,7 +163,7 @@ pub fn announce_ci(config: &Config, news: &[News]) {
 }
 
 /// One system notification, unless notifications are off.
-fn notify(config: &Config, title: &str, body: &str, action: &str, buttons: &[(String, String)]) {
+pub(crate) fn notify(config: &Config, title: &str, body: &str, action: &str, buttons: &[(String, String)]) {
     if config.0["notifications"] == false {
         return;
     }

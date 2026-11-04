@@ -646,7 +646,7 @@ fn doctor_prints_a_line_per_check() {
         format!("fail  space notes missing → sh {}/ensure-spaces.sh", link.display()),
         "ok    herdr toasts in-app".into(),
         "ok    platform tools mapped: stop, deploy".into(),
-        "warn  ticket tools not mapped: get, listStates, setState; cockpit skips what they do → /cockpit:setup maps them".into(),
+        "warn  ticket tools not mapped: get, listStates, setState; cockpit skips what they do → /cockpit:setup or cockpit connector map maps them".into(),
         "ok    CI from GitHub checks".into(),
         "ok    allow rule for platform".into(),
         "fail  no allow rule for claude.ai Linear: background refreshes are refused → add \"mcp__claude_ai_Linear\" to permissions.allow".into(),

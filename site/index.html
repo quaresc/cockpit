@@ -57,7 +57,7 @@
       <p>Works with what you already use</p>
       <ul class="chips">
         <li>Claude Code</li><li>Codex</li><li>herdr</li><li>Herdr app</li><li>GitHub</li><li>Linear</li><li>Jira</li><li>CircleCI</li>
-        <li>Google Calendar</li><li>Datadog</li>
+        <li>GitLab</li><li>Google Calendar</li><li>Datadog</li><li>any MCP server</li>
       </ul>
     </div>
   </section>
@@ -278,7 +278,7 @@
         <ul class="needs">
           <li><svg class="i"><use href="#i-check"/></svg><span>macOS or Linux, with <code>gh</code> signed in and <code>jq</code></span></li>
           <li><svg class="i"><use href="#i-check"/></svg><span><a href="https://herdr.dev">herdr</a> 0.9+ (with a Nerd Font), the Herdr app, or both</span></li>
-          <li><svg class="i"><use href="#i-check"/></svg><span>Any agent Herdr runs; with Claude Code, its connectors for tickets, CI and calendar</span></li>
+          <li><svg class="i"><use href="#i-check"/></svg><span>Any agent Herdr runs; tickets, CI, meetings and deploys from the MCP servers you already use</span></li>
         </ul>
       </div>
       <div>
@@ -314,16 +314,17 @@
       <div class="faq">
         <details open>
           <summary>Do I need API tokens?</summary>
-          <p>No. GitHub goes through your <code>gh</code> login. With Claude Code, tickets, CI and meetings come from the
-            connectors you already have, through one hidden, idle session the hub keeps.</p>
-          <p>A Linear key, a CircleCI token or your calendar's secret iCal address are optional: with them the hub fetches
-            that data itself.</p>
+          <p>No. GitHub goes through your <code>gh</code> login. Tickets, CI, meetings, deploys and the release monitor come
+            from MCP servers: cockpit calls them itself, with any agent. Setup finds the ones your agents already use, logs
+            cockpit in once through your browser, and has your agent map a server cockpit does not know yet.</p>
+          <p>In Claude Code, cockpit can use its connectors instead, through one hidden, idle session the hub keeps.</p>
         </details>
         <details>
           <summary>What does it cost?</summary>
           <p>cockpit is free and MIT-licensed. What it asks an agent to do runs on your own agent's plan: recaps,
             meeting briefs, and routines, which take a weekly budget. Each one can be turned off.</p>
-          <p>The hidden session that reads your connectors sits idle at its prompt and spends no tokens.</p>
+          <p>Reading your MCP servers costs nothing: cockpit calls them itself, and the hidden Claude Code session some setups
+            keep sits idle at its prompt.</p>
         </details>
         <details>
           <summary>Does it work without the Herdr app?</summary>

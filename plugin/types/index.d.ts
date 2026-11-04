@@ -51,7 +51,7 @@ export type Usage = { limits: { name: string; percent: number }[] }
 export type ViewChip = { name: string; isOpen: boolean }
 
 // What the hub's own feed wrote last: when it tried, when its GitHub and ticket fields last came in, and its errors.
-export type HubPart = { at: number; github?: number; tickets?: number; errors: string[] }
+export type HubPart = { at: number; github?: number; tickets?: number; platform?: number; errors: string[] }
 
 export type Inbox = {
   version?: number
@@ -172,7 +172,8 @@ export type MonitoredApp = {
   issues: Issue[]
   releases: Release[]
 }
-export type MonitorState = { version: 1; at: number; env: string; errors: string[]; apps: MonitoredApp[] }
+// by: 'hub' when the hub read it through servers of its own.
+export type MonitorState = { version: 1; at: number; env: string; errors: string[]; apps: MonitoredApp[]; by?: 'hub' }
 
 // by: 'hub' when the hub read it from calendar.ics.
 export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string; by?: 'hub' }

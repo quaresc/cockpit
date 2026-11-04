@@ -1,0 +1,230 @@
+//! One MCP server, reached over HTTP (with its OAuth login) or started as a local command.
+
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::RunningService;
+use rmcp::transport::auth::{AuthClient, AuthorizationManager, AuthorizationRequest, OAuthState};
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::{RoleClient, ServiceExt};
+use serde_json::{Map, Value};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use crate::credentials::Store;
+
+/// Where a server is: a URL logged in to through OAuth, a URL called with headers (an API key, or a bearer token a
+/// command prints, as `gh auth token`), or a command, its arguments and the variables it needs.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Server {
+    Http(String),
+    Keyed { url: String, headers: Vec<(String, String)>, bearer_command: Vec<String> },
+    Command { argv: Vec<String>, env: Vec<(String, String)> },
+}
+
+impl Server {
+    pub fn parse(spec: &str) -> Server {
+        if spec.starts_with("http://") || spec.starts_with("https://") {
+            Server::Http(spec.to_string())
+        } else {
+            Server::Command { argv: spec.split_whitespace().map(str::to_string).collect(), env: Vec::new() }
+        }
+    }
+
+    /// A `servers` entry of the config: `{"url"}` (OAuth), `{"url", "headers"|"bearerCommand"}`, or
+    /// `{"command", "args", "env"}`.
+    pub fn from_entry(entry: &Value) -> Option<Server> {
+        let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>();
+        let pairs = |v: &Value| v.as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect::<Vec<_>>();
+        if let Some(url) = entry["url"].as_str().filter(|u| !u.is_empty()) {
+            let (headers, bearer_command) = (pairs(&entry["headers"]), strings(&entry["bearerCommand"]));
+            if headers.is_empty() && bearer_command.is_empty() {
+                return Some(Server::Http(url.to_string()));
+            }
+            return Some(Server::Keyed { url: url.to_string(), headers, bearer_command });
+        }
+        let command = entry["command"].as_str().filter(|c| !c.is_empty())?;
+        Some(Server::Command { argv: std::iter::once(command.to_string()).chain(strings(&entry["args"])).collect(), env: pairs(&entry["env"]) })
+    }
+
+    /// Ready to call: a command always, a URL once cockpit has a login for it.
+    pub fn is_ready(&self) -> bool {
+        match self {
+            Server::Http(url) => Store::new(url).has_login(),
+            Server::Keyed { .. } | Server::Command { .. } => true,
+        }
+    }
+
+    /// Its address or command, as setup and doctor say it.
+    pub fn describe(&self) -> String {
+        match self {
+            Server::Http(url) | Server::Keyed { url, .. } => url.clone(),
+            Server::Command { argv, .. } => argv.join(" "),
+        }
+    }
+}
+
+pub struct Connection(RunningService<RoleClient, ()>);
+
+/// Logs in to a server through the browser: discovery, registration, PKCE, and a callback on a local port.
+pub async fn login(url: &str, open: impl Fn(&str)) -> Result<(), String> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
+    let redirect = format!("http://127.0.0.1:{}/callback", listener.local_addr().map_err(|e| e.to_string())?.port());
+    let mut manager = AuthorizationManager::new(url).await.map_err(|e| format!("{url}: {e}"))?;
+    manager.set_credential_store(Store::new(url));
+    let mut state = OAuthState::Unauthorized(manager);
+    let request = AuthorizationRequest::new(&redirect).with_client_name("cockpit");
+    state.start_authorization(request).await.map_err(|e| format!("{url} refused cockpit's login: {e}"))?;
+    let auth_url = state.get_authorization_url().await.map_err(|e| e.to_string())?;
+    open(&auth_url);
+    let callback = tokio::time::timeout(std::time::Duration::from_secs(300), callback(&listener, &redirect))
+        .await
+        .map_err(|_| "no answer from the browser in 5 minutes".to_string())??;
+    state.handle_callback_url(&callback).await.map_err(|e| format!("login not completed: {e}"))?;
+    Ok(())
+}
+
+/// The browser's one request to the redirect URL, answered with a page saying it can be closed.
+async fn callback(listener: &tokio::net::TcpListener, redirect: &str) -> Result<String, String> {
+    loop {
+        let (mut socket, _) = listener.accept().await.map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; 8192];
+        let n = socket.read(&mut buf).await.map_err(|e| e.to_string())?;
+        let head = String::from_utf8_lossy(&buf[..n]);
+        let Some(path) = head.lines().next().and_then(|l| l.split_whitespace().nth(1)) else { continue };
+        if !path.starts_with("/callback") {
+            let _ = socket.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n").await;
+            continue;
+        }
+        let body = "<html><body style=\"font-family:system-ui;padding:3em\">cockpit is logged in. You can close this tab.</body></html>";
+        let reply = format!("HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{body}", body.len());
+        let _ = socket.write_all(reply.as_bytes()).await;
+        let base = redirect.trim_end_matches("/callback");
+        return Ok(format!("{base}{path}"));
+    }
+}
+
+pub async fn connect(server: &Server) -> Result<Connection, String> {
+    let service = match server {
+        Server::Http(url) => {
+            let store = Store::new(url);
+            let config = StreamableHttpClientTransportConfig::with_uri(url.as_str());
+            if store.has_login() {
+                let mut manager = AuthorizationManager::new(url.as_str()).await.map_err(|e| format!("{url}: {e}"))?;
+                manager.set_credential_store(store);
+                manager.initialize_from_store().await.map_err(|e| format!("{url}: stored login unusable ({e}) → cockpit connector login {url}"))?;
+                let client = AuthClient::new(reqwest::Client::default(), manager);
+                ().serve(StreamableHttpClientTransport::with_client(client, config)).await.map_err(|e| format!("{url}: {e}"))?
+            } else {
+                let transport = StreamableHttpClientTransport::with_client(reqwest::Client::default(), config);
+                ().serve(transport).await.map_err(|e| format!("{url}: {e} (a server that needs a login: cockpit connector login {url})"))?
+            }
+        }
+        Server::Keyed { url, headers, bearer_command } => {
+            let mut config = StreamableHttpClientTransportConfig::with_uri(url.as_str());
+            if let Some((program, args)) = bearer_command.split_first() {
+                let out = tokio::process::Command::new(program).args(args).output().await.map_err(|e| format!("{program}: {e}"))?;
+                let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !out.status.success() || token.is_empty() {
+                    return Err(format!("{} printed no token", bearer_command.join(" ")));
+                }
+                config = config.auth_header(token);
+            }
+            let mut custom = std::collections::HashMap::new();
+            for (name, value) in headers {
+                let name = reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| format!("header {name}: {e}"))?;
+                let value = reqwest::header::HeaderValue::from_str(&expand_env(value)).map_err(|e| format!("header {name}: {e}"))?;
+                custom.insert(name, value);
+            }
+            let transport = StreamableHttpClientTransport::with_client(reqwest::Client::default(), config.custom_headers(custom));
+            ().serve(transport).await.map_err(|e| format!("{url}: {e}"))?
+        }
+        Server::Command { argv, env } => {
+            let (program, args) = argv.split_first().ok_or("no command")?;
+            let mut command = tokio::process::Command::new(program);
+            command.args(args).envs(env.iter().map(|(k, v)| (k, expand_env(v))));
+            let transport = TokioChildProcess::new(command).map_err(|e| format!("{program}: {e}"))?;
+            ().serve(transport).await.map_err(|e| format!("{program}: {e}"))?
+        }
+    };
+    Ok(Connection(service))
+}
+
+impl Connection {
+    pub async fn tools(&self) -> Result<Vec<(String, String)>, String> {
+        let tools = self.0.list_all_tools().await.map_err(|e| e.to_string())?;
+        Ok(tools.into_iter().map(|t| (t.name.to_string(), t.description.map(|d| d.to_string()).unwrap_or_default())).collect())
+    }
+
+    /// Every tool with its description and input schema, as a mapping prompt shows them.
+    pub async fn tool_list(&self) -> Result<Value, String> {
+        let tools = self.0.list_all_tools().await.map_err(|e| e.to_string())?;
+        Ok(Value::Array(
+            tools
+                .into_iter()
+                .map(|t| serde_json::json!({"name": t.name, "description": t.description, "inputSchema": Value::Object((*t.input_schema).clone())}))
+                .collect(),
+        ))
+    }
+
+    /// One call's first text block as it is, for servers that answer in text (Datadog's `<JSON_DATA>`, YAML).
+    pub async fn call_text(&self, tool: &str, args: Map<String, Value>) -> Result<String, String> {
+        let result = self.0.call_tool(CallToolRequestParams::new(tool.to_string()).with_arguments(args)).await.map_err(|e| format!("{tool}: {e}"))?;
+        let body = result.content.iter().find_map(|c| c.as_text().map(|t| t.text.clone())).unwrap_or_default();
+        if result.is_error == Some(true) {
+            return Err(format!("{tool}: {}", body.chars().take(200).collect::<String>()));
+        }
+        Ok(body)
+    }
+
+    /// One call, its first text block parsed as JSON (or kept as text when it is none).
+    pub async fn call(&self, tool: &str, args: Map<String, Value>) -> Result<Value, String> {
+        let result = self.0.call_tool(CallToolRequestParams::new(tool.to_string()).with_arguments(args)).await.map_err(|e| format!("{tool}: {e}"))?;
+        if let Some(structured) = result.structured_content.clone() {
+            return Ok(structured);
+        }
+        let body = result.content.iter().find_map(|c| c.as_text().map(|t| t.text.clone()));
+        let body = body.unwrap_or_default();
+        if result.is_error == Some(true) {
+            return Err(format!("{tool}: {}", body.chars().take(200).collect::<String>()));
+        }
+        if body.is_empty() {
+            return Ok(Value::Object(Map::new()));
+        }
+        serde_json::from_str(&body).map_err(|_| format!("{tool} answered no JSON: {}", body.chars().take(200).collect::<String>()))
+    }
+
+    pub async fn close(self) {
+        let _ = self.0.cancel().await;
+    }
+}
+
+/// A value with its `${VAR}` references filled from the environment, as the agents' configs write API keys.
+fn expand_env(value: &str) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    while let Some(open) = rest.find("${") {
+        let Some(close) = rest[open..].find('}').map(|c| open + c) else { break };
+        out.push_str(&rest[..open]);
+        out.push_str(&std::env::var(&rest[open + 2..close]).unwrap_or_default());
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One call to the tool a section's mapping gives a verb, its `{placeholders}` filled from `values` (an argument whose
+/// placeholder has no value is left out), its answer as JSON. Err names the verb when nothing is mapped.
+pub async fn call_mapped(connection: &Connection, section: &Value, verb: &str, values: &Value) -> Result<Value, String> {
+    let recipe = &section["tools"][verb];
+    let tool = recipe["tool"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| format!("no tool mapped for {verb}"))?;
+    let empty = Map::new();
+    let values = values.as_object().unwrap_or(&empty);
+    let args =
+        crate::mapping::fill_args(recipe.get("args").unwrap_or(&Value::Object(Map::new())), values).and_then(|a| a.as_object().cloned()).unwrap_or_default();
+    connection.call(tool, args).await
+}
+
+/// Runs a future on a runtime of its own, for the synchronous callers; TLS goes through ring.
+pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime").block_on(future)
+}

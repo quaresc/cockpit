@@ -428,11 +428,13 @@ pub fn talk_over(ctx: &mut Ctx, ticket: &Value, prs: &[Value], data: &Value, own
     Ok(())
 }
 
-/// Files a request the mod carries out, and the row's pending entry the app follows to its outcome. A Claude Code
-/// session with the cockpit plugin takes it, so without Claude Code it is refused at once.
+/// Files a request the hub (through a server of its own) or a Claude Code session carries out, and the row's pending
+/// entry the app follows to its outcome; with neither, it is refused at once.
 fn request(ctx: &mut Ctx, payload: Value, row: &str, working: &str) -> Res {
-    if !agent::get("claude").is_some_and(|a| a.installed()) {
-        return Err(format!("{} needs Claude Code: the cockpit plugin carries it out in a Claude Code session", s(&payload, "label")?));
+    let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
+    let hubs = crate::feed::mcp::serves(&raw, &ctx.cfg.0, &s(&payload, "type")?);
+    if !hubs && !agent::get("claude").is_some_and(|a| a.installed()) {
+        return Err(format!("{} needs a server cockpit reaches itself (cockpit setup) or Claude Code's connectors", s(&payload, "label")?));
     }
     let name = format!("{}-{}.json", now_ms(), s(&payload, "type")?);
     files::write(&requests_dir().join(&name), &payload).map_err(|e| e.to_string())?;

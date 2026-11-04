@@ -196,13 +196,15 @@ async function fetchInbox($: $, cached: Inbox | null) {
   // A failed source is retried on the next minute tick instead of waiting out the cache.
   const part: Partial<Inbox> = { ...modPart(gh, tickets, errors.length > 0 || isNotReady, STALE_MS), version: INBOX_VERSION }
   const seen = { direct: [], team: [], botRepos: [], mine: [], tickets: [], merged: [], errors: [], ...kept, ...part } as Inbox
-  part.deploys = await deploysFor($, seen.tickets, seen.merged ?? []).catch((err: Error) => {
+  // The hub keeps deploys and previews while it reaches the platform itself.
+  const isPlatformHubs = hubOwns(latest, 'platform')
+  part.deploys = isPlatformHubs ? undefined : await deploysFor($, seen.tickets, seen.merged ?? []).catch((err: Error) => {
     if (!isMcpNotReady(err)) errors.push(`Deploy status ${shortError(err)}`)
     return cached?.deploys ?? {}
   })
-  const deployRepos = [...seen.mine.map(pr => pr.repo), ...Object.values(part.deploys ?? {}).flat().map(d => d.repo)]
+  const deployRepos = [...seen.mine.map(pr => pr.repo), ...Object.values(part.deploys ?? seen.deploys ?? {}).flat().map(d => d.repo)]
   part.deployLinks = await deployLinksFor($, deployRepos).catch(() => cached?.deployLinks ?? {})
-  part.previews = await previewsFor($).catch((err: Error) => {
+  part.previews = isPlatformHubs ? undefined : await previewsFor($).catch((err: Error) => {
     if (!isMcpNotReady(err)) errors.push(`Previews ${shortError(err)}`)
     return cached?.previews ?? []
   })

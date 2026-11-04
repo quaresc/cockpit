@@ -1,0 +1,18 @@
+[package]
+name = "cockpit-connectors"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The hub's MCP client: the person's MCP servers called directly, with a connector's mapping, no agent in between.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rmcp = { version = "3.8.0", default-features = false, features = ["client", "auth", "reqwest-tls-no-provider", "transport-streamable-http-client-reqwest", "transport-child-process"] }
+# TLS through ring, as ureq does, so no C toolchain for aws-lc on any release target.
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "time", "process"] }
+async-trait = "0.1.89"

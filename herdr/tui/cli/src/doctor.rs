@@ -445,15 +445,31 @@ impl Doctor {
 
     fn caches(&self) {
         self.check_cache("inbox.json", "inbox", 900, NO_FEED);
-        // Tickets come from the ticket connector, in a Claude session, unless tickets.token lets the hub fetch them.
+        // Each source with a server of cockpit's own, and tickets from a Claude session's connector otherwise.
         let inbox = self.cache.join("inbox.json");
-        if self.enabled("tickets") && !self.has_token("tickets") && inbox.is_file() {
+        let mut hub_tickets = false;
+        for section in ["tickets", "ci", "calendar", "platform", "datadog"] {
+            let name = self.config.as_ref().map(|c| raw(&c[section]["server"])).unwrap_or_default();
+            let entry = self.config.as_ref().map(|c| c["servers"][name.as_str()].clone()).filter(Value::is_object);
+            let on = section == "datadog" || self.config.as_ref().is_some_and(|c| c[section]["enabled"] != false);
+            let Some(entry) = entry.filter(|_| on) else { continue };
+            use cockpit_connectors::Server;
+            match Server::from_entry(&entry) {
+                Some(server) if server.is_ready() => {
+                    hub_tickets |= section == "tickets";
+                    ok(&format!("{section} from \"{name}\" through cockpit's own connection"));
+                }
+                Some(Server::Http(url)) => fail(&format!("{section}: cockpit is not logged in to {url} → cockpit connector login {name}")),
+                _ => fail(&format!("servers.\"{name}\" has no url or command → cockpit setup")),
+            }
+        }
+        if !hub_tickets && self.enabled("tickets") && !self.has_token("tickets") && inbox.is_file() {
             let data = load(&inbox).unwrap_or(Value::Null);
             let fallback = if truthy(&data["hub"]) { Value::from(0) } else { data["at"].clone() };
             let at = or(&data["modAt"], or(&fallback, &Value::from(0))).clone();
             let t = self.now - millis_to_secs(&at);
             if t > 900 {
-                warn(&format!("tickets: last fetched {} min ago → {SESSION} (tickets.token lets the hub fetch Linear without one)", t / 60));
+                warn(&format!("tickets: last fetched {} min ago → {SESSION} (cockpit setup gives the hub a ticket server of its own)", t / 60));
             }
         }
         if self.settings.is_some() && self.set()["ci"]["enabled"] != false {
@@ -461,7 +477,7 @@ impl Doctor {
             let by = if !truthy(server) || raw(server).is_empty() || self.has_token("ci") {
                 NO_FEED.to_string()
             } else {
-                format!("{SESSION} (ci.token lets the hub fetch CircleCI without one)")
+                format!("{SESSION} (cockpit setup gives the hub a CI server of its own)")
             };
             self.check_cache("ci.json", "CI", 600, &by);
         }
@@ -643,7 +659,7 @@ impl Doctor {
             let order = platform_tools_order(&self.settings_path);
             mapped.sort_by_key(|name| order.iter().position(|o| o == name).unwrap_or(usize::MAX));
             if mapped.is_empty() {
-                warn("platform is on but no tool is mapped: no deploys or previews → /cockpit:setup maps them");
+                warn("platform is on but no tool is mapped: no deploys or previews → /cockpit:setup or cockpit connector map maps them");
             } else {
                 ok(&format!("platform tools mapped: {}", mapped.join(", ")));
             }
@@ -656,7 +672,7 @@ impl Doctor {
             if missing.is_empty() {
                 ok("ticket tools mapped");
             } else {
-                warn(&format!("ticket tools not mapped: {missing}; cockpit skips what they do → /cockpit:setup maps them"));
+                warn(&format!("ticket tools not mapped: {missing}; cockpit skips what they do → /cockpit:setup or cockpit connector map maps them"));
             }
         }
         // The CI: GitHub's checks through gh, or a CI connector.
@@ -667,7 +683,7 @@ impl Doctor {
             if missing.is_empty() {
                 ok("CI tools mapped");
             } else {
-                warn(&format!("CI tools not mapped: {missing}; no CI runs → /cockpit:setup maps them"));
+                warn(&format!("CI tools not mapped: {missing}; no CI runs → /cockpit:setup or cockpit connector map maps them"));
             }
         } else {
             ok("CI from GitHub checks");

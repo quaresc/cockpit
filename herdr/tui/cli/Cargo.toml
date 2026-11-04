@@ -25,6 +25,7 @@ cockpit-routines = { path = "../routines" }
 cockpit-runbook = { path = "../runbook" }
 cockpit-show = { path = "../show" }
 cockpit-todo = { path = "../todo" }
+cockpit-connectors = { path = "../connectors" }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true

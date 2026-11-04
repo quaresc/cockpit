@@ -1,5 +1,5 @@
 //! A Claude Code session the hub keeps for the sources it cannot reach itself: Linear, CircleCI or the calendar without
-//! a token, the platform and the monitor's Datadog. Their data comes from MCP connectors that cockpit's Claude Code
+//! a token or a server of the hub's own (`servers` in the config), the platform and the monitor's Datadog. Their data comes from MCP connectors that cockpit's Claude Code
 //! plugin calls, so the hub runs one in a hidden herdr-core terminal (no space, no pane): idle at its prompt, it spends
 //! no tokens, and the plugin in it refreshes the inbox, CI, meetings and monitor like any session. It runs only where
 //! Claude Code is installed; `fetcher: false` in the config turns it off, and it goes when nothing needs it any more.
@@ -30,27 +30,33 @@ pub fn start() {
     });
 }
 
-/// The sources only an MCP connector reaches, as the config has them: empty when the hub's tokens cover everything.
+/// The sources only an MCP connector reaches, as the config has them: empty when the hub's tokens and servers cover
+/// everything.
 pub fn mcp_sources() -> Vec<&'static str> {
     let c = config::load();
     let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
-    let on = |section: &str| c.0[section]["enabled"] != false && c.0[section].is_object();
+    sources(&c.0, &raw, &c.space_names())
+}
+
+fn sources(c: &Value, raw: &Value, spaces: &[String]) -> Vec<&'static str> {
+    let on = |section: &str| c[section]["enabled"] != false && c[section].is_object();
     let has = |section: &str, key: &str| raw[section][key].as_str().is_some_and(|t| !t.trim().is_empty());
-    let server = |section: &str| c.0[section]["server"].as_str().is_some_and(|s| !s.is_empty());
+    let server = |section: &str| c[section]["server"].as_str().is_some_and(|s| !s.is_empty());
+    let hubs = |section: &str| crate::feed::mcp::server(raw, c, section).is_some();
     let mut out = Vec::new();
-    if on("tickets") && server("tickets") && !has("tickets", "token") {
+    if on("tickets") && server("tickets") && !has("tickets", "token") && !hubs("tickets") {
         out.push("tickets");
     }
-    if on("ci") && server("ci") && !has("ci", "token") {
+    if on("ci") && server("ci") && !has("ci", "token") && !hubs("ci") {
         out.push("ci");
     }
-    if c.0["calendar"]["enabled"] == true && !has("calendar", "ics") {
+    if c["calendar"]["enabled"] == true && !has("calendar", "ics") && !hubs("calendar") {
         out.push("calendar");
     }
-    if c.0["platform"]["enabled"] == true {
+    if c["platform"]["enabled"] == true && !hubs("platform") {
         out.push("platform");
     }
-    if c.space_names().iter().any(|s| s == "monitor") {
+    if spaces.iter().any(|s| s == "monitor") && !(hubs("platform") && crate::feed::mcp::datadog(raw, c).is_some()) {
         out.push("monitor");
     }
     out
@@ -102,4 +108,20 @@ fn launch(claude: &str) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tickets_the_hub_serves_need_no_session() {
+        let config = json!({"tickets": {"enabled": true, "server": "linear"}, "ci": {"enabled": true, "server": "circleci"}});
+        assert_eq!(sources(&config, &json!({}), &[]), ["tickets", "ci"]);
+        let raw = json!({"servers": {"linear": {"command": "linear-mcp"}}});
+        assert_eq!(sources(&config, &raw, &[]), ["ci"]);
+        let raw = json!({"servers": {"linear": {"command": "linear-mcp"}, "circleci": {"command": "circleci-mcp"}}});
+        assert!(sources(&config, &raw, &[]).is_empty());
+    }
 }

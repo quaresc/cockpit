@@ -1,6 +1,6 @@
 //! How each side's part lands in the store's documents. inbox: the hub writes the GitHub fields (and `tickets` given a
-//! Linear token) plus its own `hub` record, the mod the rest; `errors` joins both sides'. ci: whole, marked `by: "hub"`
-//! when the hub's. While the hub's part is under three minutes old the mod leaves it alone.
+//! Linear token or a ticket server) plus its own `hub` record, the mod the rest; `errors` joins both sides'. ci: whole,
+//! marked `by: "hub"` when the hub's. While the hub's part is under three minutes old the mod leaves it alone.
 
 use serde_json::{Map, Value, json};
 
@@ -15,6 +15,8 @@ pub const CI_VERSION: i64 = 3;
 pub struct InboxPart {
     pub github: Option<[Value; 5]>,
     pub tickets: Option<Vec<Value>>,
+    /// The deploys of tickets waiting for production and my previews, when the hub reaches the platform itself.
+    pub platform: Option<(Value, Value)>,
     pub errors: Vec<String>,
 }
 
@@ -48,6 +50,10 @@ pub fn merge_inbox(file: &Value, part: &InboxPart, now: u64) -> Value {
     if let Some(tickets) = &part.tickets {
         inbox["tickets"] = json!(tickets);
         hub["tickets"] = json!(now);
+    }
+    if let Some((deploys, previews)) = &part.platform {
+        (inbox["deploys"], inbox["previews"]) = (deploys.clone(), previews.clone());
+        hub["platform"] = json!(now);
     }
     if part.github.is_some() || part.tickets.is_some() || !inbox["at"].is_number() {
         inbox["at"] = json!(now);
@@ -94,6 +100,7 @@ mod tests {
         InboxPart {
             github: Some([json!([{"url": "d"}]), json!([]), json!(["api"]), json!([{"url": "m"}]), json!([])]),
             tickets: None,
+            platform: None,
             errors: errors.iter().map(|e| e.to_string()).collect(),
         }
     }
@@ -124,6 +131,13 @@ mod tests {
         assert!(has_github(&inbox));
         assert!(!has_github(&merge_inbox(&Value::Null, &InboxPart::default(), 7)));
         assert!(has_github(&json!({"version": 1, "at": 3})));
+    }
+
+    #[test]
+    fn deploys_and_previews_are_the_hubs_when_it_reaches_the_platform() {
+        let part = InboxPart { platform: Some((json!({"ENG-1": [{"isLive": true}]}), json!([{"id": "p1"}]))), ..InboxPart::default() };
+        let inbox = merge_inbox(&Value::Null, &part, 7);
+        assert_eq!((&inbox["deploys"]["ENG-1"][0]["isLive"], &inbox["previews"][0]["id"], &inbox["hub"]["platform"]), (&json!(true), &json!("p1"), &json!(7)));
     }
 
     #[test]

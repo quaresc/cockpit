@@ -5,6 +5,7 @@ mod act;
 mod actions;
 mod browse;
 mod connect;
+mod connector;
 mod doctor;
 mod find;
 mod focus;
@@ -13,6 +14,7 @@ mod herdr_config;
 mod home;
 mod jsonedit;
 mod launch;
+mod mapper;
 mod mcp;
 mod proc;
 mod queue;
@@ -97,6 +99,7 @@ fn main() {
         },
         "search" => find::search(rest),
         "mcp" => mcp::main(rest),
+        "connector" => connector::main(rest),
         "events" => find::events(rest),
         "hub" if rest.is_empty() => {
             gui::register();

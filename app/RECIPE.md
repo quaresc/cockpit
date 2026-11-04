@@ -132,10 +132,10 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
 
   Setup runs `cockpit app install`, which copies this layout and mod into the Herdr home, writes `cockpit.json`,
   merges `keys.json` and switches to the layout once.
-- **Claude Code only**: the quota bars, the Agent spend tile, and the inbox requests a Claude Code session carries out
-  (CircleCI reruns, preview create/redeploy/stop/extend, marking a ticket Done), which are not offered without it.
-  GitHub Actions reruns go through `gh`. **Monitor** needs Claude Code, a deploy-platform connector and Datadog;
-  without them it says what to set.
+- **Claude Code only**: the quota bars and the Agent spend tile. The inbox requests (CI reruns, preview
+  create/redeploy/stop/extend, marking a ticket Done) are carried out by the hub through the source's MCP server, or by
+  a Claude Code session with its connectors; GitHub Actions reruns go through `gh`. **Monitor** needs a deploy-platform
+  server and Datadog's; without them it says what to set.
 - Answering in place parses the question screens cockpit knows (Claude Code's first): another agent's question may
   show as its status alone.
 - Herdr refuses imports outside a mod's folder, hence one mod for every place and every overlay. Don't split it.

@@ -1,6 +1,6 @@
 //! Tickets changed from the inbox: a Linear issue's state, its assignee, a new issue, through Linear's GraphQL API when
-//! the config gives `tickets.token`; without one, an agent session in the actions space makes the change with the
-//! ticket connector.
+//! the config gives `tickets.token`, a state through the hub's own ticket server; otherwise an agent session in the
+//! actions space makes the change with the ticket connector.
 
 use cockpit_core::files;
 use serde_json::{Value, json};
@@ -122,6 +122,17 @@ fn by_session(ctx: &mut Ctx, id: &str, what: &str) {
 pub fn set_state(ctx: &mut Ctx, args: &[Value]) -> Res {
     let id = ticket_id(arg(args, 0)?);
     let name = text(arg(args, 1)?);
+    let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
+    if token().is_none()
+        && let Some(server) = crate::feed::mcp::server(&raw, &ctx.cfg.0, "tickets")
+    {
+        use cockpit_connectors::{tickets, tools::Mapped};
+        let mapping = tickets::mapping(&raw["tickets"]);
+        let moved = crate::feed::mcp::with(&server, async |c| tickets::set_state(&Mapped { connection: c, section: &mapping }, &mapping, &id, &name).await)?;
+        refresh();
+        ctx.note(format!("moved {id} to {moved}"));
+        return Ok(());
+    }
     let Some(issue) = issue(&id)? else {
         by_session(ctx, &id, &format!("Move {id} to the state \"{name}\""));
         return Ok(());
