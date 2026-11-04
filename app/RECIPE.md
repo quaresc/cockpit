@@ -9,7 +9,7 @@ lists Herdr's own agents.
 
 ![Cockpit](preview.png)
 
-The preview is a Claude Code setup: the quota bars under the search field and the Agent spend tile only show there.
+The preview shows the sidebar's agents list and Home's NEXT MOVE card, cropped from the real window on demo data.
 
 ## What you see
 
