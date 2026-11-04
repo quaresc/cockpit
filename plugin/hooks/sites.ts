@@ -67,12 +67,24 @@ export function citedIn(texts: string[], pick: 'first' | 'last') {
   return cited
 }
 
-// The footer chips for the cited URLs, in the table's order.
+// Each site's service, as the footer names it; the Rust side keeps the same names (crates/core sites.rs).
+const NAMES: Record<string, string> = {
+  mr: 'GitLab', bitbucket: 'Bitbucket', 'azure-pr': 'Azure DevOps', jira: 'Jira', issue: 'GitHub', 'gitlab-issue': 'GitLab',
+  'azure-item': 'Azure DevOps', trello: 'Trello', asana: 'Asana', clickup: 'ClickUp', shortcut: 'Shortcut', figma: 'Figma',
+  miro: 'Miro', excalidraw: 'Excalidraw', notion: 'Notion', confluence: 'Confluence', coda: 'Coda', loom: 'Loom',
+  slack: 'Slack', teams: 'Teams', discord: 'Discord', sentry: 'Sentry', datadog: 'Datadog', grafana: 'Grafana',
+  pagerduty: 'PagerDuty', incident: 'incident.io', amplitude: 'Amplitude', mixpanel: 'Mixpanel', posthog: 'PostHog',
+  metabase: 'Metabase',
+}
+const GOOGLE_NAMES: Record<string, string> = { document: 'Google Docs', spreadsheets: 'Google Sheets', presentation: 'Google Slides', forms: 'Google Forms' }
+
+// The footer chips for the cited URLs, in the table's order, each named after its service.
 export function chipsFor(cited: Record<string, string>) {
   return COMPILED.filter(site => cited[site.kind]).map(site => {
     const url = cited[site.kind]!
     const ref = url.match(site.one)?.groups?.ref
-    return { kind: site.kind, url, icon: site.icon, label: ref && site.label ? site.label(ref) : site.kind }
+    const label = site.kind === 'google' ? (GOOGLE_NAMES[ref ?? ''] ?? 'Google Docs') : (NAMES[site.kind] ?? site.kind)
+    return { kind: site.kind, url, icon: site.icon, label, detail: ref && site.label ? site.label(ref) : '' }
   })
 }
 

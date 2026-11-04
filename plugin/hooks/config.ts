@@ -135,6 +135,9 @@ export type Config = {
   mail: Mail
   // Seconds between fetches, by source (github, tickets, ci, mail, calendar, platform, monitor); the hub reads it too.
   refresh?: Partial<Record<'github' | 'tickets' | 'ci' | 'mail' | 'calendar' | 'platform' | 'monitor', number>>
+  // The links and documents under Claude Code's prompt: on by default, off in the Herdr app, whose status bar shows them
+  // for every agent.
+  footer?: { links?: boolean }
   // Connectors that show panes refresh from.
   metabase: { server: string }
   datadog: { server: string }

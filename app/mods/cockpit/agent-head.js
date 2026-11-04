@@ -77,8 +77,11 @@ export default class AgentHead {
           .child(div().text_size(TEXT.xs).text_color(a.status === "blocked" ? color : k.mutedFg).child(`${WORD[a.status] ?? a.status}${since ? ` · ${dur(this.now - since)}` : ""}`)),
       )
       .when(Boolean(a.branch), (e) => e.child(div().min_w(0).truncate().child(Mono(a.branch, { color: k.dim }))))
-      .when(Boolean(a.pr?.number), (e) => e.child(Chip(`#${a.pr?.number}`, { id: "head-pr", mono: true, icon: "git-pull-request", tooltip: "Open the PR  ⌘G", onClick: (_e, cx) => cx.spawn(async () => hub.openUrl(a.pr.url)) })))
-      .when(Boolean(a.ticket), (e) => e.child(Chip(a.ticket, { mono: true, icon: "ticket" })))
+      .children(
+        (a.row?.links ?? [])
+          .filter((l) => l.kind === "ticket" || l.kind === "pr")
+          .map((l) => Chip(l.label ?? l.name, { id: `head-${l.kind}`, icon: l.icon, tooltip: `${l.detail ? `${l.name} · ${l.detail}` : l.name}${l.kind === "pr" ? "  ⌘G" : ""}`, onClick: (_e, cx) => cx.spawn(async () => hub.openUrl(l.url)) })),
+      )
       .child(div().flex_1())
       .child(
         Button("head-queue", {

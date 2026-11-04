@@ -144,7 +144,7 @@
           ],
           "padding": 8
         },
-        { "id": "status", "type": "block", "size": { "px": 28 }, "content": { "mod": "cockpit", "props": { "app": "status" } } }
+        { "id": "status", "type": "block", "size": { "px": 34 }, "content": { "mod": "cockpit", "props": { "app": "status" } } }
       ]
     }
   ]

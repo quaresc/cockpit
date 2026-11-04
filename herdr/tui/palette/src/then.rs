@@ -26,6 +26,11 @@ pub enum Then {
         pane: String,
         text: String,
     },
+    /// A view the agent showed, in a pane beside the agent's.
+    Document {
+        pane: String,
+        name: String,
+    },
     /// A fork of the session in a tab of the actions space, asked to look into an item (no prompt: just the fork).
     Fork {
         agent: String,
@@ -60,6 +65,7 @@ impl Then {
                 None => herdr(&["agent", "prompt", pane, text]),
             },
             Then::Fork { agent, session, cwd, title, prompt } => fork(agent, session, cwd, title, prompt),
+            Then::Document { pane, name } => document(pane, name),
         }
     }
 }
@@ -69,6 +75,15 @@ fn herdr(args: &[&str]) -> Result<(), String> {
     let bin = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".into());
     let out = Command::new(bin).args(args).stdin(Stdio::null()).output().map_err(|e| format!("herdr: {e}"))?;
     if out.status.success() { Ok(()) } else { Err(format!("herdr {}: {}", args[..2].join(" "), String::from_utf8_lossy(&out.stderr).trim())) }
+}
+
+/// A view in a pane split off the agent's to its right, `cockpit show` running there; the keyboard stays with the agent.
+fn document(pane: &str, name: &str) -> Result<(), String> {
+    let split = actions::herdr(&["pane", "split", pane, "--direction", "right"]).ok_or("herdr pane split failed")?;
+    let new = split["pane"]["pane_id"].as_str().ok_or("herdr pane split gave no pane")?.to_string();
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    herdr(&["pane", "run", &new, &format!("exec {} show {}", quote(&exe.to_string_lossy()), quote(name))])?;
+    herdr(&["pane", "focus", "--pane", &new, "--direction", "left"])
 }
 
 /// Focuses the pinned space labelled "<icon>  <name>".

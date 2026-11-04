@@ -33,6 +33,8 @@ export type Ticket = {
 }
 
 export type TicketLinks = {
+  // The tracker's name, as the footer names the ticket's chip.
+  tracker?: string
   id: string
   title: string
   url: string

@@ -2,7 +2,7 @@
 
 use cockpit_core::hub::Found;
 use cockpit_core::testing::render;
-use cockpit_palette::{App, Command, Over, Then, commands, into_session};
+use cockpit_palette::{App, Command, Over, Then, agent_commands, commands, into_session};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 
@@ -93,4 +93,23 @@ fn over_an_agent_session_it_forks_it_and_opens_its_folder() {
     assert_eq!(app.then, Some(Then::Editor("/repos/api".into())));
     let shell = Over { agent: None, session: None, ..claude() };
     assert_eq!(cockpit_palette::session_commands(&shell), [Command::Editor("/repos/api".into())]);
+}
+
+#[test]
+fn the_agent_below_brings_its_links_then_its_documents() {
+    let agents = json!({"agents": [{"terminal": "w2:p1",
+        "links": [{"name": "GitHub", "label": "GitHub", "detail": "#12 · Quotas", "url": "https://github.com/acme/api/pull/12"}],
+        "documents": [{"name": "plan", "title": "The plan"}]}]});
+    let found = agent_commands("w2:p1", &agents);
+    assert_eq!(
+        found,
+        [
+            Command::Link { label: "GitHub".into(), detail: "#12 · Quotas".into(), url: "https://github.com/acme/api/pull/12".into() },
+            Command::Document { pane: "w2:p1".into(), name: "plan".into(), title: "The plan".into() },
+        ]
+    );
+    assert!(agent_commands("w9:p9", &agents).is_empty());
+    let mut app = App::new(found, Some(claude()), None);
+    app.event(press(KeyCode::Enter));
+    assert_eq!(app.then, Some(Then::Open("https://github.com/acme/api/pull/12".into())));
 }

@@ -499,6 +499,8 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             .or_else(|| (!l.title.is_empty()).then(|| l.title.clone()))
             .unwrap_or_else(|| l.tab_name.clone());
         let question = a.question.as_ref().map(Question::json).unwrap_or(Value::Null);
+        let transcript = session.as_ref().and_then(|id| transcript_of(l, f, id));
+        let links = crate::links::of(ticket.as_ref(), &pr, &ci, &repo, branch.as_deref(), &inbox, &config, transcript.as_deref());
         rows.push(json!({
             "terminal": l.handle, "address": l.address, "frontend": l.frontend,
             "space": {"id": l.space_id, "name": l.space_name}, "tab": {"id": l.tab_id, "name": l.tab_name},
@@ -511,6 +513,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "time": {"agent_today": totals.agents.get(&l.handle).copied().unwrap_or(0), "ticket_today": ticket_secs.0, "ticket_week": ticket_secs.1},
             "snoozed": snoozed, "seen": seen, "unread": unread, "session": session,
             "load": crate::load::of(l, session.as_deref()),
+            "links": links, "documents": crate::links::documents(&[&l.handle, &l.address]),
         }));
     }
     let rank = |stage: &str| STAGES.iter().position(|(id, _)| *id == stage).unwrap_or(99);

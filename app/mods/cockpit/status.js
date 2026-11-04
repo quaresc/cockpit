@@ -1,5 +1,6 @@
 // The status bar under the cockpit layout: the agents by whose move it is (each count a click), then on the right the
-// focused agent's links (branch, ticket, CI, PR), queued prompts, stopped agents, and the hub only when it is offline.
+// focused agent's branch and its links named after their service (GitHub, Linear, CircleCI, Argo, Slack…), queued
+// prompts, stopped agents, the hub only when it is offline, and the agent's documents at the right end.
 // Always shown, it also runs the shell's window-wide keys: Home, the agent view, the side panel, next agent waiting,
 // the focused branch's PR and ticket, resume.
 
@@ -9,7 +10,7 @@ import { run, focused, shared, setShared, layout } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, counts } from "./fleet.js";
 import { show } from "./sidebar.js";
-import { tokens, TEXT, RADIUS, Icon, Spinner, Mono } from "./ui.js";
+import { tokens, TEXT, RADIUS, Icon, Spinner, Mono, openMenu } from "./ui.js";
 
 /** A node of the shown layout by id. */
 export function findNode(node, id) {
@@ -24,6 +25,13 @@ export function findNode(node, id) {
 
 /** The side panel's children by the names keys and the activity bar use. */
 export const PANELS = { show: "show", review: "review", runbook: "runbook-panel", files: "files", changes: "changes" };
+
+/** Opens the side panel on that child, left open when it already shows it. */
+export function openPanel(name) {
+  run("layout.select", { stack: "panel-body", child: PANELS[name] ?? name });
+  run("layout.show", { id: "panel" });
+  if ((shared("cockpit.app") ?? "home") !== "work") show("work");
+}
 
 /** Opens the side panel on that child, or closes it when it already shows it. */
 export function togglePanel(name) {
@@ -95,6 +103,11 @@ export default class Status {
     } else if (c === "pr" && me?.pr?.url) cx.spawn(async () => hub.openUrl(me.pr.url));
     else if (c === "ticket" && me?.ticketUrl) cx.spawn(async () => hub.openUrl(me.ticketUrl));
     else if (c === "resume") cx.spawn(async () => hub.act("home", "resume", []));
+    else if (c.startsWith("link:")) cx.spawn(async () => hub.openUrl(c.slice(5)));
+    else if (c.startsWith("doc:")) {
+      openPanel("show");
+      run("cockpit.show:go:" + c.slice(4));
+    }
     cx.notify();
   }
 
@@ -108,14 +121,16 @@ export default class Status {
     const lost = this.home?.lost?.length ?? 0;
     const ready = board.ready;
 
-    const item = (id, el, { onClick, tooltip } = {}) => {
-      let e = h_flex().id(id).h(22).px(6).gap(5).flex_none().items_center().rounded(RADIUS.sm).text_size(TEXT.xs).text_color(k.mutedFg);
+    const item = (id, el, { onClick, tooltip, button = false } = {}) => {
+      let e = h_flex().id(id).h(26).px(8).gap(6).flex_none().items_center().rounded(RADIUS.md).text_size(TEXT.sm).text_color(k.mutedFg);
+      // The agent's links and documents read as buttons: filled and outlined, apart from the plain facts around them.
+      if (button) e = e.h(24).px(10).bg(k.muted).border_1().border_color(k.border).text_color(k.foreground);
       if (onClick) e = e.cursor_pointer().hover((s) => s.bg(k.accent).text_color(k.foreground)).on_click((ev, cx) => onClick(ev, cx));
       if (tooltip) e = e.tooltip(tooltip);
       return e.children(Array.isArray(el) ? el : [el]);
     };
     let dots = 0;
-    const dot = (color, pulse = false) => div().id(`st-dot-${dots++}`).size(6).flex_none().rounded(3).bg(color).when(pulse, (e) => e.loop("opacity", { from: 0.35, to: 1, period: 1200 }));
+    const dot = (color, pulse = false) => div().id(`st-dot-${dots++}`).size(7).flex_none().rounded(3).bg(color).when(pulse, (e) => e.loop("opacity", { from: 0.35, to: 1, period: 1200 }));
     const sep = () => div().w(1).h(12).mx(4).flex_none().bg(k.border);
 
     const needs = count("needs");
@@ -126,34 +141,53 @@ export default class Status {
         onClick: (_e, cx) => this.command("next-waiting", cx),
         tooltip: "Next agent waiting  ⌘J",
       }),
-      item("st-working", [count("working") ? Spinner({ size: 10, color: k.working }) : dot(k.border), div().child(`${count("working")} working`)], { onClick: () => show("home"), tooltip: "Home  ⌘⌥0" }),
+      item("st-working", [count("working") ? Spinner({ size: 12, color: k.working }) : dot(k.border), div().child(`${count("working")} working`)], { onClick: () => show("home"), tooltip: "Home  ⌘⌥0" }),
       w >= 640 && item("st-ready", [dot(ready ? k.success : k.border), div().child(`${ready} ready`)], { onClick: () => show("home"), tooltip: "Agents whose PR is approved and green" }),
       w >= 640 && item("st-done", [dot(count("done") ? k.done : k.border), div().child(`${count("done")} done`)], { onClick: (_e, cx) => this.command("next:done", cx), tooltip: "Next finished agent  ⌘⇧U" }),
     ].filter(Boolean);
 
-    // The focused agent's links, on the right: branch, ticket, CI and PR, each opening its page.
+    // The focused agent's branch and links on the right, always in the hub's order (PR, ticket, CI, deploy, cited pages);
+    // past the room left, the rest in a "+N" menu. Documents come last.
     const right = [];
     const open = (url) => (url ? (_e, cx) => cx.spawn(async () => hub.openUrl(url)) : undefined);
     if (me) {
       const ch = me.changes ?? {};
-      const repoUrl = me.pr?.url?.replace(/\/pull\/\d+.*$/, "") ?? null;
-      const branchUrl = repoUrl && me.branch ? `${repoUrl}/tree/${me.branch}` : null;
-      // The branch gives way first when the bar runs out of room.
-      right.push(item("st-branch", [Icon("git-branch", { size: 12 }), Mono(me.branch ?? me.space_name ?? me.address).flex_shrink(1).min_w(0).truncate()], { tooltip: branchUrl ? `Open ${me.branch} on GitHub` : `${me.title} · ${me.branch ?? ""}`, onClick: open(branchUrl) }).flex_shrink(1).min_w(60));
-      if (w >= 900 && (ch.ahead || ch.behind)) right.push(item("st-ahead", [Mono(`↑${ch.ahead ?? 0} ↓${ch.behind ?? 0}`)], { tooltip: "Commits ahead of and behind its base" }));
-      if (w >= 900 && ch.files) right.push(item("st-files", [Mono(`±${ch.files}`)], { tooltip: `${ch.files} files changed`, onClick: () => togglePanel("changes") }));
-      if (me.ticket?.key) right.push(item("st-ticket", [Icon("ticket", { size: 12 }), Mono(me.ticket.key)], { tooltip: me.ticket.title ? `${me.ticket.key} · ${me.ticket.title}` : me.ticket.key, onClick: open(me.ticket.url) }));
-      const ci = me.ci;
-      if (ci && w >= 720) {
-        const color = ci === "SUCCESS" ? k.success : ci === "FAILURE" || ci === "ERROR" ? k.destructive : k.warning;
-        right.push(item("st-ci", [dot(color, ci === "PENDING"), div().child("CI")], { tooltip: `CI ${String(ci).toLowerCase()}: open the checks`, onClick: open(me.pr?.url ? `${me.pr.url}/checks` : null) }));
-      }
-      if (me.pr?.number) right.push(item("st-pr", [Icon("git-pull-request", { size: 12 }), Mono(`#${me.pr.number}`)], { tooltip: "Open the PR  ⌘G", onClick: open(me.pr.url) }));
+      // The branch only says where the agent works (its PR is a link of its own); it gives way first when room runs out.
+      right.push(item("st-branch", [Icon("git-branch", { size: 14 }), Mono(me.branch ?? me.space_name ?? me.address, { size: TEXT.sm }).flex_shrink(1).min_w(0).truncate()], { tooltip: `${me.title} · ${me.branch ?? ""}` }).flex_shrink(1).min_w(60));
+      if (w >= 900 && (ch.ahead || ch.behind)) right.push(item("st-ahead", [Mono(`↑${ch.ahead ?? 0} ↓${ch.behind ?? 0}`, { size: TEXT.sm })], { tooltip: "Commits ahead of and behind its base" }));
+      if (w >= 900 && ch.files) right.push(item("st-files", [Mono(`±${ch.files}`, { size: TEXT.sm })], { tooltip: `${ch.files} files changed`, onClick: () => togglePanel("changes") }));
+      const links = me.row?.links ?? [];
+      const room = w < 720 ? 2 : w < 1000 ? 4 : w < 1300 ? 6 : 9;
+      const shown = links.length > room ? links.slice(0, room - 1) : links;
+      const ciColor = (state) => (state === "pass" ? k.success : state === "fail" ? k.destructive : k.warning);
+      shown.forEach((l, i) => {
+        const mark = l.kind === "ci" ? dot(ciColor(l.state), l.state === "running") : Icon(l.icon || "link", { size: 14 });
+        right.push(item(`st-link-${i}`, [mark, div().child(l.label ?? l.name)], { tooltip: l.detail ? `${l.name} · ${l.detail}` : l.name, onClick: open(l.url), button: true }));
+      });
+      const rest = links.slice(shown.length);
+      if (rest.length)
+        right.push(
+          item("st-links-more", [div().child(`+${rest.length}`)], {
+            tooltip: rest.map((l) => l.label ?? l.name).join(", "),
+          button: true,
+            onClick: () => openMenu(rest.map((l) => ({ label: l.detail ? `${l.label ?? l.name} · ${l.detail}` : l.label ?? l.name, icon: l.icon || "link", command: `link:${l.url}` })), { width: 320 }),
+          }),
+        );
     }
-    if (queued) right.push(item("st-queue", [Icon("list-ordered", { size: 12, color: k.info }), div().child(w >= 800 ? `${queued} queued` : String(queued))], { tooltip: "Prompts waiting to be sent  ⌘⌥Q", onClick: () => run("cockpit.queue", {}) }));
-    if (lost) right.push(item("st-lost", [Icon("rotate-ccw", { size: 12, color: k.info }), div().text_color(k.info).child(`${lost} to resume`)], { tooltip: "Agents a restart stopped: resume them  ⌘⌥R", onClick: (_e, cx) => cx.spawn(async () => hub.act("home", "resume", [])) }));
+    if (queued) right.push(item("st-queue", [Icon("list-ordered", { size: 14, color: k.info }), div().child(w >= 800 ? `${queued} queued` : String(queued))], { tooltip: "Prompts waiting to be sent  ⌘⌥Q", onClick: () => run("cockpit.queue", {}) }));
+    if (lost) right.push(item("st-lost", [Icon("rotate-ccw", { size: 14, color: k.info }), div().text_color(k.info).child(`${lost} to resume`)], { tooltip: "Agents a restart stopped: resume them  ⌘⌥R", onClick: (_e, cx) => cx.spawn(async () => hub.act("home", "resume", [])) }));
     // The hub shows only when it does not answer.
     if (this.state !== "live") right.push(item("st-hub", [dot(this.state === "connecting" ? k.warning : k.destructive), div().child(this.state === "connecting" ? "connecting" : "hub offline")], { tooltip: this.state }));
+    // The agent's documents always close the bar, so they sit at the same place whatever else shows.
+    const docs = me?.row?.documents ?? [];
+    if (docs.length)
+      right.push(
+        item("st-docs", [Icon("layers", { size: 14 }), div().child(w >= 800 ? `Documents · ${docs.length}` : String(docs.length))], {
+          tooltip: "What this agent showed beside itself",
+          button: true,
+          onClick: (_e, cx) => (docs.length === 1 ? this.command(`doc:${docs[0].name}`, cx) : openMenu(docs.map((d) => ({ label: d.title || d.name, icon: "layers", command: `doc:${d.name}` })), { width: 280 })),
+        }),
+      );
 
     return h_flex()
       .id("cockpit-status")
@@ -163,8 +197,8 @@ export default class Status {
         this.width = size.width;
         cx.notify();
       })
-      .px(8)
-      .gap(2)
+      .px(12)
+      .gap(6)
       .items_center()
       .bg(k.chrome)
       .border_t_1()

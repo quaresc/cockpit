@@ -5,7 +5,7 @@ import type { TicketLinks } from '../types'
 
 import { openUrl } from './browser'
 import { loadConfig } from './config'
-import { hereSoon } from './herdr'
+import { hereSoon, isInApp } from './herdr'
 import { dashboardFor, linksFor } from './links'
 import { ticketKey, ticketsIn } from './match'
 import { dashboardName } from './platform'
@@ -59,6 +59,7 @@ export async function refreshLinks($: $, prompt = '') {
   const pr = lastMatch(text, GITHUB_PR) ?? (await reviewFocus($))?.url
   const found: TicketLinks = {
     id: id ?? '',
+    tracker: tickets.name,
     title: fromTicket?.title ?? '',
     url: fromTicket?.url ?? '',
     pr: pr ? { url: pr, number: Number(pr.split('/').pop()) } : fromTicket?.pr,
@@ -80,6 +81,16 @@ const PILL = { main: { fill: '#FFC799', ink: '#101010' }, quiet: { fill: '#2C2C3
 // A dashboard link's mark: Argo's for an ArgoCD page, a gauge for any other.
 const dashboardIcon = (url: string) => (dashboardName(url) === 'ArgoCD' ? ICON.argo : ICON.dashboard)
 
+// A dashboard or deploy run named after its service: Argo, Argo Workflows, Vercel…
+const serviceOf = (url: string) => {
+  const name = dashboardName(url)
+  if (name !== 'ArgoCD') return name
+  return /workflows/.test(url.match(/^https?:\/\/([^/]+)/)?.[1] ?? '') ? 'Argo Workflows' : 'Argo'
+}
+
+// A PR's code host by its URL.
+const codeHost = (url: string) => (/^https:\/\/github\.com\//.test(url) ? 'GitHub' : /^https:\/\/gitlab\./.test(url) ? 'GitLab' : 'PR')
+
 export async function renderFooter($: $, e: RenderInput<'SessionMode'>) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const current = await read($, usage)
@@ -87,6 +98,8 @@ export async function renderFooter($: $, e: RenderInput<'SessionMode'>) {
   const shown = await read($, views)
   const beside = await read($, sidePage)
   const tight = (current?.limits ?? []).filter(l => l.percent >= 50)
+  // The Herdr app's status bar shows the links and documents for every agent: there they show here only when asked.
+  const withLinks = (await loadConfig($)).footer?.links ?? !(await isInApp($))
   const pill = (key: string, label: string, onPress: () => unknown, tone: keyof typeof PILL = 'quiet') => (
     <Button key={key} plain onPress={onPress}>
       <Text color={PILL[tone].fill}>{''}</Text>
@@ -98,14 +111,14 @@ export async function renderFooter($: $, e: RenderInput<'SessionMode'>) {
   return (
     <Box flexDirection="row" gap={1}>
       {e.props.modes.length > 0 && <Text dimColor>{e.props.modes.join(' & ')}</Text>}
-      {found?.id && found.url && chip('lk-ticket', `${ICON.ticket} ${found.id}`, found.url, 'main')}
-      {found?.pr && chip('lk-pr', `${ICON.pr} ${found.pr.number}`, found.pr.url)}
-      {chipsFor(found?.cited ?? {}).map(site => chip(`lk-${site.kind}`, `${site.icon} ${site.label}`, site.url))}
-      {found?.dashboard && chip('lk-dashboard', `${dashboardIcon(found.dashboard.url)} ${found.dashboard.label}`, found.dashboard.url)}
-      {found?.workflow && chip('lk-workflow', `${ICON.workflow} ${found.workflow.label}`, found.workflow.url)}
-      {found?.preview && chip('lk-preview', `${ICON.app} ${found.preview.label}`, found.preview.url)}
+      {withLinks && found?.id && found.url && chip('lk-ticket', `${ICON.ticket} ${found.tracker || found.id}`, found.url, 'main')}
+      {withLinks && found?.pr && chip('lk-pr', `${ICON.pr} ${codeHost(found.pr.url)}`, found.pr.url)}
+      {withLinks && chipsFor(found?.cited ?? {}).map(site => chip(`lk-${site.kind}`, `${site.icon} ${site.label}`, site.url))}
+      {withLinks && found?.dashboard && chip('lk-dashboard', `${dashboardIcon(found.dashboard.url)} ${serviceOf(found.dashboard.url)}`, found.dashboard.url)}
+      {withLinks && found?.workflow && chip('lk-workflow', `${ICON.workflow} ${serviceOf(found.workflow.url)}`, found.workflow.url)}
+      {withLinks && found?.preview && chip('lk-preview', `${ICON.app} Preview`, found.preview.url)}
       {beside && pill('lk-external', `${ICON.external} browser`, () => openUrl($, beside.url))}
-      {shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)).then(() => reportSide($)), v.isOpen ? 'main' : 'quiet'))}
+      {withLinks && shown.map(v => pill(`lk-view-${v.name}`, `${ICON.view} ${v.name}`, () => hereSoon($).then(here => toggleView($, v.name, here)).then(() => refreshViews($)).then(() => reportSide($)), v.isOpen ? 'main' : 'quiet'))}
       {tight.map(l => (
         <Text key={`lim-${l.name}`} color={l.percent >= 80 ? 'error' : 'warning'}>
           {l.name} {Math.round(l.percent)}%

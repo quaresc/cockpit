@@ -564,7 +564,7 @@ export default class Show {
       const waiting = this.status !== "live" && !this.data;
       root = root.child(waiting
         ? v_flex().flex_1().items_center().justify_center().gap(8).child(Spinner({ size: 18 })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Connecting to the cockpit hub…"))
-        : Empty({ icon: "layers", title: this.name ? `Waiting for the view ${this.name}` : "Nothing shown yet", description: this.name ? "It appears as soon as the session writes it." : "When an agent calls the show tool (a chart, a diagram, a diff, a question), its view lands here." }));
+        : Empty({ icon: "layers", title: this.name ? `Waiting for the view ${this.name}` : "No documents yet", description: this.name ? "It appears as soon as the session writes it." : "When an agent shows a chart, a diagram, a diff, a plan or a question, it lands here." }));
     } else {
       root = root.child(this.body(k, view, cx, narrow)).child(this.footer(k, view));
     }
@@ -575,7 +575,7 @@ export default class Show {
 
   header(k, view, narrow) {
     const tabs = this.panel ? this.data?.views ?? [] : [];
-    const title = view?.title ?? this.name ?? "Show";
+    const title = view?.title ?? this.name ?? "Documents";
     const head = h_flex().h(44).flex_none().px(12).gap(8).items_center().border_b_1().border_color(k.border)
       .child(h_flex().size(24).flex_none().rounded(RADIUS.md).items_center().justify_center().bg(alpha(k.ring, 0.14)).child(Icon("sparkles", { size: 14, color: k.ring })))
       .child(v_flex().flex_1().min_w(0)
@@ -583,7 +583,7 @@ export default class Show {
         .when(Boolean(view), (e) => e.child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(`${view.name} · ${hhmm(view.at)} · ${view.blocks.length} block${view.blocks.length === 1 ? "" : "s"}`))))
       .when(Boolean(view?.url), (e) => e.child(Button("show-page", { icon: "external", label: narrow ? undefined : "Page", size: narrow ? "icon-sm" : "sm", variant: "ghost", kbd: narrow ? undefined : "o", tooltip: `Open ${view.url}`, onClick: () => this.openUrl(view.url) })))
       .child(Button("show-review", { icon: "git-compare", size: "icon-sm", variant: "ghost", tooltip: "Review the agent's changes (r)", onClick: () => this.openReview() }))
-      .when(Boolean(this.name), (e) => e.child(Button("show-hide", { icon: "x", size: "icon-sm", variant: "ghost", tooltip: "Hide (q): its chip in the session's footer brings it back", onClick: () => this.hide() })));
+      .when(Boolean(this.name), (e) => e.child(Button("show-hide", { icon: "x", size: "icon-sm", variant: "ghost", tooltip: "Hide (q): Documents in the status bar brings it back", onClick: () => this.hide() })));
     if (tabs.length < 2) return head;
     const strip = h_flex().id("show-tabs").h(36).flex_none().px(8).gap(4).items_center().border_b_1().border_color(k.border).overflow_x_scrollbar()
       .children(tabs.map((t) => {

@@ -64,8 +64,10 @@ pull requests, rerunning CI, previews, archiving mail. Agents read your tools th
 `cockpit_health` tools, so meeting briefs and deploy checks work with any agent. In Claude Code, `/cockpit:setup` can use
 its connectors instead.
 
-A few parts read Claude Code itself: the quota bars and Agent spend, the footer under the prompt, the `/runbook` and
-`/todo` commands, and the morning brief.
+A few parts read Claude Code itself: the quota bars and Agent spend, the `/runbook` and `/todo` commands, and the
+morning brief. Every agent's links (GitHub, Linear, CircleCI, Argo, Slack…) and documents sit in the Herdr app's status bar,
+and first in herdr's palette over that agent. Claude Code's footer shows them too, except in the Herdr app
+(`"footer": {"links": true}` in the config brings them back there).
 
 ## Develop
 

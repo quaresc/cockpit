@@ -93,9 +93,10 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   Keys: `j k h l` move, `⏎` go, `1–9` answer, `t` reply, `f` the agent beside the board, `m` merge, `a` archive (tab
   settled, Undo on the toast), `o` PR, `r` recap, `s` snooze, `q` queue, `n` new agent; right-click for the rest.
 - **Status bar** (`status.js`): Home's counts (`fleet.counts`, each a click) on the left; on the right the focused
-  agent's links (branch, ↑↓, files, ticket, CI, PR, each opening its page), queued prompts, agents to resume, and the hub
-  only while it is offline. Its copy runs the shell's keys: `cmd-alt-0` → `cockpit.home` (Home ↔ work), `cmd-alt-a`
-  `agent-view`, `cmd-alt-b` `panel`, `ctrl-cmd-1..5` `panel:<show|review|runbook|files|changes>`, `cmd-j`
+  agent's branch, ↑↓ and files, its links (the agents view's `links`: PR, ticket, CI, deploy dashboard and run, then the
+  pages its transcript cites, each named after its service, always in that order), queued prompts, agents to resume,
+  the hub only while it is offline, and its `documents` at the right end. Its copy runs the shell's keys: `cmd-alt-0` →
+  `cockpit.home` (Home ↔ work), `cmd-alt-a` `agent-view`, `cmd-alt-b` `panel`, `ctrl-cmd-1..5` `panel:<show|review|runbook|files|changes>`, `cmd-j`
   `next-waiting`, `cmd-shift-j`/`cmd-shift-u` `next:blocked`/`next:done`, `cmd-g` `pr`, `cmd-l` `ticket`, `cmd-alt-r`
   `resume`. `cmd-alt-q` → `cockpit.queue` (the queue dialog), `cmd-r` → `cockpit.recap` (view `agents`' popup).
 - **Code** (`code.js`, `{app: "code", file, line?, terminal?, tab?}`): a file in a pane beside the agent, to read and edit:

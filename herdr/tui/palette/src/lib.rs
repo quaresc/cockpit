@@ -85,6 +85,18 @@ pub enum Command {
         cwd: String,
         title: String,
     },
+    /// A page the agent below works with, named after its service (GitHub, Linear, Argo…).
+    Link {
+        label: String,
+        detail: String,
+        url: String,
+    },
+    /// A view the agent below showed, opened in a pane beside it.
+    Document {
+        pane: String,
+        name: String,
+        title: String,
+    },
 }
 
 impl Command {
@@ -96,6 +108,8 @@ impl Command {
             Command::Brief => ("Today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
             Command::Editor(cwd) => (format!("Open {} in your editor", folder_name(cwd)), cwd.clone()),
             Command::Fork { title, .. } => ("Fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
+            Command::Link { label, detail, url } => (format!("Open {label}"), if detail.is_empty() { url.clone() } else { detail.clone() }),
+            Command::Document { title, .. } => (format!("Show {title}"), "a document this agent showed, in a pane beside it".into()),
         };
         Entry { text, help, featured: true, id }
     }
@@ -131,6 +145,23 @@ fn folder_name(cwd: &str) -> &str {
     cwd.trim_end_matches('/').rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or(cwd)
 }
 
+/// The agent's links and documents, as the hub's agents view has them for the pane below: links first, in its order.
+pub fn agent_commands(pane: &str, agents: &Value) -> Vec<Command> {
+    let Some(row) = agents["agents"].as_array().into_iter().flatten().find(|r| r["terminal"] == pane) else { return Vec::new() };
+    let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
+    let links = row["links"].as_array().into_iter().flatten().map(|l| Command::Link {
+        label: Some(s(&l["label"])).filter(|t| !t.is_empty()).unwrap_or_else(|| s(&l["name"])),
+        detail: s(&l["detail"]),
+        url: s(&l["url"]),
+    });
+    let documents = row["documents"].as_array().into_iter().flatten().map(|d| Command::Document {
+        pane: pane.to_string(),
+        name: s(&d["name"]),
+        title: Some(s(&d["title"])).filter(|t| !t.is_empty()).unwrap_or_else(|| s(&d["name"])),
+    });
+    links.chain(documents).collect()
+}
+
 /// What the pane below adds: its folder in the editor, and a fork of its agent's session.
 pub fn session_commands(over: &Over) -> Vec<Command> {
     let mut out = Vec::new();
@@ -147,7 +178,7 @@ pub struct App {
     palette: Palette,
     commands: Vec<Command>,
     over: Option<Over>,
-    asking: Option<Receiver<Option<Over>>>,
+    asking: Option<Receiver<(Option<Over>, Vec<Command>)>>,
     report: Option<Report>,
     /// What to do once the popup has closed.
     pub then: Option<Then>,
@@ -161,7 +192,10 @@ impl App {
         let asking = pane.map(|pane| {
             let (tx, rx) = channel();
             std::thread::spawn(move || {
-                let _ = tx.send(actions::herdr(&["pane", "get", &pane]).and_then(|r| Over::of(&r["pane"])));
+                let over = actions::herdr(&["pane", "get", &pane]).and_then(|r| Over::of(&r["pane"]));
+                let request = serde_json::json!({"op": "view", "name": "agents", "args": {}});
+                let agents = cockpit_core::hub::request(&request, Duration::from_secs(3)).map(|r| r["value"].clone()).unwrap_or_default();
+                let _ = tx.send((over, agent_commands(&pane, &agents)));
                 term::wake();
             });
             rx
@@ -169,7 +203,7 @@ impl App {
         App::new(commands(&actions::pinned()), None, asking)
     }
 
-    pub fn new(mut commands: Vec<Command>, over: Option<Over>, asking: Option<Receiver<Option<Over>>>) -> App {
+    pub fn new(mut commands: Vec<Command>, over: Option<Over>, asking: Option<Receiver<(Option<Over>, Vec<Command>)>>) -> App {
         commands.extend(over.iter().flat_map(session_commands));
         let mut palette = Palette::default();
         palette.app = "palette".into();
@@ -229,6 +263,8 @@ impl App {
             Some(Command::RefreshInbox) => self.then = Some(Then::RefreshInbox),
             Some(Command::Editor(cwd)) => self.then = Some(Then::Editor(cwd)),
             Some(Command::Fork { agent, session, cwd, title }) => self.then = Some(Then::Fork { agent, session, cwd, title, prompt: String::new() }),
+            Some(Command::Link { url, .. }) => self.then = Some(Then::Open(url)),
+            Some(Command::Document { pane, name, .. }) => self.then = Some(Then::Document { pane, name }),
             Some(Command::Doctor) => {
                 self.report = Some(Report::doctor());
                 return false;
@@ -267,8 +303,10 @@ impl App {
     pub fn tick(&mut self) -> bool {
         let mut changed = false;
         if let Some(rx) = &self.asking
-            && let Ok(over) = rx.try_recv()
+            && let Ok((over, agent)) = rx.try_recv()
         {
+            // The agent's own links and documents come first: over an agent, they are what the palette is opened for.
+            self.commands.splice(0..0, agent);
             self.commands.extend(over.iter().flat_map(session_commands));
             self.over = over;
             self.asking = None;

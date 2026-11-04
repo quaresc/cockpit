@@ -5,6 +5,16 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.38.0 (2026-11-04)
+
+- Every agent's links in the Herdr app's status bar, named after their tool and always in the same order: GitHub (its
+  PR), Linear (its ticket), CircleCI, Argo, Argo Workflows, then the pages its conversation cites (Slack, Datadog,
+  Figma, Notion…), read from any agent's transcript; a "+N" menu past the room. Its documents close the bar.
+- The side panel's Show is now Documents; the status bar is taller, its links buttons apart from the branch.
+- herdr's palette lists the agent's links and documents first when opened over it.
+- Claude Code's footer names its links the same way and leaves them to the status bar in the Herdr app
+  (`"footer": {"links": true}` brings them back).
+
 ## 0.37.1 (2026-11-04)
 
 - Opening a mail no longer loads forever when a Claude Code session on an older plugin takes the request: requests are

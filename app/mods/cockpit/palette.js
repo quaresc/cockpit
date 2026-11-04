@@ -109,7 +109,7 @@ const HIDDEN = new Set([
 
 const FOUND = {
   pr: ["PR", "git-pull-request"], review: ["Review", "git-pull-request"], ticket: ["Ticket", "ticket"], step: ["Step", "book"],
-  runbook: ["Runbook", "book"], block: ["Show", "layout"], view: ["Show", "layout"], todo: ["To-do", "list-todo"],
+  runbook: ["Runbook", "book"], block: ["Documents", "layers"], view: ["Documents", "layers"], todo: ["To-do", "list-todo"],
   meeting: ["Meeting", "calendar"], release: ["Release", "rocket"], app: ["Monitor", "activity"], routine: ["Routine", "clock"],
   changed: ["Changed", "history"], session: ["Session", "message"],
 };

@@ -454,7 +454,8 @@ pub fn turn(kind: Transcripts, path: &Path) -> Option<Turn> {
     }
 }
 
-fn tail(path: &Path, bytes: u64) -> Option<Vec<u8>> {
+/// The file's last `bytes`, from its first whole line.
+pub fn tail(path: &Path, bytes: u64) -> Option<Vec<u8>> {
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
     let start = len.saturating_sub(bytes);

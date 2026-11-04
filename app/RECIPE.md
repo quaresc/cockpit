@@ -59,9 +59,11 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
     the browser), plain text turned into paragraphs with clickable links; "Loading…" with skeleton lines while the
     thread is fetched, then "Waiting for a Claude Code session with the mail connector…" after 20 s; its footer Reply
     (an agent drafts it, nothing is sent), Archive, Mark read and Open in mail.
-- **Status bar**, 28px: counts on the left ("2 need you · 2 working · 0 ready · 3 done", each a click), the focused
-  agent's branch, ahead/behind, changed files, ticket, CI and PR on the right, queued prompts, agents to resume, and the
-  hub's state only while it is offline.
+- **Status bar**, 34px: counts on the left ("2 need you · 2 working · 0 ready · 3 done", each a click), the focused
+  agent's branch, ahead/behind, changed files and its links named after their service, always in the same order (GitHub
+  PR, Linear ticket, CircleCI, Argo, Argo Workflows, then cited pages such as Slack or Datadog; a "+N" menu past the room)
+  on the right, for any agent, then queued prompts, agents to resume, the hub's state only while it is offline, and its
+  documents ("Documents · 4", a menu of the views it showed) at the right end.
 - **Queue drawer**, floating on the right edge, centered, a 44px peek: prompts queued for an agent, shown only while
   some are.
 
