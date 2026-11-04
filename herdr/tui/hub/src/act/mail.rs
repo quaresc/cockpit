@@ -1,5 +1,6 @@
-//! Mail acted on from the inbox: a message opened in the mail client, archived or marked read through the hub's own
-//! mail server, or answered by an agent that drafts the reply for me to review.
+//! Mail acted on from the mail space: a message opened in the mail client, its thread read whole, archived or marked
+//! read through the hub's own mail server (else by a Claude Code session), or answered by an agent that drafts the reply
+//! for me to review.
 
 use cockpit_connectors::mail;
 use cockpit_connectors::tools::Mapped;
@@ -8,7 +9,11 @@ use serde_json::Value;
 
 use super::{Ctx, arg, inbox};
 use crate::config;
+use crate::feed::mail as kept;
 use crate::value::{Res, text};
+
+/// A thread asked of a Claude Code session is asked again after this long without an answer.
+const ASK_AGAIN_MS: u64 = 3 * 60_000;
 
 /// The hub's mail server and the mail mapping.
 fn served() -> Res<(cockpit_connectors::Server, Value)> {
@@ -77,6 +82,38 @@ pub fn read(ctx: &mut Ctx, args: &[Value]) -> Res {
     Ok(())
 }
 
+/// `mail_thread [message]`: the message's whole thread read into ~/.cache/cockpit/mail/<id>.json, through the hub's
+/// mail server at once, else asked of a Claude Code session; the `mail-thread` view shows it once there.
+pub fn thread(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let message = message(args)?;
+    let id = text(&message["id"]);
+    kept::prune_threads();
+    let path = kept::thread_path(&id);
+    if files::load(&path).is_some_and(|doc| doc["error"].is_null()) {
+        return Ok(());
+    }
+    let asked = path.with_extension("asked");
+    let now = crate::feed::now_ms();
+    match served() {
+        Ok((server, mapping)) => {
+            let read = crate::feed::mcp::with(&server, async |c| mail::thread(&Mapped { connection: c, section: &mapping }, &mapping, &message).await);
+            let failed = read.as_ref().err().cloned();
+            kept::keep_thread(&id, read);
+            failed.map_or(Ok(()), Err)
+        }
+        Err(_) => {
+            let at = std::fs::read_to_string(&asked).ok().and_then(|t| t.trim().parse::<u64>().ok()).unwrap_or(0);
+            if now.saturating_sub(at) < ASK_AGAIN_MS && files::load(&path).is_none() {
+                return Ok(());
+            }
+            let _ = std::fs::remove_file(&path);
+            std::fs::create_dir_all(kept::threads_dir()).map_err(|e| e.to_string())?;
+            std::fs::write(&asked, now.to_string()).map_err(|e| e.to_string())?;
+            by_session(ctx, "mail-get", &message, "loading…")
+        }
+    }
+}
+
 /// A change a Claude Code session's mail connector makes, filed as a request, when the hub reaches no mail server.
 fn by_session(ctx: &mut Ctx, kind: &str, message: &Value, working: &str) -> Res {
     let id = text(&message["id"]);
@@ -94,7 +131,11 @@ pub fn reply(ctx: &mut Ctx, args: &[Value]) -> Res {
         }
         _ => listed,
     };
-    let body = Some(text(&read["body"])).filter(|b| !b.is_empty()).unwrap_or_else(|| text(&read["snippet"]));
+    let kept = files::load(&kept::thread_path(&text(&read["id"])));
+    let body = Some(thread_text(kept.as_ref()))
+        .filter(|b| !b.is_empty())
+        .or_else(|| Some(text(&read["body"])).filter(|b| !b.is_empty()))
+        .unwrap_or_else(|| text(&read["snippet"]));
     let prompt = reply_prompt(&read, &body, &ctx.cfg.0["mail"]["name"]);
     let first = who(&read).split_whitespace().next().unwrap_or("mail").to_lowercase();
     let subject: String = text(&read["subject"]).chars().take(24).collect();
@@ -102,6 +143,18 @@ pub fn reply(ctx: &mut Ctx, args: &[Value]) -> Res {
     let repos = ctx.repos();
     inbox::start_action(ctx, &repos, &label, &prompt, &inbox::Launch::new());
     Ok(())
+}
+
+/// A kept thread as the prompt carries it: each message's sender, date and text, cut to the last 8000 characters.
+fn thread_text(kept: Option<&Value>) -> String {
+    let Some(messages) = kept.and_then(|k| k["messages"].as_array()) else { return String::new() };
+    let all = messages
+        .iter()
+        .map(|m| format!("--- {} <{}>, {}\n{}", text(&m["fromName"]), text(&m["from"]), text(&m["date"]), text(&m["text"]).trim()))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let skip = all.chars().count().saturating_sub(8000);
+    all.chars().skip(skip).collect()
 }
 
 fn reply_prompt(message: &Value, body: &str, tool: &Value) -> String {
@@ -136,5 +189,8 @@ mod tests {
         assert!(prompt.contains("From: Ana Lima <ana@acme.com>\nSubject: Lunch?"));
         assert!(prompt.ends_with("Shall we meet at noon?"));
         assert_eq!(who(&json!({"from": "bob@acme.com", "fromName": ""})), "bob@acme.com");
+        let kept = json!({"messages": [{"from": "maya@example.com", "fromName": "Maya", "date": "2026-11-04T10:00:00Z", "text": "Noon?\n"}]});
+        assert_eq!(thread_text(Some(&kept)), "--- Maya <maya@example.com>, 2026-11-04T10:00:00Z\nNoon?");
+        assert_eq!(thread_text(None), "");
     }
 }

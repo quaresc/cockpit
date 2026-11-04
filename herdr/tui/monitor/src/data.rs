@@ -31,6 +31,7 @@ pub struct App {
     pub datadog_url: String,
     pub watched: bool,
     pub pinned: bool,
+    pub muted: bool,
     pub monitors: Option<Monitors>,
     pub series: Option<Series>,
     pub issues: Vec<Issue>,

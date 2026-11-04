@@ -13,12 +13,13 @@ mod github_ci;
 pub(crate) mod http;
 mod ics;
 mod linear;
-mod mail;
+pub(crate) mod mail;
 pub(crate) mod mcp;
 pub mod merge;
 mod news;
 mod requests;
 mod schedule;
+mod upgrade;
 
 use std::path::Path;
 use std::sync::Once;
@@ -141,7 +142,23 @@ fn asked_at(cache: &Path) -> u64 {
 }
 
 impl Feed {
+    /// Each source's interval in seconds from the config's `refresh` block, at least 15.
+    fn pace(&mut self, plan: &Plan) {
+        let every = |name: &str, default: u64| plan.config.0["refresh"][name].as_u64().unwrap_or(default).max(15);
+        let calendar = if plan.calendar_server.is_some() { 120 } else { calendar::EVERY };
+        self.github.set_every(every("github", 30));
+        self.linear.set_every(every("tickets", 60));
+        self.mcp_tickets.set_every(every("tickets", 60));
+        self.mcp_ci.set_every(every("ci", 30));
+        self.circleci.set_every(every("ci", 30));
+        self.mail.set_every(every("mail", 60));
+        self.calendar.set_every(every("calendar", calendar));
+        self.mcp_platform.set_every(every("platform", 60));
+        self.monitor.set_every(every("monitor", 120));
+    }
+
     fn round(&mut self, cache: &Path, plan: &Plan) {
+        self.pace(plan);
         let asked = asked_at(cache);
         let is_asked = asked > self.asked;
         self.asked = asked;
@@ -277,6 +294,7 @@ impl Feed {
             dashboard::report(&plan.config);
         }
         warn_meetings(&plan.config, now_ms());
+        upgrade::check(&plan.config, now_ms());
         requests::take(cache, &plan.config, &plan.raw);
         if let Some(mut part) = part {
             part.errors = self.errors.iter().map(|(_, e)| e.clone()).collect();

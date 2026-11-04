@@ -33,7 +33,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         let value = doc(name);
         if value.is_null() { files::load(&files::cache().join(format!("{name}.json"))) } else { Some(value) }
     };
-    let inputs = Inputs { mail: pick("mail"), ..Inputs::of(pick("inbox"), pick("ci"), pick("brief")) };
+    let inputs = Inputs::of(pick("inbox"), pick("ci"), pick("brief"));
     static LOCAL: Mutex<Option<Local>> = Mutex::new(None);
     let mut local = LOCAL.lock().unwrap_or_else(|e| e.into_inner());
     let local = local.get_or_insert_with(Local::default);
@@ -96,7 +96,6 @@ pub fn model_of(inputs: &Inputs, config: &Config, by_status: bool, local: &mut L
         "alerts": alerts,
         "worktrees": worktrees.len(),
         "cleanup": worktrees.iter().filter(|w| w["merged"] == true && w["changes"] == 0).count(),
-        "mail": inputs.mail.as_ref().filter(|m| m.is_object()).map(|m| list(m, "messages").iter().filter(|m| m["unread"] == true).count()),
     });
     json!({
         "at": data["at"],
@@ -235,7 +234,6 @@ fn kind(kind: Kind) -> &'static str {
         Kind::Brief => "brief",
         Kind::Muted => "muted",
         Kind::Worktree => "worktree",
-        Kind::Mail => "mail",
     }
 }
 
@@ -331,28 +329,6 @@ mod tests {
         let empty = model_of(&Inputs::default(), &Config::from(json!({})), true, &mut local, json!({}));
         assert_eq!((empty["state"].as_str(), empty["group"].as_str()), (Some("empty"), Some("status")));
         assert!(empty["message"].as_str().unwrap().starts_with("No data yet"));
-    }
-
-    #[test]
-    fn mail_lists_its_messages_with_what_the_mapping_allows() {
-        facts::freeze("2026-10-28T10:00:00Z");
-        let mail = json!({"at": 1, "messages": [
-            {"id": "m1", "from": "ana@acme.com", "fromName": "Ana", "subject": "Lunch?", "url": "https://mail/m1", "date": "2026-10-28T09:00:00Z", "unread": true},
-            {"id": "m2", "from": "bob@acme.com", "fromName": "", "subject": "", "url": "", "date": "2026-10-26T10:00:00Z", "unread": false}
-        ], "error": "Mail: HTTP 502"});
-        let inputs = Inputs { data: Some(fixture("inbox.json")), ci: fixture("ci.json"), mail: Some(mail), ..Inputs::default() };
-        let config = Config::from(json!({"mail": {"tools": {"archive": {"tool": "archive_thread"}}}}));
-        let view = model_of(&inputs, &config, false, &mut Local::fixed(HashMap::new(), Vec::new()), json!({}));
-        let section = view["sections"].as_array().unwrap().iter().find(|s| s["key"] == "mail").unwrap();
-        assert_eq!((&section["icon"], &section["extra"]), (&json!("mail"), &json!("1 unread · 2")));
-        let (first, second) = (&section["children"][0], &section["children"][1]);
-        assert_eq!((&first["kind"], &first["cells"]["ref"], &first["cells"]["age"]), (&json!("mail"), &json!("Ana"), &json!("1h")));
-        let acts = |row: &Value| row["acts"].as_array().unwrap().iter().map(|a| a["label"].as_str().unwrap().to_string()).collect::<Vec<_>>();
-        assert_eq!(acts(first), ["open", "reply", "archive"], "no markRead tool, no mark read");
-        assert_eq!(first["primary"]["fn"], "mail_open");
-        assert_eq!((acts(second), &second["cells"]["title"]), (vec!["reply".to_string(), "archive".into()], &json!("(no subject)")));
-        assert!(view["errors"].as_array().unwrap().iter().any(|e| e == "Mail: HTTP 502"));
-        assert_eq!(view["counts"]["mail"], 1);
     }
 
     /// Every act label in the model, however deep its row.

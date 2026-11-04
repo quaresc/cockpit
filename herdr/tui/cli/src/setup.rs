@@ -240,6 +240,9 @@ fn setup(io: &mut Io) {
             }
             _ => {}
         }
+        if section == "mail" && block["enabled"] == true {
+            spaces.push("mail");
+        }
         if section == "calendar" && block["enabled"] != true {
             spaces.retain(|s| *s != "meetings");
         }
@@ -255,8 +258,14 @@ fn setup(io: &mut Io) {
         spaces.push("routines");
     }
     values.push(("e2eBrowser", if on('5') { "terminal-browser" } else { "chrome" }.into()));
-    if files::load(&files::config_dir().join("config.json")).is_none_or(|c| c["spaces"].is_null()) {
-        values.push(("spaces", json!(spaces)));
+    match files::load(&files::config_dir().join("config.json")).map(|c| c["spaces"].clone()).filter(|s| !s.is_null()) {
+        None => values.push(("spaces", json!(spaces))),
+        // Spaces already chosen stay as they are; picking mail adds its space.
+        Some(Value::Array(mut chosen)) if spaces.contains(&"mail") && !chosen.iter().any(|s| s == "mail" || s["name"] == "mail") => {
+            chosen.push("mail".into());
+            values.push(("spaces", Value::Array(chosen)));
+        }
+        Some(_) => {}
     }
 
     // 5. The config
@@ -450,8 +459,24 @@ fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent
         }
         return Source::Off;
     };
+    // Google's servers only know apps registered with them: the person's own OAuth client (Desktop app) from Google Cloud.
+    let mut choice = choice;
+    if let Some(preset) = cockpit_connectors::presets::PRESETS.iter().find(|p| p.needs_app() && choice.entry["url"] == p.url)
+        && choice.entry["clientId"].is_null()
+    {
+        println!(
+            "{} needs an OAuth client of your own: Google Cloud console → APIs & Services → enable the {} MCP API, then Credentials → Create OAuth client ID → Desktop app.",
+            preset.name, preset.name
+        );
+        let id = io.ask("Its client ID?", "");
+        if id.is_empty() {
+            return Source::Off;
+        }
+        let secret = io.secret("Its client secret (never shown)?");
+        choice.entry = json!({"url": preset.url, "clientId": id, "clientSecret": secret, "scopes": preset.app_scopes});
+    }
     let Some(server) = Server::from_entry(&choice.entry) else { return Source::Off };
-    if let Server::Http(url) = &server
+    if let Some(url) = server.login_url().map(str::to_string)
         && !server.is_ready()
     {
         if !io.yes(&format!("Log cockpit in to {} now (it opens your browser)?", choice.name), true) {
@@ -459,7 +484,7 @@ fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent
             let mapped = choice.mapping.is_some();
             return Source::Server { key: choice.key, entry: choice.entry, name: choice.name, mapping: choice.mapping, mapped };
         }
-        let done = cockpit_connectors::block_on(cockpit_connectors::login(url, |link| {
+        let done = cockpit_connectors::block_on(cockpit_connectors::login_server(&server, |link| {
             println!("If the browser does not open: {link}");
             let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(link).status();
         }));

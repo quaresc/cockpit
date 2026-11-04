@@ -98,7 +98,7 @@ impl Sandbox {
     /// app, then the sandbox's own.
     pub fn env(&self) -> Vec<(String, String)> {
         let path = format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap_or_default());
-        let inherited = std::env::vars().filter(|(k, _)| !["HERDR_", "COCKPIT_", "CLAUDE", "__CFBundleIdentifier"].iter().any(|p| k.starts_with(p)));
+        let inherited = std::env::vars().filter(|(k, _)| !["HERDR_", "HC_", "COCKPIT_", "CLAUDE", "__CFBundleIdentifier"].iter().any(|p| k.starts_with(p)));
         inherited
             .chain([
                 ("HOME".into(), self.home().to_string_lossy().into_owned()),
@@ -110,6 +110,8 @@ impl Sandbox {
                 ("COCKPIT_NOTIFY_PROGRAM".into(), self.root.join("bin/notify").to_string_lossy().into_owned()),
                 // The feed reaches GitHub on its own: only the feed's tests turn it on, against a fake GitHub.
                 ("COCKPIT_HUB_FEED".into(), "off".into()),
+                // Nor does it ask GitHub for a newer cockpit.
+                ("COCKPIT_PUBLISHED_URL".into(), "off".into()),
                 // Nor does the session index download its model.
                 ("COCKPIT_EMBED".into(), "off".into()),
             ])

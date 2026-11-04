@@ -1,0 +1,22 @@
+[package]
+name = "cockpit-mail"
+description = "The mail space: the messages that need me above the updates, each read whole beside the list."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+cockpit-core.workspace = true
+cockpit-connectors = { path = "../connectors" }
+chrono.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde_json.workspace = true
+ammonia = "4"
+html2text = "0.17"
+
+[dev-dependencies]
+tempfile = "3"

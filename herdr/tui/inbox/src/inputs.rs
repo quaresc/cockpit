@@ -22,16 +22,14 @@ pub struct Inputs {
     pub worktrees: Vec<Value>,
     /// Seconds agents spent on each ticket this week, from the agent-time ledger.
     pub secs: HashMap<String, u64>,
-    /// mail.json, when the hub reads a mail server.
-    pub mail: Option<Value>,
 }
 
 /// The documents the inbox follows through the hub.
-pub const DOCS: [&str; 4] = ["inbox", "ci", "brief", "mail"];
+pub const DOCS: [&str; 3] = ["inbox", "ci", "brief"];
 
 impl Inputs {
     pub fn read(docs: &Docs) -> Self {
-        Self { mail: docs.get("mail").cloned(), ..Self::of(docs.get("inbox").cloned(), docs.get("ci").cloned(), docs.get("brief").cloned()) }
+        Self::of(docs.get("inbox").cloned(), docs.get("ci").cloned(), docs.get("brief").cloned())
     }
 
     /// The documents given, with what the inbox reads on disk beside them.
@@ -44,7 +42,6 @@ impl Inputs {
             costs: ticket_costs(),
             worktrees: crate::worktrees::scan(&files::config()),
             secs: ticket_week(crate::worktrees::now_ms()),
-            mail: None,
         }
     }
 }

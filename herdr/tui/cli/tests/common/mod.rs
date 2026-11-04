@@ -99,7 +99,7 @@ impl Sandbox {
     /// sandbox's own.
     pub fn env(&self) -> Vec<(String, String)> {
         let inherited =
-            std::env::vars().filter(|(k, _)| !["HERDR_", "COCKPIT_", "CLAUDE", "PATH", "HOME", "__CFBundleIdentifier"].iter().any(|p| k.starts_with(p)));
+            std::env::vars().filter(|(k, _)| !["HERDR_", "HC_", "COCKPIT_", "CLAUDE", "PATH", "HOME", "__CFBundleIdentifier"].iter().any(|p| k.starts_with(p)));
         // jq's own folder too, which the scripts need, without the rest of the folders where real herdr lives.
         let jq = std::env::var("PATH").unwrap_or_default().split(':').find(|d| Path::new(d).join("jq").is_file()).unwrap_or("/usr/bin").to_string();
         let path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin:{jq}", self.root.join("bin").display());

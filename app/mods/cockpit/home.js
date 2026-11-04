@@ -33,7 +33,10 @@ const OVERVIEW = [
       return { text: c.direct ? `${many(c.direct, "review")} for you` : "nothing for you" };
     },
   },
-  { view: "inbox", space: "inbox", label: "Mail", icon: "mail", line: (v) => (typeof v.counts?.mail === "number" ? { text: v.counts.mail ? `${v.counts.mail} unread` : "nothing unread", tone: v.counts.mail ? "warning" : null } : null) },
+  {
+    view: "mail", space: "mail", label: "Mail", icon: "mail",
+    line: (v) => (v.waiting ? null : { text: v.counts?.needs ? `${many(v.counts.needs, "message")} need you` : "nothing needs you", tone: v.counts?.needs ? "warning" : null }),
+  },
   { view: "meetings", space: "meetings", label: "Next", icon: "calendar", line: (v) => ({ text: v.banner?.title ? `${v.banner.title} · ${v.banner.when}` : "no meeting", tone: v.banner?.soon ? "warning" : null }) },
   { view: "runbook", space: "runbook", label: "Runbooks", icon: "book", line: (v) => (v.books?.length ? { text: `${many(v.left ?? 0, "step")} left` } : null) },
   { view: "todo", space: "to-do", label: "To-do", icon: "list-todo", line: (v) => ({ text: v.open ? `${v.open} open` : "all done" }) },
@@ -722,7 +725,8 @@ export default class Home {
   appsCard() {
     const k = tokens();
     // Meetings have their own card above.
-    const items = OVERVIEW.filter((o) => o.view !== "meetings" && (this.pinned ?? DEFAULT_PINNED).includes(o.space))
+    // Mail shows wherever it is set up, pinned or not.
+    const items = OVERVIEW.filter((o) => o.view !== "meetings" && ((this.pinned ?? DEFAULT_PINNED).includes(o.space) || (o.view === "mail" && this.apps.mail?.enabled)))
       .map((o) => ({ ...o, line: this.apps[o.view] ? o.line(this.apps[o.view]) : null }))
       .filter((o) => o.line);
     return this.side(

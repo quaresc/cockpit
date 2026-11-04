@@ -23,7 +23,7 @@ pub fn register() {
     cockpit_agents::gui::start(|| views::touch("agents"));
     views::register(Def {
         name: "inbox",
-        docs: &["inbox", "ci", "brief", "mail"],
+        docs: &["inbox", "ci", "brief"],
         dirs: cockpit_inbox::gui::dirs,
         build: cockpit_inbox::gui::view,
         act: cockpit_inbox::gui::act,
@@ -44,6 +44,8 @@ pub fn register() {
         build: cockpit_meetings::gui::view,
         act: cockpit_meetings::gui::act,
     });
+    views::register(Def { name: "mail", docs: &["mail"], dirs: cockpit_mail::gui::dirs, build: cockpit_mail::gui::view, act: cockpit_mail::gui::act });
+    views::register(Def { name: "mail-thread", docs: &[], dirs: cockpit_mail::gui::dirs, build: cockpit_mail::gui::thread_view, act: cockpit_mail::gui::act });
     views::register(Def {
         name: "monitor",
         docs: &["monitor"],

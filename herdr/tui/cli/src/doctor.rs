@@ -459,7 +459,10 @@ impl Doctor {
                     hub_tickets |= section == "tickets";
                     ok(&format!("{section} from \"{name}\" through cockpit's own connection"));
                 }
-                Some(Server::Http(url)) => fail(&format!("{section}: cockpit is not logged in to {url} → cockpit connector login {name}")),
+                Some(server) if server.login_url().is_some() => {
+                    let url = server.login_url().unwrap_or_default();
+                    fail(&format!("{section}: cockpit is not logged in to {url} → cockpit connector login {name}"))
+                }
                 _ => fail(&format!("servers.\"{name}\" has no url or command → cockpit setup")),
             }
         }
@@ -517,7 +520,7 @@ impl Doctor {
                     "space {space} is hidden in the sidebar → add {{ contains = \"  \" }} before the hiding rule of ui.sidebar.spaces in ~/.config/herdr/config.toml"
                 ));
             }
-            if !["inbox", "to-do", "runbook", "meetings", "monitor", "routines"].contains(&space.as_str()) {
+            if !["inbox", "to-do", "runbook", "meetings", "monitor", "routines", "mail"].contains(&space.as_str()) {
                 ok(&format!("space {space}"));
                 continue;
             }
@@ -730,7 +733,9 @@ impl Doctor {
         let hub_mail = self.config.as_ref().is_some_and(|c| c["servers"][mail_server.as_str()].is_object());
         if is_true(or(&mail["enabled"], &Value::Bool(false))) && !mail_server.is_empty() && !hub_mail {
             let prefix = format!("mcp__{}", rule_name(&mail_server));
-            for tool in ["listInbox", "get", "archive", "markRead"].iter().filter_map(|v| mail["tools"][*v]["tool"].as_str()) {
+            let mut tools: Vec<&str> = ["listInbox", "get", "archive", "markRead"].iter().filter_map(|v| mail["tools"][*v]["tool"].as_str()).collect();
+            tools.dedup();
+            for tool in tools {
                 let rule = format!("{prefix}__{tool}");
                 if allow.iter().any(|a| *a == rule || *a == prefix) {
                     ok(&format!("allow rule for {rule}"));

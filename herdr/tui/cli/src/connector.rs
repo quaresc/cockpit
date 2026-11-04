@@ -16,8 +16,9 @@ pub fn main(args: &[String]) {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let out = match args.as_slice() {
         ["login", spec] => {
-            let url = configured_url(spec);
-            block_on(client::login(&url, |link| {
+            let server = resolve(spec);
+            let url = server.login_url().unwrap_or(spec).to_string();
+            block_on(client::login_server(&server, |link| {
                 println!("Opening the login page; if it does not open:\n{link}");
                 let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(link).status();
             }))
@@ -138,12 +139,6 @@ fn map(section: &str, key: &str) -> Result<String, String> {
     }
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok(format!("Mapped {key} for {section}: {sample}"))
-}
-
-/// A server's URL from its `servers` key, or the spec as given.
-fn configured_url(spec: &str) -> String {
-    let raw = cockpit_core::files::load(&cockpit_core::files::config_dir().join("config.json")).unwrap_or(Value::Null);
-    raw["servers"][spec]["url"].as_str().map(str::to_string).unwrap_or_else(|| spec.to_string())
 }
 
 /// A server by its `servers` key, else by its URL or command.

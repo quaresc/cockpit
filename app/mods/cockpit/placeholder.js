@@ -3,7 +3,7 @@
 import { v_flex } from "gpui-base";
 import { tokens, Empty, PageHeader } from "./ui.js";
 
-const NAMES = { inbox: ["Inbox", "inbox"], runbook: ["Runbook", "book"], meetings: ["Meetings", "calendar"], monitor: ["Monitor", "activity"], routines: ["Routines", "clock"] };
+const NAMES = { inbox: ["Inbox", "inbox"], runbook: ["Runbook", "book"], meetings: ["Meetings", "calendar"], monitor: ["Monitor", "activity"], routines: ["Routines", "clock"], mail: ["Mail", "mail"] };
 
 export default class Placeholder {
   constructor(app) {

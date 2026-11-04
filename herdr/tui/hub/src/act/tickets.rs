@@ -78,6 +78,17 @@ fn update(token: &str, issue_id: &str, input: Value) -> Res {
     if data["issueUpdate"]["success"] == true { Ok(()) } else { Err("Linear refused the change".into()) }
 }
 
+/// The inbox's copy of a ticket changed at once (None takes it out), before the next fetch confirms it.
+fn show_now(id: &str, change: impl Fn(&Value) -> Option<Value>) {
+    crate::store::global().update("inbox", |doc| {
+        let mut doc = doc.clone();
+        if let Some(tickets) = doc["tickets"].as_array_mut() {
+            *tickets = tickets.iter().filter_map(|t| if t["id"] == id { change(t) } else { Some(t.clone()) }).collect();
+        }
+        doc
+    });
+}
+
 fn refresh() {
     let _ = std::fs::write(files::cache().join("refresh-request"), crate::value::now().to_string());
 }
@@ -135,7 +146,19 @@ pub fn set_state(ctx: &mut Ctx, args: &[Value]) -> Res {
     let name = text(arg(args, 1)?);
     if let Some((server, mapping)) = served() {
         use cockpit_connectors::{tickets, tools::Mapped};
-        let moved = crate::feed::mcp::with(&server, async |c| tickets::set_state(&Mapped { connection: c, section: &mapping }, &mapping, &id, &name).await)?;
+        let (moved, kind) =
+            crate::feed::mcp::with(&server, async |c| tickets::set_state(&Mapped { connection: c, section: &mapping }, &mapping, &id, &name).await)?;
+        show_now(&id, |t| {
+            if ["completed", "canceled"].contains(&kind.as_str()) {
+                return None;
+            }
+            let mut t = t.clone();
+            t["status"] = moved.clone().into();
+            if !kind.is_empty() {
+                t["statusType"] = kind.clone().into();
+            }
+            Some(t)
+        });
         refresh();
         ctx.note(format!("moved {id} to {moved}"));
         return Ok(());
@@ -151,8 +174,14 @@ pub fn set_state(ctx: &mut Ctx, args: &[Value]) -> Res {
     }
     let token = token().unwrap_or_default();
     update(&token, issue["id"].as_str().unwrap_or(&id), json!({"stateId": to["id"]}))?;
+    let (moved, kind) = (text(&to["name"]), text(&to["type"]));
+    show_now(&id, |t| {
+        let mut t = t.clone();
+        (t["status"], t["statusType"]) = (moved.clone().into(), kind.clone().into());
+        (!["completed", "canceled"].contains(&kind.as_str())).then_some(t)
+    });
     refresh();
-    ctx.note(format!("moved {id} to {}", text(&to["name"])));
+    ctx.note(format!("moved {id} to {moved}"));
     Ok(())
 }
 
@@ -163,6 +192,10 @@ pub fn assign(ctx: &mut Ctx, args: &[Value]) -> Res {
     if let Some((server, mapping)) = served().filter(|(_, m)| m["tools"]["assign"]["tool"].is_string()) {
         use cockpit_connectors::{tickets, tools::Mapped};
         crate::feed::mcp::with(&server, async |c| tickets::assign(&Mapped { connection: c, section: &mapping }, &id, &who).await)?;
+        // A ticket given to someone else is no longer mine.
+        if who != "me" {
+            show_now(&id, |_| None);
+        }
         refresh();
         ctx.note(format!("assigned {id} to {}", if who == "me" { "you" } else { &who }));
         return Ok(());

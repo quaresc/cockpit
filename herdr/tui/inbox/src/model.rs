@@ -1,4 +1,4 @@
-//! The inbox's caches as rows of a tree: the header and its error lines, then Today, Alerts, Review, Mail, Work and Other PRs.
+//! The inbox's caches as rows of a tree: the header and its error lines, then Today, Alerts, Review, Work and Other PRs.
 
 use std::collections::{HashMap, HashSet};
 
@@ -55,8 +55,7 @@ pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static
     }
     let ci = if inputs.ci.is_object() { inputs.ci.clone() } else { json!({"runs": []}) };
     let mut head = vec![heading("inbox", "Inbox", &format!("updated {}", facts::clock(&data["at"])))];
-    let mail_error = inputs.mail.as_ref().map_or(&Value::Null, |m| &m["error"]);
-    let errors = list(data, "errors").iter().chain([&ci["error"], mail_error]).filter(|e| e.is_string());
+    let errors = list(data, "errors").iter().chain([&ci["error"]]).filter(|e| e.is_string());
     head.extend(errors.map(|e| Line::styled(e.as_str().unwrap_or_default().to_string(), fg(RED))));
 
     let mut top = Vec::new();
@@ -68,9 +67,6 @@ pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static
         top.push(alerts);
     }
     top.push(review(data, &inputs.muted, ctx.compact));
-    if let Some(mail) = inputs.mail.as_ref().filter(|m| m.is_object()) {
-        top.push(mail_rows(mail, ctx.config));
-    }
     let (work, other) = work::rows(data, &ci, ctx, &inputs.costs, &inputs.secs);
     top.push(work);
     top.push(other);
@@ -224,58 +220,6 @@ fn worktree_rows(worktrees: &[Value], merged: &HashSet<(String, String)>, mine: 
         rows.push(Row::text(format!("worktree:{path}"), line).name(text).info(info).acts(acts).section("Alerts").kind(Kind::Worktree).item(tree));
     }
     rows
-}
-
-/// My unread or important messages, newest first, from the hub's mail document.
-fn mail_rows(mail: &Value, config: &Config) -> Row {
-    let messages = list(mail, "messages");
-    let unread = messages.iter().filter(|m| flag(m, "unread")).count();
-    let mut section = Row::text("mail", heading("mail", "Mail", &format!("{unread} unread · {}", messages.len())));
-    for message in messages {
-        section.add(mail_row(message, config));
-    }
-    section
-}
-
-fn mail_row(message: &Value, config: &Config) -> Row {
-    let (url, unread) = (s(message, "url"), flag(message, "unread"));
-    let who = if s(message, "fromName").is_empty() { s(message, "from") } else { s(message, "fromName") };
-    let subject = if s(message, "subject").is_empty() { "(no subject)" } else { s(message, "subject") };
-    let mut acts = Vec::new();
-    if !url.is_empty() {
-        acts.push(RowAct::new("open", 'o', call("mail_open", vec![message.clone()])).main());
-    }
-    acts.push(RowAct::new("reply", 'c', call("mail_reply", vec![message.clone()])).main_if(url.is_empty()));
-    if config.maps_mail("archive") {
-        acts.push(RowAct::new("archive", 'b', call("mail_archive", vec![message.clone()])));
-    }
-    if unread && config.maps_mail("markRead") {
-        acts.push(RowAct::new("mark read", 'm', call("mail_read", vec![message.clone()])));
-    }
-    let mut info = vec![
-        Line::styled(subject.to_string(), strong()),
-        Line::styled(format!("from {who} <{}> · {} ago", s(message, "from"), ago(s(message, "date"))), dim()),
-    ];
-    if !s(message, "snippet").is_empty() {
-        info.push(Line::from(s(message, "snippet").to_string()));
-    }
-    if !url.is_empty() {
-        info.push(Line::styled(url.to_string(), dim()));
-    }
-    let cells = Cells {
-        lead: vec![if unread { (icon("unread").into(), fg(ORANGE)) } else { (icon("mail").into(), dim()) }],
-        reference: (who.to_string(), if unread { strong() } else { dim() }),
-        title: (subject.to_string(), if unread { Style::new() } else { dim() }),
-        notes: (String::new(), dim()),
-        age: ago(s(message, "date")),
-    };
-    let row = Row::cells(format!("mail:{}", s(message, "id")), cells, format!("{who}: {subject}"))
-        .acts(acts)
-        .info(info)
-        .section("Mail")
-        .kind(Kind::Mail)
-        .item(message);
-    if url.is_empty() { row } else { row.primary(call("mail_open", vec![message.clone()])) }
 }
 
 fn review_row(pr: &Value) -> Row {

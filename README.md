@@ -4,7 +4,7 @@
 
 <p align="center"><b>Every coding agent, beside its work.</b><br>
 Claude Code, Codex and every other agent Herdr runs, each next to its ticket, PR, CI and deploy;<br>
-Home tells you whose move it is, and your inbox, runbooks, meetings and releases are one key away.</p>
+Home tells you whose move it is, and your inbox, mail, runbooks, meetings and releases are one key away.</p>
 
 <p align="center"><a href="https://quaresc.github.io/cockpit/#demo"><b>▶ Watch the 40-second demo</b></a> ·
 <a href="https://quaresc.github.io/cockpit/">Website</a> ·
@@ -37,15 +37,27 @@ everything. Needs `gh` signed in and `jq`. Release binaries for macOS and Linux 
 use a small notifier app, Linux `notify-send`. What cockpit asks an agent to do (recaps, routines, meeting briefs)
 runs on the agent you pick in setup.
 
+## Update
+
+cockpit tells you when a new version is out, with a notification you click to update. Any time, in a shell:
+
+```sh
+cockpit update
+```
+
+It updates every part you have (the Claude Code plugin, the herdr plugin and the binary, the Herdr app's layout and
+mod, or a shell install), then restarts the apps and reloads idle Claude sessions. In Claude Code alone,
+`/plugin update cockpit@cockpit` updates the plugin.
+
 ## Agents and tools
 
 cockpit works with every agent Herdr runs: their status, questions answered from the sidebar, recaps, Home, the inbox,
-runbooks, meetings, routines, and the show, search and changes tools over MCP.
+mail, runbooks, meetings, routines, and the show, search and changes tools over MCP.
 
 Tickets, pull requests, CI runs, meetings, mail, deploys and previews, and the release monitor come from MCP servers,
 which cockpit calls itself, whatever your agent. `cockpit setup` finds the servers your agents already use (Codex's,
-OpenCode's, Gemini's…), offers the ones it knows (Linear, Jira, GitHub Issues, GitLab, CircleCI, Datadog, Sentry), logs
-cockpit in once through your browser, and has your agent map any other server's tools: any ticket tracker, code host,
+OpenCode's, Gemini's…), offers the ones it knows (Linear, Jira, GitHub Issues, GitLab, CircleCI, Datadog, Sentry, and Gmail and Google
+Calendar through a Google OAuth client you create), logs cockpit in once through your browser, and has your agent map any other server's tools: any ticket tracker, code host,
 CI, calendar, mail, deploy platform, or metrics and errors tool (Grafana, Prometheus, New Relic…) for the release
 monitor and live chart panes. Every action goes through the same servers: moving, assigning and filing tickets, merging
 pull requests, rerunning CI, previews, archiving mail. Agents read your tools through cockpit's `cockpit_read` and

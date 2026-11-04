@@ -15,7 +15,7 @@ import {
 } from "./ui.js";
 
 const ICONS = {
-  investigate: "scan-eye", open: "external", argocd: "rocket", pin: "pin", refresh: "refresh-cw", fix: "wrench", bug: "bug",
+  investigate: "scan-eye", open: "external", argocd: "rocket", pin: "pin", mute: "volume-x", refresh: "refresh-cw", fix: "wrench", bug: "bug",
   roll_back: "rotate-ccw", talk: "message-circle",
 };
 const STATE = {
@@ -233,7 +233,8 @@ export function details(entry, { run, open, compact = false }) {
       for (const r of a.releases)
         out.push(h_flex().gap(8).items_center().child(verdictBadge(r.state)).child(Mono(r.tag, { size: TEXT.sm, color: k.foreground })).child(div().flex_1().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(`${r.who} · ${r.ago ?? ""}`)));
     }
-    if (!a.watched) out.push(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Not watched: no release today and not pinned. Pin it to watch it anyway."));
+    if (a.muted) out.push(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Muted: not watched, nor announced, until you unmute it."));
+    else if (!a.watched) out.push(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Not watched: no release today and not pinned. Pin it to watch it anyway."));
   } else if (kind === "issue") {
     const i = item;
     out.push(div().whitespace_normal().text_size(TEXT.base).text_color(k.foreground).child(i.message));
@@ -783,9 +784,10 @@ export default class Monitor {
               .child(div().text_size(TEXT.base).font_semibold().text_color(a.watched ? k.foreground : k.mutedFg).child(a.name))
               .child(Mono(a.tag))
               .when(Boolean(a.pinned), (e) => e.child(Icon("pin", { size: 12, color: k.mutedFg })))
+              .when(Boolean(a.muted), (e) => e.child(Icon("volume-x", { size: 12, color: k.mutedFg })))
               .when(a.health && a.health !== "Healthy", (e) => e.child(Badge(a.health, a.health === "Degraded" ? "destructive" : "secondary"))),
           )
-          .child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(a.watched ? `deployed ${a.deployedAgo ?? "?"}${a.counts ? ` · ${a.counts}` : ""}` : `deployed ${a.deployedAgo ?? "?"} · not watched`)),
+          .child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(a.watched ? `deployed ${a.deployedAgo ?? "?"}${a.counts ? ` · ${a.counts}` : ""}` : `deployed ${a.deployedAgo ?? "?"} · ${a.muted ? "muted" : "not watched"}`)),
       )
       .when(room >= 860 && Boolean(a.monitors), (e) => e.child(monitorsMeter(`meter-${row.key}`, a.monitors)))
       .when(wide, (e) => e.child(hist(`err-${row.key}`, "errors", a.errors)))

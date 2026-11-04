@@ -12,7 +12,7 @@ use serde_json::Value;
 /// Lines under a space; when more terminals run, the last one counts the rest.
 const SLOTS: usize = 4;
 /// Pinned spaces whose first pane runs cockpit's own app, left out of their list.
-const APP_SPACES: [&str; 6] = ["inbox", "to-do", "runbook", "meetings", "monitor", "routines"];
+const APP_SPACES: [&str; 7] = ["inbox", "to-do", "runbook", "meetings", "monitor", "routines", "mail"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {

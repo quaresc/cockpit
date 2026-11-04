@@ -1,13 +1,18 @@
-//! My mail through the hub's own mail server (the config's `mail` section): the store's `mail` document, and the new
-//! unread messages worth a notification.
+//! My mail through the hub's own mail server (the config's `mail` section): the store's `mail` document, the new
+//! unread messages worth a notification, and the threads read whole, kept a week in ~/.cache/cockpit/mail/.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use cockpit_connectors::mail;
 use cockpit_connectors::tools::Mapped;
 use serde_json::{Value, json};
 
 use crate::value::list;
+
+/// A thread read whole is kept this long.
+const KEEP_THREADS: Duration = Duration::from_secs(7 * 86_400);
 
 /// The ids `notified` keeps, so a message that leaves the list and comes back is not announced again.
 const KEEP_NOTIFIED: usize = 300;
@@ -49,16 +54,50 @@ pub fn news(before: &Value, after: &Value) -> Vec<(String, String, String)> {
     let text = |m: &Value, key: &str| m[key].as_str().unwrap_or_default().to_string();
     if new.len() > 3 {
         let lines: Vec<String> = new.iter().take(3).map(|m| format!("{}: {}", text(m, "fromName"), text(m, "subject"))).collect();
-        return vec![(format!("✉️ {} new messages", new.len()), format!("{}\n…", lines.join("\n")), "space:inbox".into())];
+        return vec![(format!("✉️ {} new messages", new.len()), format!("{}\n…", lines.join("\n")), "space:mail".into())];
     }
     new.iter()
         .map(|m| {
-            let url = text(m, "url");
-            let click = if url.is_empty() { "space:inbox".to_string() } else { url };
             let subject = text(m, "subject");
-            (format!("✉️ {}", text(m, "fromName")), if subject.is_empty() { text(m, "snippet") } else { subject }, click)
+            (format!("✉️ {}", text(m, "fromName")), if subject.is_empty() { text(m, "snippet") } else { subject }, format!("mail:{}", text(m, "id")))
         })
         .collect()
+}
+
+/// The folder of the threads read whole.
+pub fn threads_dir() -> PathBuf {
+    cockpit_core::files::cache().join("mail")
+}
+
+/// Where a message's thread is kept, as `{at, id, messages, error?}`.
+pub fn thread_path(id: &str) -> PathBuf {
+    threads_dir().join(format!("{}.json", mail::cache_name(id)))
+}
+
+/// Keeps a thread read whole, or why it could not be read.
+pub fn keep_thread(id: &str, read: Result<Vec<Value>, String>) {
+    let mut doc = json!({"at": super::now_ms(), "id": id, "messages": []});
+    match read {
+        Ok(messages) => doc["messages"] = Value::from(messages),
+        Err(error) => doc["error"] = Value::from(error.chars().take(300).collect::<String>()),
+    }
+    let _ = cockpit_core::files::write(&thread_path(id), &doc);
+}
+
+/// The message as the `mail` document lists it, else its id alone (its thread then taken for its own).
+pub fn listed(id: &str) -> Value {
+    let doc = crate::store::global().get("mail");
+    list(&doc["messages"]).iter().find(|m| m["id"] == id).cloned().unwrap_or_else(|| json!({"id": id, "threadId": id}))
+}
+
+/// Drops the threads, pages and marks older than a week.
+pub fn prune_threads() {
+    for entry in std::fs::read_dir(threads_dir()).into_iter().flatten().flatten() {
+        let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > KEEP_THREADS);
+        if old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -84,11 +123,11 @@ mod tests {
         let first = merge(&Value::Null, Ok(vec![message("a", true)]), 1);
         assert_eq!(news(&Value::Null, &first), [], "the first fetch announces nothing");
         let second = merge(&first, Ok(vec![message("b", true), message("c", false), message("a", true)]), 2);
-        assert_eq!(news(&first, &second), [("✉️ Ana".to_string(), "About b".to_string(), "https://mail/b".to_string())]);
+        assert_eq!(news(&first, &second), [("✉️ Ana".to_string(), "About b".to_string(), "mail:b".to_string())]);
         let many: Vec<Value> = ["d", "e", "f", "g"].iter().map(|id| message(id, true)).collect();
         let third = merge(&second, Ok(many), 3);
         let told = news(&second, &third);
-        assert_eq!((told.len(), told[0].0.as_str(), told[0].2.as_str()), (1, "✉️ 4 new messages", "space:inbox"));
+        assert_eq!((told.len(), told[0].0.as_str(), told[0].2.as_str()), (1, "✉️ 4 new messages", "space:mail"));
         assert!(told[0].1.starts_with("Ana: About d\nAna: About e"));
         assert_eq!(news(&third, &merge(&third, Err("down".into()), 4)), []);
     }

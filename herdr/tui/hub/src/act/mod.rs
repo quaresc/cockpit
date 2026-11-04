@@ -7,6 +7,7 @@ mod land;
 mod mail;
 mod meetings;
 mod monitor;
+mod pins;
 mod routines;
 mod runbook;
 mod show;
@@ -64,6 +65,7 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("inbox", "details") => inbox::details,
         ("inbox", "open_url") => inbox::open_url,
         ("inbox", "set_muted") => inbox::set_muted,
+        ("home", "pin_order") => pins::pin_order,
         ("inbox", "fix_ci") => inbox::fix_ci,
         ("inbox", "rerun") => inbox::rerun,
         ("inbox", "redeploy") => inbox::redeploy,
@@ -89,10 +91,12 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("inbox", "set_state") => tickets::set_state,
         ("inbox", "assign") => tickets::assign,
         ("inbox", "file_issue") => tickets::file_issue,
-        ("inbox", "mail_open") => mail::open,
-        ("inbox", "mail_archive") => mail::archive,
-        ("inbox", "mail_read") => mail::read,
-        ("inbox", "mail_reply") => mail::reply,
+        ("mail", "mail_open") => mail::open,
+        ("mail", "mail_archive") => mail::archive,
+        ("mail", "mail_read") => mail::read,
+        ("mail", "mail_reply") => mail::reply,
+        ("mail", "mail_thread") => mail::thread,
+        ("mail", "request_refresh") => inbox::request_refresh,
         ("runbook", "run_step") => runbook::run_step,
         ("runbook", "mark_done") => runbook::mark_done,
         ("runbook", "open_pr") => runbook::open_pr,
@@ -114,6 +118,7 @@ fn action(app: &str, name: &str) -> Option<Action> {
         ("monitor", "roll_back") => monitor::roll_back,
         ("monitor", "talk") => monitor::talk,
         ("monitor", "pin") => monitor::pin,
+        ("monitor", "mute") => monitor::mute,
         ("monitor", "request_refresh") => monitor::request_refresh,
         ("monitor", "open_url") => monitor::open_url,
         ("routines", "add") => routines::add,

@@ -216,6 +216,7 @@ impl App {
                     },
                 ),
                 _ if app.watched => ("monitors ?".into(), dim()),
+                _ if app.muted => ("muted".into(), dim()),
                 _ => ("not watched".into(), dim()),
             };
             spans.push(Span::styled(cell(&text, monitors), style));
@@ -308,11 +309,18 @@ impl App {
         if app.pinned {
             title.push_str("  ·  pinned");
         }
+        if app.muted {
+            title.push_str("  ·  muted");
+        }
         let mut facts = vec![app.health.clone(), format!("{} deployed {}", app.tag, self.when(app))];
         if app.behind > 0 {
             facts.push(format!("{} behind", plural(app.behind as usize, "commit")));
         }
         let mut lines = vec![Line::styled(title, bold(FG)), Line::styled(facts.join(" · "), dim())];
+        if app.muted {
+            lines.push(Line::styled("muted: not watched until you unmute it", dim()));
+            return lines;
+        }
         if !app.watched {
             lines.push(Line::styled("not watched: no release in the last 24 h; pin it to follow it anyway", dim()));
             return lines;

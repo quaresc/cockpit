@@ -91,8 +91,9 @@ pub async fn states(tools: &impl Tools, mapping: &Value, ticket: &str) -> Result
         .collect())
 }
 
-/// Moves a ticket to the state whose name matches `name` (case aside, else the first that starts with it); its name.
-pub async fn set_state(tools: &impl Tools, mapping: &Value, ticket: &str, name: &str) -> Result<String, String> {
+/// Moves a ticket to the state whose name matches `name` (case aside, else the first that starts with it); its name and
+/// category.
+pub async fn set_state(tools: &impl Tools, mapping: &Value, ticket: &str, name: &str) -> Result<(String, String), String> {
     let states = states(tools, mapping, ticket).await?;
     let wanted = name.to_lowercase();
     let named = |s: &&Value| s["name"].as_str().unwrap_or_default().to_lowercase();
@@ -103,7 +104,7 @@ pub async fn set_state(tools: &impl Tools, mapping: &Value, ticket: &str, name: 
         .ok_or_else(|| format!("{ticket} has no state like {name:?}"))?;
     let team = ticket.split('-').next().unwrap_or_default();
     tools.call("setState", &json!({"ticket": ticket, "team": team, "state": to["id"]})).await?;
-    Ok(to["name"].as_str().unwrap_or(name).to_string())
+    Ok((to["name"].as_str().unwrap_or(name).to_string(), to["type"].as_str().unwrap_or_default().to_string()))
 }
 
 /// Moves a ticket to its "Done" state, else the first completed one; its name.
@@ -223,6 +224,6 @@ mod tests {
         assert_eq!(crate::block_on(complete(&fake, &mapping(&json!({})), "ENG-1")).unwrap(), "Done");
         assert_eq!(fake.calls.borrow()[1].1["state"], "s3");
         let fake = Fake::default().with("listStates", states).with("setState", json!({}));
-        assert_eq!(crate::block_on(set_state(&fake, &mapping(&json!({})), "ENG-1", "in prog")).unwrap(), "In Progress");
+        assert_eq!(crate::block_on(set_state(&fake, &mapping(&json!({})), "ENG-1", "in prog")).unwrap(), ("In Progress".to_string(), "started".to_string()));
     }
 }

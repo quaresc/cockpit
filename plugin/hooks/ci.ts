@@ -9,7 +9,7 @@ import { ciChanges, hasTicket } from './match'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
 import { withLease, writeDoc } from './store'
-import { mailRequest } from './mail'
+import { mailGet, mailRequest } from './mail'
 import { completeTicket } from './tickets'
 
 type $ = EngineInterface
@@ -499,6 +499,10 @@ export async function processRequests($: $, onDone: () => void) {
       } else if (request.type === 'mail-archive' || request.type === 'mail-read') {
         await mailRequest($, request.type, request.message)
         await result('done', request.type === 'mail-archive' ? 'archived' : 'marked read')
+      } else if (request.type === 'mail-get') {
+        await mailGet($, request.message)
+        await result('done', 'read')
+        continue
       } else {
         const state = await completeTicket($, request.ticket)
         const url = (await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`))?.tickets.find(t => t.id === request.ticket)?.url

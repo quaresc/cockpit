@@ -1,5 +1,5 @@
-//! The apps' requests (a CI rerun, a preview's redeploy, creation, stop or extension, a ticket's release) carried out by
-//! the hub when it reaches that source's server itself; the others stay for a Claude session to take.
+//! The apps' requests (a CI rerun, a preview's redeploy, creation, stop or extension, a ticket's release, a mail thread
+//! read, archived or marked read) carried out by the hub when it reaches that source's server itself; the others stay for a Claude session to take.
 
 use std::path::Path;
 
@@ -23,14 +23,15 @@ const FIELDS: &[(&str, &[(&str, &str)])] = &[
     ("stop-preview", &[("preview", "string")]),
     ("mail-archive", &[("message", "string")]),
     ("mail-read", &[("message", "string")]),
+    ("mail-get", &[("message", "string")]),
 ];
 
 /// The section whose server carries a request out.
-fn section_of(kind: &str) -> &'static str {
+pub fn section_of(kind: &str) -> &'static str {
     match kind {
         "rerun" => "ci",
         "release" => "tickets",
-        "mail-archive" | "mail-read" => "mail",
+        "mail-archive" | "mail-read" | "mail-get" => "mail",
         _ => "platform",
     }
 }
@@ -96,7 +97,9 @@ pub fn take(cache: &Path, config: &Config, raw: &Value) {
         match carry_out(&server, config, raw, &request) {
             Ok((message, title, body, action)) => {
                 write("done", &message);
-                news::notify(config, &title, &body, &action, &[]);
+                if !title.is_empty() {
+                    news::notify(config, &title, &body, &action, &[]);
+                }
                 let _ = std::fs::write(cache.join("refresh-request"), "");
             }
             Err(e) => {
@@ -107,7 +110,8 @@ pub fn take(cache: &Path, config: &Config, raw: &Value) {
     }
 }
 
-/// One request through the server: the outcome's message, and the notification's title, body and click.
+/// One request through the server: the outcome's message, and the notification's title (none when empty), body and
+/// click.
 fn carry_out(server: &Server, config: &Config, raw: &Value, request: &Value) -> Result<(String, String, String, String), String> {
     let s = |key: &str| request[key].as_str().unwrap_or_default().to_string();
     let section = &raw[section_of(request["type"].as_str().unwrap_or_default())];
@@ -171,7 +175,19 @@ fn carry_out(server: &Server, config: &Config, raw: &Value, request: &Value) -> 
             } else {
                 mcp::with(server, async |c| cockpit_connectors::mail::mark_read(&Mapped { connection: c, section: &mapping }, &message).await)?;
             }
-            Ok(("done".into(), "✉️ Mail".into(), format!("{} {}", if kind == "mail-archive" { "Archived" } else { "Read" }, s("label")), "space:inbox".into()))
+            Ok(("done".into(), "✉️ Mail".into(), format!("{} {}", if kind == "mail-archive" { "Archived" } else { "Read" }, s("label")), "space:mail".into()))
+        }
+        "mail-get" => {
+            let mapping = cockpit_connectors::mail::mapping(section);
+            let id = s("message");
+            let message = super::mail::listed(&id);
+            let read = mcp::with(server, async |c| cockpit_connectors::mail::thread(&Mapped { connection: c, section: &mapping }, &mapping, &message).await);
+            let failed = read.as_ref().err().cloned();
+            super::mail::keep_thread(&id, read);
+            match failed {
+                Some(error) => Err(error),
+                None => Ok(("read".into(), String::new(), String::new(), String::new())),
+            }
         }
         other => Err(format!("no such request {other}")),
     }
@@ -187,5 +203,8 @@ mod tests {
         assert!(refusal(&json!({"type": "extend", "label": "x", "preview": "p", "days": "2"})).unwrap().starts_with("extend needs days as a number"));
         assert!(refusal(&json!({"type": "nuke", "label": "x"})).unwrap().starts_with("unknown request type"));
         assert_eq!(section_of("release"), "tickets");
+        assert_eq!(refusal(&json!({"type": "mail-get", "label": "Lunch?", "message": "t1"})), None);
+        assert!(refusal(&json!({"type": "mail-get", "label": "Lunch?"})).unwrap().starts_with("mail-get needs message as a string"));
+        assert_eq!(section_of("mail-get"), "mail");
     }
 }

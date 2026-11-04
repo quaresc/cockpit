@@ -2,7 +2,7 @@
 //! does, fix an error, draft a bug or roll a release back, each in the app's repo; plus pins, refreshes and links.
 //! Each takes the app as the monitor document has it, with its `env`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cockpit_core::files;
 use serde_json::{Value, json};
@@ -13,6 +13,24 @@ use crate::value::{Res, get, list, s, text, truthy};
 
 fn pinned_path() -> PathBuf {
     files::config_dir().join("monitor-pinned.json")
+}
+
+fn muted_path() -> PathBuf {
+    files::config_dir().join("monitor-muted.json")
+}
+
+/// Adds the app to or removes it from a sorted list of app ids kept in this file, left untouched when already so.
+fn mark(path: &Path, app: &str, on: bool) -> Res {
+    let before: Vec<String> = files::load(path).map(|m| list(&m).iter().map(text).collect()).unwrap_or_default();
+    let mut ids: Vec<String> = before.iter().filter(|a| *a != app).cloned().collect();
+    if on {
+        ids.push(app.to_string());
+    }
+    ids.sort();
+    if ids == before {
+        return Ok(());
+    }
+    files::write(path, &json!(ids)).map_err(|e| e.to_string())
 }
 
 /// The app of this id as the monitor document has it, with the document's `env`: what `{"$monitor": id}` stands for.
@@ -270,17 +288,26 @@ pub fn talk(ctx: &mut Ctx, args: &[Value]) -> Res {
     inbox::talk_over(ctx, &ticket, &prs, &data, None, &news)
 }
 
-/// Pins or unpins an app in monitor-pinned.json: a pinned app is watched even without a recent release.
+/// Pins or unpins an app in monitor-pinned.json: a pinned app is watched even without a recent release, and unmuted.
 pub fn pin(ctx: &mut Ctx, args: &[Value]) -> Res {
     let (app, is_pinned) = (text(arg(args, 0)?), truthy(arg(args, 1)?));
-    let mut pinned: Vec<String> = files::load(&pinned_path()).map(|m| list(&m).iter().map(text).collect()).unwrap_or_default();
-    pinned.retain(|a| a != &app);
+    mark(&pinned_path(), &app, is_pinned)?;
     if is_pinned {
-        pinned.push(app.clone());
+        mark(&muted_path(), &app, false)?;
     }
-    pinned.sort();
-    files::write(&pinned_path(), &json!(pinned)).map_err(|e| e.to_string())?;
     inbox::request_refresh(ctx, &[])?;
     ctx.note(format!("{} {app}", if is_pinned { "pinned" } else { "unpinned" }));
+    Ok(())
+}
+
+/// Mutes or unmutes an app in monitor-muted.json: a muted app is never watched, so it is neither queried nor announced.
+pub fn mute(ctx: &mut Ctx, args: &[Value]) -> Res {
+    let (app, is_muted) = (text(arg(args, 0)?), truthy(arg(args, 1)?));
+    mark(&muted_path(), &app, is_muted)?;
+    if is_muted {
+        mark(&pinned_path(), &app, false)?;
+    }
+    inbox::request_refresh(ctx, &[])?;
+    ctx.note(format!("{} {app}", if is_muted { "muted" } else { "unmuted" }));
     Ok(())
 }

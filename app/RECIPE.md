@@ -20,7 +20,7 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   - **Cockpit sidebar**, the rest: a "Search or run…" field with its `⌘⇧P` hint; with Claude Code, two quota bars, 5h
     and 7d, each with its percent and a tick where the even pace would be (fill `#a6bd91`, track `#2c2e31`); a row of
     app icons, Home first, then the apps among the cockpit config's `spaces` in their order (Inbox, To-do, Runbook,
-    Meetings, Monitor, Routines; without a config Home, Inbox, To-do, Runbook, Meetings), each with a count badge in a
+    Meetings, Monitor, Routines, Mail; without a config Home, Inbox, To-do, Runbook, Meetings), each with a count badge in a
     corner, the shown one on a raised tile; the **NEEDS YOU** band, on every view but Home (Home answers them itself):
     one card per agent waiting on you, three at most (a red-tinted card: its task, how long it has waited, its question
     and its choices as numbered rows or checkboxes, a Submit button, a reply arrow and a snooze alarm), then "N more
@@ -36,7 +36,8 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
     Agents ("2 need you"), Reviews for you, Your PRs, Merged this week, and Agent spend once Claude Code's plugin has
     written cost books; the **NEXT MOVE** callout (red-tinted, the longest-waiting agent's question with its choices as
     buttons, Reply, Open beside, Go to agent); the agents by stage as wrapped cards; your PRs no agent works on. On the
-    right: Up next (meetings with Join), Apps (each app in a few words: "1 PR failing", "8 steps left") and Activity.
+    right: Up next (meetings with Join), Apps (each app in a few words: "1 PR failing", "8 steps left", "Mail · 2 messages
+    need you", a click opening its app) and Activity.
   - **Home without cockpit** (no `cockpit.json` in the Herdr home): a centered column, 620px at most: the cockpit mark
     (44px) beside "cockpit isn't installed" (18px, semibold) and a muted line; one line of what cockpit is; two cards,
     "In Claude Code" (`/plugin install cockpit --marketplace quaresc/cockpit`, `/cockpit:setup`) and "With any other
@@ -46,9 +47,18 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   - **Work**: the active tab's panes (each with a 30px cockpit header: agent, folder, branch, status), or the focused
     agent alone with a 34px head. A hidden right **panel**, 420px (280–900): the agent's charts and diagrams (Show),
     its diff with line comments (Review), its runbook, Herdr's Files and Changes, and a 44px activity bar of their icons.
-  - **Inbox, Runbook, To-do, Meetings, Monitor, Routines**: one full card each (PRs, reviews and tickets by feature;
-    deploy steps with their commands; to-dos; the week's meetings; releases judged on errors and latency; scheduled
-    agent runs and their output).
+  - **Inbox, Runbook, To-do, Meetings, Monitor, Routines, Mail**: one full card each (PRs, reviews and tickets by
+    feature; deploy steps with their commands; to-dos; the week's meetings; releases judged on errors and latency;
+    scheduled agent runs and their output; mail).
+  - **Mail**: messages in two groups, **Needs you** (from a person, or marked important) above **Updates** (bots,
+    notifications, no-reply senders, newsletters), newest first; each row 52px: an 8px unread dot in `warning`, the
+    sender (160px, in its person color while unread), the subject, the snippet under it, the age at the right; hovered
+    or selected, a **See** button and archive / mark read icons. A double click or See opens the **reading panel** on the
+    right (360–720px, 55% of the card; over the list as a sheet below 860px): the whole thread, each message under its
+    avatar, sender, address and date, its HTML drawn natively (`TextView.html`, sanitized by the hub, links opening in
+    the browser), plain text turned into paragraphs with clickable links; "Loading…" with skeleton lines while the
+    thread is fetched, then "Waiting for a Claude Code session with the mail connector…" after 20 s; its footer Reply
+    (an agent drafts it, nothing is sent), Archive, Mark read and Open in mail.
 - **Status bar**, 28px: counts on the left ("2 need you · 2 working · 0 ready · 3 done", each a click), the focused
   agent's branch, ahead/behind, changed files, ticket, CI and PR on the right, queued prompts, agents to resume, and the
   hub's state only while it is offline.
@@ -70,15 +80,18 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   the board, `m` merge, `a` archive (Undo on the toast), `o` PR, `r` recap, `s` snooze, `q` queue, `n` new agent;
   right-click for the rest. With no card picked, keys act on the NEXT MOVE agent.
 - **Window keys** (`keys.json`, section `layout:cockpit`): `⌘⇧P` cockpit's palette (Herdr's commands plus PRs, tickets,
-  runbooks, meetings, past sessions); `⌘⌥0` Home ↔ work; `⌘⌥1…6` Inbox, Runbook, To-do, Meetings, Monitor, Routines;
+  runbooks, meetings, past sessions); `⌘⌥0` Home ↔ work; `⌘⌥1…7` Inbox, Runbook, To-do, Meetings, Monitor, Routines, Mail;
   `⌘⌥A` the focused agent alone; `⌘⌥B` the right panel, `⌃⌘1…5` its Show / Review / Runbook / Files / Changes;
   `⌘J` the next agent waiting, `⌘⇧J` the next blocked, `⌘⇧U` the next done; `⌘⌥Q` the queue; `⌘⌥R` resume agents
   lost to a restart; `⌘R` recap of every agent; `⌘G` the focused agent's PR; `⌘L` its ticket.
 - **Bell**: while agents wait, a bell-dot icon in `blocked` with a red count that breathes from 70% to full every
   1.4s; when none waits but some finished, a plain bell with a 6px `done` dot. Click goes to the longest waiting, hover
   lists their questions, right-click picks one.
-- **Notifications**: the hub's (CI failed, review asked, agent waiting) show as Herdr toasts while the window is in
-  front, system notifications otherwise; a click lands on the row they are about.
+- **Notifications**: the hub's (CI failed, review asked, agent waiting, new mail) show as Herdr toasts while the window
+  is in front, system notifications otherwise; a click lands on the row they are about (a new message opens in Mail's
+  reading panel).
+- **Mail keys**: `j k` move, `] [` between the groups, `⏎` See, `esc` closes the panel, `c` reply, `b` archive, `m` mark
+  read, `o` open in the mail client, `⇧R` fetch now; right-click for the same.
 - **Without the hub**: when cockpit isn't installed Home shows its install panel; whenever the hub doesn't answer the
   sidebar lists Herdr's own agents (status mark, title, click to focus) with no band, menu or recap, and the apps show
   "Cannot reach the cockpit hub" with the reason. Once `cockpit.json` appears every view connects by itself within
@@ -96,11 +109,11 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   a `view` stack of `main` = `{tab: "active"}` with pane headers `{app: "pane"}` 30px, and `agent` = `agent-head` over
   the focused agent; then the hidden `panel` row, 420px: a `panel-body` stack of `show`, `review`, `runbook-panel`
   (`runbook {scope: "focused"}`), Herdr's `files` and `changes`, and `activity` 44px), then `inbox`, `runbook`,
-  `todo`, `meetings`, `monitor`, `routines` blocks. `floating`: `queue` (`{app: "queue"}`, edge right, align center,
+  `todo`, `meetings`, `monitor`, `routines`, `mail` blocks. `floating`: `queue` (`{app: "queue"}`, edge right, align center,
   peek 44).
 - **One mod** `mods/cockpit/` (`mod.json`: `place: none`, focusable): every block is the same mod with `props.app`
   (`sidebar`, `home`, `bell`, `status`, `pane`, `agent-head`, `activity`, `queue`, `show`, `review`, `runbook`, `inbox`,
-  `todo`, `meetings`, `monitor`, `routines`), and so is every overlay it opens (`palette`, `menu`, `recap`, `code`,
+  `todo`, `meetings`, `monitor`, `routines`, `mail`), and so is every overlay it opens (`palette`, `menu`, `recap`, `code`,
   `reader`, `kit`, `monitor-window`); `main.js` maps the name to a view class. `ui.js` is a shadcn-style kit on
   `theme()`; icons are lucide SVGs in `icons/`, the mark is `cockpit.svg`. Shipped mods used: `workspace-chrome`,
   `tabs`, `files`, `changes`, `menu` (a space's right-click) and `prompt` (the palette's Duplicate mod).
@@ -134,8 +147,9 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   Setup runs `cockpit app install`, which copies this layout and mod into the Herdr home, writes `cockpit.json`,
   merges `keys.json` and switches to the layout once.
 - **Claude Code only**: the quota bars and the Agent spend tile. The inbox requests (CI reruns, preview
-  create/redeploy/stop/extend, marking a ticket Done) are carried out by the hub through the source's MCP server, or by
-  a Claude Code session with its connectors; GitHub Actions reruns go through `gh`. **Monitor** needs a deploy-platform
+  create/redeploy/stop/extend, marking a ticket Done) and Mail's (reading a thread, archiving, marking read) are carried
+  out by the hub through the source's MCP server, or by a Claude Code session with its connectors; GitHub Actions reruns
+  go through `gh`. **Monitor** needs a deploy-platform
   server and Datadog's; without them it says what to set.
 - Answering in place parses the question screens cockpit knows (Claude Code's first): another agent's question may
   show as its status alone.
@@ -157,6 +171,6 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   agent running in a Herdr terminal shows in the sidebar's Agents with its status.
 - With cockpit installed and an agent waiting on a question, its card shows in NEEDS YOU (on any view but Home) and on
   Home's NEXT MOVE, the bell counts it, and pressing `1` on Home answers it (the agent moves on, the card goes).
-- `⌘⌥1…6` switch the center to each app, `⌘⌥0` back to Home; `⌘⇧P` opens the palette and finds a PR by a word of its
+- `⌘⌥1…7` switch the center to each app, `⌘⌥0` back to Home; `⌘⇧P` opens the palette and finds a PR by a word of its
   title.
 - `⌘⌥B` opens the right panel beside the active tab; `⌃⌘2` shows the focused agent's diff.

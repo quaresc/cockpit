@@ -102,7 +102,9 @@ export type Calendar = {
 
 // The mail connector, mapped like the others; Gmail's mapping is the default for a server named after it.
 export type MailCapability = 'listInbox' | 'get' | 'archive' | 'markRead'
-export type MailFields = Partial<Record<'messages' | 'id' | 'threadId' | 'from' | 'fromName' | 'subject' | 'snippet' | 'url' | 'date' | 'unread' | 'body', string>>
+export type MailFields = Partial<
+  Record<'messages' | 'id' | 'threadId' | 'from' | 'fromName' | 'subject' | 'snippet' | 'url' | 'date' | 'unread' | 'labels' | 'body' | 'html' | 'thread', string>
+>
 export type Mail = { enabled: boolean; name: string; server: string; tools: Partial<Record<MailCapability, Recipe>>; fields: MailFields; urlTemplate: string }
 
 export type Platform = {
@@ -131,6 +133,8 @@ export type Config = {
   meetingBrief: { enabled: boolean; model: string; skip: string[]; tools: string[] }
   calendar: Calendar
   mail: Mail
+  // Seconds between fetches, by source (github, tickets, ci, mail, calendar, platform, monitor); the hub reads it too.
+  refresh?: Partial<Record<'github' | 'tickets' | 'ci' | 'mail' | 'calendar' | 'platform' | 'monitor', number>>
   // Connectors that show panes refresh from.
   metabase: { server: string }
   datadog: { server: string }
@@ -233,20 +237,23 @@ const GOOGLE_CALENDAR: Calendar = {
   responses: {},
 }
 
-// Claude's Gmail connector: unread inbox threads but promotions and social, one message each; archive and read drop labels.
+// Claude's Gmail connector: unread inbox threads but promotions and social, one message each, read whole with their HTML;
+// archive and read drop labels.
 const GMAIL: Mail = {
   enabled: true,
   name: 'Gmail',
   server: 'claude.ai Gmail',
   tools: {
     listInbox: { tool: 'search_threads', args: { query: 'in:inbox is:unread -category:promotions -category:social', pageSize: 30, view: 'THREAD_VIEW_SUMMARY' } },
-    get: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'PLAIN_TEXT' } },
+    get: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'FULL_CONTENT' } },
     archive: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['INBOX'] } },
     markRead: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['UNREAD'] } },
   },
   fields: {
-    messages: 'threads[].messages', id: 'threadId', threadId: 'threadId', from: 'sender', fromName: 'addressDisplayNames.0.displayName',
-    subject: 'subject', snippet: 'snippet', url: 'viewUrl', date: 'date', unread: 'labelIds', body: 'plaintextBody',
+    messages: 'threads[].messages', id: 'threadId|thread_id', threadId: 'threadId|thread_id', from: 'sender',
+    fromName: 'addressDisplayNames.0.displayName|address_display_names.0.display_name', subject: 'subject', snippet: 'snippet', url: 'viewUrl|view_url',
+    date: 'date', unread: 'labelIds|label_ids', labels: 'labelIds|label_ids', thread: 'messages', body: 'plaintextBody|plaintext_body',
+    html: 'htmlBody|html_body',
   },
   urlTemplate: '',
 }
@@ -375,9 +382,9 @@ let shared = ''
 
 // The config as the mod reads it, defaults and older formats resolved, for the herdr apps and scripts to read as is.
 async function shareConfig($: $, config: Config) {
-  // Tokens stay in the config file: the hub reads them there.
+  // Tokens and the servers' secrets stay in the config file: the hub reads them there.
   const body = JSON.stringify(
-    { ...config, tickets: { ...config.tickets, token: undefined }, ci: { ...config.ci, token: undefined }, calendar: { ...config.calendar, ics: undefined } },
+    { ...config, tickets: { ...config.tickets, token: undefined }, ci: { ...config.ci, token: undefined }, calendar: { ...config.calendar, ics: undefined }, servers: undefined },
     null,
     2,
   )

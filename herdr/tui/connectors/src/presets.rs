@@ -15,6 +15,8 @@ pub struct Preset {
     pub url: &'static str,
     /// A command printing the bearer token it takes, when it has no OAuth login (GitHub's takes gh's).
     pub bearer_command: &'static [&'static str],
+    /// The scopes it asks for when its login needs the person's own app (Google's), else empty.
+    pub app_scopes: &'static [&'static str],
     /// Text that tells it in a URL or a command.
     pub marks: &'static [&'static str],
     /// The section's mapping (`tools`, `fields`…), when cockpit has one.
@@ -22,6 +24,11 @@ pub struct Preset {
 }
 
 impl Preset {
+    /// Whether its login needs the person's own OAuth app (a client id from Google Cloud).
+    pub fn needs_app(&self) -> bool {
+        !self.app_scopes.is_empty()
+    }
+
     /// Its `servers` entry.
     pub fn entry(&self) -> Value {
         if self.bearer_command.is_empty() { json!({"url": self.url}) } else { json!({"url": self.url, "bearerCommand": self.bearer_command}) }
@@ -30,11 +37,32 @@ impl Preset {
 
 pub const PRESETS: &[Preset] = &[
     Preset {
+        id: "gmail",
+        name: "Gmail",
+        sources: &["mail"],
+        url: "https://gmailmcp.googleapis.com/mcp/v1",
+        bearer_command: &[],
+        app_scopes: &["https://www.googleapis.com/auth/gmail.modify"],
+        marks: &["gmailmcp.googleapis.com"],
+        mapping: None,
+    },
+    Preset {
+        id: "google-calendar",
+        name: "Google Calendar",
+        sources: &["calendar"],
+        url: "https://calendarmcp.googleapis.com/mcp/v1",
+        bearer_command: &[],
+        app_scopes: &["https://www.googleapis.com/auth/calendar.readonly"],
+        marks: &["calendarmcp.googleapis.com"],
+        mapping: None,
+    },
+    Preset {
         id: "linear",
         name: "Linear",
         sources: &["tickets"],
         url: "https://mcp.linear.app/mcp",
         bearer_command: &[],
+        app_scopes: &[],
         marks: &["mcp.linear.app", "linear-mcp", "@linear/", "mcp-linear"],
         mapping: Some(crate::tickets::linear),
     },
@@ -44,6 +72,7 @@ pub const PRESETS: &[Preset] = &[
         sources: &["ci"],
         url: "https://mcp.circleci.com/v1/mcp",
         bearer_command: &[],
+        app_scopes: &[],
         marks: &["mcp.circleci.com", "mcp-server-circleci", "circleci-mcp"],
         mapping: Some(crate::ci::circleci),
     },
@@ -53,6 +82,7 @@ pub const PRESETS: &[Preset] = &[
         sources: &["tickets"],
         url: "https://api.githubcopilot.com/mcp/",
         bearer_command: &["gh", "auth", "token"],
+        app_scopes: &[],
         marks: &["api.githubcopilot.com/mcp", "github-mcp-server", "server-github"],
         mapping: None,
     },
@@ -62,6 +92,7 @@ pub const PRESETS: &[Preset] = &[
         sources: &["tickets", "ci", "code"],
         url: "https://gitlab.com/api/v4/mcp",
         bearer_command: &[],
+        app_scopes: &[],
         marks: &["/api/v4/mcp", "gitlab-mcp", "server-gitlab"],
         mapping: None,
     },
@@ -71,6 +102,7 @@ pub const PRESETS: &[Preset] = &[
         sources: &["tickets"],
         url: "https://mcp.atlassian.com/v1/mcp",
         bearer_command: &[],
+        app_scopes: &[],
         marks: &["mcp.atlassian.com", "mcp-atlassian"],
         mapping: None,
     },
@@ -80,6 +112,7 @@ pub const PRESETS: &[Preset] = &[
         sources: &["observability"],
         url: "https://mcp.datadoghq.com/v1/mcp",
         bearer_command: &[],
+        app_scopes: &[],
         marks: &["mcp.datadoghq.", "datadog-mcp"],
         mapping: None,
     },
@@ -89,6 +122,7 @@ pub const PRESETS: &[Preset] = &[
         sources: &["observability"],
         url: "https://mcp.sentry.dev/mcp",
         bearer_command: &[],
+        app_scopes: &[],
         marks: &["mcp.sentry.dev", "sentry-mcp"],
         mapping: None,
     },
@@ -132,6 +166,9 @@ mod tests {
         assert!(of(&Server::parse("https://example.com/mcp")).is_none());
         assert_eq!(for_source("ci").map(|p| p.id).collect::<Vec<_>>(), ["circleci", "gitlab"]);
         assert_eq!(for_source("code").map(|p| p.id).collect::<Vec<_>>(), ["gitlab"]);
-        assert_eq!(PRESETS[2].entry(), json!({"url": "https://api.githubcopilot.com/mcp/", "bearerCommand": ["gh", "auth", "token"]}));
+        assert_eq!(
+            PRESETS.iter().find(|p| p.id == "github").unwrap().entry(),
+            json!({"url": "https://api.githubcopilot.com/mcp/", "bearerCommand": ["gh", "auth", "token"]})
+        );
     }
 }

@@ -239,9 +239,19 @@ fn requests_and_ticket_actions_go_out_through_the_servers() {
     let sandbox = Sandbox::new(&json!({}), &json!({}));
     let jira = fake(&sandbox, "jira", jira_answers());
     let ci = fake(&sandbox, "circleci", json!({"rerun_workflow": {"ok": true}, "list_runs": {"runs": []}}));
+    let mail = fake(
+        &sandbox,
+        "fastmail",
+        json!({
+            "mail_search": {"_list": []},
+            "get_thread": {"messages": [{"id": "m1", "sender": "Ana <ana@acme.io>", "date": at(-5), "htmlBody": "<p>Here they are</p>", "plaintextBody": "Here they are"}]}
+        }),
+    );
     let mut config = read(&sandbox.home().join(".config/cockpit/config.json"));
     config["github"] = json!({"enabled": false});
-    config["servers"] = json!({"jira": jira, "circleci": ci});
+    config["servers"] = json!({"jira": jira, "circleci": ci, "fastmail": mail});
+    config["mail"] = json!({"enabled": true, "name": "Fastmail", "server": "fastmail",
+        "tools": {"listInbox": {"tool": "mail_search"}, "get": {"tool": "get_thread", "args": {"threadId": "{thread}"}}}});
     config["tickets"] = jira_section();
     config["ci"] = json!({"enabled": true, "name": "CircleCI", "server": "circleci", "imageJob": ""});
     std::fs::write(sandbox.home().join(".config/cockpit/config.json"), config.to_string()).unwrap();
@@ -259,10 +269,26 @@ fn requests_and_ticket_actions_go_out_through_the_servers() {
     assert_eq!(refused["state"], "refused", "a rerun names its workflow");
     assert_eq!(calls(&sandbox, "circleci").iter().find(|c| c["tool"] == "rerun_workflow").unwrap()["args"]["workflow"], "w1");
 
+    // A thread asked of a session is read by the hub when it reaches the mail server, and kept where the mail space looks.
+    std::fs::write(requests.join("3-mail-get.json"), json!({"type": "mail-get", "label": "Quota numbers", "message": "t1"}).to_string()).unwrap();
+    let got = wait_for(&requests.join("results/3-mail-get.json"), |v| v["state"].is_string());
+    assert_eq!(got["state"], "done", "{got}");
+    let kept = read(&cache.join("mail/t1.json"));
+    assert_eq!((&kept["messages"][0]["fromName"], &kept["messages"][0]["html"]), (&json!("Ana"), &json!("<p>Here they are</p>")));
+    assert_eq!(calls(&sandbox, "fastmail").iter().find(|c| c["tool"] == "get_thread").unwrap()["args"]["threadId"], "t1");
+    // The mail space asks the hub itself, which reads it at once.
+    std::fs::remove_file(cache.join("mail/t1.json")).unwrap();
+    let asked = hub.request(&json!({"op": "act", "app": "mail", "action": "mail_thread", "args": [{"id": "t1", "threadId": "t1"}], "armed": null, "env": {}}));
+    assert_eq!(asked["error"], Value::Null, "{asked}");
+    assert_eq!(read(&cache.join("mail/t1.json"))["messages"][0]["text"], "Here they are");
+
     let act = |action: &str, args: Value| hub.request(&json!({"op": "act", "app": "inbox", "action": action, "args": args, "armed": null, "env": {}}));
     assert_eq!(act("assign", json!(["ACME-7", "Ana"]))["note"], "assigned ACME-7 to Ana");
     assert_eq!(act("file_issue", json!([{"team": "ACME", "title": "Export fails", "description": "500"}]))["note"], "filed ACME-99 https://acme/ACME-99");
+    wait_for(&cache.join("inbox.json"), |v| v["tickets"][0]["id"] == "ACME-7");
     assert_eq!(act("set_state", json!(["ACME-7", "In Review"]))["note"], "moved ACME-7 to In Review");
+    let inbox = read(&cache.join("inbox.json"));
+    assert_eq!(inbox["tickets"][0]["status"], "In Review", "the inbox shows the move at once");
     let card = hub.request(&json!({"op": "fetch", "kind": "ticket_card", "args": {"id": "ACME-7"}}));
     let card = if card["result"].is_object() { card["result"].clone() } else { card };
     assert_eq!((&card["priority"], &card["assignee"], &card["labels"][0]["name"]), (&json!("High"), &json!("Ana"), &json!("front")), "{card}");

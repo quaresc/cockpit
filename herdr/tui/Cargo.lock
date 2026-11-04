@@ -38,6 +38,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "ammonia"
+version = "4.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f45dfa685e1ec33b1bf1a3b93b8047cbdbef41b6040deebbe6bea7720a45574"
+dependencies = [
+ "cssparser",
+ "html5ever",
+ "maplit",
+ "url",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -430,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-agents"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -441,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-cli"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-agents",
@@ -449,6 +461,7 @@ dependencies = [
  "cockpit-core",
  "cockpit-hub",
  "cockpit-inbox",
+ "cockpit-mail",
  "cockpit-meetings",
  "cockpit-monitor",
  "cockpit-palette",
@@ -470,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-connectors"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -484,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-core"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "crossterm",
@@ -501,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-hub"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -527,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-inbox"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-agents",
@@ -544,8 +557,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cockpit-mail"
+version = "0.37.0"
+dependencies = [
+ "ammonia",
+ "chrono",
+ "cockpit-connectors",
+ "cockpit-core",
+ "crossterm",
+ "html2text",
+ "ratatui",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cockpit-meetings"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -562,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-monitor"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -575,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-palette"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -590,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-routines"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -603,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-runbook"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -621,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-show"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -670,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-todo"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -686,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-update"
-version = "0.36.1"
+version = "0.37.0"
 dependencies = [
  "cockpit-core",
  "flate2",
@@ -921,6 +949,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cssparser"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11119743ad110e8c1bdccd930d7f5c30c99e5fc76a7b63ec9807e84eef0c5f59"
+dependencies = [
+ "dtoa-short",
+ "itoa",
+ "smallvec",
+]
+
+[[package]]
 name = "cty"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1119,6 +1158,21 @@ name = "downcast-rs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
+
+[[package]]
+name = "dtoa"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
+
+[[package]]
+name = "dtoa-short"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
+dependencies = [
+ "dtoa",
+]
 
 [[package]]
 name = "either"
@@ -1550,6 +1604,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "html2text"
+version = "0.17.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31e981cc9b710410461bf2e474b54da9ccb2fa3212936295bc5c02cb09f3d3f2"
+dependencies = [
+ "html5ever",
+ "tendril",
+ "thiserror 2.0.21",
+ "unicode-width",
+]
+
+[[package]]
+name = "html5ever"
+version = "0.40.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "456a1a377e608e555d22ddab27ac0114bc7a7b4199078108e34c2aeae6c9b130"
+dependencies = [
+ "log",
+ "markup5ever",
+ "memchr",
+]
+
+[[package]]
 name = "htmlescape"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1664,7 +1741,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -2207,6 +2284,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c"
 
 [[package]]
+name = "maplit"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
+
+[[package]]
+name = "markup5ever"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ab3dc68ac4a0f5719e560136778c1ee716e296030d75dbd4484e37e39e3a842"
+dependencies = [
+ "log",
+ "tendril",
+ "web_atoms",
+]
+
+[[package]]
 name = "measure_time"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2345,6 +2439,12 @@ name = "murmurhash32"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8afc6df942f4c022d70c5725e18df1a705773870e5b7f96fde94ca0334ce77a"
+
+[[package]]
+name = "new_debug_unreachable"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nix"
@@ -2846,6 +2946,12 @@ checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
 ]
+
+[[package]]
+name = "precomputed-hash"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "prettyplease"
@@ -3944,6 +4050,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "string_cache"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffa8a5dbe8b3f0bbe29d4c3225daafaeead63afdc1b65fc4c01a1384166038e6"
+dependencies = [
+ "new_debug_unreachable",
+ "parking_lot",
+ "phf_shared 0.14.0",
+ "precomputed-hash",
+]
+
+[[package]]
+name = "string_cache_codegen"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "928dcdf75e47626b3617a976ec205d9f057584c371c1f23b782129268d0e6edc"
+dependencies = [
+ "phf_generator 0.14.0",
+ "phf_shared 0.14.0",
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4231,6 +4361,15 @@ dependencies = [
  "once_cell",
  "rustix 1.1.6",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tendril"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
+dependencies = [
+ "new_debug_unreachable",
 ]
 
 [[package]]
@@ -5271,6 +5410,18 @@ checksum = "88261b9deccee56594c11a3460c462c41f58d148598fe70ad77070126a68aba4"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "web_atoms"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7572660c8890448ba236b7376f27e389c6a7e1c70195622faced601f855c0ada"
+dependencies = [
+ "phf 0.14.0",
+ "phf_codegen 0.14.0",
+ "string_cache",
+ "string_cache_codegen",
 ]
 
 [[package]]

@@ -134,6 +134,7 @@ impl App {
                 }
                 acts.push((Act::new(if app.pinned { "unpin" } else { "pin" }, 'p', "pin"), Cmd::Pin(id.clone(), !app.pinned)));
                 acts.push((Act::new("refresh", 'R', "refresh"), Cmd::Refresh));
+                acts.push((Act::new(if app.muted { "unmute" } else { "mute" }, 'm', "mute"), Cmd::Mute(id.clone(), !app.muted)));
             }
             Item::Monitor(_, monitor) => {
                 let url = app.alerting().iter().find(|m| &id_text(&m.id) == monitor).map(|m| m.url.clone()).unwrap_or_default();

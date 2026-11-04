@@ -58,7 +58,7 @@ panel and `AgentsModel` (agentsui.js) falls back to Herdr's `agents()`.
 ## Window-wide plumbing (the sidebar copy owns it)
 
 - Keys (`app/keys.json`, section `layout:cockpit`): `cmd-shift-p` → `cockpit.palette` (cockpit's palette, a superset of
-  Herdr's), `cmd-alt-1..6` → `cockpit.go:<inbox|runbook|todo|meetings|monitor|routines>`. A `cockpit.<command>`
+  Herdr's), `cmd-alt-1..7` → `cockpit.go:<inbox|runbook|todo|meetings|monitor|routines|mail>`. A `cockpit.<command>`
   reaches every shown copy's `command()`; prefix your own with your view's name (`todo:delete:<key>`).
 - `show(child)` from `sidebar.js` switches the `center` stack and gives that view the keyboard (`show:<app>`).
 - Notifications (`notify.js`): everything goes through `cockpit_core::notify::post` (or `cockpit notify`). With the app
@@ -306,6 +306,36 @@ change to a Claude session in the actions space. Details on demand (`hub.fetchDe
 `{repo, number}` → `{ready: {state, text, tone}, choices: [{do, method, label}], why, card: {body, labels, additions,
 deletions, files, reviewers, checks}}`; `ticket_card` `{id}` → `{description, labels, priority, assignee, states:
 [{name, type}]}`; `start_plan` `{ticket | pr}` → `{ok, steps: [text], blockers: [text]}`.
+
+## Views `mail` and `mail-thread` (the mail space, both halves)
+
+Built by `cockpit_mail::gui` from the hub's `mail` document (`{at, messages, notified, by?, error?}`, written by the hub
+through its own mail server or by a Claude Code session through the mail connector). The TUI app (`cockpit mail`, run in
+the `mail` space) draws the same model. A message needs you when it comes from a person or is labelled IMPORTANT, and is
+an update when its sender is automated (no-reply, notifications, bots) or Gmail files it under updates, forums,
+promotions or social (`cockpit_connectors::mail::needs_you`).
+
+```jsonc
+{
+  "waiting": false, "enabled": true, "updated": "14:05", "error": null,
+  "counts": {"needs": 2, "updates": 5, "unread": 6, "total": 7},
+  "groups": [{"key": "needs", "label": "Needs you", "ids": ["t1"]}, {"key": "updates", "label": "Updates", "ids": ["t2"]}],
+  "messages": [{"id": "t1", "from": "maya@example.com", "fromName": "Maya", "subject": "…", "snippet": "…", "url": "…",
+                "date": "…", "age": "3h", "unread": true, "needs": true, "raw": {/* as the document holds it */},
+                "acts": [{"id": "see" | "reply" | "archive" | "read" | "open", "label": "…", "key": "c", "main": false}]}]
+}
+```
+
+`mail-thread {id}` is one message's thread for the reading panel: `{state: "unread" | "loading" | "ready" | "failed",
+since?, error?, messages: [{from, fromName, date, when, html, text}]}`, its `html` sanitized (no scripts, styles, event
+handlers, frames or forms; links and images kept) and drawn with `TextView.html`, `text` the fallback. It follows
+`~/.cache/cockpit/mail/`, where threads are kept a week as `<id>.json`.
+
+Actions (`act("mail", action, [message])`, the message as `raw` gives it): `mail_thread` reads the thread into the cache,
+through the hub's mail server at once (the mapping's `get` verb, `thread`/`html`/`body` fields), else files a `mail-get`
+request a Claude Code session carries out (`plugin/hooks/mail.ts`); `mail_reply` starts an agent in the actions space
+that drafts a reply and sends nothing; `mail_archive`, `mail_read`, `mail_open`; `request_refresh`. A notification about a
+new message leads to `mail:<id>`: the mail space, that message open.
 
 ## Views `show` and `review` (the right panel and the show tool's panes)
 

@@ -13,7 +13,7 @@ agent_panel_sort = "priority"
 [ui.toast]
 delivery = "herdr"
 
-# Spaces: the pinned ones by name, then the counts the cockpit mod reports on the inbox space.
+# Spaces: the pinned ones by name, then the counts cockpit reports on the inbox space and the app spaces.
 [ui.sidebar.spaces]
 rows = [
   # Only the pinned spaces, labelled "<icon>  <name>" (the two spaces tell them); agent spaces render blank, the agent panel below lists them.
@@ -22,8 +22,8 @@ rows = [
   [{ token = "$ci_fail", fg = "#FF8080" }, { token = "$ci_ok", dim = true }],
   [{ token = "$tickets", dim = true }],
   [{ token = "$limits", dim = true }],
-  # Each app space's count, one row for all since a space has one app (the inbox's unread mail too); monitor and routines
-  # red when something failed.
+  # Each app space's count, one row for all since a space has one app (the mail space's messages that need you too);
+  # monitor and routines red when something failed.
   [
     { token = "$mail", dim = true },
     { token = "$todo", dim = true },
@@ -156,3 +156,10 @@ key = "prefix+y"
 type = "shell"
 command = "sh ~/.config/cockpit/herdr/focus-space.sh routines"
 description = "routines space"
+
+# prefix+e is herdr's edit_scrollback, so mail takes prefix+shift+e.
+[[keys.command]]
+key = "prefix+shift+e"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh mail"
+description = "mail space"

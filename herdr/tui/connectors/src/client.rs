@@ -2,7 +2,7 @@
 
 use rmcp::model::CallToolRequestParams;
 use rmcp::service::RunningService;
-use rmcp::transport::auth::{AuthClient, AuthorizationManager, AuthorizationRequest, OAuthState};
+use rmcp::transport::auth::{AuthClient, AuthorizationManager, AuthorizationRequest, OAuthClientConfig, OAuthState};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{RoleClient, ServiceExt};
@@ -16,8 +16,23 @@ use crate::credentials::Store;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Server {
     Http(String),
-    Keyed { url: String, headers: Vec<(String, String)>, bearer_command: Vec<String> },
-    Command { argv: Vec<String>, env: Vec<(String, String)> },
+    /// A URL whose authorization server only knows apps registered with it beforehand (Google's): the person's own
+    /// client id, secret and scopes.
+    App {
+        url: String,
+        client_id: String,
+        client_secret: String,
+        scopes: Vec<String>,
+    },
+    Keyed {
+        url: String,
+        headers: Vec<(String, String)>,
+        bearer_command: Vec<String>,
+    },
+    Command {
+        argv: Vec<String>,
+        env: Vec<(String, String)>,
+    },
 }
 
 impl Server {
@@ -34,6 +49,12 @@ impl Server {
     pub fn from_entry(entry: &Value) -> Option<Server> {
         let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>();
         let pairs = |v: &Value| v.as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect::<Vec<_>>();
+        if let Some(url) = entry["url"].as_str().filter(|u| !u.is_empty())
+            && let Some(client_id) = entry["clientId"].as_str().filter(|c| !c.is_empty())
+        {
+            let client_secret = entry["clientSecret"].as_str().unwrap_or_default().to_string();
+            return Some(Server::App { url: url.to_string(), client_id: client_id.to_string(), client_secret, scopes: strings(&entry["scopes"]) });
+        }
         if let Some(url) = entry["url"].as_str().filter(|u| !u.is_empty()) {
             let (headers, bearer_command) = (pairs(&entry["headers"]), strings(&entry["bearerCommand"]));
             if headers.is_empty() && bearer_command.is_empty() {
@@ -48,7 +69,7 @@ impl Server {
     /// Ready to call: a command always, a URL once cockpit has a login for it.
     pub fn is_ready(&self) -> bool {
         match self {
-            Server::Http(url) => Store::new(url).has_login(),
+            Server::Http(url) | Server::App { url, .. } => Store::new(url).has_login(),
             Server::Keyed { .. } | Server::Command { .. } => true,
         }
     }
@@ -56,22 +77,52 @@ impl Server {
     /// Its address or command, as setup and doctor say it.
     pub fn describe(&self) -> String {
         match self {
-            Server::Http(url) | Server::Keyed { url, .. } => url.clone(),
+            Server::Http(url) | Server::App { url, .. } | Server::Keyed { url, .. } => url.clone(),
             Server::Command { argv, .. } => argv.join(" "),
+        }
+    }
+
+    /// The URL a browser login is for, when the server takes one.
+    pub fn login_url(&self) -> Option<&str> {
+        match self {
+            Server::Http(url) | Server::App { url, .. } => Some(url),
+            _ => None,
         }
     }
 }
 
 pub struct Connection(RunningService<RoleClient, ()>);
 
-/// Logs in to a server through the browser: discovery, registration, PKCE, and a callback on a local port.
+/// Logs in to a server through the browser: discovery, registration (or the person's own app), PKCE, and a callback
+/// on a local port.
+pub async fn login_server(server: &Server, open: impl Fn(&str)) -> Result<(), String> {
+    match server {
+        Server::App { url, client_id, client_secret, scopes } => login_as(url, Some((client_id, client_secret, scopes)), open).await,
+        Server::Http(url) => login_as(url, None, open).await,
+        _ => Err("this server takes no browser login".into()),
+    }
+}
+
 pub async fn login(url: &str, open: impl Fn(&str)) -> Result<(), String> {
+    login_as(url, None, open).await
+}
+
+async fn login_as(url: &str, app: Option<(&String, &String, &Vec<String>)>, open: impl Fn(&str)) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
     let redirect = format!("http://127.0.0.1:{}/callback", listener.local_addr().map_err(|e| e.to_string())?.port());
     let mut manager = AuthorizationManager::new(url).await.map_err(|e| format!("{url}: {e}"))?;
     manager.set_credential_store(Store::new(url));
     let mut state = OAuthState::Unauthorized(manager);
-    let request = AuthorizationRequest::new(&redirect).with_client_name("cockpit");
+    let mut request = AuthorizationRequest::new(&redirect).with_client_name("cockpit");
+    if let Some((client_id, secret, scopes)) = app {
+        request = request.with_preregistered_client(client_id.as_str());
+        if !secret.is_empty() {
+            request = request.with_client_secret(secret.as_str());
+        }
+        if !scopes.is_empty() {
+            request = request.with_scopes(scopes.iter().map(String::as_str));
+        }
+    }
     state.start_authorization(request).await.map_err(|e| format!("{url} refused cockpit's login: {e}"))?;
     let auth_url = state.get_authorization_url().await.map_err(|e| e.to_string())?;
     open(&auth_url);
@@ -117,6 +168,24 @@ pub async fn connect(server: &Server) -> Result<Connection, String> {
                 let transport = StreamableHttpClientTransport::with_client(reqwest::Client::default(), config);
                 ().serve(transport).await.map_err(|e| format!("{url}: {e} (a server that needs a login: cockpit connector login {url})"))?
             }
+        }
+        Server::App { url, client_id, client_secret, .. } => {
+            let mut manager = AuthorizationManager::new(url.as_str()).await.map_err(|e| format!("{url}: {e}"))?;
+            manager.set_credential_store(Store::new(url));
+            let known = manager.initialize_from_store().await.map_err(|e| format!("{url}: stored login unusable ({e}) → cockpit connector login {url}"))?;
+            if !known {
+                return Err(format!("cockpit is not logged in to {url} → cockpit connector login {url}"));
+            }
+            // A refresh presents the app's secret, as the person's own app is a confidential one.
+            let mut app = OAuthClientConfig::new(client_id.as_str(), "http://127.0.0.1/callback");
+            if !client_secret.is_empty() {
+                app = app.with_client_secret(client_secret.as_str());
+            }
+            manager.configure_client(app).map_err(|e| format!("{url}: {e}"))?;
+            let client = AuthClient::new(reqwest::Client::default(), manager);
+            ().serve(StreamableHttpClientTransport::with_client(client, StreamableHttpClientTransportConfig::with_uri(url.as_str())))
+                .await
+                .map_err(|e| format!("{url}: {e}"))?
         }
         Server::Keyed { url, headers, bearer_command } => {
             let mut config = StreamableHttpClientTransportConfig::with_uri(url.as_str());

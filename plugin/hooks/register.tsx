@@ -7,7 +7,7 @@ import { processRequests, refreshCi } from './ci'
 import { recordCost, startCosts } from './costs'
 import { DRAWING_SECTION, artifactRefusal, freshTurn, pageRefusal } from './drawing'
 import { forgetFacts, reportFacts } from './facts'
-import { home } from './config'
+import { cacheDir, home } from './config'
 import { refreshMail } from './mail'
 import { CHANGES_SPEC, CHANGES_TOOL_FULL, HEALTH_SPEC, HEALTH_TOOL_FULL, READ_SPEC, READ_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, healthArgs, readArgs, searchArgs } from './find'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
@@ -75,6 +75,20 @@ export const register: Register = on => {
     // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
     fetch(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
     fetch(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
+    // An action anywhere (the inbox, the hub, a notification) touches refresh-request: what this session fetches follows
+    // within seconds instead of at its next minute.
+    let askedSeen = Date.now()
+    fetch(3_000, () =>
+      void cacheDir($)
+        .then(dir => $.fs.stat(`${dir}/refresh-request`))
+        .then(st => {
+          if (st.mtimeMs <= askedSeen) return
+          askedSeen = st.mtimeMs
+          void refreshMail($, true).catch(() => undefined)
+          void refresh($, true).catch(() => undefined)
+        })
+        .catch(() => undefined),
+    )
     const beat = async () => {
       const current = await read($, work)
       const here = await hereSoon($)

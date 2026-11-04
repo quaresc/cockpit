@@ -158,6 +158,24 @@ session("-code-billing", "s-csv", "Invoice CSV export", 7000, [
 with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox, f)
 with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
+# The mail space: two messages that need me above the updates, and Maya's thread already read whole.
+def mail(i, sender, name, subject, snippet, mins, unread=True, labels=()):
+    return {"id": i, "threadId": i, "from": sender, "fromName": name, "subject": subject, "snippet": snippet, "date": iso(minutes=mins),
+            "url": f"https://mail.example.com/#all/{i}", "unread": unread, "labels": ["INBOX", *(["UNREAD"] if unread else []), *labels]}
+mails = [mail("t-maya", "maya@example.com", "Maya", "Search rate limit: which tiers?", "Before I merge api#2210, should the free tier get 30/min or 60/min?", 18, labels=["IMPORTANT"]),
+         mail("t-priya", "priya@example.com", "Priya", "Quotas announcement draft", "Here is the draft for Thursday, can you check the numbers?", 95),
+         mail("t-gh", "notifications@github.example.com", "GitHub", "[acme/web] Daily quotas: banner (#1836)", "Leo approved these changes.", 30, labels=["CATEGORY_UPDATES"]),
+         mail("t-ci", "noreply@ci.example.com", "CI", "billing: main passed", "All 412 tests passed in 6m 12s.", 140, unread=False, labels=["CATEGORY_UPDATES"]),
+         mail("t-news", "digest@news.example.com", "Weekly digest", "This week in platform", "Postgres 17, faster previews and more.", 1500, labels=["CATEGORY_PROMOTIONS"])]
+with open(os.path.join(cache, "mail.json"), "w") as f: json.dump({"at": int(now.timestamp() * 1000), "by": "hub", "messages": mails, "notified": [m["id"] for m in mails]}, f)
+os.makedirs(os.path.join(cache, "mail"), exist_ok=True)
+with open(os.path.join(cache, "mail", "t-maya.json"), "w") as f:
+    json.dump({"at": int(now.timestamp() * 1000), "id": "t-maya", "messages": [
+        {"id": "m1", "from": "me@acme.example", "fromName": "me@acme.example", "date": iso(minutes=60), "html": "",
+         "text": "Maya, the rate limit is ready for review. Ping me with questions."},
+        {"id": "m2", "from": "maya@example.com", "fromName": "Maya", "date": iso(minutes=18), "text": "",
+         "html": "<p>Hi,</p><p>Before I merge <a href=\"https://github.com/acme/api/pull/2210\">api#2210</a>, should the <b>free tier</b> get 30/min or 60/min?</p>"
+                 "<ul><li>30/min matches the docs</li><li>60/min matches what Sam promised</li></ul><p>Thanks,<br>Maya</p>"}]}, f)
 # What the sessions cost, per ticket: Home's agent spend and the tickets' cost read these books.
 os.makedirs(os.path.join(cache, "costs"), exist_ok=True)
 for session, spent in {"demo-412": {"ENG-412": 1.84}, "demo-413": {"ENG-413": 0.92}, "demo-398": {"ENG-398": 2.31}, "demo-405": {"ENG-405": 1.12}}.items():
@@ -165,7 +183,8 @@ for session, spent in {"demo-412": {"ENG-412": 1.84}, "demo-413": {"ENG-413": 0.
 with open(os.path.join(conf, "muted.json"), "w") as f: json.dump(["infra"], f)
 with open(os.path.join(conf, "config.json"), "w") as f:
     json.dump({"reposDir": "~/code", "github": {"enabled": True, "org": "acme"}, "tickets": {"enabled": True, "name": "Linear", "keys": ["ENG"]}, "ci": {"name": "GitHub", "imageJob": "docker"},
-               "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "monitor", "routines"],
+               "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "monitor", "routines", "mail"],
+               "mail": {"enabled": True, "name": "Mail", "server": "mail", "tools": {"archive": {"tool": "archive_thread"}, "markRead": {"tool": "read_thread"}}},
                "platform": {"enabled": True, "previewPrefix": "pv-", "previewDashboardUrl": "https://argocd.example.com/applications/{preview}", "tools": {"createPreview": {"tool": "previews_create"}}}}, f)
 with open(os.path.join(conf, "todo.md"), "w") as f:
     f.write("# To-do\n\n- [ ] Answer Maya on the search rate limit ENG-405\n- [ ] Pair with Jonas on offline mode\n"

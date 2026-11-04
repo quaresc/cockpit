@@ -30,6 +30,7 @@ pub enum Cmd {
     RollBack(String, String, String),
     Talk(String, String),
     Pin(String, bool),
+    Mute(String, bool),
     Refresh,
     Fold(String),
     View,
@@ -276,6 +277,7 @@ impl App {
             Cmd::RollBack(app, release, previous) => self.call("roll_back", vec![self.app_value(&app), release.into(), previous.into()], armed),
             Cmd::Talk(app, release) => self.call("talk", vec![self.app_value(&app), release.into()], None),
             Cmd::Pin(app, pin) => self.call("pin", vec![app.into(), pin.into()], None),
+            Cmd::Mute(app, mute) => self.call("mute", vec![app.into(), mute.into()], None),
             Cmd::Refresh => self.call("request_refresh", vec![], None),
             Cmd::Fold(app) => self.toggle(&app),
             Cmd::View => {

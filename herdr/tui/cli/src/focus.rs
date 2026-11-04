@@ -19,6 +19,7 @@ const USAGE: &str = "What a click on a cockpit notification does.
     cockpit focus meeting:<event id>                the meetings space, that meeting's brief open
     cockpit focus monitor:<app>                     the monitor space, that app (its id or name) selected and unfolded
     cockpit focus routine:<slug>                    the routines space, that routine selected
+    cockpit focus mail:<message id>                 the mail space, that message open
     cockpit focus inbox:<PR url|ticket id>          the inbox space, that row selected
     cockpit focus herdr-app:<target>                that target in the Herdr app (its notifications' clicks)
     cockpit focus update                            cockpit updated, in the background
@@ -64,6 +65,9 @@ pub fn main(args: &[String]) {
     } else if let Some(key) = target.strip_prefix("inbox:") {
         cockpit_core::focus::request("inbox", &json!({"app": "inbox", "key": key}));
         space("inbox");
+    } else if let Some(id) = target.strip_prefix("mail:") {
+        cockpit_core::focus::request("mail", &json!({"app": "mail", "key": id}));
+        space("mail");
     } else if let Some(slug) = target.strip_prefix("routine:") {
         cockpit_core::focus::request("routines", &json!({"app": "routines", "key": slug}));
         space("routines");
@@ -99,6 +103,7 @@ fn app_target(target: &str) -> Option<Value> {
         "routine" => json!({"app": "routines", "key": rest}),
         "inbox" => json!({"app": "inbox", "key": rest}),
         "todo" => json!({"app": "todo", "key": rest}),
+        "mail" => json!({"app": "mail", "key": rest}),
         "runbook" => {
             let (slug, steps) = rest.split_once(':').unwrap_or((rest, ""));
             json!({"app": "runbook", "key": slug, "steps": steps.split(',').filter(|s| !s.is_empty()).collect::<Vec<_>>()})

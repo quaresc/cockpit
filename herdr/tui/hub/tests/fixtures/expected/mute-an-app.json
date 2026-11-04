@@ -1,0 +1,13 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/refresh-request": "<T>",
+    "home/.config/cockpit/monitor-muted.json": [
+      "api-production"
+    ]
+  },
+  "note": "muted api-production",
+  "pending": {},
+  "refreshing": []
+}

@@ -20,13 +20,7 @@ pub fn server(raw: &Value, config: &Value, section: &str) -> Option<Server> {
 
 /// Whether the hub carries out a request of this type itself, through the server of the section it touches.
 pub fn serves(raw: &Value, config: &Value, kind: &str) -> bool {
-    let section = match kind {
-        "rerun" => "ci",
-        "release" => "tickets",
-        "mail-archive" | "mail-read" => "mail",
-        _ => "platform",
-    };
-    server(raw, config, section).is_some()
+    server(raw, config, super::requests::section_of(kind)).is_some()
 }
 
 /// The server the hub reads the monitor's numbers from, and its section (see `observability::server`).
@@ -140,9 +134,12 @@ pub fn monitor_doc(
     let settings = monitor::settings(&raw["monitor"]);
     let token = super::github::token().unwrap_or_default();
     let login = if token.is_empty() { String::new() } else { login(&token) };
-    let pinned: Vec<String> = cockpit_core::files::load(&cockpit_core::files::config_dir().join("monitor-pinned.json"))
-        .and_then(|v| v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()))
-        .unwrap_or_default();
+    let ids = |file: &str| -> Vec<String> {
+        cockpit_core::files::load(&cockpit_core::files::config_dir().join(file))
+            .and_then(|v| v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()))
+            .unwrap_or_default()
+    };
+    let (pinned, muted) = (ids("monitor-pinned.json"), ids("monitor-muted.json"));
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
     let ctx = monitor::Context {
         platform: &mapping,
@@ -152,6 +149,7 @@ pub fn monitor_doc(
         org: config["github"]["org"].as_str().unwrap_or_default(),
         inbox: Some(inbox),
         pinned: &pinned,
+        muted: &muted,
         now,
         utc_offset_minutes: offset,
     };

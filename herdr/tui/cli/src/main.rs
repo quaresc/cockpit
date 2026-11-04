@@ -36,7 +36,7 @@ use std::time::Duration;
 
 const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agents' tools.
 
-    cockpit inbox|runbook|todo|meetings|monitor|routines
+    cockpit inbox|runbook|todo|meetings|monitor|routines|mail
                                                a space's app (cockpit space adds cockpit-space, which update.sh looks for)
     cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
     cockpit show <name>                        the view an agent session shows beside itself
@@ -56,6 +56,7 @@ const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agent
     cockpit hub stop                           stops the hub; the next app that needs it starts a new one
     cockpit hub shown <view>                   the args of every drawn copy of a Herdr app view, as JSON
     cockpit app install|uninstall              the cockpit layout, mod and keys in the Herdr app (cockpit app for more)
+    cockpit update                             updates every part of cockpit to the latest release, then restarts what runs it
     cockpit update-apps [herdr folder]         installs the release's binary for the plugin's version
     cockpit actions tab <cwd> <label> [key]   a tab in the actions space, its pane id printed
     cockpit actions sidebar                    the actions space's sessions listed under its sidebar row
@@ -89,6 +90,7 @@ fn main() {
         "meetings" => app(cockpit_meetings::run()),
         "monitor" => app(cockpit_monitor::run()),
         "routines" => app(cockpit_routines::run()),
+        "mail" => app(cockpit_mail::run()),
         "show" => app(cockpit_show::run(rest.first().map_or("show", String::as_str))),
         "palette" => app(cockpit_palette::run()),
         "agents" if rest.first().is_some_and(|c| ["connect", "disconnect", "connected"].contains(&c.as_str())) => connect::main(rest),
@@ -110,6 +112,11 @@ fn main() {
         "hub" if rest.len() == 2 && rest[0] == "shown" => gui::hub_shown(&rest[1]),
         "app" => gui::main(rest),
         "hub" if rest == ["ping"] => std::process::exit(if ping(Duration::from_secs(2)) { 0 } else { 1 }),
+        "update" if rest.is_empty() => {
+            let script = cockpit_core::files::herdr_dir().join("update.sh");
+            let status = std::process::Command::new("sh").arg(&script).env("PATH", proc::path()).status();
+            std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
+        }
         "update-apps" => update::main(rest),
         "actions" => actions::main(rest),
         "act" => act::main(rest),

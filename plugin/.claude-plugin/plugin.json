@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.36.1",
+  "version": "0.37.0",
   "description": "Every coding agent beside its work: Claude Code, Codex and every agent Herdr runs, each next to its ticket, PR, CI and deploy, with your inbox, runbooks, meetings and releases one key away, in herdr and the Herdr app",
   "author": {
     "name": "quaresc"

@@ -172,6 +172,8 @@ fn cases() -> Vec<Case> {
         case("talk about a release with no ticket", "monitor", "talk", format!(r#"[{MON_API}, "619"]"#)),
         case("pin an app", "monitor", "pin", r#"["web-production", true]"#),
         case("unpin an app", "monitor", "pin", r#"["api-production", false]"#),
+        case("mute an app", "monitor", "mute", r#"["api-production", true]"#),
+        case("unmute an app", "monitor", "mute", r#"["web-production", false]"#),
         case("refresh the monitor", "monitor", "request_refresh", "[]"),
         case("open from the monitor", "monitor", "open_url", r#"["https://app.datadoghq.com/monitors/12345678"]"#),
     ]

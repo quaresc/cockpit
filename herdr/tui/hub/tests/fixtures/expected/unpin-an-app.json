@@ -2,8 +2,7 @@
   "calls": [],
   "error": null,
   "files": {
-    "home/.cache/cockpit/refresh-request": "<T>",
-    "home/.config/cockpit/monitor-pinned.json": []
+    "home/.cache/cockpit/refresh-request": "<T>"
   },
   "note": "unpinned api-production",
   "pending": {},

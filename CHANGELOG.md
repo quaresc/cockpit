@@ -5,6 +5,19 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.37.0 (2026-11-04)
+
+- A Mail space: unread mail split into what needs you and updates, each thread rendered as HTML beside the list (a
+  double click or See), with reply, archive, mark read and open in mail; new mail notifies as before, and the hub reads
+  it through its own MCP server when it reaches one (`prefix+shift+e` in herdr, `cmd-alt-7` in the Herdr app).
+- Gmail and Google Calendar through Google's own MCP servers with an OAuth client you create (`cockpit setup` walks
+  you through it), so neither needs Claude Code.
+- Fresher everywhere: GitHub and CI every 30 s, tickets, mail and deploys every minute, each tunable in
+  `config.refresh`; moving or assigning a ticket shows at once, and any action refreshes what it touched.
+- Update notifications for every agent, from the hub; `cockpit update` updates every part you have.
+- Pinned apps reorder by drag and drop in the Herdr app's sidebar; herdr's pinned spaces follow.
+- Mute an app in the monitor (`m`): it is neither watched nor announced until you unmute it.
+
 ## 0.36.1 (2026-11-04)
 
 - The Herdr app's Spaces fold like the agent groups: a chevron on each space hides what runs in it, and a header button

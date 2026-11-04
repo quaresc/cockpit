@@ -167,6 +167,8 @@ export type MonitoredApp = {
   datadogUrl: string
   watched: boolean
   pinned: boolean
+  // Muted in the monitor space: never watched until unmuted.
+  muted?: boolean
   monitors: Monitors | null
   series: { errors: number[]; p95: number[] } | null
   issues: Issue[]

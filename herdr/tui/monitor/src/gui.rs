@@ -71,6 +71,7 @@ fn call(cmd: &Cmd) -> Option<(&'static str, Vec<Value>)> {
         Cmd::RollBack(id, release, previous) => ("roll_back", vec![app(id), json!(release), json!(previous)]),
         Cmd::Talk(id, release) => ("talk", vec![app(id), json!(release)]),
         Cmd::Pin(id, pin) => ("pin", vec![json!(id), json!(pin)]),
+        Cmd::Mute(id, mute) => ("mute", vec![json!(id), json!(mute)]),
         Cmd::Refresh => ("request_refresh", Vec::new()),
         Cmd::Fold(_) | Cmd::View | Cmd::GoTo(_) => return None,
     })
@@ -198,7 +199,7 @@ fn app_model(tui: &App, clock: &Clock, app: &data::App) -> Value {
         .collect();
     json!({
         "key": app.id, "id": app.id, "name": app.name, "service": app.service, "repo": app.repo, "tag": app.tag, "health": app.health,
-        "deployed": ms(app.deployed_at), "deployedAgo": ago(clock, app.deployed_at), "behind": app.behind, "watched": app.watched, "pinned": app.pinned,
+        "deployed": ms(app.deployed_at), "deployedAgo": ago(clock, app.deployed_at), "behind": app.behind, "watched": app.watched, "pinned": app.pinned, "muted": app.muted,
         "troubled": app.is_troubled(), "state": state, "monitors": monitors, "counts": app.counts(),
         "errors": series.map_or(Value::Null, |s| strip(&s.errors, |v| format!("{} err", count(v)))),
         "p95": series.map_or(Value::Null, |s| strip(&s.p95.iter().map(|v| v * 1000.0).collect::<Vec<_>>(), |v| duration(v / 1000.0))),

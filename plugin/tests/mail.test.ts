@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { messagesOf } from '../hooks/mail'
+import { messagesOf, threadFile, threadOf } from '../hooks/mail'
+import { checkRequest } from '../hooks/protocol'
 
 // Claude's Gmail connector answers search_threads with threads and, in the summary view, their latest message.
 const GMAIL = {
@@ -10,7 +11,8 @@ const GMAIL = {
   tools: {},
   fields: {
     messages: 'threads[].messages', id: 'threadId', threadId: 'threadId', from: 'sender', fromName: 'addressDisplayNames.0.displayName',
-    subject: 'subject', snippet: 'snippet', url: 'viewUrl', date: 'date', unread: 'labelIds',
+    subject: 'subject', snippet: 'snippet', url: 'viewUrl', date: 'date', unread: 'labelIds', labels: 'labelIds|label_ids',
+    thread: 'messages', body: 'plaintextBody|plaintext_body', html: 'htmlBody|html_body',
   },
   urlTemplate: '',
 }
@@ -28,4 +30,27 @@ test('unread Gmail threads read as the inbox mail, newest first', () => {
   expect(messages.map(m => m.id)).toEqual(['t2', 't1'])
   expect(messages[0]).toMatchObject({ from: 'ana@acme.io', fromName: 'Ana Lima', unread: false })
   expect(messages[1]).toMatchObject({ fromName: 'Linear', snippet: 'You have 6 unread', unread: true, url: 'https://mail.google.com/#all/t1' })
+  expect(messages[1]?.labels).toEqual(['UNREAD', 'INBOX'])
+})
+
+test('a Gmail thread reads whole in either case, oldest first, as the mail space keeps it', () => {
+  // get_thread with FULL_CONTENT: camelCase as the connector answers, snake_case as it documents its fields.
+  const answer = {
+    id: 't2',
+    messages: [
+      { id: 'm2', sender: 'Ana Lima <ana@acme.io>', date: '2026-11-04T15:00:00Z', htmlBody: '<p>Noon?</p>', plaintextBody: 'Noon?' },
+      { id: 'm1', sender: 'me@acme.example', date: '2026-11-04T14:00:00Z', plaintext_body: 'Lunch?', html_body: '' },
+    ],
+  }
+  const thread = threadOf(GMAIL, answer)
+  expect(thread.map(m => m.id)).toEqual(['m1', 'm2'])
+  expect(thread[0]).toMatchObject({ from: 'me@acme.example', fromName: 'me@acme.example', text: 'Lunch?', html: '' })
+  expect(thread[1]).toMatchObject({ fromName: 'Ana Lima', html: '<p>Noon?</p>', text: 'Noon?' })
+  expect(threadOf({ ...GMAIL, fields: {} }, { from: 'Sam <sam@example.com>', body: 'Hi' })).toMatchObject([{ fromName: 'Sam', text: 'Hi' }])
+  expect(threadFile('../a/b:c')).toBe('_a_b_c.json')
+})
+
+test('the mail space asks a session for a thread with a mail-get request', () => {
+  expect(checkRequest({ type: 'mail-get', label: 'Invitation', message: 't2' })).toEqual({ request: { type: 'mail-get', label: 'Invitation', message: 't2' } })
+  expect(checkRequest({ type: 'mail-get', label: 'Invitation' })).toMatchObject({ refusal: expect.stringContaining('mail-get needs message as a string') })
 })

@@ -5,7 +5,7 @@ use std::path::Path;
 use cockpit_core::keys::{VERBS, key_of};
 use regex::Regex;
 
-const APPS: [&str; 7] = ["inbox", "runbook", "todo", "meetings", "monitor", "routines", "show"];
+const APPS: [&str; 8] = ["inbox", "runbook", "todo", "meetings", "monitor", "routines", "mail", "show"];
 
 /// Each button written with a literal label: (file, label, key).
 fn buttons() -> Vec<(String, String, char)> {

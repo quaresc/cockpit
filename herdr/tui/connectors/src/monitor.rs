@@ -31,6 +31,8 @@ pub struct Context<'a> {
     pub inbox: Option<&'a Value>,
     /// The app ids pinned in the monitor space.
     pub pinned: &'a [String],
+    /// The app ids muted in the monitor space: never watched, whatever they release.
+    pub muted: &'a [String],
     /// Now, in milliseconds.
     pub now: i64,
     /// The local time's offset from UTC, for the times a summary says.
@@ -523,6 +525,7 @@ pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, 
             let id = get("appId", "").unwrap_or_default();
             let deployed_at = get("appDeployedAt", "lastDeployedAt").unwrap_or_default();
             let pinned = ctx.pinned.contains(&id);
+            let muted = ctx.muted.contains(&id);
             let name = get("appName", "name").unwrap_or_else(|| id.clone());
             json!({
                 "id": id,
@@ -535,8 +538,9 @@ pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, 
                 "behind": number(get("appBehind", "commitsBehindHead").as_deref()),
                 "argoUrl": get("appLink", "").unwrap_or_default(),
                 "datadogUrl": get("appDatadog", "datadogUrl").unwrap_or_default(),
-                "watched": pinned || parse_ms(&deployed_at).is_some_and(|t| ctx.now - t < DAY_MS),
+                "watched": !muted && (pinned || parse_ms(&deployed_at).is_some_and(|t| ctx.now - t < DAY_MS)),
                 "pinned": pinned,
+                "muted": muted,
                 "monitors": null,
                 "series": null,
                 "issues": [],
@@ -882,6 +886,7 @@ mod tests {
             org: "acme",
             inbox: Some(&inbox),
             pinned: &pinned,
+            muted: &[],
             now: at("2026-11-04T12:00:00Z"),
             utc_offset_minutes: 60,
         };
@@ -896,6 +901,13 @@ mod tests {
         assert_eq!((docs["pinned"].as_bool(), docs["name"].as_str()), (Some(true), Some("docs")));
         assert_eq!(docs["releases"].as_array().map(Vec::len), Some(1), "the latest release is kept however old");
         assert_eq!(docs["monitors"], Value::Null, "no service, no Datadog");
+        let muted = ["sourcing".to_string()];
+        let quiet = block_on(refresh(&platform, &Signals::Datadog(&datadog), &Context { muted: &muted, ..ctx }, Some(&previous))).unwrap().unwrap();
+        let sourcing = &quiet["apps"][0];
+        assert_eq!(
+            (sourcing["muted"].as_bool(), sourcing["watched"].as_bool(), sourcing["releases"].as_array().map(Vec::len)),
+            (Some(true), Some(false), Some(0))
+        );
 
         let app = &doc["apps"][0];
         assert_eq!((app["repo"].as_str(), app["behind"].as_i64(), app["watched"].as_bool()), (Some("sourcing"), Some(2), Some(true)));
@@ -961,6 +973,7 @@ mod tests {
             org: "",
             inbox: None,
             pinned: &[],
+            muted: &[],
             now: at("2026-11-04T12:00:00Z"),
             utc_offset_minutes: 0,
         };

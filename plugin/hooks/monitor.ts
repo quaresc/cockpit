@@ -180,9 +180,10 @@ async function issuesOf($: $, server: string, config: Config['monitor'], service
 // The repo's name from its URL: https://github.com/acme/api(.git) is api.
 const repoName = (url: string) => url.replace(/\.git$/, '').split('/').pop() ?? ''
 
-async function pinnedApps($: $): Promise<string[]> {
+// The app ids pinned (watched even without a release) or muted (never watched) in the monitor space.
+async function markedApps($: $, file: 'monitor-pinned.json' | 'monitor-muted.json'): Promise<string[]> {
   try {
-    return JSON.parse(await $.fs.read(`${await home($)}/.config/cockpit/monitor-pinned.json`)) as string[]
+    return JSON.parse(await $.fs.read(`${await home($)}/.config/cockpit/${file}`)) as string[]
   } catch {
     return []
   }
@@ -288,7 +289,8 @@ export function refreshMonitor($: $, isForced = false) {
         const now = Date.now()
         const f = (await platform($))!.fields
         const skip = new Set(f.skipKinds ?? [])
-        const pinned = new Set(await pinnedApps($))
+        const pinned = new Set(await markedApps($, 'monitor-pinned.json'))
+        const muted = new Set(await markedApps($, 'monitor-muted.json'))
         const errors: string[] = []
         const status = list(pick(await call($, 'deployStatus'), f.apps)).filter(a => !skip.has(text(pick(a, f.appKind)) ?? ''))
         const apps: MonitoredApp[] = status.map(a => {
@@ -305,8 +307,9 @@ export function refreshMonitor($: $, isForced = false) {
             behind: Number(text(pick(a, f.appBehind ?? 'commitsBehindHead')) ?? 0),
             argoUrl: text(pick(a, f.appLink)) ?? '',
             datadogUrl: text(pick(a, f.appDatadog ?? 'datadogUrl')) ?? '',
-            watched: pinned.has(id) || now - Date.parse(deployedAt) < DAY_MS,
+            watched: !muted.has(id) && (pinned.has(id) || now - Date.parse(deployedAt) < DAY_MS),
             pinned: pinned.has(id),
+            muted: muted.has(id),
             monitors: null,
             series: null,
             issues: [],

@@ -22,6 +22,11 @@ impl Schedule {
         Self { every, ..Self::default() }
     }
 
+    /// Follows the config's interval for this source, from the next fetch on.
+    pub fn set_every(&mut self, every: u64) {
+        self.every = every;
+    }
+
     fn interval(&self) -> u64 {
         if self.every == 0 { EVERY } else { self.every }
     }

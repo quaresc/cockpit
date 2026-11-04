@@ -1,5 +1,6 @@
-//! My mail through a mail connector's mapping: the unread or important messages of my inbox, one read whole, archived
-//! or marked read. No mail provider has a public MCP server cockpit could map by default, so setup maps the person's.
+//! My mail through a mail connector's mapping: the unread or important messages of my inbox, one read whole with its
+//! thread, archived or marked read, and which of them need me. No mail provider has a public MCP server cockpit could
+//! map by default, so setup maps the person's.
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Value, json};
@@ -12,12 +13,15 @@ const MAX_MESSAGES: usize = 30;
 const MAX_SNIPPET: usize = 200;
 /// A message's body as an agent's prompt carries it.
 const MAX_BODY: usize = 8000;
+/// A thread message's HTML, past which it is cut.
+const MAX_HTML: usize = 400_000;
 
-/// The field names a mapping that gives none reads, the messages' own names.
+/// The field names a mapping that gives none reads: the messages' own names, then Gmail's in either case.
 fn fields() -> Value {
     json!({
-        "messages": "messages", "id": "id", "threadId": "threadId", "from": "from", "fromName": "fromName", "subject": "subject",
-        "snippet": "snippet", "url": "url", "date": "date", "unread": "unread", "body": "body"
+        "messages": "messages", "id": "id", "threadId": "threadId", "from": "from|sender", "fromName": "fromName", "subject": "subject",
+        "snippet": "snippet", "url": "url|viewUrl|view_url", "date": "date", "unread": "unread", "labels": "labels|labelIds|label_ids",
+        "body": "body|text|plaintextBody|plaintext_body", "html": "html|htmlBody|html_body", "thread": "messages"
     })
 }
 
@@ -57,6 +61,71 @@ pub async fn get(tools: &impl Tools, mapping: &Value, message: &Value) -> Result
     Ok(read)
 }
 
+/// A message's whole thread, oldest first, as `{id, from, fromName, date, html, text}` (`id` each message's own); `get` answers with the thread's
+/// messages at the `thread` field, else with the one message.
+pub async fn thread(tools: &impl Tools, mapping: &Value, message: &Value) -> Result<Vec<Value>, String> {
+    let answer = tools.call("get", &values(message)).await?;
+    Ok(thread_of(&answer, mapping))
+}
+
+/// The thread in a `get` answer.
+pub fn thread_of(answer: &Value, mapping: &Value) -> Vec<Value> {
+    let listed = list_at(answer, &field(mapping, "thread"));
+    let raws = if listed.is_empty() { vec![answer] } else { listed };
+    let mut messages: Vec<Value> = raws
+        .into_iter()
+        .map(|raw| {
+            let get = |name: &str| text(pick(raw, &field(mapping, name))).unwrap_or_default();
+            let (address, named) = sender(&get("from"));
+            let from_name = Some(get("fromName")).filter(|n| !n.is_empty()).or(named).unwrap_or_else(|| address.clone());
+            let date = pick(raw, &field(mapping, "date")).map(|d| iso(d).unwrap_or_else(|| text(Some(d)).unwrap_or_default())).unwrap_or_default();
+            let html: String = get("html").chars().take(MAX_HTML).collect();
+            json!({"id": text(raw.get("id")).unwrap_or_default(), "from": address, "fromName": from_name, "date": date, "html": html, "text": get("body")})
+        })
+        .filter(|m| m["html"] != "" || m["text"] != "" || m["from"] != "")
+        .collect();
+    messages.sort_by_key(|m| stamp(&m["date"]));
+    messages
+}
+
+/// Whether a message needs me: an automated sender never does; else one labelled IMPORTANT does, then anything Gmail
+/// files as updates, forums, promotions or social does not, and a person's message does.
+pub fn needs_you(message: &Value) -> bool {
+    let labels: Vec<String> = message["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_uppercase).collect();
+    if is_automated(message["from"].as_str().unwrap_or_default(), message["fromName"].as_str().unwrap_or_default()) {
+        return false;
+    }
+    if labels.iter().any(|l| l == "IMPORTANT") {
+        return true;
+    }
+    !labels.iter().any(|l| ["CATEGORY_UPDATES", "CATEGORY_FORUMS", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL"].contains(&l.as_str()))
+}
+
+/// A sender that is a machine: a no-reply, notification, bounce or bot address, or a name saying so.
+fn is_automated(address: &str, name: &str) -> bool {
+    let local = address.split('@').next().unwrap_or_default().to_lowercase();
+    let joined: String = local.chars().filter(char::is_ascii_alphanumeric).collect();
+    let starts = ["noreply", "donotreply", "notification", "notify", "mailerdaemon", "bounce", "postmaster"];
+    let words = ["bot", "alert", "alerts", "news", "newsletter", "digest", "updates", "automated", "robot"];
+    starts.iter().any(|p| joined.starts_with(p)) || local.split(['-', '_', '.', '+']).any(|w| words.contains(&w)) || name.to_lowercase().contains("[bot]")
+}
+
+/// The sidebar's line for the mail document: how many messages need me; None before any fetch.
+pub fn row_text(doc: &Value) -> Option<String> {
+    let messages = doc["messages"].as_array()?;
+    let needs = messages.iter().filter(|m| needs_you(m)).count();
+    Some(match (needs, messages.len()) {
+        (0, 0) => "\u{f42f}  inbox zero".to_string(),
+        (0, _) => "\u{f42f}  nothing needs you".to_string(),
+        (n, _) => format!("\u{f42f}  {n} need you"),
+    })
+}
+
+/// The file name a message's cached thread goes by, safe whatever its id holds.
+pub fn cache_name(id: &str) -> String {
+    id.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' }).collect::<String>().trim_start_matches('.').to_string()
+}
+
 /// Archives a message, out of the inbox.
 pub async fn archive(tools: &impl Tools, message: &Value) -> Result<(), String> {
     tools.call("archive", &values(message)).await.map(|_| ())
@@ -93,9 +162,10 @@ fn message(raw: &Value, mapping: &Value) -> Option<Value> {
     let unread_field = field(mapping, "unread");
     let unread = unread_field.is_empty() || pick(raw, &unread_field).is_some_and(is_unread);
     let date = pick(raw, &field(mapping, "date")).map(|d| iso(d).unwrap_or_else(|| text(Some(d)).unwrap_or_default())).unwrap_or_default();
+    let labels: Vec<Value> = pick(raw, &field(mapping, "labels")).and_then(Value::as_array).into_iter().flatten().filter(|l| l.is_string()).cloned().collect();
     Some(json!({
         "id": id, "threadId": thread, "from": address, "fromName": from_name, "subject": get("subject").unwrap_or_default(),
-        "snippet": snippet.chars().take(MAX_SNIPPET).collect::<String>(), "url": url, "date": date, "unread": unread,
+        "snippet": snippet.chars().take(MAX_SNIPPET).collect::<String>(), "url": url, "date": date, "unread": unread, "labels": labels,
     }))
 }
 
@@ -199,5 +269,45 @@ mod tests {
         let read = crate::block_on(get(&fake, &mapping(&json!({})), &json!({"id": "m1"}))).unwrap();
         assert_eq!((&read["fromName"], &read["subject"], &read["body"]), (&json!("Ana"), &json!("Lunch?"), &json!("Shall we?")));
         assert!(crate::block_on(archive(&Fake::default(), &json!({"id": "m1"}))).is_err(), "no tool mapped");
+    }
+
+    #[test]
+    fn a_gmail_thread_maps_in_either_case_oldest_first() {
+        // Gmail's get_thread with FULL_CONTENT, camelCase as the connector answers and snake_case as it documents.
+        let answer = json!({"id": "t1", "messages": [
+            {"id": "m2", "sender": "Maya <maya@example.com>", "date": "2026-11-04T10:00:00Z", "htmlBody": "<p>Yes</p>", "plaintextBody": "Yes"},
+            {"id": "m1", "sender": "me@acme.example", "date": "2026-11-03T09:00:00Z", "plaintext_body": "Lunch?", "html_body": ""}
+        ]});
+        let fake = Fake::default().with("get", answer);
+        let thread = crate::block_on(thread(&fake, &mapping(&json!({})), &json!({"id": "t1", "threadId": "t1"}))).unwrap();
+        assert_eq!(fake.calls.borrow()[0].1, json!({"message": "t1", "thread": "t1"}));
+        assert_eq!(thread.len(), 2);
+        assert_eq!((&thread[0]["id"], &thread[0]["text"], &thread[0]["fromName"]), (&json!("m1"), &json!("Lunch?"), &json!("me@acme.example")));
+        assert_eq!((&thread[1]["fromName"], &thread[1]["from"], &thread[1]["html"]), (&json!("Maya"), &json!("maya@example.com"), &json!("<p>Yes</p>")));
+        let single = thread_of(&json!({"from": "Sam <sam@example.com>", "body": "Hi"}), &mapping(&json!({"fields": {"thread": "items"}})));
+        assert_eq!((single.len(), &single[0]["text"]), (1, &json!("Hi")));
+    }
+
+    #[test]
+    fn people_and_important_mail_need_me_and_machines_do_not() {
+        let m = |from: &str, labels: &[&str]| json!({"from": from, "fromName": "", "labels": labels});
+        assert!(needs_you(&m("maya@example.com", &["INBOX", "UNREAD"])));
+        assert!(needs_you(&m("sam@example.com", &["CATEGORY_UPDATES", "IMPORTANT"])));
+        assert!(!needs_you(&m("sam@example.com", &["CATEGORY_PROMOTIONS"])));
+        assert!(!needs_you(&m("no-reply@example.com", &["IMPORTANT"])));
+        assert!(!needs_you(&m("notifications@github.example", &[])));
+        assert!(!needs_you(&json!({"from": "ci@example.com", "fromName": "dependabot[bot]"})));
+        assert!(needs_you(&m("steve.newson@example.com", &[])), "a word inside a name is not a machine's");
+        assert_eq!(row_text(&json!({"messages": [m("maya@example.com", &[]), m("noreply@example.com", &[])]})).unwrap(), "\u{f42f}  1 need you");
+        assert_eq!(row_text(&json!({"messages": []})).unwrap(), "\u{f42f}  inbox zero");
+        assert_eq!(row_text(&Value::Null), None);
+        assert_eq!(cache_name("../a/b:c"), "_a_b_c");
+    }
+
+    #[test]
+    fn listed_messages_keep_their_labels() {
+        let fake = Fake::default().with("listInbox", json!({"messages": [{"id": "a", "labelIds": ["INBOX", "IMPORTANT", 3]}]}));
+        let messages = crate::block_on(inbox(&fake, &mapping(&json!({})))).unwrap();
+        assert_eq!(messages[0]["labels"], json!(["INBOX", "IMPORTANT"]));
     }
 }

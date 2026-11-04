@@ -20,6 +20,7 @@ const APPS = {
   meetings: { label: "Meetings", icon: "calendar", key: "⌘⌥4" },
   monitor: { label: "Monitor", icon: "activity", key: "⌘⌥5" },
   routines: { label: "Routines", icon: "clock", key: "⌘⌥6" },
+  mail: { label: "Mail", icon: "mail", key: "⌘⌥7" },
 };
 const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
 
@@ -34,6 +35,7 @@ function appBadge(app, v) {
     return of((t.alerts ?? 0) + (t.failed ?? 0), "destructive") ?? of(t.newErrors, "warning");
   }
   if (app === "routines") return of(v.tiles?.unread, v.tiles?.failing ? "destructive" : "warning");
+  if (app === "mail") return of(v.counts?.needs, "warning");
   if (app === "meetings") {
     const now = Date.now();
     const left = (v.meetings ?? []).filter((m) => m.day === v.today && (m.end ?? 0) > now).length;
@@ -78,7 +80,7 @@ export default class Sidebar {
       } catch {}
       cx.notify();
     });
-    this.sub = hub.subscribe(cx, { views: ["todo", "inbox", "monitor", "routines", "meetings"], notify: true }, (m, cx) => {
+    this.sub = hub.subscribe(cx, { views: ["todo", "inbox", "monitor", "routines", "meetings", "mail"], notify: true }, (m, cx) => {
       if (m.view) this.counts[m.view] = appBadge(m.view, m.value);
       if (m.notify) this.toast(m.notify, cx);
       cx.notify();
@@ -209,6 +211,7 @@ export default class Sidebar {
       })
       .on_mouse_up("left", (_e, cx) => {
         this.drag = null;
+        this.appDrag = null;
         cx.notify();
       })
       .px(rail ? 6 : 10)
@@ -275,6 +278,11 @@ export default class Sidebar {
       .children(
         items.map((a) => {
           const on = active === a.child;
+          // Home stays first; the pinned apps move by drag and drop, the config's order following.
+          const movable = a.child !== "home";
+          const d = this.appDrag;
+          const dragging = d && d.from === a.child && d.over !== a.child;
+          const over = d && d.over === a.child && d.from !== a.child;
           return h_flex()
             .id(`nav-${a.child}`)
             .flex_1()
@@ -287,6 +295,29 @@ export default class Sidebar {
             .text_color(on ? k.foreground : k.mutedFg)
             .when(on, (e) => e.bg(k.background).shadow_sm())
             .when(!on, (e) => e.hover((s) => s.bg(k.accent).text_color(k.foreground)))
+            .when(Boolean(dragging), (e) => e.opacity(0.4))
+            .when(Boolean(over), (e) => e.child(div().absolute().top(4).bottom(4).w(2).rounded(1).bg(k.ring).when(this.appDropAfter(a.child), (l) => l.right(0)).when(!this.appDropAfter(a.child), (l) => l.left(0))))
+            .when(movable, (e) =>
+              e
+                .on_mouse_down("left", () => {
+                  this.appDrag = { from: a.child, over: a.child };
+                })
+                .on_mouse_move((_e, cx) => {
+                  if (this.appDrag && this.appDrag.over !== a.child) {
+                    this.appDrag.over = a.child;
+                    cx.notify();
+                  }
+                })
+                .on_mouse_up("left", (_e, cx) => {
+                  const drag = this.appDrag;
+                  this.appDrag = null;
+                  if (drag && drag.from !== a.child) {
+                    cx.stop_propagation();
+                    this.moveApp(drag.from, a.child);
+                    cx.notify();
+                  }
+                }),
+            )
             .on_click((_e, cx) => {
               show(a.child);
               cx.notify();
@@ -296,6 +327,21 @@ export default class Sidebar {
             .when(Boolean(a.count), (e) => e.child(CornerCount(a.count, { tone: a.tone ?? k.primary, top: -3, right: -2 })));
         }),
       );
+  }
+
+  /** Whether a drop on `child` lands after it: dragging rightwards. */
+  appDropAfter(child) {
+    const d = this.appDrag;
+    return Boolean(d) && this.spaces.indexOf(d.from) < this.spaces.indexOf(child);
+  }
+
+  /** Moves a pinned app to where another one is, then saves the order and re-pins herdr's spaces to match. */
+  moveApp(from, to) {
+    const order = this.spaces.filter((s) => s !== from);
+    const at = order.indexOf(to) + (this.spaces.indexOf(from) < this.spaces.indexOf(to) ? 1 : 0);
+    order.splice(at, 0, from);
+    this.spaces = order;
+    hub.act("home", "pin_order", [order]).catch(() => undefined);
   }
 
   openRecap(tab) {

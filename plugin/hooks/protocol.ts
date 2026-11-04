@@ -10,6 +10,7 @@ const REQUEST_FIELDS = {
   'stop-preview': { preview: 'string' },
   'mail-archive': { message: 'string' },
   'mail-read': { message: 'string' },
+  'mail-get': { message: 'string' },
 } as const
 
 type Fields = typeof REQUEST_FIELDS
