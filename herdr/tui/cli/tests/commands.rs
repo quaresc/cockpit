@@ -650,7 +650,7 @@ fn doctor_prints_a_line_per_check() {
         "ok    CI from GitHub checks".into(),
         "ok    allow rule for platform".into(),
         "fail  no allow rule for claude.ai Linear: background refreshes are refused → add \"mcp__claude_ai_Linear\" to permissions.allow".into(),
-        "ok    allow rule for mcp__metabase__query".into(),
+        "ok    allow rule for mcp__metabase__execute_query".into(),
     ] {
         assert!(lines.contains(&line.as_str()), "{line}\n{printed}");
     }

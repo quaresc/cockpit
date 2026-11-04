@@ -14,15 +14,21 @@ export async function mcpText($: $, server: string, tool: string, args: Record<s
   return text
 }
 
-// A Metabase result, a saved question or an MBQL query, as columns and rows.
+// A Metabase result, a saved question or an MBQL query, as columns and rows: its answer is the first text block, the
+// ones after it say how many rows came back.
 async function metabase($: $, source: Block): Promise<Rows> {
   const server = (await loadConfig($)).metabase.server
-  const text = typeof source.question === 'number'
-    ? await mcpText($, server, 'execute_question', { id: source.question })
-    : await mcpText($, server, 'query', { query: source.query, query_handle: null, continuation_token: null })
-  const answer = JSON.parse(text) as { data?: { rows?: unknown[][]; cols?: { display_name?: string; name?: string }[] }; status?: string; error?: string }
-  if (answer.status === 'failed' || !answer.data) throw new Error(`Metabase: ${answer.error ?? 'no data'}`)
-  return { columns: (answer.data.cols ?? []).map(c => c.display_name ?? c.name ?? '?'), rows: answer.data.rows ?? [] }
+  const [tool, args] = typeof source.question === 'number'
+    ? ['run_saved_question', { id: source.question, parameters: null, row_limit: 2000 }]
+    : ['execute_query', { query: source.query, query_handle: null, cursor: null, prompt: null, validate_only: null, row_limit: 2000 }]
+  const result = await $.mcp.call(server, tool, args)
+  const text = result.content.map(c => ('text' in c ? String(c.text) : '')).find(t => t.trim() !== '') ?? ''
+  if (result.isError) throw new Error(`${server} ${tool}: ${text.slice(0, 200)}`)
+  type Answer = { rows?: unknown[][]; cols?: { display_name?: string; name?: string }[] }
+  const answer = JSON.parse(text) as Answer & { data?: Answer; status?: string; error?: string }
+  const data = answer.data ?? answer
+  if (answer.status === 'failed' || !data.cols) throw new Error(`Metabase: ${answer.error ?? 'no data'}`)
+  return { columns: data.cols.map(c => c.display_name ?? c.name ?? '?'), rows: data.rows ?? [] }
 }
 
 const POINTS = 60

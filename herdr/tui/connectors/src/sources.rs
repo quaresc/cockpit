@@ -26,8 +26,11 @@ pub async fn rows(tools: &impl Tools, source: &Value, servers: &Value) -> Result
     if is_metabase(source) {
         let source = &source["metabase"];
         let text = match source["question"].as_f64() {
-            Some(_) => call("execute_question", json!({"id": source["question"]})).await?,
-            None => call("query", json!({"query": source["query"], "query_handle": null, "continuation_token": null})).await?,
+            Some(_) => call("run_saved_question", json!({"id": source["question"], "parameters": null, "row_limit": 2000})).await?,
+            None => {
+                let args = json!({"query": source["query"], "query_handle": null, "cursor": null, "prompt": null, "validate_only": null, "row_limit": 2000});
+                call("execute_query", args).await?
+            }
         };
         return metabase(&text);
     }
@@ -48,11 +51,13 @@ fn is_metabase(source: &Value) -> bool {
     !source["metabase"].is_null() && source["metabase"] != false && source["metabase"] != 0 && source["metabase"] != ""
 }
 
-/// A Metabase answer's columns, by display name, and rows as they are.
+/// A Metabase answer's columns, by display name, and rows as they are; the answer may wrap them in `data`, and text may
+/// follow it (how many rows came back).
 fn metabase(text: &str) -> Result<Value, String> {
-    let answer: Value = serde_json::from_str(text).map_err(|e| format!("Metabase: {e}"))?;
-    let data = &answer["data"];
-    if answer["status"] == "failed" || data.is_null() {
+    let answer: Value =
+        serde_json::Deserializer::from_str(text).into_iter().next().ok_or("Metabase: an empty answer")?.map_err(|e| format!("Metabase: {e}"))?;
+    let data = if answer["data"].is_object() { &answer["data"] } else { &answer };
+    if answer["status"] == "failed" || data["cols"].is_null() {
         return Err(format!("Metabase: {}", answer["error"].as_str().unwrap_or("no data")));
     }
     let columns: Vec<Value> = data["cols"]
@@ -154,26 +159,30 @@ mod tests {
 
     #[test]
     fn a_saved_question_reads_as_its_columns_and_rows() {
+        // Metabase's MCP answers {cols, rows} at the top, then a line on how many rows came back.
         let answer = json!({
-            "status": "completed", "row_count": 2,
-            "data": {"cols": [{"name": "CREATED_AT", "display_name": "Created At: Day"}, {"name": "count"}], "rows": [["2026-11-03", 12], ["2026-11-04", 7]]}
+            "returned": 2, "truncated": false,
+            "cols": [{"name": "inserted_at", "display_name": "Inserted At: Day"}, {"name": "count"}], "rows": [["2026-11-03", 12], ["2026-11-04", 7]]
         });
-        let fake = Fake::default().with("execute_question", json!(answer.to_string()));
+        let fake = Fake::default().with("run_saved_question", json!(format!("{answer}\nreturned 2 rows")));
         let source = json!({"metabase": {"question": 4210}});
         let rows = crate::block_on(rows(&fake, &source, &servers())).unwrap();
-        assert_eq!(rows, json!({"columns": ["Created At: Day", "count"], "rows": [["2026-11-03", 12], ["2026-11-04", 7]]}));
-        assert_eq!(fake.calls.borrow()[0], ("execute_question".to_string(), json!({"id": 4210})));
+        assert_eq!(rows, json!({"columns": ["Inserted At: Day", "count"], "rows": [["2026-11-03", 12], ["2026-11-04", 7]]}));
+        assert_eq!(fake.calls.borrow()[0], ("run_saved_question".to_string(), json!({"id": 4210, "parameters": null, "row_limit": 2000})));
     }
 
     #[test]
-    fn an_mbql_query_and_a_failed_one() {
-        let failed = json!({"status": "failed", "error": "Table 12 not found"});
-        let fake = Fake::default().with("query", json!(failed.to_string()));
-        let query = json!({"database": 2, "type": "query", "query": {"source-table": 12, "aggregation": [["count"]]}});
+    fn an_mbql_query_an_older_answer_and_a_failed_one() {
+        let older = json!({"status": "completed", "data": {"cols": [{"name": "count"}], "rows": [[3]]}});
+        let fake = Fake::default().with("execute_query", json!(older.to_string()));
+        let query = json!({"lib/type": "mbql/query", "stages": [{"source-table": 12, "aggregation": [["count", {}]]}]});
         let source = json!({"metabase": {"query": query}});
-        let error = crate::block_on(rows(&fake, &source, &servers())).unwrap_err();
-        assert_eq!(error, "Metabase: Table 12 not found");
-        assert_eq!(fake.calls.borrow()[0].1, json!({"query": query, "query_handle": null, "continuation_token": null}));
+        assert_eq!(crate::block_on(rows(&fake, &source, &servers())).unwrap(), json!({"columns": ["count"], "rows": [[3]]}));
+        let args = json!({"query": query, "query_handle": null, "cursor": null, "prompt": null, "validate_only": null, "row_limit": 2000});
+        assert_eq!(fake.calls.borrow()[0].1, args);
+        let failed = json!({"status": "failed", "error": "Table 12 not found"});
+        let fake = Fake::default().with("execute_query", json!(failed.to_string()));
+        assert_eq!(crate::block_on(rows(&fake, &source, &servers())).unwrap_err(), "Metabase: Table 12 not found");
     }
 
     #[test]

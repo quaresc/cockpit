@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.34.1 (2026-11-04)
+
+- Show panes and the doctor call Metabase's MCP tools by their current names (`run_saved_question`, `execute_query`)
+  and read its answers' columns and rows.
+
 ## 0.34.0 (2026-11-04)
 
 - cockpit's hub is an MCP client: tickets, CI runs, meetings, deploys and previews, the release monitor and the show

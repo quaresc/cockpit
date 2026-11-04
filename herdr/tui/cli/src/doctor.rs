@@ -725,7 +725,7 @@ impl Doctor {
             }
         }
         // The read-only tools live show panes call, and the monitor space's when it is pinned.
-        let mut tools = vec![("datadog", "get_datadog_metric"), ("metabase", "query")];
+        let mut tools = vec![("datadog", "get_datadog_metric"), ("metabase", "execute_query"), ("metabase", "run_saved_question")];
         if pinned_spaces(self.settings.as_ref()).iter().any(|s| s == "monitor") {
             tools.extend([("datadog", "search_datadog_monitors"), ("datadog", "search_datadog_error_tracking_issues")]);
         }
