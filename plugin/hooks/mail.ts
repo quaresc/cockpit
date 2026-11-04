@@ -10,14 +10,16 @@ import { withLease, writeDoc } from './store'
 type $ = EngineInterface
 
 // Unread mail through Claude Code's mail connector, for a mail server the hub does not reach itself: the same `mail`
-// document the hub writes (crates/connectors mail.rs), refreshed every two minutes by one session, and the threads the
-// mail space asks to read whole, kept a week in mail/<id>.json.
+// document the hub writes (crates/connectors mail.rs), refreshed by one session, and the threads read whole ahead of
+// time (or when the mail space asks), kept a week in mail/<id>.json.
 
 const STALE_MS = 2 * 60_000
 const MAX_MESSAGES = 30
 const MAX_SNIPPET = 200
 const MAX_HTML = 400_000
 const KEEP_THREADS_MS = 7 * 86_400_000
+// How many threads one refresh reads ahead, so a full inbox fills over a few refreshes.
+const READ_AHEAD = 10
 
 export type MailMessage = {
   id: string
@@ -107,6 +109,7 @@ export function refreshMail($: $, isForced = false) {
         await writeDoc($, 'mail', { at: Date.now(), messages, notified: unread })
         if (fresh.length > 3) await notify($, `✉️ ${fresh.length} new mails`, fresh.slice(0, 3).map(m => `${m.fromName}: ${m.subject}`).join('\n'), 'space:mail')
         else for (const m of fresh) await notify($, `✉️ ${m.fromName}`, m.subject || m.snippet, `mail:${m.id}`)
+        await readAhead($, messages)
       })
     } finally {
       inflight = undefined
@@ -146,6 +149,27 @@ export function threadOf(mail: Mail, answer: unknown): ThreadMessage[] {
     })
     .filter(m => m.html || m.text || m.from)
     .sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0))
+}
+
+// Whether a kept thread holds the message: read without error since its date, as a reply landing makes it stale.
+export const isFresh = (doc: { at: number; error?: string } | null, m: Pick<MailMessage, 'date'>) => Boolean(doc && !doc.error && doc.at >= (Date.parse(m.date) || 0))
+
+async function keptFresh($: $, m: MailMessage) {
+  const doc = await $.fs.read(`${await cacheDir($)}/mail/${threadFile(m.id)}`).then(t => JSON.parse(t) as { at: number; error?: string }).catch(() => null)
+  return isFresh(doc, m)
+}
+
+// The threads of the listed messages read ahead, so opening one is instant: the newest first, a few per refresh.
+async function readAhead($: $, messages: MailMessage[]) {
+  const { mail } = await loadConfig($)
+  if (!mail.tools.get?.tool) return
+  let read = 0
+  for (const m of messages) {
+    if (read >= READ_AHEAD) return
+    if (await keptFresh($, m)) continue
+    read++
+    await mailGet($, m.id).catch(() => undefined)
+  }
 }
 
 // The file a message's thread is kept in, safe whatever its id holds; the hub names it the same (connectors mail.rs).

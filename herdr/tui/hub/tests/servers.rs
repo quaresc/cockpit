@@ -162,13 +162,15 @@ fn every_source_reads_through_its_server() {
         "fastmail",
         json!({
             "mail_search": {"_list": [{"id": "m1", "threadId": "t1", "from": "Ana <ana@acme.io>", "subject": "Quota numbers", "snippet": "Here they are",
-                "date": at(-5), "unread": true}]}
+                "date": at(-5), "unread": true}]},
+            "get_thread": {"from": "Ana <ana@acme.io>", "date": at(-5), "html": "<p>Here they are</p>", "body": "Here they are"}
         }),
     );
     let config = json!({
         "github": {"enabled": false},
         "servers": {"gitlab": code, "circleci": ci, "outlook": calendar, "platform": platform, "grafana": grafana, "jira": jira, "fastmail": mail},
-        "mail": {"enabled": true, "name": "Fastmail", "server": "fastmail", "tools": {"listInbox": {"tool": "mail_search"}},
+        "mail": {"enabled": true, "name": "Fastmail", "server": "fastmail",
+            "tools": {"listInbox": {"tool": "mail_search"}, "get": {"tool": "get_thread", "args": {"threadId": "{thread}"}}},
             "fields": {"messages": "", "id": "id", "threadId": "threadId", "from": "from", "subject": "subject", "snippet": "snippet", "date": "date",
                 "unread": "unread"}, "urlTemplate": "https://mail.acme.io/{id}"},
         "code": {"name": "GitLab", "server": "gitlab",
@@ -227,6 +229,9 @@ fn every_source_reads_through_its_server() {
     let mail = wait_for(&cache.join("mail.json"), |v| v["by"] == "hub");
     let message = &mail["messages"][0];
     assert_eq!((&message["fromName"], &message["subject"], &message["url"]), (&json!("Ana"), &json!("Quota numbers"), &json!("https://mail.acme.io/m1")));
+    // Its thread is read ahead with the listing, so the mail space opens it at once.
+    let ahead = wait_for(&cache.join("mail/m1.json"), |v| v["messages"].as_array().is_some_and(|m| !m.is_empty()));
+    assert_eq!((&ahead["messages"][0]["fromName"], ahead["error"].is_null()), (&json!("Ana"), true));
 
     let monitor = wait_for(&cache.join("monitor.json"), |v| v["by"] == "hub");
     let app = &monitor["apps"][0];

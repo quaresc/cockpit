@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cockpit_connectors::mail;
-use cockpit_connectors::tools::Mapped;
+use cockpit_connectors::tools::{Mapped, Tools};
 use serde_json::{Value, json};
 
 use crate::value::list;
@@ -17,11 +17,33 @@ const KEEP_THREADS: Duration = Duration::from_secs(7 * 86_400);
 /// The ids `notified` keeps, so a message that leaves the list and comes back is not announced again.
 const KEEP_NOTIFIED: usize = 300;
 
-/// My inbox through the mail server; None when no server serves the `mail` section.
+/// How many threads one round reads ahead, so a full inbox fills over a few rounds without holding the feed up.
+const READ_AHEAD: usize = 10;
+
+/// My inbox through the mail server, and the threads of the listed messages read ahead over the same connection, so
+/// opening one is instant; None when no server serves the `mail` section.
 pub fn fetch(raw: &Value, config: &Value) -> Option<Result<Vec<Value>, String>> {
     let server = crate::feed::mcp::server(raw, config, "mail")?;
     let mapping = mail::mapping(&raw["mail"]);
-    Some(crate::feed::mcp::with(&server, async |c| mail::inbox(&Mapped { connection: c, section: &mapping }, &mapping).await))
+    Some(crate::feed::mcp::with(&server, async |c| {
+        let tools = Mapped { connection: c, section: &mapping };
+        let messages = mail::inbox(&tools, &mapping).await?;
+        let ahead = if tools.has("get") { READ_AHEAD } else { 0 };
+        for message in messages.iter().filter(|m| !kept_fresh(m)).take(ahead) {
+            let id = message["id"].as_str().unwrap_or_default();
+            if !id.is_empty() {
+                keep_thread(id, mail::thread(&tools, &mapping, message).await);
+            }
+        }
+        Ok(messages)
+    }))
+}
+
+/// Whether the message's thread is kept, read since the message's date: a reply landing makes it stale.
+pub fn kept_fresh(message: &Value) -> bool {
+    let Some(doc) = cockpit_core::files::load(&thread_path(message["id"].as_str().unwrap_or_default())) else { return false };
+    let date = message["date"].as_str().and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok()).map_or(0, |d| d.timestamp_millis());
+    doc["error"].is_null() && doc["at"].as_i64().unwrap_or(0) >= date
 }
 
 /// The `mail` document after a fetch: its messages, and every unread one in `notified`; a failed fetch keeps the

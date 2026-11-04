@@ -5,6 +5,13 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.38.1 (2026-11-04)
+
+- Mail opens at once: each refresh also reads the threads of the listed mail ahead (a few at a time, again when a reply
+  lands), through the hub's mail server or Claude Code's connector.
+- Long threads load: an answer too long for Claude Code, which it saves to a file, is read from that file.
+- Claude sessions take requests within a second, so a mail opened before it was read ahead loads in a couple of seconds.
+
 ## 0.38.0 (2026-11-04)
 
 - Every agent's links in the Herdr app's status bar, named after their tool and always in the same order: GitHub (its

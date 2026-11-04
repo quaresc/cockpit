@@ -84,8 +84,11 @@ export async function callRecipe($: $, server: string, recipe: Recipe, values: R
   const args = { ...Object.fromEntries(filled), ...extra }
   const result = await $.mcp.call(server, recipe.tool, args)
   const block = result.content.find(c => c.type === 'text')
-  const body = block && 'text' in block ? String(block.text) : ''
-  if (result.isError) throw new Error(`${server} ${recipe.tool}: ${body.slice(0, 160)}`)
+  const answered = block && 'text' in block ? String(block.text) : ''
+  if (result.isError) throw new Error(`${server} ${recipe.tool}: ${answered.slice(0, 160)}`)
+  // Claude Code saves an answer too long for the model to a file and answers with its path: the whole answer is there.
+  const saved = answered.match(/exceeds maximum allowed tokens\. Output has been saved to (\/\S+?\.(?:txt|json))/)?.[1]
+  const body = saved ? await $.fs.read(saved).catch(() => answered) : answered
   try {
     return body ? (JSON.parse(body) as unknown) : {}
   } catch {

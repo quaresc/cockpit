@@ -74,7 +74,8 @@ export const register: Register = on => {
     every(2_000, () => void $.session.id().then(id => collectAnswers($, id)).catch(() => undefined))
     // A chart or table with a Metabase or Datadog source refreshes while its pane is open.
     fetch(15_000, () => void $.session.id().then(id => refreshSources($, id)).catch(() => undefined))
-    fetch(5_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
+    // Requests wait on this: a mail opened before it was read ahead loads as soon as a session takes it.
+    fetch(1_000, () => void processRequests($, () => void refreshCi($, true).catch(() => undefined)))
     // An action anywhere (the inbox, the hub, a notification) touches refresh-request: what this session fetches follows
     // within seconds instead of at its next minute.
     let askedSeen = Date.now()

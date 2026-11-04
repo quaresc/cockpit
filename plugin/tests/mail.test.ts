@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { messagesOf, threadFile, threadOf } from '../hooks/mail'
+import { isFresh, messagesOf, threadFile, threadOf } from '../hooks/mail'
 import { checkRequest } from '../hooks/protocol'
 
 // Claude's Gmail connector answers search_threads with threads and, in the summary view, their latest message.
@@ -53,4 +53,13 @@ test('a Gmail thread reads whole in either case, oldest first, as the mail space
 test('the mail space asks a session for a thread with a mail-get request', () => {
   expect(checkRequest({ type: 'mail-get', label: 'Invitation', message: 't2' })).toEqual({ request: { type: 'mail-get', label: 'Invitation', message: 't2' } })
   expect(checkRequest({ type: 'mail-get', label: 'Invitation' })).toMatchObject({ refusal: expect.stringContaining('mail-get needs message as a string') })
+})
+
+test('a kept thread is read again when a reply lands after it, or when reading it failed', () => {
+  const date = '2026-11-04T10:00:00Z'
+  const at = Date.parse(date)
+  expect(isFresh({ at: at + 1 }, { date })).toBe(true)
+  expect(isFresh({ at: at - 1 }, { date })).toBe(false)
+  expect(isFresh({ at: at + 1, error: 'Gmail timed out' }, { date })).toBe(false)
+  expect(isFresh(null, { date })).toBe(false)
 })

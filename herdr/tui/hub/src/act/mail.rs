@@ -89,7 +89,7 @@ pub fn thread(ctx: &mut Ctx, args: &[Value]) -> Res {
     let id = text(&message["id"]);
     kept::prune_threads();
     let path = kept::thread_path(&id);
-    if files::load(&path).is_some_and(|doc| doc["error"].is_null()) {
+    if kept::kept_fresh(&message) {
         return Ok(());
     }
     let asked = path.with_extension("asked");
