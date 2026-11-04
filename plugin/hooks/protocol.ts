@@ -8,6 +8,8 @@ const REQUEST_FIELDS = {
   extend: { preview: 'string', days: 'number' },
   'create-preview': { app: 'string', branch: 'string' },
   'stop-preview': { preview: 'string' },
+  'mail-archive': { message: 'string' },
+  'mail-read': { message: 'string' },
 } as const
 
 type Fields = typeof REQUEST_FIELDS

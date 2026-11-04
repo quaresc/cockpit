@@ -222,7 +222,7 @@ fn setup(io: &mut Io) {
                 block
             }
             Source::Ics(address) => json!({"enabled": true, "name": "Calendar", "server": "", "ics": address}),
-            Source::Off if section == "code" || section == "mail" => continue,
+            Source::Off if section == "code" => continue,
             Source::Off => json!({"enabled": section == "ci", "name": "GitHub", "server": ""}),
         };
         match section {
@@ -335,7 +335,7 @@ const CLAUDE_NAMES: [(&str, &str); 7] = [
     ("Platform", ""),
     ("Datadog", "claude.ai Datadog"),
     ("GitHub", ""),
-    ("Mail", ""),
+    ("Gmail", "claude.ai Gmail"),
 ];
 
 fn section_at(section: &str) -> usize {
@@ -424,7 +424,7 @@ fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent
         ["Tickets", "CI runs", "Meetings", "Deploys and previews", "The release monitor's metrics and errors", "Pull requests", "Mail"][section_at(section)];
     let options = choices(section);
     let mut listed: Vec<String> = Vec::new();
-    let claude = claude && !["code", "mail"].contains(&section);
+    let claude = claude && section != "code";
     if claude {
         listed.push("Claude Code's connector (/cockpit:setup in Claude Code maps it)".into());
     }

@@ -56,6 +56,9 @@ fn sources(c: &Value, raw: &Value, spaces: &[String]) -> Vec<&'static str> {
     if c["platform"]["enabled"] == true && !hubs("platform") {
         out.push("platform");
     }
+    if c["mail"]["enabled"] == true && server("mail") && !hubs("mail") {
+        out.push("mail");
+    }
     if spaces.iter().any(|s| s == "monitor") && !(hubs("platform") && crate::feed::mcp::observability(raw).is_some()) {
         out.push("monitor");
     }

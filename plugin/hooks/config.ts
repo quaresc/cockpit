@@ -100,6 +100,11 @@ export type Calendar = {
   responses: Record<string, string>
 }
 
+// The mail connector, mapped like the others; Gmail's mapping is the default for a server named after it.
+export type MailCapability = 'listInbox' | 'get' | 'archive' | 'markRead'
+export type MailFields = Partial<Record<'messages' | 'id' | 'threadId' | 'from' | 'fromName' | 'subject' | 'snippet' | 'url' | 'date' | 'unread' | 'body', string>>
+export type Mail = { enabled: boolean; name: string; server: string; tools: Partial<Record<MailCapability, Recipe>>; fields: MailFields; urlTemplate: string }
+
 export type Platform = {
   enabled: boolean
   server: string
@@ -125,6 +130,7 @@ export type Config = {
   recap: { enabled: boolean; awayMinutes: number }
   meetingBrief: { enabled: boolean; model: string; skip: string[]; tools: string[] }
   calendar: Calendar
+  mail: Mail
   // Connectors that show panes refresh from.
   metabase: { server: string }
   datadog: { server: string }
@@ -227,6 +233,24 @@ const GOOGLE_CALENDAR: Calendar = {
   responses: {},
 }
 
+// Claude's Gmail connector: unread inbox threads but promotions and social, one message each; archive and read drop labels.
+const GMAIL: Mail = {
+  enabled: true,
+  name: 'Gmail',
+  server: 'claude.ai Gmail',
+  tools: {
+    listInbox: { tool: 'search_threads', args: { query: 'in:inbox is:unread -category:promotions -category:social', pageSize: 30, view: 'THREAD_VIEW_SUMMARY' } },
+    get: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'PLAIN_TEXT' } },
+    archive: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['INBOX'] } },
+    markRead: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['UNREAD'] } },
+  },
+  fields: {
+    messages: 'threads[].messages', id: 'threadId', threadId: 'threadId', from: 'sender', fromName: 'addressDisplayNames.0.displayName',
+    subject: 'subject', snippet: 'snippet', url: 'viewUrl', date: 'date', unread: 'labelIds', body: 'plaintextBody',
+  },
+  urlTemplate: '',
+}
+
 const DEFAULTS: Config = {
   reposDir: '~',
   github: { enabled: true, org: '' },
@@ -237,6 +261,7 @@ const DEFAULTS: Config = {
   recap: { enabled: true, awayMinutes: 10 },
   meetingBrief: { enabled: true, model: 'sonnet', skip: ['lunch', 'focus', 'break', 'wday', 'out of office'], tools: [] },
   calendar: GOOGLE_CALENDAR,
+  mail: { enabled: false, name: 'Mail', server: '', tools: {}, fields: {}, urlTemplate: '' },
   metabase: { server: 'metabase' },
   datadog: { server: 'claude.ai Datadog' },
   monitor: {
@@ -313,6 +338,8 @@ export async function loadConfig($: $): Promise<Config> {
   if (!raw.e2eBrowser && raw.checksBrowser) raw.e2eBrowser = raw.checksBrowser === 'chrome' ? 'chrome' : 'terminal-browser'
   // A CircleCI connector named without a mapping gets CircleCI's.
   if (raw.ci?.server && !raw.ci.tools && /circleci/i.test(raw.ci.server)) raw.ci = { ...CIRCLECI, ...raw.ci }
+  // Likewise a Gmail connector named without a mapping gets Gmail's.
+  if (raw.mail?.server && !raw.mail.tools && /gmail/i.test(raw.mail.server)) raw.mail = { ...GMAIL, ...raw.mail }
   const config: Config = {
     ...DEFAULTS,
     ...raw,
@@ -321,6 +348,7 @@ export async function loadConfig($: $): Promise<Config> {
     ci: { ...DEFAULTS.ci, ...raw.ci },
     platform: { ...DEFAULTS.platform, ...raw.platform },
     calendar: { ...DEFAULTS.calendar, ...raw.calendar },
+    mail: { ...DEFAULTS.mail, ...raw.mail },
     metabase: { ...DEFAULTS.metabase, ...raw.metabase },
     datadog: { ...DEFAULTS.datadog, ...raw.datadog },
     monitor: {

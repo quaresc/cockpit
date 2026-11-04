@@ -23,6 +23,7 @@ pub fn serves(raw: &Value, config: &Value, kind: &str) -> bool {
     let section = match kind {
         "rerun" => "ci",
         "release" => "tickets",
+        "mail-archive" | "mail-read" => "mail",
         _ => "platform",
     };
     server(raw, config, section).is_some()

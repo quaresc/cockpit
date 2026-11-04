@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.36.1 (2026-11-04)
+
+- The Herdr app's Spaces fold like the agent groups: a chevron on each space hides what runs in it, and a header button
+  hides or shows them all.
+- Mail through Claude Code's Gmail connector (or another mail connector), for a mail server cockpit does not reach
+  itself: `mail: {"enabled": true, "server": "claude.ai Gmail"}` maps Gmail on its own; archive and mark read go through
+  a Claude session, and `cockpit doctor` names the allow rules mail needs.
+
 ## 0.36.0 (2026-11-04)
 
 - Every source and action works with any tool and any agent through cockpit's own MCP servers:

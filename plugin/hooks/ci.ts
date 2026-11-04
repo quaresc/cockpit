@@ -9,6 +9,7 @@ import { ciChanges, hasTicket } from './match'
 import { checkRequest } from './protocol'
 import type { Outcome } from './protocol'
 import { withLease, writeDoc } from './store'
+import { mailRequest } from './mail'
 import { completeTicket } from './tickets'
 
 type $ = EngineInterface
@@ -495,6 +496,9 @@ export async function processRequests($: $, onDone: () => void) {
         await extendPreview($, request.preview, request.days)
         await result('done', `extended by ${request.days} days`)
         await notify($, '🧪 Preview', `${request.preview} extended by ${request.days} days and redeploying`, await previewAction($, request.preview))
+      } else if (request.type === 'mail-archive' || request.type === 'mail-read') {
+        await mailRequest($, request.type, request.message)
+        await result('done', request.type === 'mail-archive' ? 'archived' : 'marked read')
       } else {
         const state = await completeTicket($, request.ticket)
         const url = (await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`))?.tickets.find(t => t.id === request.ticket)?.url

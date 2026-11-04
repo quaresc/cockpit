@@ -21,6 +21,8 @@ const FIELDS: &[(&str, &[(&str, &str)])] = &[
     ("extend", &[("preview", "string"), ("days", "number")]),
     ("create-preview", &[("app", "string"), ("branch", "string")]),
     ("stop-preview", &[("preview", "string")]),
+    ("mail-archive", &[("message", "string")]),
+    ("mail-read", &[("message", "string")]),
 ];
 
 /// The section whose server carries a request out.
@@ -28,6 +30,7 @@ fn section_of(kind: &str) -> &'static str {
     match kind {
         "rerun" => "ci",
         "release" => "tickets",
+        "mail-archive" | "mail-read" => "mail",
         _ => "platform",
     }
 }
@@ -159,6 +162,16 @@ fn carry_out(server: &Server, config: &Config, raw: &Value, request: &Value) -> 
             let days = request["days"].as_u64().unwrap_or(1) as u32;
             mcp::with(server, async |c| platform::extend_preview(&Mapped { connection: c, section: &mapping }, &mapping, &preview, days).await)?;
             Ok((format!("extended by {days} days"), "🧪 Preview".into(), format!("{preview} extended by {days} days and redeploying"), dashboard(&preview)))
+        }
+        kind @ ("mail-archive" | "mail-read") => {
+            let mapping = cockpit_connectors::mail::mapping(section);
+            let message = serde_json::json!({"id": s("message")});
+            if kind == "mail-archive" {
+                mcp::with(server, async |c| cockpit_connectors::mail::archive(&Mapped { connection: c, section: &mapping }, &message).await)?;
+            } else {
+                mcp::with(server, async |c| cockpit_connectors::mail::mark_read(&Mapped { connection: c, section: &mapping }, &message).await)?;
+            }
+            Ok(("done".into(), "✉️ Mail".into(), format!("{} {}", if kind == "mail-archive" { "Archived" } else { "Read" }, s("label")), "space:inbox".into()))
         }
         other => Err(format!("no such request {other}")),
     }

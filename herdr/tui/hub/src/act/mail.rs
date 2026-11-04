@@ -56,7 +56,7 @@ pub fn open(ctx: &mut Ctx, args: &[Value]) -> Res {
 /// `mail_archive [message]`.
 pub fn archive(ctx: &mut Ctx, args: &[Value]) -> Res {
     let message = message(args)?;
-    let (server, mapping) = served()?;
+    let Ok((server, mapping)) = served() else { return by_session(ctx, "mail-archive", &message, "archiving") };
     crate::feed::mcp::with(&server, async |c| mail::archive(&Mapped { connection: c, section: &mapping }, &message).await)?;
     change(&text(&message["id"]), |_| None);
     ctx.note(format!("archived {}", text(&message["subject"])));
@@ -66,7 +66,7 @@ pub fn archive(ctx: &mut Ctx, args: &[Value]) -> Res {
 /// `mail_read [message]`: marked read.
 pub fn read(ctx: &mut Ctx, args: &[Value]) -> Res {
     let message = message(args)?;
-    let (server, mapping) = served()?;
+    let Ok((server, mapping)) = served() else { return by_session(ctx, "mail-read", &message, "marking read") };
     crate::feed::mcp::with(&server, async |c| mail::mark_read(&Mapped { connection: c, section: &mapping }, &message).await)?;
     change(&text(&message["id"]), |m| {
         let mut m = m.clone();
@@ -75,6 +75,13 @@ pub fn read(ctx: &mut Ctx, args: &[Value]) -> Res {
     });
     ctx.note(format!("marked {} read", text(&message["subject"])));
     Ok(())
+}
+
+/// A change a Claude Code session's mail connector makes, filed as a request, when the hub reaches no mail server.
+fn by_session(ctx: &mut Ctx, kind: &str, message: &Value, working: &str) -> Res {
+    let id = text(&message["id"]);
+    let payload = serde_json::json!({"type": kind, "label": text(&message["subject"]), "message": id});
+    inbox::request(ctx, payload, &format!("mail:{id}"), working)
 }
 
 /// `mail_reply [message]`: an agent session in the actions space drafts a reply from the whole message, and sends
@@ -106,7 +113,8 @@ fn reply_prompt(message: &Value, body: &str, tool: &Value) -> String {
     format!(
         "Draft a reply to this email for me to review. Write the draft here, in my voice, short and to the point; ask me \
          first if it needs facts only I know. Do not send anything and change nothing in my mailbox: no sending, no draft \
-         saved in {tool}, no archiving or labels, unless I ask.\n\nFrom: {from}\nSubject: {}\nDate: {}\n{}\n\n{body}",
+         saved in {tool}, no archiving or labels, unless I ask. Read the whole thread with {tool} when this excerpt is not \
+         enough.\n\nFrom: {from}\nSubject: {}\nDate: {}\n{}\n\n{body}",
         text(&message["subject"]),
         text(&message["date"]),
         text(&message["url"]),

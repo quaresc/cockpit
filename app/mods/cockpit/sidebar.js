@@ -573,11 +573,32 @@ export default class Sidebar {
         .child(div().flex_shrink_1().min_w(0).truncate().font_medium().child(s.name))
         .child(div().flex_1())
         .when(Boolean(s.branch) && !["main", "master"].includes(s.branch) && s.branch !== s.name, (e) => e.child(div().max_w(96).truncate().text_size(TEXT.xs).text_color(k.dim).child(s.branch)))
-        .when(urgent, (e) => e.child(div().size(7).flex_none().rounded(4).bg(k[s.status])));
+        .when(urgent, (e) => e.child(div().size(7).flex_none().rounded(4).bg(k[s.status])))
+        .when(hasTerms(s), (e) => e.child(this.foldButton(k, s, folded)));
     };
-    const head = SectionHeader("Spaces", { action: Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space  ⌘N", onClick: () => run("space.new") }) });
+    // Each space's terminal lines fold away, one space with its chevron or all of them from the header.
     const byAddress = new Map(this.agents.rows.map((r) => [r.address, r]));
-    const withTerms = (r) => [row(r), ...this.termRows(k, r.s, ps, byAddress, r.tree)];
+    const folded = new Set(shared("cockpit.spaces.folded") ?? []);
+    const hasTerms = (s) => this.termRows(k, s, ps, byAddress, false).length > 0;
+    const withLines = ordered.filter((r) => hasTerms(r.s));
+    const allFolded = withLines.length > 0 && withLines.every((r) => folded.has(r.s.id));
+    const head = SectionHeader("Spaces", {
+      action: h_flex()
+        .gap(2)
+        .when(withLines.length > 0, (e) =>
+          e.child(
+            Button("spaces-fold", {
+              icon: allFolded ? "chevrons-up-down" : "chevrons-down-up",
+              variant: "ghost",
+              size: "icon-sm",
+              tooltip: allFolded ? "Show what runs in each space" : "Hide what runs in each space",
+              onClick: () => setShared("cockpit.spaces.folded", allFolded ? [] : withLines.map((r) => r.s.id)),
+            }),
+          ),
+        )
+        .child(Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space  ⌘N", onClick: () => run("space.new") })),
+    });
+    const withTerms = (r) => [row(r), ...(folded.has(r.s.id) ? [] : this.termRows(k, r.s, ps, byAddress, r.tree))];
     if (!machines.length) return [head, ...ordered.flatMap(withTerms)];
     const out = [head];
     for (const m of [null, ...machines]) {
@@ -597,6 +618,32 @@ export default class Sidebar {
       out.push(...ordered.filter((r) => (r.s.machine ?? null) === m).flatMap(withTerms));
     }
     return out;
+  }
+
+  /** A space row's chevron: folds its terminal lines away or back, without selecting the space. */
+  foldButton(k, s, folded) {
+    const isFolded = folded.has(s.id);
+    const toggle = () => {
+      const next = new Set(folded);
+      isFolded ? next.delete(s.id) : next.add(s.id);
+      setShared("cockpit.spaces.folded", [...next]);
+    };
+    return h_flex()
+      .id(`space-fold-${s.id}`)
+      .size(18)
+      .flex_none()
+      .items_center()
+      .justify_center()
+      .rounded(RADIUS.sm)
+      .hover((st) => st.bg(k.accent))
+      .tooltip(isFolded ? "Show what runs here" : "Hide what runs here")
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_up("left", (_e, cx) => {
+        cx.stop_propagation();
+        toggle();
+        cx.notify();
+      })
+      .child(Icon(isFolded ? "chevron-right" : "chevron-down", { size: 12, color: k.dim }));
   }
 
   /** The terminals running in a space, one line each with its agent or program and its state, waiting ones first;

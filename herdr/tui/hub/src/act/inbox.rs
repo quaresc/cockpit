@@ -430,7 +430,7 @@ pub fn talk_over(ctx: &mut Ctx, ticket: &Value, prs: &[Value], data: &Value, own
 
 /// Files a request the hub (through a server of its own) or a Claude Code session carries out, and the row's pending
 /// entry the app follows to its outcome; with neither, it is refused at once.
-fn request(ctx: &mut Ctx, payload: Value, row: &str, working: &str) -> Res {
+pub(super) fn request(ctx: &mut Ctx, payload: Value, row: &str, working: &str) -> Res {
     let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
     let hubs = crate::feed::mcp::serves(&raw, &ctx.cfg.0, &s(&payload, "type")?);
     if !hubs && !agent::get("claude").is_some_and(|a| a.installed()) {

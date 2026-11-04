@@ -724,6 +724,21 @@ impl Doctor {
                 fail(&format!("no allow rule for {server}: background refreshes are refused → add \"{rule}\" to permissions.allow"));
             }
         }
+        // Mail through a Claude connector: its mapped tools one by one, so the server's sending tools stay asked.
+        let mail = &set["mail"];
+        let mail_server = raw(or(&mail["server"], &Value::from("")));
+        let hub_mail = self.config.as_ref().is_some_and(|c| c["servers"][mail_server.as_str()].is_object());
+        if is_true(or(&mail["enabled"], &Value::Bool(false))) && !mail_server.is_empty() && !hub_mail {
+            let prefix = format!("mcp__{}", rule_name(&mail_server));
+            for tool in ["listInbox", "get", "archive", "markRead"].iter().filter_map(|v| mail["tools"][*v]["tool"].as_str()) {
+                let rule = format!("{prefix}__{tool}");
+                if allow.iter().any(|a| *a == rule || *a == prefix) {
+                    ok(&format!("allow rule for {rule}"));
+                } else {
+                    fail(&format!("no allow rule for {rule}: mail refreshes and actions are refused → add it to permissions.allow"));
+                }
+            }
+        }
         // The read-only tools live show panes call, and the monitor space's when it is pinned.
         let mut tools = vec![("datadog", "get_datadog_metric"), ("metabase", "execute_query"), ("metabase", "run_saved_question")];
         if pinned_spaces(self.settings.as_ref()).iter().any(|s| s == "monitor") {

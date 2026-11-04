@@ -10,7 +10,7 @@ type $ = EngineInterface
 const LEASE_TTL_S = 120
 const LEASE_BEAT_MS = 30_000
 
-export type Doc = 'inbox' | 'ci' | 'meetings' | 'brief' | 'monitor' | 'agents'
+export type Doc = 'inbox' | 'ci' | 'meetings' | 'brief' | 'monitor' | 'agents' | 'mail'
 
 async function store($: $, args: string[]) {
   const command = (await cockpitCommand($)) ?? ['false']

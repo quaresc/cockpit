@@ -8,6 +8,7 @@ import { recordCost, startCosts } from './costs'
 import { DRAWING_SECTION, artifactRefusal, freshTurn, pageRefusal } from './drawing'
 import { forgetFacts, reportFacts } from './facts'
 import { home } from './config'
+import { refreshMail } from './mail'
 import { CHANGES_SPEC, CHANGES_TOOL_FULL, HEALTH_SPEC, HEALTH_TOOL_FULL, READ_SPEC, READ_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, healthArgs, readArgs, searchArgs } from './find'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, recordRunbookOwner, reportStep, settleTurn } from './handoffs'
@@ -59,6 +60,7 @@ export const register: Register = on => {
     await seedWork($, e.cwd).catch(() => undefined)
     await $.command.register({ name: 'todo', description: 'Add to the to-do list in the herdr to-do space; alone, list it', argumentHint: '[text]' })
     await registerSettingsCommand($)
+    fetch(60_000, () => void refreshMail($).catch(() => undefined))
     fetch(60_000, () => void refresh($, false).then(() => maybeBrief($)).catch(() => undefined))
     fetch(60_000, () => void refreshCi($).catch(() => undefined))
     fetch(60_000, () => void refreshMeetings($).catch(() => undefined))
