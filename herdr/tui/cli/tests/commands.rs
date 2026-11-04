@@ -650,12 +650,12 @@ fn doctor_prints_a_line_per_check() {
         "ok    CI from GitHub checks".into(),
         "ok    allow rule for platform".into(),
         "fail  no allow rule for claude.ai Linear: background refreshes are refused → add \"mcp__claude_ai_Linear\" to permissions.allow".into(),
-        "warn  no allow rule for mcp__claude_ai_Datadog__get_datadog_metric: its live pane asks or is refused → add it to permissions.allow".into(),
         "ok    allow rule for mcp__metabase__query".into(),
     ] {
         assert!(lines.contains(&line.as_str()), "{line}\n{printed}");
     }
     assert!(!printed.contains("CI:"), "{printed}");
+    assert!(!printed.contains("Datadog"), "no Datadog rule asked of a config without Datadog: {printed}");
     // Whether a supervisor runs is this machine's business; the line is there either way.
     let no_app = format!("fail  space inbox has no app running → sh {}/ensure-spaces.sh", link.display());
     assert!(lines.iter().any(|l| *l == no_app || *l == "ok    space inbox, app running"), "{printed}");

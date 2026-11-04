@@ -9,6 +9,7 @@ mod doctor;
 mod find;
 mod focus;
 mod gui;
+mod herdr_config;
 mod home;
 mod jsonedit;
 mod launch;

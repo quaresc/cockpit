@@ -9,6 +9,7 @@ use cockpit_core::{agent, files};
 use serde_json::{Value, json};
 
 use crate::connect;
+use crate::herdr_config;
 use crate::jsonedit;
 use crate::proc;
 
@@ -261,9 +262,7 @@ fn setup(io: &mut Io) {
                 let ok = run(&["sh", &format!("{root}/{script}")]).is_some_and(|o| o.ok());
                 println!("{script}: {}", if ok { "done" } else { "failed; cockpit doctor says why" });
             }
-            println!(
-                "Merge {root}/config.example.toml into ~/.config/herdr/config.toml for cockpit's keys (prefix+i/t/a/d/u/m), then herdr server reload-config."
-            );
+            herdr_keys(io, &home, &root);
         }
     }
 
@@ -291,6 +290,40 @@ fn setup(io: &mut Io) {
         println!("\nClaude Code: /plugin install cockpit --marketplace quaresc/cockpit, then /cockpit:setup maps your connectors (tickets, CI, calendar).");
     }
     println!("\nDone. cockpit doctor checks the whole setup at any time.");
+}
+
+/// cockpit's keys (prefix+i/t/a/d/u/m) and sidebar in herdr's config.toml, merged once the person agrees, then reloaded.
+fn herdr_keys(io: &mut Io, home: &Path, root: &str) {
+    let path = home.join(".config/herdr/config.toml");
+    let theirs = std::fs::read_to_string(&path).unwrap_or_default();
+    let ours = std::fs::read_to_string(format!("{root}/config.example.toml")).unwrap_or_default();
+    let merged = match herdr_config::merge(&theirs, &ours) {
+        Ok(m) if m.text == theirs => return println!("~/.config/herdr/config.toml already has cockpit's keys and sidebar."),
+        Ok(m) => m,
+        Err(e) => return println!("{e}: merge {root}/config.example.toml into it yourself."),
+    };
+    let delivery = if merged.delivery { "; herdr's toasts stay in herdr so notifications arrive once" } else { "" };
+    let question = format!("\nAdd cockpit's keys and sidebar to ~/.config/herdr/config.toml ({} settings and keys, your own stay{delivery})?", merged.added);
+    if !io.yes(&question, true) {
+        return println!("Left as it is: merge {root}/config.example.toml into it when you want cockpit's keys.");
+    }
+    if !theirs.is_empty() {
+        let backup = path.with_file_name(format!("config.toml.bak-{}", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+        if let Err(e) = std::fs::write(&backup, &theirs) {
+            return println!("config.toml not changed: no backup ({e})");
+        }
+        println!("The old one is {}", backup.file_name().unwrap_or_default().to_string_lossy());
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    match std::fs::write(&path, &merged.text) {
+        Ok(()) => {
+            let reloaded = run(&["herdr", "server", "reload-config"]).is_some_and(|o| o.ok());
+            println!("Wrote ~/.config/herdr/config.toml{}", if reloaded { " and reloaded herdr" } else { "; herdr reads it at its next start" });
+        }
+        Err(e) => println!("config.toml not written: {e}"),
+    }
 }
 
 /// Writes a file only its owner can read, through a temporary file beside it: the config holds tokens.

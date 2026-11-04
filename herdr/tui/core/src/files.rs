@@ -23,8 +23,8 @@ pub fn herdr_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("COCKPIT_HERDR_DIR") {
         return PathBuf::from(dir);
     }
-    // A release binary sits in herdr/bin/, a dev build in herdr/tui/target/release/.
-    let exe = std::env::current_exe().unwrap_or_default();
+    // A release binary sits in herdr/bin/, a dev build in herdr/tui/target/release/; a link to it (~/.local/bin) is followed.
+    let exe = std::env::current_exe().map(|e| std::fs::canonicalize(&e).unwrap_or(e)).unwrap_or_default();
     let released = exe.parent().and_then(Path::file_name).is_some_and(|name| name == "bin");
     exe.ancestors().nth(if released { 2 } else { 4 }).map(Path::to_path_buf).unwrap_or_default()
 }

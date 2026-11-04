@@ -228,7 +228,8 @@ fn source() -> PathBuf {
     // Through the ~/.config/cockpit/herdr link, the checkout's app/ is beside the folder the link names.
     let herdr = files::herdr_dir();
     let herdr = std::fs::canonicalize(&herdr).unwrap_or(herdr);
-    let packed = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("app"))).unwrap_or_default();
+    let exe = std::env::current_exe().map(|e| std::fs::canonicalize(&e).unwrap_or(e)).unwrap_or_default();
+    let packed = exe.parent().map(|p| p.join("app")).unwrap_or_default();
     [herdr.join("app"), herdr.parent().map(|p| p.join("app")).unwrap_or_default(), packed]
         .into_iter()
         .find(|p| p.join("mods/cockpit/main.js").exists())

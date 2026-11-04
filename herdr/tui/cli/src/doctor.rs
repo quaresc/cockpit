@@ -420,7 +420,7 @@ impl Doctor {
     fn check_cache(&self, file: &str, name: &str, limit: i64, by: &str) {
         let path = self.cache.join(file);
         if !path.is_file() {
-            warn(&format!("{name}: no data yet → open the inbox space or start a Claude session in herdr; it fills within a minute"));
+            warn(&format!("{name}: no data yet → open the inbox space: the hub fills it within a minute"));
             return;
         }
         let data = load(&path).unwrap_or(Value::Null);
@@ -685,8 +685,11 @@ impl Doctor {
             }
         }
 
-        // Permission rules for the background MCP calls.
+        // Permission rules for the background MCP calls, which only Claude Code sessions make.
         let claude = load(&transcripts::claude_home().join("settings.json"));
+        if claude.is_none() {
+            return;
+        }
         let allow: Vec<&str> = claude.as_ref().map(|c| values(&c["permissions"]["allow"]).filter_map(Value::as_str).collect()).unwrap_or_default();
         for source in ["tickets", "ci", "platform", "calendar"] {
             let block = &set[source];
@@ -710,7 +713,8 @@ impl Doctor {
         if pinned_spaces(self.settings.as_ref()).iter().any(|s| s == "monitor") {
             tools.extend([("datadog", "search_datadog_monitors"), ("datadog", "search_datadog_error_tracking_issues")]);
         }
-        for (source, tool) in tools {
+        // Only for the sources the person set up: nobody else needs Datadog or Metabase rules.
+        for (source, tool) in tools.into_iter().filter(|(source, _)| config[*source].is_object()) {
             let server = &set[source]["server"];
             let server = if truthy(server) && !raw(server).is_empty() { raw(server) } else { source.replacen("datadog", "claude.ai Datadog", 1) };
             let rule = format!("mcp__{}__{tool}", rule_name(&server));

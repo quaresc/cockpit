@@ -5,6 +5,15 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.33.1 (2026-11-04)
+
+- After the shell install, `cockpit app install` finds the Herdr app layout and mod: paths follow the
+  `~/.local/bin/cockpit` link to the install folder.
+- `cockpit setup` merges cockpit's keys and sidebar into herdr's config.toml itself, keeping your own settings and a
+  dated backup, then reloads herdr.
+- `cockpit doctor` speaks to every agent, and asks for Datadog or Metabase permission rules only of people who set
+  them up.
+
 ## 0.33.0 (2026-11-04)
 
 - Every agent Herdr supports, not only Claude Code: cockpit starts, resumes, forks and runs headless Codex, opencode,
