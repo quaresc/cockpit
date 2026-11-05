@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { MonitorState } from '../types'
 
+import { forgetConfig } from '../hooks/config'
 import { bins, dataOf, parseIssues, refreshMonitor, verdictOf } from '../hooks/monitor'
 
 const moved = { errorPoints: 0.5, p95Ratio: 1.5, p95Ms: 100, minHits: 50 }
@@ -108,8 +109,8 @@ const deployments = {
 }
 const wrap = (data: unknown) => `<METADATA>\n  <is_truncated>false</is_truncated>\n</METADATA>\n<JSON_DATA>\n${JSON.stringify(data)}\n</JSON_DATA>`
 
-function engine(stored: unknown) {
-  const files = new Map<string, string>([[`${HOME}/.config/cockpit/config.json`, JSON.stringify(CONFIG)], [`${CACHE}/inbox.json`, JSON.stringify({ deploys: { 'ENG-412': [{ repo: 'api', number: 2219, tag: 'v2', isLive: true }] }, tickets: [{ id: 'ENG-412', url: 'https://linear.app/acme/issue/ENG-412' }] })]])
+function engine(stored: unknown, config: object = CONFIG) {
+  const files = new Map<string, string>([[`${HOME}/.config/cockpit/config.json`, JSON.stringify(config)], [`${CACHE}/inbox.json`, JSON.stringify({ deploys: { 'ENG-412': [{ repo: 'api', number: 2219, tag: 'v2', isLive: true }] }, tickets: [{ id: 'ENG-412', url: 'https://linear.app/acme/issue/ENG-412' }] })]])
   if (stored) files.set(`${CACHE}/monitor.json`, JSON.stringify(stored))
   const calls: string[] = []
   const notified: string[] = []
@@ -195,4 +196,16 @@ test('a refresh watches the apps released today, judges their releases and notif
   await refreshMonitor(third.$, true)
   expect(third.notified).toEqual([])
   expect(third.calls.filter(c => c.includes('get_datadog_metric')).length).toBe(1)
+})
+
+test('a service is asked of Datadog under the name serviceReplace gives it', async () => {
+  const hyphenated = { ...status, apps: status.apps.map(a => (a.id === 'api-production' ? { ...a, service: 'api-gateway' } : a)) }
+  forgetConfig()
+  const run = engine(null, { ...CONFIG, monitor: { serviceReplace: { '-': '_' } } })
+  const call = run.$.mcp.call
+  run.$.mcp.call = async (server, tool, args) => (tool === 'deploys_status' ? { isError: false, content: [{ type: 'text', text: JSON.stringify(hyphenated) }] } : call(server, tool, args))
+  await refreshMonitor(run.$, true)
+  expect(run.doc().apps[0]!.service).toBe('api_gateway')
+  expect(run.calls).toContain('Datadog search_datadog_monitors service:api_gateway')
+  forgetConfig()
 })

@@ -123,6 +123,9 @@ async function datadog($: $, server: string, tool: string, args: Record<string, 
   return body
 }
 
+// The service as Datadog names it: the config's serviceReplace substrings replaced in order.
+const datadogService = (config: Config['monitor'], service: string) => Object.entries(config.serviceReplace).reduce((s, [from, to]) => s.split(from).join(to), service)
+
 const fill = (query: string, service: string, env: string) => query.replace(/\{service\}/g, service).replace(/\{env\}/g, env)
 
 // Errors, hits and p95 of a service over [from, to].
@@ -299,7 +302,7 @@ export function refreshMonitor($: $, isForced = false) {
           return {
             id,
             name: text(pick(a, f.appName ?? 'name')) ?? id,
-            service: text(pick(a, f.appService ?? 'service')) ?? '',
+            service: datadogService(config.monitor, text(pick(a, f.appService ?? 'service')) ?? ''),
             repo: repoName(text(pick(a, f.appRepo)) ?? ''),
             health: text(pick(a, f.appHealth ?? 'health')) ?? '',
             tag: text(pick(a, f.appTag)) ?? text(pick(a, f.appSha)) ?? '',

@@ -39,6 +39,16 @@ pub struct Context<'a> {
     pub utc_offset_minutes: i32,
 }
 
+/// The service as Datadog names it: the monitor section's `serviceReplace` substrings replaced in order.
+fn datadog_service(monitor: &Value, service: &str) -> String {
+    monitor["serviceReplace"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(from, to)| Some((from, to.as_str()?)))
+        .fold(service.to_string(), |s, (from, to)| s.replace(from.as_str(), to))
+}
+
 /// Errors, hits and p95 (seconds) of a service over a window.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Health {
@@ -530,7 +540,7 @@ pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, 
             json!({
                 "id": id,
                 "name": name,
-                "service": get("appService", "service").unwrap_or_default(),
+                "service": datadog_service(ctx.monitor, &get("appService", "service").unwrap_or_default()),
                 "repo": repo_name(&get("appRepo", "").unwrap_or_default()),
                 "health": get("appHealth", "health").unwrap_or_default(),
                 "tag": get("appTag", "").or_else(|| get("appSha", "")).unwrap_or_default(),
@@ -953,6 +963,32 @@ mod tests {
         );
         assert!(changes(&previous, &doc, "none").is_empty());
         assert!(changes(&Value::Null, &doc, "all").is_empty(), "nothing to compare with");
+    }
+
+    #[test]
+    fn a_service_is_asked_of_datadog_under_the_name_service_replace_gives_it() {
+        let platform_section = crate::platform::mapping(&json!({"tools": {"deployStatus": {"tool": "s"}, "deployHistory": {"tool": "h"}},
+            "fields": {"apps": "apps", "appId": "id", "deployments": "deployments"}}));
+        let platform = Fake::default()
+            .with("deployStatus", json!({"apps": [{"id": "api", "name": "API", "service": "api-gateway", "lastDeployedAt": "2026-11-04T11:00:00Z"}]}))
+            .with("deployHistory", json!({"deployments": []}));
+        let datadog = Fake::default().with("search_datadog_monitors", json!("<JSON_DATA>[]</JSON_DATA>"));
+        let q = settings(&json!({"serviceReplace": {"-": "_"}}));
+        let ctx = Context {
+            platform: &platform_section,
+            monitor: &q,
+            after_minutes: 30,
+            login: "",
+            org: "",
+            inbox: None,
+            pinned: &[],
+            muted: &[],
+            now: at("2026-11-04T12:00:00Z"),
+            utc_offset_minutes: 0,
+        };
+        let doc = block_on(refresh(&platform, &Signals::Datadog(&datadog), &ctx, None)).unwrap().unwrap();
+        assert_eq!(doc["apps"][0]["service"], "api_gateway");
+        assert_eq!(datadog.calls.borrow()[0].1["query"], "service:api_gateway");
     }
 
     #[test]

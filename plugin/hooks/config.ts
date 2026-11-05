@@ -143,8 +143,10 @@ export type Config = {
   datadog: { server: string }
   // The monitor space: the environment it watches, the Datadog queries of a service ({service}, {env}), when a release
   // counts as moved (p95 up by both the ratio and the milliseconds), and whose releases notify (mine, all or none).
+  // serviceReplace renames a platform's service to Datadog's, as literal substrings replaced in order ({ "-": "_" }).
   monitor: {
     env: string
+    serviceReplace: Record<string, string>
     queries: { errors: string; hits: string; p95: string }
     moved: { errorPoints: number; p95Ratio: number; p95Ms: number; minHits: number }
     notify: 'mine' | 'all' | 'none'
@@ -276,6 +278,7 @@ const DEFAULTS: Config = {
   datadog: { server: 'claude.ai Datadog' },
   monitor: {
     env: 'production',
+    serviceReplace: {},
     queries: {
       errors: 'sum:trace.http.server.request.errors{service:{service},env:{env}}.as_count()',
       hits: 'sum:trace.http.server.request.hits{service:{service},env:{env}}.as_count()',
@@ -364,6 +367,7 @@ export async function loadConfig($: $): Promise<Config> {
     monitor: {
       ...DEFAULTS.monitor,
       ...raw.monitor,
+      serviceReplace: { ...DEFAULTS.monitor.serviceReplace, ...raw.monitor?.serviceReplace },
       queries: { ...DEFAULTS.monitor.queries, ...raw.monitor?.queries },
       moved: { ...DEFAULTS.monitor.moved, ...raw.monitor?.moved },
     },
