@@ -72,7 +72,10 @@ pub fn news(before: &Value, after: &Value) -> Vec<(String, String, String)> {
         return Vec::new();
     }
     let known: HashSet<&Value> = list(&before["notified"]).iter().collect();
-    let new: Vec<&Value> = list(&after["messages"]).iter().filter(|m| m["unread"] == true && !known.contains(&m["id"])).collect();
+    // Only mail newer than any listed before: a longer listing brings older unread mail in, which is not news.
+    let stamp = |m: &Value| m["date"].as_str().and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok()).map_or(0, |d| d.timestamp_millis());
+    let newest = list(&before["messages"]).iter().map(stamp).max().unwrap_or(0);
+    let new: Vec<&Value> = list(&after["messages"]).iter().filter(|m| m["unread"] == true && !known.contains(&m["id"]) && stamp(m) > newest).collect();
     let text = |m: &Value, key: &str| m[key].as_str().unwrap_or_default().to_string();
     if new.len() > 3 {
         let lines: Vec<String> = new.iter().take(3).map(|m| format!("{}: {}", text(m, "fromName"), text(m, "subject"))).collect();
@@ -126,8 +129,11 @@ pub fn prune_threads() {
 mod tests {
     use super::*;
 
+    /// A message dated by its id's letter: a at 10:01, b at 10:02…
     fn message(id: &str, unread: bool) -> Value {
-        json!({"id": id, "fromName": "Ana", "subject": format!("About {id}"), "url": format!("https://mail/{id}"), "unread": unread})
+        let minute = id.bytes().next().map_or(0, |b| b - b'a' + 1);
+        json!({"id": id, "fromName": "Ana", "subject": format!("About {id}"), "url": format!("https://mail/{id}"), "unread": unread,
+               "date": format!("2026-11-04T10:{minute:02}:00Z")})
     }
 
     #[test]
@@ -152,5 +158,7 @@ mod tests {
         assert_eq!((told.len(), told[0].0.as_str(), told[0].2.as_str()), (1, "✉️ 4 new messages", "space:mail"));
         assert!(told[0].1.starts_with("Ana: About d\nAna: About e"));
         assert_eq!(news(&third, &merge(&third, Err("down".into()), 4)), []);
+        let older = merge(&third, Ok(vec![message("c", true), message("g", true)]), 5);
+        assert_eq!(news(&third, &older), [], "an older unread message the listing brings in is no news");
     }
 }

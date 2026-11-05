@@ -50,15 +50,16 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   - **Inbox, Runbook, To-do, Meetings, Monitor, Routines, Mail**: one full card each (PRs, reviews and tickets by
     feature; deploy steps with their commands; to-dos; the week's meetings; releases judged on errors and latency;
     scheduled agent runs and their output; mail).
-  - **Mail**: messages in two groups, **Needs you** (from a person, or marked important) above **Updates** (bots,
-    notifications, no-reply senders, newsletters), newest first; each row 52px: an 8px unread dot in `warning`, the
-    sender (160px, in its person color while unread), the subject, the snippet under it, the age at the right; hovered
-    or selected, a **See** button and archive / mark read icons. A double click or See opens the **reading panel** on the
-    right (360–720px, 55% of the card; over the list as a sheet below 860px): the whole thread, each message under its
-    avatar, sender, address and date, its HTML drawn natively (`TextView.html`, sanitized by the hub, links opening in
-    the browser), plain text turned into paragraphs with clickable links; "Loading…" with skeleton lines while the
-    thread is fetched, then "Waiting for a Claude Code session with the mail connector…" after 20 s; its footer Reply
-    (an agent drafts it, nothing is sent), Archive, Mark read and Open in mail.
+  - **Mail**: the inbox as a mail client lists it, the latest 15 **Unread** above the latest 15 **Read** (dimmed),
+    newest first; each row 52px: an 8px unread dot in `warning`, the sender (160px, in its person color while unread),
+    the subject, the snippet under it, the age at the right; hovered or selected, an **Open** button and archive / mark
+    read icons. A double click or Open opens the **reading panel** on the right (360–720px, 55% of the card; over the list
+    as a sheet below 860px): the whole thread, each message under its avatar, sender, address and date, its HTML drawn
+    natively (`TextView.html`; the hub sanitizes it and flattens its layout tables into paragraphs, links opening in the
+    browser), plain text turned into paragraphs with clickable links; "Loading…" with skeleton lines while the thread is
+    fetched (threads are read ahead, so mostly never); its footer Reply (an agent drafts it, nothing is sent), Archive,
+    Mark read and Open in mail. An opened unread mail is marked read once another is opened or the panel closes, so the
+    list never moves under the reader; the selection then goes back to the latest unread, unopened.
 - **Status bar**, 34px: counts on the left ("2 need you · 2 working · 0 ready · 3 done", each a click), the focused
   agent's branch, ahead/behind, changed files and its links named after their service, always in the same order (GitHub
   PR, Linear ticket, CircleCI, Argo, Argo Workflows, then cited pages such as Slack or Datadog; a "+N" menu past the room)

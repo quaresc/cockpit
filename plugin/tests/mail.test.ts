@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { isFresh, messagesOf, threadFile, threadOf } from '../hooks/mail'
+import { isFresh, messagesOf, threadFile, threadOf, unescape } from '../hooks/mail'
 import { checkRequest } from '../hooks/protocol'
 
 // Claude's Gmail connector answers search_threads with threads and, in the summary view, their latest message.
@@ -62,4 +62,8 @@ test('a kept thread is read again when a reply lands after it, or when reading i
   expect(isFresh({ at: at - 1 }, { date })).toBe(false)
   expect(isFresh({ at: at + 1, error: 'Gmail timed out' }, { date })).toBe(false)
   expect(isFresh(null, { date })).toBe(false)
+})
+
+test('escaped snippets and subjects read as text', () => {
+  expect(unescape('haven&#39;t &amp; R&amp;D &lt;3 &#x2019; &bogus;')).toBe("haven't & R&D <3 \u2019 &bogus;")
 })

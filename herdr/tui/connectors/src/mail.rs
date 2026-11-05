@@ -9,7 +9,7 @@ use crate::mapping::{list_at, pick, text};
 use crate::tools::Tools;
 
 /// The messages the inbox lists, newest first.
-const MAX_MESSAGES: usize = 30;
+const MAX_MESSAGES: usize = 50;
 const MAX_SNIPPET: usize = 200;
 /// A message's body as an agent's prompt carries it.
 const MAX_BODY: usize = 8000;
@@ -88,36 +88,14 @@ pub fn thread_of(answer: &Value, mapping: &Value) -> Vec<Value> {
     messages
 }
 
-/// Whether a message needs me: an automated sender never does; else one labelled IMPORTANT does, then anything Gmail
-/// files as updates, forums, promotions or social does not, and a person's message does.
-pub fn needs_you(message: &Value) -> bool {
-    let labels: Vec<String> = message["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_uppercase).collect();
-    if is_automated(message["from"].as_str().unwrap_or_default(), message["fromName"].as_str().unwrap_or_default()) {
-        return false;
-    }
-    if labels.iter().any(|l| l == "IMPORTANT") {
-        return true;
-    }
-    !labels.iter().any(|l| ["CATEGORY_UPDATES", "CATEGORY_FORUMS", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL"].contains(&l.as_str()))
-}
-
-/// A sender that is a machine: a no-reply, notification, bounce or bot address, or a name saying so.
-fn is_automated(address: &str, name: &str) -> bool {
-    let local = address.split('@').next().unwrap_or_default().to_lowercase();
-    let joined: String = local.chars().filter(char::is_ascii_alphanumeric).collect();
-    let starts = ["noreply", "donotreply", "notification", "notify", "mailerdaemon", "bounce", "postmaster"];
-    let words = ["bot", "alert", "alerts", "news", "newsletter", "digest", "updates", "automated", "robot"];
-    starts.iter().any(|p| joined.starts_with(p)) || local.split(['-', '_', '.', '+']).any(|w| words.contains(&w)) || name.to_lowercase().contains("[bot]")
-}
-
-/// The sidebar's line for the mail document: how many messages need me; None before any fetch.
+/// The sidebar's line for the mail document: how many messages are unread; None before any fetch.
 pub fn row_text(doc: &Value) -> Option<String> {
     let messages = doc["messages"].as_array()?;
-    let needs = messages.iter().filter(|m| needs_you(m)).count();
-    Some(match (needs, messages.len()) {
+    let unread = messages.iter().filter(|m| m["unread"] == true).count();
+    Some(match (unread, messages.len()) {
         (0, 0) => "\u{f42f}  inbox zero".to_string(),
-        (0, _) => "\u{f42f}  nothing needs you".to_string(),
-        (n, _) => format!("\u{f42f}  {n} need you"),
+        (0, _) => "\u{f42f}  nothing unread".to_string(),
+        (n, _) => format!("\u{f42f}  {n} unread"),
     })
 }
 
@@ -158,13 +136,13 @@ fn message(raw: &Value, mapping: &Value) -> Option<Value> {
     let from_name = get("fromName").filter(|n| !n.is_empty()).or(named).unwrap_or_else(|| address.clone());
     let template = mapping["urlTemplate"].as_str().unwrap_or_default();
     let url = get("url").filter(|u| !u.is_empty()).unwrap_or_else(|| template.replace("{id}", &id).replace("{threadId}", &thread));
-    let snippet = get("snippet").unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ");
+    let snippet = unescape(&get("snippet").unwrap_or_default()).split_whitespace().collect::<Vec<_>>().join(" ");
     let unread_field = field(mapping, "unread");
     let unread = unread_field.is_empty() || pick(raw, &unread_field).is_some_and(is_unread);
     let date = pick(raw, &field(mapping, "date")).map(|d| iso(d).unwrap_or_else(|| text(Some(d)).unwrap_or_default())).unwrap_or_default();
     let labels: Vec<Value> = pick(raw, &field(mapping, "labels")).and_then(Value::as_array).into_iter().flatten().filter(|l| l.is_string()).cloned().collect();
     Some(json!({
-        "id": id, "threadId": thread, "from": address, "fromName": from_name, "subject": get("subject").unwrap_or_default(),
+        "id": id, "threadId": thread, "from": address, "fromName": from_name, "subject": unescape(&get("subject").unwrap_or_default()),
         "snippet": snippet.chars().take(MAX_SNIPPET).collect::<String>(), "url": url, "date": date, "unread": unread, "labels": labels,
     }))
 }
@@ -208,6 +186,44 @@ fn epoch(n: f64) -> Option<DateTime<Utc>> {
 }
 
 /// A message's date in milliseconds, for the order; an unreadable one sorts last.
+/// A snippet or subject as the mail server escapes it for HTML (`haven&#39;t`, `R&amp;D`), as plain text.
+pub fn unescape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let decoded = rest.find(';').filter(|end| *end <= 10).and_then(|end| {
+            let name = &rest[1..end];
+            let c = match name {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "nbsp" => Some(' '),
+                _ => name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")).map_or_else(
+                    || name.strip_prefix('#').and_then(|n| n.parse().ok()).and_then(char::from_u32),
+                    |hex| u32::from_str_radix(hex, 16).ok().and_then(char::from_u32),
+                ),
+            }?;
+            Some((c, end + 1))
+        });
+        match decoded {
+            Some((c, len)) => {
+                out.push(c);
+                rest = &rest[len..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn stamp(date: &Value) -> i64 {
     date.as_str().and_then(|d| DateTime::parse_from_rfc3339(d).ok()).map_or(i64::MIN, |d| d.timestamp_millis())
 }
@@ -246,11 +262,11 @@ mod tests {
         assert_eq!(messages[0]["date"], "2025-11-05T09:00:00Z");
         assert_eq!(messages[2]["snippet"].as_str().unwrap().chars().count(), 200);
 
-        let many: Vec<Value> = (0..40).map(|n| json!({"id": format!("m{n}"), "date": 1762000000 + n})).collect();
+        let many: Vec<Value> = (0..60).map(|n| json!({"id": format!("m{n}"), "date": 1762000000 + n})).collect();
         let fake = Fake::default().with("listInbox", json!({"messages": many}));
         let messages = crate::block_on(inbox(&fake, &mapping(&json!({})))).unwrap();
-        assert_eq!(messages.len(), 30);
-        assert_eq!(messages[0]["id"], "m39");
+        assert_eq!(messages.len(), 50);
+        assert_eq!(messages[0]["id"], "m59");
         assert_eq!(messages[0]["unread"], false, "an unread field that is mapped but absent");
         let unmapped = mapping(&json!({"fields": {"unread": ""}}));
         let fake = Fake::default().with("listInbox", json!({"messages": [{"id": "x"}]}));
@@ -289,16 +305,14 @@ mod tests {
     }
 
     #[test]
-    fn people_and_important_mail_need_me_and_machines_do_not() {
-        let m = |from: &str, labels: &[&str]| json!({"from": from, "fromName": "", "labels": labels});
-        assert!(needs_you(&m("maya@example.com", &["INBOX", "UNREAD"])));
-        assert!(needs_you(&m("sam@example.com", &["CATEGORY_UPDATES", "IMPORTANT"])));
-        assert!(!needs_you(&m("sam@example.com", &["CATEGORY_PROMOTIONS"])));
-        assert!(!needs_you(&m("no-reply@example.com", &["IMPORTANT"])));
-        assert!(!needs_you(&m("notifications@github.example", &[])));
-        assert!(!needs_you(&json!({"from": "ci@example.com", "fromName": "dependabot[bot]"})));
-        assert!(needs_you(&m("steve.newson@example.com", &[])), "a word inside a name is not a machine's");
-        assert_eq!(row_text(&json!({"messages": [m("maya@example.com", &[]), m("noreply@example.com", &[])]})).unwrap(), "\u{f42f}  1 need you");
+    fn escaped_snippets_read_as_text() {
+        assert_eq!(unescape("haven&#39;t &amp; R&amp;D &lt;3 &#x2019; &nbsp;5 & co &bogus;"), "haven't & R&D <3 \u{2019}  5 & co &bogus;");
+    }
+
+    #[test]
+    fn the_sidebar_counts_the_unread_mail() {
+        let doc = json!({"messages": [{"id": "a", "unread": true}, {"id": "b", "unread": false}]});
+        assert_eq!(row_text(&doc).unwrap(), "\u{f42f}  1 unread");
         assert_eq!(row_text(&json!({"messages": []})).unwrap(), "\u{f42f}  inbox zero");
         assert_eq!(row_text(&Value::Null), None);
         assert_eq!(cache_name("../a/b:c"), "_a_b_c");

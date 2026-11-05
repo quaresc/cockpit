@@ -77,11 +77,11 @@ impl App {
         false
     }
 
-    /// The first message of the next group (Updates) or the previous one (Needs you).
+    /// The first message of the next group (Read) or the previous one (Unread).
     fn next_group(&mut self, by: isize) {
-        let in_needs = self.selected_message().is_some_and(|m| m.needs);
-        let target = if by > 0 { in_needs.then_some(false) } else { Some(true) };
-        let found = target.and_then(|t| self.mail.messages.iter().find(|m| m.needs == t)).or(if by < 0 { self.mail.messages.first() } else { None });
+        let in_unread = self.selected_message().is_some_and(|m| m.unread);
+        let target = if by > 0 { in_unread.then_some(false) } else { Some(true) };
+        let found = target.and_then(|t| self.mail.messages.iter().find(|m| m.unread == t)).or(if by < 0 { self.mail.messages.first() } else { None });
         if let Some(id) = found.map(|m| m.id.clone()) {
             self.select(&id);
         }

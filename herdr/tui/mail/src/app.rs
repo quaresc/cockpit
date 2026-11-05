@@ -51,6 +51,9 @@ pub struct App {
     pub body_scroll: usize,
     pub scroll: usize,
     pub follow: bool,
+    /// The unread message opened last: it is marked read once another is opened or selected, so the list does not move
+    /// under the reader.
+    opened: Option<Message>,
     /// A message whose page opens in the side browser once its thread is there.
     pub html_wanted: Option<String>,
     pub toasts: Toasts,
@@ -86,6 +89,7 @@ impl App {
             body_scroll: 0,
             scroll: 0,
             follow: true,
+            opened: None,
             html_wanted: None,
             toasts: Toasts::default(),
             toasting: false,
@@ -111,6 +115,13 @@ impl App {
         self.mail.message(self.selected.as_deref()?)
     }
 
+    /// The unread message opened last marked read, quietly, once the reader moves to another one.
+    fn leave_opened(&mut self, id: &str) {
+        if let Some(m) = self.opened.take_if(|m| m.id != id) {
+            self.call("seen", "mail_read", &m);
+        }
+    }
+
     fn select_default(&mut self) {
         if self.selected.as_ref().is_some_and(|id| self.mail.message(id).is_some()) {
             return;
@@ -121,6 +132,7 @@ impl App {
     }
 
     pub fn select(&mut self, id: &str) {
+        self.leave_opened(id);
         if self.selected.as_deref() != Some(id) {
             self.selected = Some(id.to_string());
             self.body_scroll = 0;
@@ -268,7 +280,7 @@ impl App {
         if m.unread && maps("markRead") {
             acts.push((Act::new("mark read", 'm', "read"), Cmd::Read(id.clone())));
         }
-        acts.push((Act::new("html", 'h', "html"), Cmd::Html(id.clone())));
+        acts.push((Act::new("web page", 'h', "html"), Cmd::Html(id.clone())));
         if !m.url.is_empty() {
             acts.push((Act::new("open", 'o', "open"), Cmd::Open(id)));
         }
@@ -286,9 +298,9 @@ impl App {
                 if !matches!(self.thread, Thread::Ready(_)) {
                     self.call("see", "mail_thread", &m);
                 }
-                // Reading it marks it read, quietly.
+                // It is marked read once the reader moves on.
                 if m.unread {
-                    self.call("seen", "mail_read", &m);
+                    self.opened = Some(m);
                 }
             }
             Cmd::Open(id) => {
@@ -355,12 +367,12 @@ mod tests {
             {"id": "a", "from": "noreply@ci.example.com", "subject": "Build", "date": "2026-11-04T10:00:00Z", "unread": true, "url": "https://mail/a"},
             {"id": "b", "from": "maya@example.com", "fromName": "Maya", "subject": "Lunch?", "date": "2026-11-04T08:00:00Z", "unread": true}
         ]}));
-        assert_eq!(app.selected.as_deref(), Some("b"), "the first that needs me");
+        assert_eq!(app.selected.as_deref(), Some("a"), "the latest unread");
         let labels = |app: &App| app.acts().iter().map(|(a, _)| a.label.clone()).collect::<Vec<_>>();
-        assert_eq!(labels(&app), ["read", "reply", "archive", "html"]);
+        assert_eq!(labels(&app), ["read", "reply", "archive", "web page", "open"]);
         app.move_sel(1);
-        assert_eq!(app.selected.as_deref(), Some("a"));
-        assert_eq!(labels(&app), ["read", "reply", "archive", "html", "open"]);
+        assert_eq!(app.selected.as_deref(), Some("b"));
+        assert_eq!(labels(&app), ["read", "reply", "archive", "web page"]);
         app.set_mail(&json!({"messages": [{"id": "b", "from": "maya@example.com", "unread": false}]}));
         assert_eq!(app.selected.as_deref(), Some("b"), "an archived message's place goes to the first");
     }

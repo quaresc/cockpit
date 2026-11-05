@@ -17,6 +17,7 @@ ratatui.workspace = true
 serde_json.workspace = true
 ammonia = "4"
 html2text = "0.17"
+regex.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

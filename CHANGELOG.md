@@ -5,6 +5,16 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.38.4 (2026-11-05)
+
+- The mail space lists your inbox as a mail client does: the latest 15 unread above the latest 15 read, "N unread"
+  everywhere instead of "need you". An opened mail stays in place until you open another or close it, then the latest
+  unread is selected; See is now Open.
+- Web page (`h`) shows a mail in the browser with its layout and images (terminal-browser beside it in herdr); the
+  reading panel splits a mail's layout tables into paragraphs and leaves out its hidden preview text.
+- Snippets and subjects read as text (`haven't`, not `haven&#39;t`), and a longer listing no longer announces older mail
+  as new.
+
 ## 0.38.3 (2026-11-05)
 
 - An idle hub exits again on a machine with cockpit's spaces open: only the space apps under its own HOME keep it alive,

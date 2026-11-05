@@ -2,16 +2,61 @@
 //! turned into readable text for the terminal.
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
-/// The HTML with only what a mail needs to read: text, its structure, links and images.
+use regex::Regex;
+
+/// The elements a mail hides from the reader (its preview text, spacers), by their inline style.
+static HIDDEN: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    ["span", "div", "p", "td", "table"]
+        .iter()
+        .filter_map(|tag| {
+            let style =
+                r#"style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|max-height\s*:\s*0|mso-hide\s*:\s*all|font-size\s*:\s*0)[^"']*["']"#;
+            Regex::new(&format!(r"(?is)<{tag}\b[^>]*{style}[^>]*>.*?</{tag}>")).ok()
+        })
+        .collect()
+});
+
+/// The tags a mail lays its page out with: tables, cells and boxes, each a block of text of its own once flattened.
+static LAYOUT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)</?(?:table|tbody|thead|tfoot|tr|td|th|div|section|article|header|footer|center|main)\b[^>]*>").unwrap());
+
+/// A paragraph holding nothing to read.
+static EMPTY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<p>(?:\s|&nbsp;|&zwnj;|\x{a0}|\x{200c}|\x{34f})*</p>").unwrap());
+
+/// A link with nothing to click on: its image dropped, or a spacer.
+static BARE_LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<a\b[^>]*>\s*</a>").unwrap());
+
+/// The HTML with only what a mail needs to read: text, its structure, links and images, without what it hides.
 pub fn sanitize(html: &str) -> String {
+    let shown = HIDDEN.iter().fold(html.to_string(), |html, hidden| hidden.replace_all(&html, "").into_owned());
     let dropped: HashSet<&str> = ["script", "style", "title", "noscript", "iframe", "object", "embed", "form", "select", "textarea", "button"].into();
-    ammonia::Builder::default().clean_content_tags(dropped).add_url_schemes(["cid"]).clean(html).to_string()
+    ammonia::Builder::default().clean_content_tags(dropped).add_url_schemes(["cid"]).clean(&shown).to_string()
 }
 
-/// The sanitized HTML as Herdr's TextView draws it: it skips `<br>`, so each line break starts a paragraph instead.
+/// The HTML as a browser page shows it, its layout kept: inline styles and the table attributes mails lay out with stay,
+/// scripts, frames, forms and handlers still go.
+pub fn sanitize_page(html: &str) -> String {
+    let dropped: HashSet<&str> = ["script", "style", "title", "noscript", "iframe", "object", "embed", "form", "select", "textarea", "button"].into();
+    let layout: HashSet<&str> = ["style", "align", "valign", "bgcolor", "width", "height", "border", "cellpadding", "cellspacing", "color", "dir"].into();
+    ammonia::Builder::default()
+        .clean_content_tags(dropped)
+        .add_generic_attributes(layout)
+        .add_tags(["font", "center"])
+        .add_url_schemes(["cid"])
+        .clean(html)
+        .to_string()
+}
+
+/// The sanitized HTML as Herdr's TextView draws it, which knows paragraphs but not a mail's layout: each table cell, box
+/// and line break starts a paragraph, the empty ones go.
 pub fn for_view(clean: &str) -> String {
-    if clean.contains("<br>") { sanitize(&clean.replace("<br>", "</p><p>")) } else { clean.to_string() }
+    let lines = clean.replace("<br>", "</p><p>");
+    let flat = LAYOUT.replace_all(&lines, "</p><p>");
+    let tidy = sanitize(&format!("<p>{flat}</p>"));
+    let linked = BARE_LINK.replace_all(&tidy, "");
+    EMPTY.replace_all(&linked, "").into_owned()
 }
 
 /// The HTML as text in lines of at most `width` columns, its links listed at the end.
@@ -49,6 +94,28 @@ mod tests {
         assert!(clean.contains(r#"src="https://acme.example/logo.png""#), "{clean}");
         assert!(clean.contains("<b>Maya</b>"));
         assert_eq!(for_view(&sanitize("<p>Thanks,<br>Maya</p>")), "<p>Thanks,</p><p>Maya</p>");
+    }
+
+    #[test]
+    fn a_page_keeps_the_layout_but_not_the_scripts() {
+        let page = sanitize_page(
+            r#"<table width="600" style="background:#fff"><tr><td align="center" onclick="x()"><img src="https://a/logo.png"><script>alert(1)</script></td></tr></table>"#,
+        );
+        assert!(page.contains(r#"width="600""#) && page.contains("background:#fff") && page.contains(r#"align="center""#), "{page}");
+        assert!(page.contains("https://a/logo.png") && !page.contains("onclick") && !page.contains("alert"), "{page}");
+    }
+
+    #[test]
+    fn a_laid_out_mail_reads_as_paragraphs_without_its_hidden_preview() {
+        let html = r#"<div style="display:none;max-height:0">Preview text&zwnj;&nbsp;&zwnj;</div>
+            <table><tr><td>J</td><td>Jonathan mentioned you in <a href="https://notion.so/p">the ADR</a></td></tr>
+            <tr><td><div>Go to page</div><div><a href="https://notion.so/s">Settings</a></div><a href="https://notion.so/x"> </a></td></tr></table>"#;
+        let view = for_view(&sanitize(html));
+        assert!(!view.contains("Preview text"), "{view}");
+        assert_eq!(
+            view,
+            r#"<p>J</p><p>Jonathan mentioned you in <a href="https://notion.so/p" rel="noopener noreferrer">the ADR</a></p><p>Go to page</p><p><a href="https://notion.so/s" rel="noopener noreferrer">Settings</a></p>"#
+        );
     }
 
     #[test]

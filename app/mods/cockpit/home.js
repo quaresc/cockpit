@@ -35,7 +35,7 @@ const OVERVIEW = [
   },
   {
     view: "mail", space: "mail", label: "Mail", icon: "mail",
-    line: (v) => (v.waiting ? null : { text: v.counts?.needs ? `${many(v.counts.needs, "message")} need you` : "nothing needs you", tone: v.counts?.needs ? "warning" : null }),
+    line: (v) => (v.waiting ? null : { text: v.counts?.unread ? `${v.counts.unread} unread` : "nothing unread", tone: v.counts?.unread ? "warning" : null }),
   },
   { view: "meetings", space: "meetings", label: "Next", icon: "calendar", line: (v) => ({ text: v.banner?.title ? `${v.banner.title} · ${v.banner.when}` : "no meeting", tone: v.banner?.soon ? "warning" : null }) },
   { view: "runbook", space: "runbook", label: "Runbooks", icon: "book", line: (v) => (v.books?.length ? { text: `${many(v.left ?? 0, "step")} left` } : null) },

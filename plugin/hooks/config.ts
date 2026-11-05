@@ -240,14 +240,14 @@ const GOOGLE_CALENDAR: Calendar = {
   responses: {},
 }
 
-// Claude's Gmail connector: unread inbox threads but promotions and social, one message each, read whole with their HTML;
-// archive and read drop labels.
+// Claude's Gmail connector: inbox threads but promotions and social, read and unread as a mail client lists them, one
+// message each, read whole with their HTML; archive and read drop labels.
 const GMAIL: Mail = {
   enabled: true,
   name: 'Gmail',
   server: 'claude.ai Gmail',
   tools: {
-    listInbox: { tool: 'search_threads', args: { query: 'in:inbox is:unread -category:promotions -category:social', pageSize: 30, view: 'THREAD_VIEW_SUMMARY' } },
+    listInbox: { tool: 'search_threads', args: { query: 'in:inbox -category:promotions -category:social', pageSize: 50, view: 'THREAD_VIEW_SUMMARY' } },
     get: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'FULL_CONTENT' } },
     archive: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['INBOX'] } },
     markRead: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['UNREAD'] } },

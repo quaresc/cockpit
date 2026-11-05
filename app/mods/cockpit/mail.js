@@ -12,8 +12,8 @@ import {
   SidePanel, Avatar, Spinner, StageHeading, openMenu, alpha, personColor,
 } from "./ui.js";
 
-const ICON = { see: "eye", reply: "reply", archive: "archive", read: "mail-check", open: "external" };
-const HUB_ACTION = { reply: "mail_reply", archive: "mail_archive", read: "mail_read" };
+const ICON = { see: "eye", reply: "reply", archive: "archive", read: "mail-check", page: "globe", open: "external" };
+const HUB_ACTION = { reply: "mail_reply", archive: "mail_archive", read: "mail_read", page: "mail_page" };
 /** After this long without the thread, the panel says it is still loading. */
 const SLOW_MS = 20_000;
 
@@ -107,12 +107,15 @@ export default class Mail {
   take(model, cx) {
     const before = this.model;
     this.model = model;
+    // Only mail newer than any listed before flashes: a longer listing brings older mail in, which is not news.
     if (before?.messages?.length) {
       const was = new Set(before.messages.map((m) => m.id));
-      for (const m of this.messages()) if (!was.has(m.id)) this.flashes.start(cx, m.id, tokens().ring);
+      const newest = Math.max(0, ...before.messages.map((m) => Date.parse(m.date) || 0));
+      for (const m of this.messages()) if (!was.has(m.id) && (Date.parse(m.date) || 0) > newest) this.flashes.start(cx, m.id, tokens().ring);
     }
     if (!this.message(this.sel)) this.sel = this.ids()[0] ?? null;
-    if (this.reading && !this.message(this.reading)) this.closeReading();
+    // The mail being read stays open when the list moves on (read, refreshed): only archiving it or closing closes it.
+    if (this.reading && this.message(this.reading)) this.readingMessage = this.message(this.reading);
   }
 
   focusOn(id, cx) {
@@ -163,9 +166,11 @@ export default class Mail {
   /** The thread on the side: the `mail-thread` view followed, and the hub asked to read it (at once, or by a session). */
   openReading(cx, m) {
     if (this.reading !== m.id) {
+      this.leaveOpened(m.id);
       this.threadSub?.stop();
       this.thread = null;
       this.reading = m.id;
+      this.readingMessage = m;
       this.threadSub = hub.subscribe(cx, { views: [{ name: "mail-thread", args: { id: m.id } }] }, (msg, cx) => {
         if (msg.view === "mail-thread" && msg.args?.id === this.reading) this.thread = msg.value;
         cx.notify();
@@ -173,12 +178,23 @@ export default class Mail {
     }
     this.askedAt = Date.now();
     cx.spawn(async (cx) => this.hubAct(cx, "mail_thread", [m.raw]));
-    // Reading it marks it read, quietly: the dot goes at once, the mail server follows in the background.
-    if (m.unread) cx.spawn(async () => hub.act("mail", "mail_read", [m.raw]).catch(() => undefined));
+    // It is marked read once the reader moves on, so the list does not move under them.
+    if (m.unread) this.opened = m;
     cx.notify();
   }
 
+  /** The unread mail opened last marked read, quietly, once another is opened or the reading closes; the selection
+   * goes back to the latest unread, unopened. */
+  leaveOpened(next = null) {
+    const m = this.opened;
+    if (!m || m.id === next) return;
+    this.opened = null;
+    hub.act("mail", "mail_read", [m.raw]).catch(() => undefined);
+    if (!next && this.sel === m.id) this.sel = (this.model?.groups ?? []).find((g) => g.key === "unread")?.ids.find((id) => id !== m.id) ?? this.sel;
+  }
+
   closeReading() {
+    this.leaveOpened();
     this.threadSub?.stop();
     this.threadSub = null;
     this.reading = null;
@@ -286,7 +302,7 @@ export default class Mail {
       meta: div().w(36).flex_none().text_right().text_size(TEXT.xs).text_color(k.mutedFg).child(m.age ?? ""),
       hover: this.hover,
       actions: [
-        Button(`${id}-see`, { label: narrow ? undefined : "See", icon: "eye", variant: "secondary", size: narrow ? "icon-sm" : "sm", tooltip: "See: read it on the side  ⏎", onClick: (_e, cx) => (cx.stop_propagation(), (this.sel = m.id), this.run(cx, "see", m)) }),
+        Button(`${id}-see`, { label: narrow ? undefined : "Open", icon: "eye", variant: "secondary", size: narrow ? "icon-sm" : "sm", tooltip: "Open it on the side  ⏎", onClick: (_e, cx) => (cx.stop_propagation(), (this.sel = m.id), this.run(cx, "see", m)) }),
         ...(m.acts ?? [])
           .filter((a) => a.id === "archive" || a.id === "read")
           .map((a) => Button(`${id}-${a.id}`, { icon: ICON[a.id], variant: "ghost", size: "icon-sm", tooltip: `${a.label}  ${a.key}`, onClick: (_e, cx) => (cx.stop_propagation(), (this.sel = m.id), this.run(cx, a.id, m)) })),
@@ -303,10 +319,10 @@ export default class Mail {
 
   list(k, narrow) {
     const groups = (this.model?.groups ?? []).filter((g) => g.ids.length);
-    if (!groups.length) return Empty({ icon: "mail-check", title: "Inbox zero", description: "Nothing unread or important in the inbox." });
+    if (!groups.length) return Empty({ icon: "mail-check", title: "Inbox zero", description: "Nothing in the inbox." });
     const rows = [];
     for (const g of groups) {
-      rows.push({ height: 32, el: div().h(32).px(10).pt(6).child(StageHeading(`mail-group-${g.key}`, g.label, { color: g.key === "needs" ? k.warning : k.dim, count: g.ids.length })) });
+      rows.push({ height: 32, el: div().h(32).px(10).pt(6).child(StageHeading(`mail-group-${g.key}`, g.label, { color: g.key === "unread" ? k.warning : k.dim, count: g.ids.length })) });
       for (const id of g.ids) {
         const m = this.message(id);
         if (m) rows.push({ height: 52, el: this.row(m, k, narrow), id });
@@ -382,7 +398,7 @@ export default class Mail {
     const k = tokens();
     const v = this.model;
     const counts = v?.counts ?? {};
-    const description = !v ? "Loading…" : v.waiting ? "Waiting for the first fetch" : `${counts.needs ? `${counts.needs} need you` : "Nothing needs you"}${v.updated ? ` · updated ${v.updated}` : ""}`;
+    const description = !v ? "Loading…" : v.waiting ? "Waiting for the first fetch" : `${counts.unread ? `${counts.unread} unread` : "Nothing unread"}${v.updated ? ` · updated ${v.updated}` : ""}`;
     let root = v_flex()
       .id("mail")
       .track_focus(this.handle)
@@ -430,7 +446,7 @@ export default class Mail {
       );
       return toasts ? root.child(toasts) : root;
     }
-    const reading = this.message(this.reading);
+    const reading = this.message(this.reading) ?? (this.reading ? this.readingMessage : null);
     const wide = this.width >= 860;
     const main = v_flex()
       .flex_1()
@@ -442,7 +458,7 @@ export default class Mail {
       .child(v_flex().flex_1().min_h(0).px(14).pt(8).child(this.list(k, this.width - (wide && reading ? this.panelWidth() : 0) < 900)));
     root = root
       .child(h_flex().flex_1().min_h(0).child(main).when(wide && Boolean(reading), (e) => e.child(this.reader(reading, k))))
-      .child(KeyHints([["j k", "move"], ["] [", "group"], ["⏎", "see"], ["c", "reply"], ["b", "archive"], ["m", "mark read"], ["o", "open in mail"], ["esc", "close"]]));
+      .child(KeyHints([["j k", "move"], ["] [", "group"], ["⏎", "open"], ["c", "reply"], ["b", "archive"], ["m", "mark read"], ["h", "web page"], ["o", "open in mail"], ["esc", "close"]]));
     if (!wide && reading) {
       root = root.child(
         div()

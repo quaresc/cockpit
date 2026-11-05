@@ -14,7 +14,7 @@ type $ = EngineInterface
 // time (or when the mail space asks), kept a week in mail/<id>.json.
 
 const STALE_MS = 2 * 60_000
-const MAX_MESSAGES = 30
+const MAX_MESSAGES = 50
 const MAX_SNIPPET = 200
 const MAX_HTML = 400_000
 const KEEP_THREADS_MS = 7 * 86_400_000
@@ -51,6 +51,15 @@ function sender(from: string): [string, string | undefined] {
   return m ? [m[2]!.trim(), m[1]!.trim() || undefined] : [from.trim(), undefined]
 }
 
+// A snippet or subject as the mail server escapes it for HTML (`haven&#39;t`, `R&amp;D`), as plain text.
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+export const unescape = (text: string) =>
+  text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
+    if (name[0] !== '#') return ENTITIES[name.toLowerCase()] ?? whole
+    const code = name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10)
+    return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+  })
+
 const isoDate = (date: string) => (Number.isNaN(Date.parse(date)) ? date : new Date(date).toISOString().replace(/\.\d{3}Z$/, 'Z'))
 
 const isUnread = (v: unknown) =>
@@ -72,8 +81,8 @@ export function messagesOf(mail: Mail, answer: unknown): MailMessage[] {
       threadId,
       from: address,
       fromName: text(pick(raw, f.fromName)) || named || address,
-      subject: text(pick(raw, f.subject)) ?? '',
-      snippet: (text(pick(raw, f.snippet)) ?? '').split(/\s+/).join(' ').trim().slice(0, MAX_SNIPPET),
+      subject: unescape(text(pick(raw, f.subject)) ?? ''),
+      snippet: unescape(text(pick(raw, f.snippet)) ?? '').split(/\s+/).join(' ').trim().slice(0, MAX_SNIPPET),
       url: text(pick(raw, f.url)) || mail.urlTemplate.replace('{id}', id).replace('{threadId}', threadId),
       date: isoDate(date),
       unread: !f.unread || isUnread(pick(raw, f.unread)),
@@ -105,7 +114,9 @@ export function refreshMail($: $, isForced = false) {
         if (!messages) return
         const unread = messages.filter(m => m.unread).map(m => m.id)
         const known = new Set(prev?.notified ?? [])
-        const fresh = prev ? messages.filter(m => m.unread && !known.has(m.id)) : []
+        // Only mail newer than any listed before: a longer listing brings older unread mail in, which is not news.
+        const newest = Math.max(0, ...(prev?.messages ?? []).map(m => Date.parse(m.date) || 0))
+        const fresh = prev ? messages.filter(m => m.unread && !known.has(m.id) && (Date.parse(m.date) || 0) > newest) : []
         await writeDoc($, 'mail', { at: Date.now(), messages, notified: unread })
         if (fresh.length > 3) await notify($, `✉️ ${fresh.length} new mails`, fresh.slice(0, 3).map(m => `${m.fromName}: ${m.subject}`).join('\n'), 'space:mail')
         else for (const m of fresh) await notify($, `✉️ ${m.fromName}`, m.subject || m.snippet, `mail:${m.id}`)

@@ -29,6 +29,8 @@ pub struct Read {
     pub date: String,
     /// The message's HTML, sanitized; empty for a plain text message.
     pub html: String,
+    /// Its HTML for a browser page, sanitized with its layout kept.
+    pub page_html: String,
     /// Its plain text as the mail gives it; empty when it has only HTML.
     pub text: String,
 }
@@ -74,6 +76,7 @@ pub fn parse(doc: &Value) -> Thread {
                 name: Some(s(m, "fromName")).filter(|n| !n.is_empty()).unwrap_or_else(|| s(m, "from")),
                 date: s(m, "date"),
                 html: if raw_html.trim().is_empty() { String::new() } else { html::sanitize(&raw_html) },
+                page_html: if raw_html.trim().is_empty() { String::new() } else { html::sanitize_page(&raw_html) },
                 text: s(m, "text"),
             }
         })
@@ -105,7 +108,7 @@ pub fn page(subject: &str, messages: &[Read]) -> String {
         if m.html.is_empty() {
             out.push_str(&format!("<pre>{}</pre>", escape(&m.text)));
         } else {
-            out.push_str(&format!("<div>{}</div>", m.html));
+            out.push_str(&format!("<div>{}</div>", m.page_html));
         }
     }
     out.push_str("</body></html>");

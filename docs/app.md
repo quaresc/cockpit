@@ -312,17 +312,15 @@ deletions, files, reviewers, checks}}`; `ticket_card` `{id}` → `{description, 
 
 Built by `cockpit_mail::gui` from the hub's `mail` document (`{at, messages, notified, by?, error?}`, written by the hub
 through its own mail server or by a Claude Code session through the mail connector). The TUI app (`cockpit mail`, run in
-the `mail` space) draws the same model. A message needs you when it comes from a person or is labelled IMPORTANT, and is
-an update when its sender is automated (no-reply, notifications, bots) or Gmail files it under updates, forums,
-promotions or social (`cockpit_connectors::mail::needs_you`).
+the `mail` space) draws the same model: the latest 15 unread messages, then the latest 15 read ones, each newest first.
 
 ```jsonc
 {
   "waiting": false, "enabled": true, "updated": "14:05", "error": null,
-  "counts": {"needs": 2, "updates": 5, "unread": 6, "total": 7},
-  "groups": [{"key": "needs", "label": "Needs you", "ids": ["t1"]}, {"key": "updates", "label": "Updates", "ids": ["t2"]}],
+  "counts": {"unread": 6, "read": 1, "total": 7},
+  "groups": [{"key": "unread", "label": "Unread", "ids": ["t1"]}, {"key": "read", "label": "Read", "ids": ["t2"]}],
   "messages": [{"id": "t1", "from": "maya@example.com", "fromName": "Maya", "subject": "…", "snippet": "…", "url": "…",
-                "date": "…", "age": "3h", "unread": true, "needs": true, "raw": {/* as the document holds it */},
+                "date": "…", "age": "3h", "unread": true, "raw": {/* as the document holds it */},
                 "acts": [{"id": "see" | "reply" | "archive" | "read" | "open", "label": "…", "key": "c", "main": false}]}]
 }
 ```

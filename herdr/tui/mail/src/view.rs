@@ -1,4 +1,4 @@
-//! The frame: the header, the list grouped Needs you then Updates, the selected message's preview (its thread once read
+//! The frame: the header, the list grouped Unread then Read, the selected message's preview (its thread once read
 //! whole, else its snippet) beside or under it, the actions and keys at the foot, and the toasts over them.
 
 use chrono::{DateTime, Local, Utc};
@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::app::App;
-use crate::model::{Message, age};
+use crate::model::{GROUPS, Group, Message, age};
 use crate::thread::Thread;
 
 const ICON_MAIL: &str = "\u{f42f}";
@@ -43,11 +43,10 @@ impl App {
     }
 
     fn head_lines(&self) -> Vec<Line<'static>> {
-        let needs = self.mail.needs();
         let updated = self.mail.at.and_then(DateTime::from_timestamp_millis).map(|at| format!("updated {}", at.with_timezone(&Local).format("%H:%M")));
-        let count = match needs {
-            0 => "nothing needs you".to_string(),
-            n => format!("{n} need you"),
+        let count = match self.mail.unread() {
+            0 => "nothing unread".to_string(),
+            n => format!("{n} unread"),
         };
         let mut line = vec![Span::styled(format!("{ICON_MAIL}  Mail"), bold(ORANGE)), Span::styled(format!("   {count}"), fg(FG))];
         if let Some(updated) = updated {
@@ -73,15 +72,15 @@ impl App {
         let now = Utc::now();
         // Each line: its text, and the message it is the row of.
         let mut rows: Vec<(Line<'static>, Option<String>)> = Vec::new();
-        for needs in [true, false] {
-            let group: Vec<&Message> = self.mail.messages.iter().filter(|m| m.needs == needs).collect();
+        for (kind, _, label) in GROUPS {
+            let group: Vec<&Message> = self.mail.messages.iter().filter(|m| m.group() == kind).collect();
             if group.is_empty() {
                 continue;
             }
             if !rows.is_empty() {
                 rows.push((Line::raw(""), None));
             }
-            let (label, style) = if needs { ("Needs you", bold(ORANGE)) } else { ("Updates", bold(FG)) };
+            let style = if kind == Group::Unread { bold(ORANGE) } else { dim() };
             rows.push((Line::from(vec![Span::styled(label, style), Span::styled(format!("  {}", group.len()), dim())]), None));
             for m in group {
                 rows.push((row_line(m, self.selected.as_deref() == Some(m.id.as_str()), w, now), Some(m.id.clone())));
@@ -237,9 +236,8 @@ mod tests {
             {"id": "b", "from": "maya@example.com", "fromName": "Maya", "subject": "Lunch?", "snippet": "Noon at the usual place", "date": "2026-11-04T08:00:00Z", "unread": true}
         ]}));
         let text = screen(&mut app, 120, 16);
-        let needs = text.find("Needs you").unwrap();
-        let updates = text.find("Updates").unwrap();
-        assert!(needs < text.find("Maya").unwrap() && text.find("Maya").unwrap() < updates && updates < text.find("Build passed").unwrap(), "{text}");
+        let unread = text.find("Unread").unwrap();
+        assert!(unread < text.find("Build passed").unwrap() && text.find("Build passed").unwrap() < text.find("Maya").unwrap(), "{text}");
         assert!(text.contains("⏎ reads it whole"), "{text}");
         assert!(text.contains("archive  b"), "{text}");
         app.thread = crate::thread::parse(
