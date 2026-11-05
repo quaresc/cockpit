@@ -201,11 +201,14 @@ test('a refresh watches the apps released today, judges their releases and notif
 test('a service is asked of Datadog under the name serviceReplace gives it', async () => {
   const hyphenated = { ...status, apps: status.apps.map(a => (a.id === 'api-production' ? { ...a, service: 'api-gateway' } : a)) }
   forgetConfig()
-  const run = engine(null, { ...CONFIG, monitor: { serviceReplace: { '-': '_' } } })
-  const call = run.$.mcp.call
-  run.$.mcp.call = async (server, tool, args) => (tool === 'deploys_status' ? { isError: false, content: [{ type: 'text', text: JSON.stringify(hyphenated) }] } : call(server, tool, args))
-  await refreshMonitor(run.$, true)
-  expect(run.doc().apps[0]!.service).toBe('api_gateway')
-  expect(run.calls).toContain('Datadog search_datadog_monitors service:api_gateway')
-  forgetConfig()
+  try {
+    const run = engine(null, { ...CONFIG, monitor: { serviceReplace: { '-': '_' } } })
+    const call = run.$.mcp.call
+    run.$.mcp.call = async (server, tool, args) => (tool === 'deploys_status' ? { isError: false, content: [{ type: 'text', text: JSON.stringify(hyphenated) }] } : call(server, tool, args))
+    await refreshMonitor(run.$, true)
+    expect(run.doc().apps[0]!.service).toBe('api_gateway')
+    expect(run.calls).toContain('Datadog search_datadog_monitors service:api_gateway')
+  } finally {
+    forgetConfig()
+  }
 })
