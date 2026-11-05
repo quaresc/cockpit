@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.38.3 (2026-11-05)
+
+- An idle hub exits again on a machine with cockpit's spaces open: only the space apps under its own HOME keep it alive,
+  and a hub whose socket is gone or taken over exits at once, so test and sandbox hubs no longer pile up.
+
 ## 0.38.2 (2026-11-05)
 
 - Mail actions are instant: archive and mark read change the list at once while the mail server or a Claude session's

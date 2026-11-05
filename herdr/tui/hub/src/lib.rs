@@ -143,26 +143,44 @@ fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
     std::process::exit(0);
 }
 
-/// Whether a pinned space's app runs: the hub keeps fetching for it and keeping its binary current, requests or not.
+/// Whether a pinned space's app runs, which keeps the hub fetching for it, requests or not. Only this hub's own count:
+/// one under another HOME (a test sandbox) talks to a hub of its own.
 fn space_apps_running() -> bool {
-    std::process::Command::new("pgrep")
-        .args(["-f", "cockpit (inbox|runbook|todo|meetings|monitor|routines|mail) cockpit-space"])
-        .stdout(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    let Ok(out) = std::process::Command::new("pgrep").args(["-f", "cockpit (inbox|runbook|todo|meetings|monitor|routines|mail) cockpit-space"]).output() else {
+        return false;
+    };
+    let home = files::home();
+    String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.trim().parse::<u32>().ok()).any(|pid| home_of(pid).is_none_or(|h| h == home))
+}
+
+/// A process's HOME, when the system says: /proc on Linux, `ps e` on macOS.
+fn home_of(pid: u32) -> Option<PathBuf> {
+    if let Ok(environ) = std::fs::read(format!("/proc/{pid}/environ")) {
+        return environ.split(|b| *b == 0).find_map(|v| v.strip_prefix(b"HOME=")).map(|h| PathBuf::from(String::from_utf8_lossy(h).into_owned()));
+    }
+    let out = std::process::Command::new("ps").args(["eww", "-o", "command=", "-p", &pid.to_string()]).output().ok()?;
+    let line = String::from_utf8_lossy(&out.stdout).into_owned();
+    line.split(' ').find_map(|w| w.strip_prefix("HOME=")).map(PathBuf::from)
+}
+
+/// Whether the socket path still holds this hub's own socket: gone (its folder removed) or taken by a newer hub, this
+/// one has no one left to serve.
+fn socket_is_ours(socket: &Path, inode: u64) -> bool {
+    std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode)
 }
 
 fn exit_when_idle(socket: &Path, inode: u64, last: &AtomicU64) {
     let limit = idle_limit();
     loop {
         std::thread::sleep(Duration::from_secs((limit / 10).clamp(1, 30)));
+        if !socket_is_ours(socket, inode) {
+            drop_tcp_file();
+            std::process::exit(0);
+        }
         let is_idle = server::now_secs().saturating_sub(last.load(Ordering::SeqCst)) >= limit;
         if is_idle && !store::global().has_subscribers() && !views::has_subscribers() && !space_apps_running() && !routines::wanted() {
             drop_tcp_file();
-            // Only our own socket goes: a newer hub may have taken the path.
-            if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
-                let _ = std::fs::remove_file(socket);
-            }
+            let _ = std::fs::remove_file(socket);
             std::process::exit(0);
         }
     }
@@ -179,5 +197,27 @@ fn watch() {
         while changes.recv_timeout(Duration::from_millis(300)).is_ok() {}
         search::invalidate();
         history::record(&cache);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_process_home_is_read_from_the_system() {
+        let home = std::env::var("HOME").map(PathBuf::from).unwrap();
+        assert_eq!(home_of(std::process::id()), Some(home));
+    }
+
+    #[test]
+    fn a_socket_gone_is_no_longer_ours() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("hub.sock");
+        let _listener = UnixListener::bind(&socket).unwrap();
+        let inode = std::fs::metadata(&socket).unwrap().ino();
+        assert!(socket_is_ours(&socket, inode));
+        drop(dir);
+        assert!(!socket_is_ours(&socket, inode), "its folder removed, as a test sandbox's is");
     }
 }
