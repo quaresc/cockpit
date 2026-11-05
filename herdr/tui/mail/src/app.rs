@@ -238,10 +238,8 @@ impl App {
             self.calls = self.calls.saturating_sub(1);
             if let Some(error) = reply.error {
                 self.toasts.push(error, Toast::Bad);
-            } else if reply.pending.as_object().is_some_and(|p| !p.is_empty()) && reply.tag != "see" {
-                self.toasts.push("asked a Claude Code session to do it", Toast::Note);
             }
-            if !reply.note.is_empty() && !reply.note.starts_with("opened ") {
+            if !reply.note.is_empty() && !reply.note.starts_with("opened ") && reply.tag != "seen" {
                 self.toasts.push(reply.note, Toast::Good);
             }
         }
@@ -287,6 +285,10 @@ impl App {
                 self.reload_thread();
                 if !matches!(self.thread, Thread::Ready(_)) {
                     self.call("see", "mail_thread", &m);
+                }
+                // Reading it marks it read, quietly.
+                if m.unread {
+                    self.call("seen", "mail_read", &m);
                 }
             }
             Cmd::Open(id) => {

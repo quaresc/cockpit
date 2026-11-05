@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-agents"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-cli"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-agents",
@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-connectors"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-core"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "crossterm",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-hub"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-inbox"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-agents",
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-mail"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "ammonia",
  "chrono",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-meetings"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-monitor"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-palette"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-routines"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-runbook"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-show"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -698,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-todo"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -714,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-update"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "cockpit-core",
  "flate2",

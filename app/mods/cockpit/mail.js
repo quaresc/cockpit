@@ -14,7 +14,7 @@ import {
 
 const ICON = { see: "eye", reply: "reply", archive: "archive", read: "mail-check", open: "external" };
 const HUB_ACTION = { reply: "mail_reply", archive: "mail_archive", read: "mail_read" };
-/** After this long without the thread, the panel says a Claude Code session is being waited for. */
+/** After this long without the thread, the panel says it is still loading. */
 const SLOW_MS = 20_000;
 
 const escape = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -151,7 +151,6 @@ export default class Mail {
     try {
       const r = await hub.act("mail", action, args);
       if (r.error) this.toasts.push(cx, r.error, { kind: "error" });
-      else if (Object.keys(r.pending ?? {}).length && action !== "mail_thread") this.toasts.push(cx, "Asked a Claude Code session to do it", { kind: "success" });
       else if (r.note && !r.note.startsWith("opened ")) this.toasts.push(cx, r.note, { kind: "success" });
       return r;
     } catch (e) {
@@ -174,6 +173,8 @@ export default class Mail {
     }
     this.askedAt = Date.now();
     cx.spawn(async (cx) => this.hubAct(cx, "mail_thread", [m.raw]));
+    // Reading it marks it read, quietly: the dot goes at once, the mail server follows in the background.
+    if (m.unread) cx.spawn(async () => hub.act("mail", "mail_read", [m.raw]).catch(() => undefined));
     cx.notify();
   }
 
@@ -320,7 +321,7 @@ export default class Mail {
     if (!t || t.state === "unread" || t.state === "loading") {
       const slow = Date.now() - this.askedAt > SLOW_MS && t?.state === "loading";
       return [
-        h_flex().gap(8).items_center().text_size(TEXT.sm).text_color(k.mutedFg).child(Spinner({ size: 12 })).child(slow ? "Waiting for a Claude Code session with the mail connector…" : "Loading…"),
+        h_flex().gap(8).items_center().text_size(TEXT.sm).text_color(k.mutedFg).child(Spinner({ size: 12 })).child(slow ? "Still loading…" : "Loading…"),
         ...[0, 1, 2, 3].map((i) => Skeleton({ w: 300 - i * 50, h: 12 })),
         div().pt(8).text_size(TEXT.sm).text_color(k.mutedFg).child(m.snippet ?? ""),
       ];

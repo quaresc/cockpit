@@ -122,7 +122,7 @@ impl App {
             Thread::Ready(_) => lines.extend(self.body_lines(&m.id, w)),
             Thread::Loading(at) => {
                 let secs = (Utc::now().timestamp_millis() as u64).saturating_sub(*at) / 1000;
-                let wait = if secs > 30 { format!("Loading… asked a Claude Code session {secs}s ago") } else { "Loading…".to_string() };
+                let wait = if secs > 30 { format!("Loading… ({secs}s)") } else { "Loading…".to_string() };
                 lines.push(Line::styled(wait, fg(ORANGE)));
                 lines.extend(wrap(&m.snippet, w).into_iter().map(|l| Line::styled(l, dim())));
             }

@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.38.2 (2026-11-05)
+
+- Mail actions are instant: archive and mark read change the list at once while the mail server or a Claude session's
+  connector does it in the background, and a failure puts the mail back; no toast about a Claude session any more.
+- Opening a mail marks it read.
+
 ## 0.38.1 (2026-11-04)
 
 - Mail opens at once: each refresh also reads the threads of the listed mail ahead (a few at a time, again when a reply

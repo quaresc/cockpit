@@ -61,23 +61,52 @@ pub fn open(ctx: &mut Ctx, args: &[Value]) -> Res {
 /// `mail_archive [message]`.
 pub fn archive(ctx: &mut Ctx, args: &[Value]) -> Res {
     let message = message(args)?;
-    let Ok((server, mapping)) = served() else { return by_session(ctx, "mail-archive", &message, "archiving") };
-    crate::feed::mcp::with(&server, async |c| mail::archive(&Mapped { connection: c, section: &mapping }, &message).await)?;
-    change(&text(&message["id"]), |_| None);
+    let id = text(&message["id"]);
+    // The list shows it done at once; the server or a session's connector does it meanwhile, a failure brings it back.
+    change(&id, |_| None);
+    match served() {
+        Ok((server, mapping)) => {
+            let done = crate::feed::mcp::with(&server, async |c| mail::archive(&Mapped { connection: c, section: &mapping }, &message).await);
+            undo_on_failure(&id, &message, done)?;
+        }
+        Err(_) => by_session(ctx, "mail-archive", &message, "archiving")?,
+    }
     ctx.note(format!("archived {}", text(&message["subject"])));
     Ok(())
+}
+
+/// Puts the message back as it was when its change failed, newest first again.
+fn undo_on_failure(id: &str, message: &Value, done: Result<(), String>) -> Res {
+    if done.is_err() {
+        crate::store::global().update("mail", |doc| {
+            let mut doc = doc.clone();
+            if let Some(messages) = doc["messages"].as_array_mut() {
+                messages.retain(|m| m["id"] != id);
+                messages.push(message.clone());
+                messages.sort_by(|a, b| text(&b["date"]).cmp(&text(&a["date"])));
+            }
+            doc
+        });
+    }
+    done
 }
 
 /// `mail_read [message]`: marked read.
 pub fn read(ctx: &mut Ctx, args: &[Value]) -> Res {
     let message = message(args)?;
-    let Ok((server, mapping)) = served() else { return by_session(ctx, "mail-read", &message, "marking read") };
-    crate::feed::mcp::with(&server, async |c| mail::mark_read(&Mapped { connection: c, section: &mapping }, &message).await)?;
-    change(&text(&message["id"]), |m| {
+    let id = text(&message["id"]);
+    change(&id, |m| {
         let mut m = m.clone();
         m["unread"] = false.into();
         Some(m)
     });
+    match served() {
+        Ok((server, mapping)) => {
+            let done = crate::feed::mcp::with(&server, async |c| mail::mark_read(&Mapped { connection: c, section: &mapping }, &message).await);
+            undo_on_failure(&id, &message, done)?;
+        }
+        Err(_) => by_session(ctx, "mail-read", &message, "marking read")?,
+    }
     ctx.note(format!("marked {} read", text(&message["subject"])));
     Ok(())
 }
