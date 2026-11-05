@@ -157,8 +157,12 @@ export default class Status {
       if (w >= 900 && (ch.ahead || ch.behind)) right.push(item("st-ahead", [Mono(`↑${ch.ahead ?? 0} ↓${ch.behind ?? 0}`, { size: TEXT.sm })], { tooltip: "Commits ahead of and behind its base" }));
       if (w >= 900 && ch.files) right.push(item("st-files", [Mono(`±${ch.files}`, { size: TEXT.sm })], { tooltip: `${ch.files} files changed`, onClick: () => togglePanel("changes") }));
       const links = me.row?.links ?? [];
-      const room = w < 720 ? 2 : w < 1000 ? 4 : w < 1300 ? 6 : 9;
-      const shown = links.length > room ? links.slice(0, room - 1) : links;
+      // As many links as the bar has room for beside the counts, the branch and the documents, by their labels' width.
+      const docsCount = me.row?.documents?.length ?? 0;
+      let budget = w - 440 - 140 - (w >= 900 ? 110 : 0) - (docsCount ? (w >= 800 ? 150 : 60) : 0);
+      const wide = (l) => 46 + (l.label ?? l.name).length * 7.5;
+      const fits = links.reduce((n, l, i) => (n === i && (budget -= wide(l)) >= 0 ? n + 1 : n), 0);
+      const shown = fits >= links.length ? links : links.slice(0, Math.max(1, fits - 1));
       const ciColor = (state) => (state === "pass" ? k.success : state === "fail" ? k.destructive : k.warning);
       shown.forEach((l, i) => {
         const mark = l.kind === "ci" ? dot(ciColor(l.state), l.state === "running") : Icon(l.icon || "link", { size: 14 });

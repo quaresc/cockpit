@@ -114,7 +114,13 @@ pub fn of(
         let name = text(&out[i]["name"]).to_string();
         let shared = out.iter().filter(|l| text(&l["name"]) == name).count() > 1;
         let detail = text(&out[i]["detail"]).split(" · ").next().unwrap_or_default().to_string();
-        out[i]["label"] = json!(if shared && !detail.is_empty() { format!("{name} {detail}") } else { name });
+        // CI from the code host (GitHub's checks) is just CI beside its PR; other shared names carry their detail.
+        out[i]["label"] = json!(match (shared, out[i]["kind"].as_str()) {
+            (true, Some("ci")) => "CI".to_string(),
+            (true, Some("pr")) => name,
+            (true, _) if !detail.is_empty() => format!("{name} {detail}"),
+            _ => name,
+        });
     }
     out
 }
@@ -166,5 +172,9 @@ mod tests {
         let labels: Vec<&str> = links.iter().map(|l| l["label"].as_str().unwrap()).collect();
         assert_eq!(labels, ["GitHub", "Linear", "CircleCI", "Argo", "Argo Workflows", "Slack"], "the ticket cited again is not repeated");
         assert_eq!((links[1]["detail"].as_str(), links[2]["state"].as_str()), (Some("ENG-4 · Quotas"), Some("pass")));
+        let github_ci = json!({"tickets": {"name": "Linear"}, "ci": {"name": "GitHub"}});
+        let links = of(Some(&ticket), &pr, &json!({"state": "pass", "label": "CI green"}), "api", None, &json!({}), &github_ci, None);
+        let labels: Vec<&str> = links.iter().map(|l| l["label"].as_str().unwrap()).collect();
+        assert_eq!(labels, ["GitHub", "Linear", "CI"], "the code host's own checks are just CI beside its PR");
     }
 }

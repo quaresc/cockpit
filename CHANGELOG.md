@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.38.5 (2026-11-05)
+
+- The status bar shows as many of the agent's links as fit, the rest in "+N", and GitHub's own checks read as CI beside
+  the GitHub PR.
+- A new gallery preview with every space.
+
 ## 0.38.4 (2026-11-05)
 
 - The mail space lists your inbox as a mail client does: the latest 15 unread above the latest 15 read, "N unread"
