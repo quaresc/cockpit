@@ -6,6 +6,8 @@ use ratatui::backend::TestBackend;
 use crate::term::App;
 
 pub fn render(app: &mut impl App, width: u16, height: u16) -> String {
+    // A screen is what the app draws, never what the machine drawing it happens to have connected.
+    crate::sources::assume(Some(false));
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("a test terminal");
     terminal.draw(|frame| app.draw(frame)).expect("a frame");
     let buffer = terminal.backend().buffer();

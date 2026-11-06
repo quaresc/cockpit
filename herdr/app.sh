@@ -14,6 +14,6 @@ for dir in bin tui/target/release; do
   [ -x "$dir/cockpit" ] && exec "$COCKPIT_HERDR_DIR/$dir/cockpit" "$name" "$@"
 done
 sh fetch-apps.sh && [ -x bin/cockpit ] && exec "$COCKPIT_HERDR_DIR/bin/cockpit" "$name" "$@"
-echo "cockpit: no cockpit binary for this machine yet; /cockpit:doctor says why" >&2
-sleep "${COCKPIT_APP_WAIT:-30}"
+echo "cockpit: no cockpit binary for this machine yet; run cockpit doctor to see why" >&2
+sleep "${COCKPIT_APP_WAIT:-5}"
 exit 1

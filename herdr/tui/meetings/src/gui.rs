@@ -62,6 +62,7 @@ pub fn model(data: Option<&Value>, clock: &Clock, brief_enabled: bool, brief: &d
         "meetings": meetings,
         "grid": grid(&week, clock),
         "brief_enabled": brief_enabled,
+        "connected": cockpit_core::sources::Source::Calendar.connected(),
     })
 }
 

@@ -22,5 +22,5 @@ expression: "render(&mut app, 60, 22)"
  front part with Lin
  open
 
-   done  x     edit  e     up  K     delete  D
+   done  x   ▸ edit  e     up  K     delete  D
  a add  x done  e edit  / filter  v mark        ▏^p palette

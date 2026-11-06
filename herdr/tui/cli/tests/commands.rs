@@ -630,7 +630,7 @@ fn doctor_prints_a_line_per_check() {
     sandbox.write("home/.claude/settings.json", r#"{"permissions": {"allow": ["mcp__platform", "mcp__metabase"]}}"#);
     sandbox.write("home/.cache/cockpit/inbox.json", r#"{"at": 1000, "errors": ["GitHub: 401"]}"#);
     sandbox.write("home/.cache/cockpit/sessions/a.json", r#"{"pane": "p1", "version": "0.1.0", "at": 5}"#);
-    let out = sandbox.cockpit(&["doctor"], &[]);
+    let out = sandbox.cockpit(&["doctor", "--all"], &[]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let printed = stdout(&out);
     let link = sandbox.home().join(".config/cockpit/herdr");
@@ -664,19 +664,33 @@ fn doctor_prints_a_line_per_check() {
     assert!(at("herdr 0.8.1") < at("config.json") && at("config.json") < at("session") && at("session") < at("inbox:") && at("inbox:") < at("platform tools"));
 }
 
+/// Without --all, only what needs doing is printed, and the last line says how much passed.
+#[test]
+fn doctor_holds_back_the_checks_that_passed() {
+    let sandbox = Sandbox::new();
+    sandbox.write("home/.config/cockpit/config.json", "{}");
+    let short = stdout(&sandbox.cockpit(&["doctor"], &[]));
+    let all = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
+    assert!(!short.contains("\nok    "), "no passing check is listed:\n{short}");
+    assert!(all.contains("ok    "), "--all lists them:\n{all}");
+    assert!(short.lines().count() < all.lines().count(), "the short report is the shorter one");
+    let last = short.trim_end().lines().next_back().unwrap_or_default();
+    assert!(last.contains("failure") && last.contains("warning") && last.contains("--all"), "a verdict closes it: {last}");
+}
+
 #[test]
 fn doctor_tells_the_hub_fetches_the_calendar_without_printing_its_address() {
     let sandbox = Sandbox::new();
     let config = |enabled: bool| json!({"calendar": {"enabled": enabled, "ics": "https://calendar.acme.example/ical/private-s3cret/basic.ics"}}).to_string();
     sandbox.write("home/.config/cockpit/config.json", &config(true));
     sandbox.write("home/.cache/cockpit/meetings.json", r#"{"at": 1000, "meetings": [], "notified": [], "by": "hub"}"#);
-    let printed = stdout(&sandbox.cockpit(&["doctor"], &[]));
+    let printed = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
     let lines: Vec<&str> = printed.lines().collect();
     assert!(lines.contains(&"ok    calendar fetched by the hub from its secret iCal address"), "{printed}");
     let stale = |l: &&str| l.starts_with("warn  meetings: last refresh") && l.contains("→ neither a cockpit app (its hub) nor");
     assert!(lines.iter().any(stale), "{printed}");
     assert!(!printed.contains("s3cret"), "{printed}");
     sandbox.write("home/.config/cockpit/config.json", &config(false));
-    let printed = stdout(&sandbox.cockpit(&["doctor"], &[]));
+    let printed = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
     assert!(printed.contains("warn  calendar.ics is set but the calendar is off"), "{printed}");
 }

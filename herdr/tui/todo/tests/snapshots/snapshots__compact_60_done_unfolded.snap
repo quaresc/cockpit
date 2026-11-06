@@ -11,7 +11,7 @@ expression: "render(&mut app, 60, 18)"
      ask to get assigned on PR reviews, especially the f…
      ADR Noor
 
-    3 done                                  hide done  z
+    3 done                                ▸ hide done  z
      remove admin access on superadmin for sam (done 202…
      release billing & billing-web (done 2026-10-27)
      Check eng-410 quotas in Metabase (done 2026-10-22)

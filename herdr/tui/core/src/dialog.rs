@@ -70,15 +70,53 @@ impl Dialog {
         let lines = crate::text::wrap(question, (width as usize).saturating_sub(6)).len() as u16;
         // Borders, a row of padding above and below, the question, a blank row, the body, and Pick's hint.
         let hint = u16::from(matches!(self, Dialog::Pick { .. }));
-        let height = 2 + 2 + lines + 1 + body.len() as u16 + hint;
+        // Never taller than the pane: a dialog whose answer falls off the bottom cannot be answered, and a confirm
+        // that cannot be answered blocks the app. A pane too short for the padding, then the border, gives them up.
+        let wanted = 2 + 2 + lines + 1 + body.len() as u16 + hint;
+        let height = wanted.min(area.height);
+        let pad = u16::from(height >= wanted.min(6));
+        let bordered = height >= 3;
         let box_ = Rect { x: area.x + (area.width - width) / 2, y: area.y + area.height.saturating_sub(height) / 2, width, height };
         frame.render_widget(Clear, box_);
-        let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().fg(ORANGE)).style(Style::new().bg(SURFACE));
+        let borders = if bordered { Borders::ALL } else { Borders::NONE };
+        let block = Block::new().borders(borders).border_type(BorderType::Rounded).border_style(Style::new().fg(ORANGE)).style(Style::new().bg(SURFACE));
         let mut text = vec![Line::from(Span::styled(question.to_string(), Style::new().fg(FG))), Line::raw("")];
         text.extend(body);
         if matches!(self, Dialog::Pick { .. }) {
             text.push(Line::from(Span::styled("j/k move · enter picks · esc cancels", Style::new().fg(DIM))));
         }
-        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).block(block.padding(ratatui::widgets::Padding::new(2, 2, 1, 1))), box_);
+        // What a shorter box cut off is scrolled past, so the last rows — the answer — are the ones kept.
+        let chrome = u16::from(bordered) * 2 + pad * 2;
+        let room = height.saturating_sub(chrome);
+        let inner = width.saturating_sub(chrome + 4);
+        let scroll = (crate::text::wrapped(&text, inner) as u16).saturating_sub(room);
+        let padding = ratatui::widgets::Padding::new(2, 2, pad, pad);
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)).block(block.padding(padding)), box_);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    use super::*;
+
+    fn drawn(dialog: &Dialog, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("a test terminal");
+        terminal.draw(|frame| dialog.render(frame, frame.area())).expect("a frame");
+        let buffer = terminal.backend().buffer();
+        (0..height).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>()).collect()
+    }
+
+    #[test]
+    fn a_confirm_keeps_its_answer_on_screen_however_short_the_pane() {
+        let question = "Stop the preview pv-quotas, which three people are looking at, and free its environment?";
+        let dialog = Dialog::Confirm { question: question.to_string() };
+        for height in [3, 5, 8, 20] {
+            let screen = drawn(&dialog, 60, height);
+            assert!(screen.iter().any(|l| l.contains("Yes")), "the answer is drawn at {height} rows:\n{}", screen.join("\n"));
+            assert_eq!(screen.len(), height as usize, "and nothing is drawn past the pane");
+        }
     }
 }

@@ -5,17 +5,17 @@ expression: "render(&mut app, 80, 18)"
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │❯ ▏                                                                           │
 │                                                                              │
-│Go to the inbox space                                                         │
-│  a pinned space                                                              │
-│Go to the actions space                                                       │
-│  a pinned space                                                              │
-│Go to the monitor space                                                       │
-│  a pinned space                                                              │
-│Refresh the inbox                                                             │
+│go to the inbox space                                                         │
+│  prefix+i                                                                    │
+│go to the actions space                                                       │
+│  prefix+a                                                                    │
+│go to the monitor space                                                       │
+│  prefix+o                                                                    │
+│refresh the inbox                                                             │
 │  PRs, reviews, tickets and CI fetched again now                              │
-│Check cockpit                                                                 │
+│check cockpit                                                                 │
 │  the doctor's report: every part of cockpit, ok, warn or fail                │
-│Today's brief                                                                 │
+│today's brief                                                                 │
 │  the morning brief: meetings, reviews, CI, tickets                           │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯

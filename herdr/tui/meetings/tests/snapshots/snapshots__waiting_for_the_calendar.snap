@@ -1,13 +1,12 @@
 ---
 source: meetings/tests/snapshots.rs
-assertion_line: 69
 expression: "render(&mut app, 60, 8)"
 ---
-   Meetings   waiting for a Claude Code session with the G
+   Meetings   no calendar connected · cockpit setup adds o
 
 
 
 
 
 
- o open  m join  b brief  p prepare  w week     ▏^p palette
+ q quit  o open  m join  b brief  p prepare     ▏^p palette

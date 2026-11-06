@@ -24,5 +24,5 @@ expression: "render(&mut app, 120, 24)"
  Running · since 17:38 · watched until 18:10
  watching until 17:10
 
-   open  o     investigate  i
- enter main  space fold  w by app  R refresh  q quit                                                        ▏^p palette
+ ▸ open  o     investigate  i
+ q quit  enter main  space fold  w by app  R refresh                                                        ▏^p palette

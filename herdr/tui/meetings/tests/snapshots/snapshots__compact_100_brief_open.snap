@@ -5,13 +5,13 @@ expression: "render(&mut app, 100, 30)"
    Meetings   updated 09:57
  Calendar: list_events: Resource has been exhausted (e.g. check quota).
 
-   now  Pairing on quotas   until 10:30                                                󰕧 join  m
+   now  Pairing on quotas   until 10:30                                              ▸ 󰕧 join  m
 
   Today                                                                                           █
    09:45–10:00   15 min  Team Daily                                                         9   █
    10:00–10:30   30 min  Pairing on quotas                                                  2   █
    10:10–10:25   15 min  Quick sync                                                         3   █
-   11:15–11:30   15 min  Ledger Move… 4      hide brief  b     join  m     open  o     redo  r  █
+   11:15–11:30   15 min  Ledger Move… 4      hide brief  b   ▸ join  m     open  o     redo  r  █
        Invite has no description; the purpose comes from the tickets it names.                    █
        Where it stands                                                                            █
        • ENG-398 and ENG-399 both wait for PM/Design validation.                                  █
@@ -31,4 +31,4 @@ expression: "render(&mut app, 100, 30)"
    15:30–15:55   25 min  Weekly Sync Search monitoring                                      3   ▕
    16:00–17:00   60 min  Accounts - Tech Refinement                                         10  ▕
    17:00–17:45   45 min  Interview debriefs                                                 4   ▕
- o open  m join  b brief  p prepare  w week  q quit                                     ▏^p palette
+ q quit  o open  m join  b brief  p prepare  w week                                     ▏^p palette

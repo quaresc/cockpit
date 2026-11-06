@@ -64,5 +64,5 @@ expression: "render(&mut app, 90, HEIGHT)"
    Tests: 2 failed, 41 passed
    exit code 1
 
-   fix ci  f     rerun  r     open  o     merge  M     auto-merge  U     to draft  T
+ ▸ fix ci  f     rerun  r     open  o     merge  M     auto-merge  U     to draft  T
  q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

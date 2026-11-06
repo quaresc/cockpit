@@ -2,7 +2,7 @@
 
 use cockpit_core::hub::Found;
 use cockpit_core::testing::render;
-use cockpit_palette::{App, Command, Over, Then, agent_commands, commands, into_session};
+use cockpit_palette::{App, Command, Over, Then, agent_commands, commands, into_session, keyed_commands};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 
@@ -31,7 +31,10 @@ fn the_pane_below_as_herdr_reports_it() {
 
 #[test]
 fn opens_on_its_commands_over_the_session() {
-    let mut app = App::new(commands(&["inbox".into(), "actions".into(), "monitor".into()]), Some(claude()), None);
+    // The chords are given, not read from this machine's herdr config: the screen must be the same everywhere.
+    let keys = [("inbox", "prefix+i"), ("actions", "prefix+a"), ("monitor", "prefix+o")];
+    let keys = keys.iter().map(|(s, k)| (s.to_string(), k.to_string())).collect();
+    let mut app = App::new(keyed_commands(&["inbox".into(), "actions".into(), "monitor".into()], &keys), Some(claude()), None);
     insta::assert_snapshot!(render(&mut app, 80, 18));
 }
 
@@ -41,7 +44,7 @@ fn enter_chooses_a_command_and_esc_closes() {
     assert!(!app.event(press(KeyCode::Down)));
     assert!(app.event(press(KeyCode::Enter)));
     assert_eq!(app.then, Some(Then::RefreshInbox));
-    let mut app = App::new(vec![Command::Space("to-do".into())], None, None);
+    let mut app = App::new(vec![Command::Space("to-do".into(), None)], None, None);
     assert!(app.event(press(KeyCode::Enter)));
     assert_eq!(app.then, Some(Then::Space("to-do".into())));
     let mut app = App::new(commands(&[]), None, None);

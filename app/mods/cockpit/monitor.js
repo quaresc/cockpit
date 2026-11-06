@@ -901,7 +901,9 @@ export default class Monitor {
       return Empty({
         icon: "activity",
         title: "No monitor data yet",
-        description: "The monitor fills once cockpit has read production (your deploy platform and Datadog). Set `monitor` in the cockpit config, then refresh.",
+        description: m?.connected
+          ? "The hub reads your deploy platform and monitoring, then this fills in."
+          : "No deploy platform or monitoring is connected. cockpit setup adds them.",
         action: Button("empty-refresh", { label: "Refresh", icon: "refresh-cw", kbd: "R", onClick: (_e, cx) => this.refresh(cx) }),
       });
     const wide = this.width >= SIDE_AT;

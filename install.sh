@@ -5,7 +5,8 @@
 #
 # It puts the release's scripts and `cockpit` binary for this machine in ~/.local/share/cockpit (COCKPIT_HOME), links
 # ~/.local/bin/cockpit and ~/.config/cockpit/herdr to them, then runs `cockpit setup`. Run it again to update.
-# COCKPIT_VERSION picks a version (the latest by default), COCKPIT_NO_SETUP=1 skips the setup.
+# COCKPIT_VERSION picks a version (the latest by default), COCKPIT_NO_SETUP=1 skips the setup, COCKPIT_NO_CHECKS=1
+# the prerequisite checks.
 set -eu
 
 repo=${COCKPIT_REPO:-quaresc/cockpit}
@@ -25,8 +26,31 @@ case "$(uname -s) $(uname -m)" in
   "Darwin x86_64") target=x86_64-apple-darwin ;;
   "Linux x86_64") target=x86_64-unknown-linux-gnu ;;
   "Linux aarch64" | "Linux arm64") target=aarch64-unknown-linux-gnu ;;
-  *) die "no release is built for $(uname -s) $(uname -m); build it from source: cargo build --release in herdr/tui" ;;
+  *) die "no release is built for $(uname -s) $(uname -m); build it from source: see https://github.com/$repo#develop" ;;
 esac
+
+# What cockpit needs, checked before anything is downloaded: cockpit runs inside herdr or the Herdr app, so without
+# one of them there is nothing for it to run in, and the setup at the end would stop anyway.
+if [ "${COCKPIT_NO_CHECKS:-}" != 1 ]; then
+  missing=""
+  command -v jq >/dev/null 2>&1 || missing="$missing
+  jq           brew install jq, or apt install jq"
+  if ! command -v gh >/dev/null 2>&1; then
+    missing="$missing
+  gh           brew install gh, or see https://cli.github.com; then gh auth login"
+  elif ! gh auth status >/dev/null 2>&1; then
+    missing="$missing
+  gh signed in gh auth login"
+  fi
+  [ -n "$missing" ] && printf 'cockpit needs:%b
+
+' "$missing" >&2
+  if ! command -v herdr >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/herdr-app" ]; then
+    die "cockpit runs in herdr (the terminal) or the Herdr app (the window), and neither is installed.
+Install one from https://herdr.dev, then run this again."
+  fi
+  [ -n "$missing" ] && die "install what is missing above, then run this again."
+fi
 
 version=${COCKPIT_VERSION:-}
 if [ -z "$version" ]; then

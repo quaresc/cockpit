@@ -63,3 +63,14 @@ pub fn wrap(text: &str, cells: usize) -> Vec<String> {
     }
     lines
 }
+
+/// How many screen lines these lines take once wrapped to `cells`.
+pub fn wrapped(lines: &[ratatui::text::Line], cells: u16) -> usize {
+    lines
+        .iter()
+        .map(|line| {
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            wrap(&text, cells as usize).len().max(1)
+        })
+        .sum()
+}

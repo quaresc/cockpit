@@ -8,22 +8,47 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use cockpit_core::{files, transcripts};
 use serde_json::Value;
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as Atomic};
+
 use crate::proc::{self, Out};
 
 const SESSION: &str = "no Claude session with cockpit is running";
 const NO_FEED: &str = "neither a cockpit app (its hub) nor a Claude session with cockpit is running";
 const SPACES: [&str; 6] = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
 
+/// What the run found: the ok lines are held back unless every check is asked for, so what needs doing stands out.
+static ALL: AtomicBool = AtomicBool::new(false);
+static OK: AtomicUsize = AtomicUsize::new(0);
+static WARN: AtomicUsize = AtomicUsize::new(0);
+static FAIL: AtomicUsize = AtomicUsize::new(0);
+
 fn ok(line: &str) {
-    println!("ok    {line}");
+    OK.fetch_add(1, Atomic::Relaxed);
+    if ALL.load(Atomic::Relaxed) {
+        println!("ok    {line}");
+    }
 }
 
 fn warn(line: &str) {
+    WARN.fetch_add(1, Atomic::Relaxed);
     println!("warn  {line}");
 }
 
 fn fail(line: &str) {
+    FAIL.fetch_add(1, Atomic::Relaxed);
     println!("fail  {line}");
+}
+
+/// The last line: what the run found, and how to see the checks that passed.
+fn verdict() {
+    let (ok, warn, fail) = (OK.load(Atomic::Relaxed), WARN.load(Atomic::Relaxed), FAIL.load(Atomic::Relaxed));
+    let count = |n: usize, one: &str| format!("{n} {}{}", one, if n == 1 { "" } else { "s" });
+    if warn + fail == 0 {
+        println!("\nEvery check passed ({}).", count(ok, "check"));
+    } else {
+        let found = format!("{}, {}", count(fail, "failure"), count(warn, "warning"));
+        println!("\n{found}{}", if ALL.load(Atomic::Relaxed) { String::new() } else { format!("; {} passed, cockpit doctor --all lists them", ok) });
+    }
 }
 
 /// What the checks read and run with.
@@ -49,7 +74,8 @@ struct Doctor {
     app: Option<PathBuf>,
 }
 
-pub fn main(_: &[String]) {
+pub fn main(args: &[String]) {
+    ALL.store(args.iter().any(|a| a == "--all" || a == "-v"), Atomic::Relaxed);
     let doctor = Doctor::new();
     doctor.tools();
     doctor.installs();
@@ -68,6 +94,7 @@ pub fn main(_: &[String]) {
     doctor.notifications();
     doctor.terminal_browser();
     doctor.connectors();
+    verdict();
 }
 
 impl Doctor {
@@ -340,7 +367,7 @@ impl Doctor {
                     match beat.map(|b| raw(&b["version"])) {
                         None => warn(&format!("session \"{label}\" ({address}) runs no cockpit → /reload-plugins in it, or restart it")),
                         Some(v) if !installed.is_empty() && v != installed => {
-                            warn(&format!("session \"{label}\" runs cockpit {v}, {installed} is installed → /reload-plugins in it"))
+                            warn(&format!("session \"{label}\" runs cockpit {v}, {installed} is installed → sh {}/reload.sh", self.link.display()))
                         }
                         Some(v) => ok(&format!("session \"{label}\" on cockpit {v}")),
                     }
@@ -402,7 +429,7 @@ impl Doctor {
             if beat.is_none() {
                 warn(&format!("session \"{label}\" ({pane}) runs no cockpit → /reload-plugins in it, or restart it"));
             } else if !installed.is_empty() && version != installed {
-                warn(&format!("session \"{label}\" runs cockpit {version}, {installed} is installed → /reload-plugins in it"));
+                warn(&format!("session \"{label}\" runs cockpit {version}, {installed} is installed → sh {}/reload.sh", self.link.display()));
             } else if others > 0 {
                 warn(&format!(
                     "session \"{label}\" on cockpit {version}, but an older cockpit still runs in its pane → restart Claude there (exit, then claude --resume)"

@@ -211,7 +211,7 @@ fn app_model(tui: &App, clock: &Clock, app: &data::App) -> Value {
 /// The whole view: the headline and tiles, the apps (troubled first), the releases newest first.
 pub fn model(value: &Value, clock: Clock, since: Option<u64>) -> Value {
     let Some(doc) = Doc::parse(value).filter(|_| !value.is_null()) else {
-        return json!({"ready": false, "since": since});
+        return json!({"ready": false, "since": since, "connected": cockpit_core::sources::Source::Platform.connected()});
     };
     let mut tui = App::with(Some(clock), Density::Comfortable, false);
     tui.set_doc(value);
@@ -229,7 +229,7 @@ pub fn model(value: &Value, clock: Clock, since: Option<u64>) -> Value {
     let headline = headline.trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).trim().to_string();
     let at = doc.at.and_then(DateTime::<Utc>::from_timestamp_millis);
     json!({
-        "ready": true, "env": doc.env, "at": doc.at, "ago": ago(&clock, at), "since": since, "errors": doc.error_lines(),
+        "ready": true, "connected": cockpit_core::sources::Source::Platform.connected(), "env": doc.env, "at": doc.at, "ago": ago(&clock, at), "since": since, "errors": doc.error_lines(),
         "headline": headline, "bad": bad, "verdict": verdict,
         "tiles": {
             "today": today.len(), "ok": of("ok"), "moved": of("moved"), "failed": of("failed"), "watching": of("watching"),
