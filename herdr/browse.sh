@@ -8,5 +8,5 @@ dir=$(dirname "$0")
 for binary in "$dir/bin/cockpit" "$dir/tui/target/release/cockpit"; do
   [ -x "$binary" ] && exec "$binary" browse "$@"
 done
-echo "cockpit: no cockpit binary for this machine yet; /cockpit:doctor says why" >&2
+echo "cockpit: no cockpit binary for this machine yet; run cockpit doctor to see why" >&2
 exit 1

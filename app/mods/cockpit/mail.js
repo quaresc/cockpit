@@ -440,7 +440,7 @@ export default class Mail {
           icon: "mail",
           title: "No mail yet",
           description: v.enabled
-            ? "The hub fetches it from your mail server, or a Claude Code session with the mail connector does, within two minutes."
+            ? "The hub fetches it from your mail connector, within two minutes."
             : "Pick mail in cockpit setup to see the messages that need you here.",
         }),
       );

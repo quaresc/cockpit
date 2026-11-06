@@ -68,7 +68,7 @@ const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agent
     cockpit focus <target>                     what a notification's click does (cockpit focus for more)
     cockpit setup                              picks the frontends, the default agent and the features, writes the config,
                                                wires herdr, the Herdr app and the other agents (/cockpit:setup in Claude Code)
-    cockpit doctor                             checks every part of cockpit, one ok, warn or fail line each
+    cockpit doctor [--all]                     checks every part of cockpit: what is wrong, or with --all every check
     cockpit browse ...                         a page in terminal-browser beside a pane (cockpit browse for more)
     cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)
     cockpit store ...                          the documents the hub keeps and its leases, for the mod (cockpit store for more)
@@ -83,6 +83,15 @@ fn main() {
     cockpit_core::answer_version("cockpit");
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some((command, rest)) = args.split_first() else { proc::fail(USAGE) };
+    // Asking for help is not a mistake: it answers on stdout and exits 0, whole or for one command.
+    if matches!(command.as_str(), "--help" | "-h" | "help") {
+        println!("{USAGE}");
+        return;
+    }
+    if rest.iter().any(|a| a == "--help" || a == "-h") {
+        usage_of(command);
+        return;
+    }
     match command.as_str() {
         "inbox" => app(cockpit_inbox::run()),
         "runbook" => app(cockpit_runbook::run()),
@@ -132,6 +141,30 @@ fn main() {
         "resume" => resume(rest),
         "queue" => queue::main(rest),
         _ => proc::fail(USAGE),
+    }
+}
+
+/// What USAGE says about one command, on stdout; the whole of it when it names none.
+fn usage_of(command: &str) {
+    let head = format!("    cockpit {command}");
+    let mut lines = Vec::new();
+    for line in USAGE.lines() {
+        let names = line.starts_with(&head) && line[head.len()..].starts_with([' ', '|']);
+        // A command's text runs on over the indented lines under it.
+        let continues = !lines.is_empty() && line.starts_with("     ") && !line.trim_start().starts_with("cockpit ");
+        if names || continues {
+            lines.push(line);
+        } else if !lines.is_empty() && !line.trim().is_empty() {
+            break;
+        }
+    }
+    if lines.is_empty() {
+        println!("{USAGE}");
+        return;
+    }
+    // USAGE indents every line by four spaces; drop those so one command's help reads on its own.
+    for line in lines {
+        println!("{}", line.strip_prefix("    ").unwrap_or(line));
     }
 }
 

@@ -28,7 +28,7 @@ expression: "render(&mut app, 90, HEIGHT)"
  ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  ├ ▼ ● Usage limits  4
  │ ├ ▼    ENG-414   to review     [Frontend] - Add a "Know more" … $0.88
- │ │ └ ▼   web#1866                feat(quota):   fix ci  f     rerun  r     open  o
+ │ │ └ ▼   web#1866                feat(quota): ▸ fix ci  f     rerun  r     open  o
  │ │   ├    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides wh
  │ │   └    translations
  │ ├ ▼    ENG-413   to merge      [Frontend] - Show the export pr… $23.91

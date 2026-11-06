@@ -49,13 +49,21 @@ impl Toasts {
                 break;
             }
             let rect = Rect { x: area.x + area.width - width - 1, y: bottom - height - 1, width, height };
-            let edge: Color = match kind {
-                Kind::Note => ORANGE,
-                Kind::Good => GREEN,
-                Kind::Bad => RED,
+            // The glyph says what the colour says, for a terminal that has few colours or none.
+            let (edge, mark): (Color, &str) = match kind {
+                Kind::Note => (ORANGE, "· "),
+                Kind::Good => (GREEN, "✓ "),
+                Kind::Bad => (RED, "✗ "),
             };
             frame.render_widget(Clear, rect);
-            let body: Vec<Line> = lines.into_iter().map(|l| Line::from(Span::styled(l, Style::new().fg(FG)))).collect();
+            let body: Vec<Line> = lines
+                .into_iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    let lead = if i == 0 { mark } else { "  " };
+                    Line::from(vec![Span::styled(lead, Style::new().fg(edge)), Span::styled(l, Style::new().fg(FG))])
+                })
+                .collect();
             let block = Block::new().borders(Borders::LEFT).border_style(Style::new().fg(edge)).style(Style::new().bg(PANEL));
             frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }).block(block.padding(ratatui::widgets::Padding::horizontal(1))), rect);
             bottom -= height + 1;

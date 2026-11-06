@@ -13,7 +13,9 @@ use crate::requests::Requests;
 
 pub const LEAD: usize = 4;
 const REF: usize = 24;
+/// The notes column: 16 cells when there is room, narrower before the title is squeezed to nothing.
 const NOTES: usize = 16;
+const NOTES_MIN: usize = 6;
 const AGE: usize = 5;
 
 /// One of the inbox's actions, called through the bridge with these arguments.
@@ -274,7 +276,9 @@ impl Row {
         let mut spans: Vec<Span<'static>> = cells.lead.iter().map(|(g, st)| Span::styled(g.clone(), *st)).collect();
         let lead: usize = cells.lead.iter().map(|(g, _)| width(g)).sum();
         spans.push(Span::raw(" ".repeat(LEAD.saturating_sub(lead))));
-        let avail = room as i64 - (LEAD + NOTES + AGE + 1) as i64;
+        // Notes give up their cells before the title does: a narrow row keeps what the work is called.
+        let notes_col = NOTES.min((room as i64 - (LEAD + AGE + 1 + 24) as i64).max(NOTES_MIN as i64) as usize);
+        let avail = room as i64 - (LEAD + notes_col + AGE + 1) as i64;
         let ref_room = (REF as i64).min(10.max(avail.div_euclid(2))) as usize;
         let (reference, title) = (&cells.reference.0, &cells.title.0);
         let title_at = reference.chars().count() + 1;
@@ -287,7 +291,7 @@ impl Row {
         let title_room = 4.max(avail - ref_room as i64) as usize;
         spans.extend(marked(&format!("{} ", fit(title, title_room)), title, title_at, hits, cells.title.1));
         let notes_at = title_at + title.chars().count() + 1;
-        let notes_text = fit(&notes.0, NOTES + if age.is_empty() { AGE } else { 0 });
+        let notes_text = fit(&notes.0, notes_col + if age.is_empty() { AGE } else { 0 });
         spans.extend(marked(&notes_text, &notes.0, notes_at, notes_hits, notes.1));
         if !age.is_empty() {
             spans.push(Span::styled(fit(&format!("{age:>AGE$}"), AGE), fg(DIM)));

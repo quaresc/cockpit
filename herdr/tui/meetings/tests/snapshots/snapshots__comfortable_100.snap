@@ -5,7 +5,7 @@ expression: "render(&mut app, 100, 36)"
    Meetings   updated 09:57
  Calendar: list_events: Resource has been exhausted (e.g. check quota).
 
-   now  Pairing on quotas   until 10:30                                                󰕧 join  m
+   now  Pairing on quotas   until 10:30                                              ▸ 󰕧 join  m
 
   Today                                                                                           █
    09:45–10:00   15 min  Team Daily                                                         9   █
@@ -36,5 +36,5 @@ expression: "render(&mut app, 100, 36)"
  now, until 10:30 · 30 min · 2 people · accepted
  bob
 
-   join  m     open  o     prepare  p
- o open  m join  b brief  p prepare  w week  q quit                                     ▏^p palette
+ ▸ join  m     open  o     prepare  p
+ q quit  o open  m join  b brief  p prepare  w week                                     ▏^p palette

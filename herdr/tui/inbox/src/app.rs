@@ -239,7 +239,7 @@ impl App {
             if let Some(error) = reply.error {
                 self.toasts.push(error, Toast::Bad);
             }
-            self.toasts.push(reply.note, Toast::Note);
+            self.toasts.push(reply.note, Toast::Good);
             self.requests.merge(&reply.pending);
             force = true;
         }
@@ -358,6 +358,12 @@ fn period() -> u64 {
 }
 
 impl term::App for App {
+    /// Idle only: `?` must type into the filter or a dialog when one is open.
+    fn help(&self) -> Option<(String, Vec<cockpit_core::acts::Act>)> {
+        let busy = self.editing || self.tree.filtering() || self.dialog.is_some() || self.palette.is_open;
+        (!busy).then(|| ("the inbox".to_string(), Vec::new()))
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         frame.render_widget(Block::new().style(base()), area);

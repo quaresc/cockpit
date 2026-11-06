@@ -4,7 +4,7 @@ expression: "render(&mut app(Density::Compact), 90, 16)"
 ---
    Routines   6 routines · 1 running · 3 runs today · ~$0.74 this week
 
- ▶ ⣾ Pull my notes       every 30 min                   stop  s     edit  e     open  o
+ ▶ ⣾ Pull my notes       every 30 min                 ▸ stop  s     edit  e     open  o
  ▶  Fix CI on checkout  on CI failing · checkout  ~$0.41 last  over its weekly budget
     Standup notes       when?                                  never ran
  ▶  Morning sweep       weekdays at 09:00         ~$0.18 last  ran 1 h ago
@@ -17,4 +17,4 @@ expression: "render(&mut app(Density::Compact), 90, 16)"
 
 
 
- enter main  a add  space runs  R refresh  q quit                             ▏^p palette
+ q quit  enter main  a add  space runs  R refresh                             ▏^p palette

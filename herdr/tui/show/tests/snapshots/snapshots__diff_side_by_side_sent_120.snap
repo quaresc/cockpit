@@ -37,8 +37,8 @@ expression: "screen(&mut app, 120)"
 
 
 
-                                                                       │ comment on src/quota.rs:3 sent to the
-                                                                       │ session
+                                                                       │ ✓ comment on src/quota.rs:3 sent to the
+                                                                       │   session
 
 
  q hide  ^p palette  tab focus  j/k line  [ ] file  c comment  S send comments  s split  enter fold  esc leave

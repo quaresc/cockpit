@@ -60,6 +60,27 @@ pub fn pinned() -> Vec<String> {
     spaces.iter().map(|s| s.get("name").unwrap_or(s).as_str().unwrap_or_default().to_string()).collect()
 }
 
+/// The key that jumps to each space, read from herdr's own config: `prefix+i` for inbox, and so on. The palette shows
+/// them, which is the only place a person meets a chord they did not set themselves.
+pub fn space_keys() -> std::collections::HashMap<String, String> {
+    let mut keys = std::collections::HashMap::new();
+    let Ok(text) = std::fs::read_to_string(files::home().join(".config/herdr/config.toml")) else { return keys };
+    let mut key: Option<String> = None;
+    for line in text.lines().map(str::trim) {
+        if let Some(value) = line.strip_prefix("key = ") {
+            key = Some(value.trim_matches('"').to_string());
+        } else if let Some(value) = line.strip_prefix("command = ") {
+            // "sh …/focus-space.sh <space>" is what a space's key runs.
+            if let (Some(k), Some(space)) = (key.take(), value.trim_matches('"').split("focus-space.sh ").nth(1)) {
+                keys.insert(space.trim().to_string(), k);
+            }
+        } else if line.starts_with("[[") {
+            key = None;
+        }
+    }
+    keys
+}
+
 /// The herdr TUI's actions space id; None when it is not among the pinned spaces or not open.
 pub fn space(pinned: &[String]) -> Option<String> {
     if !pinned.iter().any(|n| n == "actions") {

@@ -30,5 +30,5 @@ expression: "render(&mut app(Density::Comfortable), 120, 30)"
  p95    24 h    ▂▂▁▁▁▁▁▁▁▁▁▁▂▆▆▅▂▅▆█ 161 ms lately
  2 open errors in Error Tracking over the last day, 1 new
 
-   investigate  i     open  o     ArgoCD  A     unpin  p     refresh  R     mute  m
- enter main  space fold  w releases  R refresh  q quit                                                      ▏^p palette
+ ▸ investigate  i     open  o     ArgoCD  A     unpin  p     refresh  R     mute  m
+ q quit  enter main  space fold  w releases  R refresh                                                      ▏^p palette
