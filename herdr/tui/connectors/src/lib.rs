@@ -16,4 +16,4 @@ pub mod sources;
 pub mod tickets;
 pub mod tools;
 
-pub use client::{Connection, Server, block_on, call_mapped, call_mapped_text, connect, login, login_server};
+pub use client::{Connection, Server, block_on, call_mapped, call_mapped_text, connect, login, login_server, printed_token};
