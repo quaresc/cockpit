@@ -12,7 +12,6 @@ if command -v claude >/dev/null 2>&1; then
   claude plugin update cockpit@cockpit
 fi
 app_home=${HERDR_APP_HOME:-$HOME/.config/herdr-app}
-HC=${COCKPIT_HC_BIN:-hc}
 if [ -n "$REGISTERED" ]; then
   "$H" plugin update cockpit --yes
   root=$(jq -r '.[] | select(.plugin_id == "cockpit") | .plugin_root' "$HOME/.config/herdr/plugins.json")
