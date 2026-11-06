@@ -5,6 +5,29 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.39.0 (2026-11-06)
+
+- `?` opens a keys overlay in every space: the row's actions, how to move, and the `prefix+…` chords with the space
+  each one opens. It is built from the app's own actions and herdr's config, so it lists nothing the app cannot do,
+  and `m` in it hands the mouse to the terminal, for selecting and copying text.
+- A space with nothing in it says whether a source is connected or the first fetch is still coming, instead of
+  waiting for data that may never arrive: the inbox, mail, meetings and the monitor, in herdr and in the Herdr app.
+- `install.sh` checks herdr or the Herdr app, `gh` and `jq` before it downloads anything, rather than failing in the
+  setup that follows; `cockpit setup` offers a one-minute path with nothing to connect, and reads its answers
+  properly (`10` used to turn on features 1 and 0).
+- `cockpit --help` answers on stdout, and so does every command's own `--help`; `cockpit setup --help` no longer
+  starts the wizard. `cockpit doctor` prints what needs doing and a verdict, with `--all` for every check.
+- A `prefix+…` chord whose space is not pinned says so instead of doing nothing; the hub writes
+  `~/.cache/cockpit/hub.log` and names it when it cannot start; `reload.sh` reloads every session running an older
+  cockpit, instead of typing `/reload-plugins` into each one. `/cockpit:setup` links `cockpit` into `~/.local/bin`.
+- The spaces name the agent you picked rather than Claude Code, and the shell scripts stop suggesting a Claude
+  command to people who do not run it.
+- A confirm dialog stays answerable on a short pane; mail's sender column and the inbox's notes column give up their
+  cells before the subject or the title does; `q quit` comes first in the monitor, routines and meetings footers; the
+  main action, a toast's kind and the CI tone carry a mark as well as a colour. Mail gains the palette.
+- The README carries the demo, the requirements and the questions the website answered; new pages for getting
+  started, the configuration, the `show` blocks and troubleshooting.
+
 ## 0.38.5 (2026-11-05)
 
 - The status bar shows as many of the agent's links as fit, the rest in "+N", and GitHub's own checks read as CI beside
