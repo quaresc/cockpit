@@ -53,7 +53,7 @@ itself and need no `tools`.
 | `brief` | `{enabled, at: "08:30", weekends: false}` | The morning brief. |
 | `meetingBrief` | `{enabled, model, skip, tools}` | What to read before a meeting. `skip` drops events by name. |
 | `deployWatch` | `{enabled, afterMinutes, tools}` | Checks errors after a deploy, through an observability connector. |
-| `monitor` | Datadog APM queries, `env: production` | The release monitor: `queries` ({service}, {env}), `moved` thresholds, `notify` (`mine`/`all`/`none`). |
+| `monitor` | Datadog APM queries, `env: production` | The release monitor: `queries` ({service}, {env}), `moved` thresholds, `notify` (`mine`/`all`/`none`), `serviceReplace` when Datadog names a service differently from the platform. |
 | `runbookTools` | `[]` | Extra tools a runbook's background refresh may use. |
 | `names` | `true` | Short names given to agents; `false` turns them off. |
 | `fetcher` | `true` | The Claude session the hub keeps for sources it cannot reach itself; `false` turns it off. |
