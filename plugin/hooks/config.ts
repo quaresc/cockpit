@@ -143,7 +143,7 @@ export type Config = {
   datadog: { server: string }
   // The monitor space: the environment it watches, the Datadog queries of a service ({service}, {env}), when a release
   // counts as moved (p95 up by both the ratio and the milliseconds), and whose releases notify (mine, all or none).
-  // serviceReplace renames a platform's service to Datadog's, as literal substrings replaced in order ({ "-": "_" }).
+  // serviceReplace renames a platform's service to Datadog's, as literal substrings applied longest key first ({ "-": "_" }).
   monitor: {
     env: string
     serviceReplace: Record<string, string>

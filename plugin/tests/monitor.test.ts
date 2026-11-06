@@ -212,3 +212,18 @@ test('a service is asked of Datadog under the name serviceReplace gives it', asy
     forgetConfig()
   }
 })
+
+test('the longest serviceReplace key wins and the Datadog link follows', async () => {
+  const gateway = { ...status, apps: status.apps.map(a => (a.id === 'api-production' ? { ...a, service: 'api-gateway', datadogUrl: 'https://app.datadoghq.com/apm/entity/service%3Aapi-gateway' } : a)) }
+  forgetConfig()
+  try {
+    const run = engine(null, { ...CONFIG, monitor: { serviceReplace: { '-': '_', '-gateway': '_gw' } } })
+    const call = run.$.mcp.call
+    run.$.mcp.call = async (server, tool, args) => (tool === 'deploys_status' ? { isError: false, content: [{ type: 'text', text: JSON.stringify(gateway) }] } : call(server, tool, args))
+    await refreshMonitor(run.$, true)
+    expect(run.doc().apps[0]!.service).toBe('api_gw')
+    expect(run.doc().apps[0]!.datadogUrl).toBe('https://app.datadoghq.com/apm/entity/service%3Aapi_gw')
+  } finally {
+    forgetConfig()
+  }
+})

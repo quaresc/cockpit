@@ -123,8 +123,15 @@ async function datadog($: $, server: string, tool: string, args: Record<string, 
   return body
 }
 
-// The service as Datadog names it: the config's serviceReplace substrings replaced in order.
-const datadogService = (config: Config['monitor'], service: string) => Object.entries(config.serviceReplace).reduce((s, [from, to]) => s.split(from).join(to), service)
+// The service as Datadog names it: the config's serviceReplace substrings, longest key first.
+const datadogService = (config: Config['monitor'], service: string) =>
+  Object.entries(config.serviceReplace)
+    .filter(([from]) => from !== '')
+    .sort(([a], [b]) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0))
+    .reduce((s, [from, to]) => s.split(from).join(to), service)
+
+// The app's Datadog link under the name Datadog knows, the platform's service name swapped for the mapped one.
+const datadogLink = (url: string, from: string, to: string) => (from === '' || from === to ? url : url.split(from).join(to))
 
 const fill = (query: string, service: string, env: string) => query.replace(/\{service\}/g, service).replace(/\{env\}/g, env)
 
@@ -299,17 +306,19 @@ export function refreshMonitor($: $, isForced = false) {
         const apps: MonitoredApp[] = status.map(a => {
           const id = text(pick(a, f.appId)) ?? ''
           const deployedAt = text(pick(a, f.appDeployedAt ?? 'lastDeployedAt')) ?? ''
+          const platformService = text(pick(a, f.appService ?? 'service')) ?? ''
+          const service = datadogService(config.monitor, platformService)
           return {
             id,
             name: text(pick(a, f.appName ?? 'name')) ?? id,
-            service: datadogService(config.monitor, text(pick(a, f.appService ?? 'service')) ?? ''),
+            service,
             repo: repoName(text(pick(a, f.appRepo)) ?? ''),
             health: text(pick(a, f.appHealth ?? 'health')) ?? '',
             tag: text(pick(a, f.appTag)) ?? text(pick(a, f.appSha)) ?? '',
             deployedAt,
             behind: Number(text(pick(a, f.appBehind ?? 'commitsBehindHead')) ?? 0),
             argoUrl: text(pick(a, f.appLink)) ?? '',
-            datadogUrl: text(pick(a, f.appDatadog ?? 'datadogUrl')) ?? '',
+            datadogUrl: datadogLink(text(pick(a, f.appDatadog ?? 'datadogUrl')) ?? '', platformService, service),
             watched: !muted.has(id) && (pinned.has(id) || now - Date.parse(deployedAt) < DAY_MS),
             pinned: pinned.has(id),
             muted: muted.has(id),

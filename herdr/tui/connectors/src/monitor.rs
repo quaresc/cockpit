@@ -39,14 +39,22 @@ pub struct Context<'a> {
     pub utc_offset_minutes: i32,
 }
 
-/// The service as Datadog names it: the monitor section's `serviceReplace` substrings replaced in order.
+/// The service as Datadog names it: the monitor section's `serviceReplace` substrings, longest key first.
 fn datadog_service(monitor: &Value, service: &str) -> String {
-    monitor["serviceReplace"]
+    let mut rules: Vec<(&str, &str)> = monitor["serviceReplace"]
         .as_object()
         .into_iter()
         .flatten()
-        .filter_map(|(from, to)| Some((from, to.as_str()?)))
-        .fold(service.to_string(), |s, (from, to)| s.replace(from.as_str(), to))
+        .filter_map(|(from, to)| Some((from.as_str(), to.as_str()?)))
+        .filter(|(from, _)| !from.is_empty())
+        .collect();
+    rules.sort_by(|(a, _), (b, _)| b.len().cmp(&a.len()).then(a.cmp(b)));
+    rules.iter().fold(service.to_string(), |s, (from, to)| s.replace(from, to))
+}
+
+/// The app's Datadog link under the name Datadog knows, the platform's service name swapped for the mapped one.
+fn datadog_url(url: &str, from: &str, to: &str) -> String {
+    if from.is_empty() || from == to { url.to_string() } else { url.replace(from, to) }
 }
 
 /// Errors, hits and p95 (seconds) of a service over a window.
@@ -537,17 +545,20 @@ pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, 
             let pinned = ctx.pinned.contains(&id);
             let muted = ctx.muted.contains(&id);
             let name = get("appName", "name").unwrap_or_else(|| id.clone());
+            let platform_service = get("appService", "service").unwrap_or_default();
+            let service = datadog_service(ctx.monitor, &platform_service);
+            let datadog_link = datadog_url(&get("appDatadog", "datadogUrl").unwrap_or_default(), &platform_service, &service);
             json!({
                 "id": id,
                 "name": name,
-                "service": datadog_service(ctx.monitor, &get("appService", "service").unwrap_or_default()),
+                "service": service,
                 "repo": repo_name(&get("appRepo", "").unwrap_or_default()),
                 "health": get("appHealth", "health").unwrap_or_default(),
                 "tag": get("appTag", "").or_else(|| get("appSha", "")).unwrap_or_default(),
                 "deployedAt": deployed_at,
                 "behind": number(get("appBehind", "commitsBehindHead").as_deref()),
                 "argoUrl": get("appLink", "").unwrap_or_default(),
-                "datadogUrl": get("appDatadog", "datadogUrl").unwrap_or_default(),
+                "datadogUrl": datadog_link,
                 "watched": !muted && (pinned || parse_ms(&deployed_at).is_some_and(|t| ctx.now - t < DAY_MS)),
                 "pinned": pinned,
                 "muted": muted,
@@ -989,6 +1000,36 @@ mod tests {
         let doc = block_on(refresh(&platform, &Signals::Datadog(&datadog), &ctx, None)).unwrap().unwrap();
         assert_eq!(doc["apps"][0]["service"], "api_gateway");
         assert_eq!(datadog.calls.borrow()[0].1["query"], "service:api_gateway");
+    }
+
+    #[test]
+    fn the_longest_service_replace_key_wins_and_the_datadog_link_follows() {
+        let platform_section = crate::platform::mapping(&json!({"tools": {"deployStatus": {"tool": "s"}, "deployHistory": {"tool": "h"}},
+            "fields": {"apps": "apps", "appId": "id", "deployments": "deployments"}}));
+        let platform = Fake::default()
+            .with(
+                "deployStatus",
+                json!({"apps": [{"id": "api", "name": "API", "service": "api-gateway",
+                "datadogUrl": "https://app.datadoghq.eu/apm/entity/service%3Aapi-gateway", "lastDeployedAt": "2026-11-04T11:00:00Z"}]}),
+            )
+            .with("deployHistory", json!({"deployments": []}));
+        let datadog = Fake::default().with("search_datadog_monitors", json!("<JSON_DATA>[]</JSON_DATA>"));
+        let q = settings(&json!({"serviceReplace": {"-": "_", "-gateway": "_gw"}}));
+        let ctx = Context {
+            platform: &platform_section,
+            monitor: &q,
+            after_minutes: 30,
+            login: "",
+            org: "",
+            inbox: None,
+            pinned: &[],
+            muted: &[],
+            now: at("2026-11-04T12:00:00Z"),
+            utc_offset_minutes: 0,
+        };
+        let doc = block_on(refresh(&platform, &Signals::Datadog(&datadog), &ctx, None)).unwrap().unwrap();
+        assert_eq!(doc["apps"][0]["service"], "api_gw");
+        assert_eq!(doc["apps"][0]["datadogUrl"], "https://app.datadoghq.eu/apm/entity/service%3Aapi_gw");
     }
 
     #[test]
