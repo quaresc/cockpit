@@ -46,8 +46,10 @@ fn setup() {
         gradient(400, 200, true).save(pictures.join("before.png")).unwrap();
         gradient(400, 200, false).save(pictures.join("after.png")).unwrap();
         let mut gif = GifEncoder::new(std::fs::File::create(pictures.join("anim.gif")).unwrap());
+        // Each frame outlasts the run, so the snapshot is always the first one: what the screen holds must not depend on
+        // how long the test took to get there.
         for warm in [true, false, true] {
-            gif.encode_frame(Frame::from_parts(gradient(120, 60, warm), 0, 0, Delay::from_numer_denom_ms(150, 1))).unwrap();
+            gif.encode_frame(Frame::from_parts(gradient(120, 60, warm), 0, 0, Delay::from_numer_denom_ms(600_000, 1))).unwrap();
         }
         // One bundled font for every picture's text, so their pixels match on macOS and on the Linux CI.
         assert!(cockpit_show::use_only_font(&fixtures().join("fonts/FiraCode-subset.ttf")));
