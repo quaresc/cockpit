@@ -57,7 +57,7 @@ fn app_missing_fetches_the_release_then_runs_it() {
 fn app_missing_everywhere_says_so_and_fails() {
     let (code, out, err) = run_app(None, None, NO_FETCH);
     assert_eq!((code, out.as_str()), (Some(1), "fetched\n"));
-    assert_eq!(err, "cockpit: no cockpit binary for this machine yet; /cockpit:doctor says why\n");
+    assert_eq!(err, "cockpit: no cockpit binary for this machine yet; run cockpit doctor to see why\n");
 }
 
 // ---------------------------------------------------------------------------

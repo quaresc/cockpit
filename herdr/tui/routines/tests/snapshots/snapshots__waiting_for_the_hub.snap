@@ -9,4 +9,4 @@ expression: "render(&mut app, 90, 8)"
 
 
 
- enter main  a add  space runs  R refresh  q quit                             ▏^p palette
+ q quit  enter main  a add  space runs  R refresh                             ▏^p palette

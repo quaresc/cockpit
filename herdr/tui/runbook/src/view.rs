@@ -2,6 +2,7 @@
 //! and notes, the selected step's panel unless compact, the filter bar, the footer, and the editor over them.
 
 use cockpit_core::acts;
+use cockpit_core::agent;
 use cockpit_core::anim::Glide;
 use cockpit_core::files::Density;
 use cockpit_core::text::{width, wrap};
@@ -185,7 +186,8 @@ impl App {
     /// The selected step's lines and its actions; when there is none, a word on how to get one.
     fn panel(&self, cells: usize) -> (Vec<Line<'static>>, Vec<Cmd>) {
         let Some(step) = self.book().and_then(|b| b.steps.get(self.selected)).filter(|_| self.shown().contains(&self.selected)) else {
-            let text = if self.books.is_empty() { "No runbook yet: run /runbook in a Claude Code session working on a ticket." } else { "" };
+            let empty = format!("No runbook yet: a adds a step, or {} for the ticket you are on.", agent::ask_for("runbook", "write one"));
+            let text = if self.books.is_empty() { empty } else { String::new() };
             return (vec![Line::styled(text, dim())], Vec::new());
         };
         let mut lines = Vec::new();

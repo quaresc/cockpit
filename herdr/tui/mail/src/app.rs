@@ -9,6 +9,7 @@ use cockpit_core::acts::Act;
 use cockpit_core::bridge::Bridge;
 use cockpit_core::files;
 use cockpit_core::hub::{self, Docs};
+use cockpit_core::palette::Palette;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
 use ratatui::text::Line;
@@ -56,6 +57,9 @@ pub struct App {
     opened: Option<Message>,
     /// A message whose page opens in the side browser once its thread is there.
     pub html_wanted: Option<String>,
+    pub palette: Palette,
+    /// What a palette entry runs, by its id.
+    pub cmds: Vec<Cmd>,
     pub toasts: Toasts,
     toasting: bool,
     pub bridge: Bridge,
@@ -91,6 +95,8 @@ impl App {
             follow: true,
             opened: None,
             html_wanted: None,
+            palette: Palette::default(),
+            cmds: Vec::new(),
             toasts: Toasts::default(),
             toasting: false,
             bridge: Bridge::default(),

@@ -148,11 +148,14 @@ fn setup(io: &mut Io) {
         (false, true) => "1",
         _ => "2",
     };
-    let picked = io.ask("\nWhich frontends? 1 herdr (terminal), 2 the Herdr app, 3 both", default);
-    let (tui, gui) = match picked.as_str() {
-        "1" => (true, false),
-        "2" => (false, true),
-        _ => (true, true),
+    let (tui, gui) = loop {
+        let picked = io.ask("\nWhich frontends? 1 herdr (terminal), 2 the Herdr app, 3 both", default);
+        match picked.trim() {
+            "1" => break (true, false),
+            "2" => break (false, true),
+            "3" => break (true, true),
+            other => println!("{other:?} is not 1, 2 or 3."),
+        }
     };
     let frontend = match (tui, gui) {
         (true, false) => Some("tui"),
@@ -174,12 +177,23 @@ fn setup(io: &mut Io) {
         Some(installed[n - 1].id.clone())
     };
 
-    // 4. Features
-    println!("\nFeatures: 1 PRs inbox (GitHub, GitLab…), 2 tickets, 3 CI runs (GitHub checks otherwise), 4 meetings, 5 E2E tests in terminal-browser");
-    println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog, Grafana, Sentry…), 9 mail");
-    println!("Tickets, CI, meetings, deploys and the monitor come from MCP servers: cockpit calls them itself, with any agent.");
-    let picked = io.ask("Which ones, by number (e.g. 1 2 5)?", "1");
-    let on = |n: char| picked.contains(n);
+    // 4. Features. Connecting a source means mapping its MCP tools, which takes a while, so the quick way out is
+    // offered first: GitHub through gh needs nothing mapped and is enough to work from.
+    println!("\nWhat cockpit shows you:");
+    println!("  1 just my pull requests, to-do and runbooks — nothing to connect, ready in a minute");
+    println!("  2 pick what I want, including tickets, CI, meetings, mail, deploys and the release monitor");
+    let quick = io.ask("Which?", "1").trim() != "2";
+    let picked = if quick {
+        println!("\nStarting with pull requests (through gh). Run cockpit setup again any time to add the rest.");
+        "1 6".to_string()
+    } else {
+        println!("\nFeatures: 1 PRs inbox (GitHub, GitLab…), 2 tickets, 3 CI runs (GitHub checks otherwise), 4 meetings, 5 E2E tests in terminal-browser");
+        println!("beside the agent, 6 routines space, 7 deploys and previews, 8 release monitor (Datadog, Grafana, Sentry…), 9 mail");
+        println!("Tickets, CI, meetings, deploys and the monitor come from MCP servers: cockpit calls them itself, with any agent.");
+        io.ask("Which ones, by number (e.g. 1 2 5)?", "1")
+    };
+    let chosen = numbers(&picked, 9);
+    let on = |n: char| chosen.contains(&n);
     let repos = io.ask("\nThe folder holding your git checkouts?", &repos_dir(&home));
     let orgs = said(&["gh", "api", "user/orgs", "--jq", ".[].login"]);
     let org = if on('1') && !orgs.is_empty() {
@@ -559,6 +573,18 @@ fn herdr_keys(io: &mut Io, home: &Path, root: &str) {
 }
 
 /// Writes a file only its owner can read, through a temporary file beside it: the config holds tokens.
+/// The numbers an answer like "1 2 5", "1,2,5" or "125" names, within 1..=most; anything else is ignored.
+fn numbers(answer: &str, most: u32) -> Vec<char> {
+    let mut picked: Vec<char> = Vec::new();
+    for c in answer.chars().filter(|c| c.is_ascii_digit()) {
+        let n = c.to_digit(10).unwrap_or(0);
+        if (1..=most).contains(&n) && !picked.contains(&c) {
+            picked.push(c);
+        }
+    }
+    picked
+}
+
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let tmp = path.with_file_name(format!(".{}.tmp", path.file_name().unwrap_or_default().to_string_lossy()));

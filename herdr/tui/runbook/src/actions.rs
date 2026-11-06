@@ -22,7 +22,7 @@ impl App {
 
     pub fn refresh(&mut self, slug: &str) {
         if self.asking.contains(slug) || self.refreshing.get(slug).is_some_and(|(pid, _)| crate::app::is_alive(*pid)) {
-            self.toasts.push(format!("{slug} is already refreshing"), toast::Kind::Good);
+            self.toasts.push(format!("{slug} is already refreshing"), toast::Kind::Note);
             return;
         }
         self.newly.remove(slug);

@@ -10,8 +10,15 @@ use crossterm::event::{self, DisableFocusChange, DisableMouseCapture, EnableFocu
 use crossterm::execute;
 use ratatui::{DefaultTerminal, Frame};
 
+use crate::help;
+
 pub trait App {
     fn draw(&mut self, frame: &mut Frame);
+    /// The app's name and the actions of the row under the cursor, for the `?` keys overlay. None while a dialog, a
+    /// palette or a text field is open, so `?` types into them instead, and for an app with no overlay.
+    fn help(&self) -> Option<(String, Vec<crate::acts::Act>)> {
+        None
+    }
     /// A key, mouse, focus or resize event; true quits.
     fn event(&mut self, event: Event) -> bool;
     /// Called when no event came within `timeout`: files to read again, animations to step. True when the screen changed
@@ -23,6 +30,24 @@ pub trait App {
 
 static WOKEN: AtomicBool = AtomicBool::new(false);
 static REDRAW: AtomicBool = AtomicBool::new(false);
+/// Mouse reports off, so the terminal's own selection works again and text can be copied with the mouse.
+static MOUSE_OFF: AtomicBool = AtomicBool::new(false);
+
+pub fn mouse_is_off() -> bool {
+    MOUSE_OFF.load(Ordering::Relaxed)
+}
+
+/// Turns the mouse reports off and on; off, clicks and scrolling belong to the terminal, which is how text is
+/// selected and copied. Returns the state it left them in.
+pub fn toggle_mouse() -> bool {
+    let off = !MOUSE_OFF.fetch_xor(true, Ordering::Relaxed);
+    if off {
+        let _ = execute!(stdout(), DisableMouseCapture);
+    } else {
+        let _ = execute!(stdout(), EnableMouseCapture);
+    }
+    off
+}
 
 /// Wakes the loop and draws the next frame whatever the app's tick says: an answer that arrived in the background.
 pub fn redraw() {
@@ -56,10 +81,28 @@ pub fn run(app: &mut impl App) -> std::io::Result<()> {
         let mut redraw = true;
         loop {
             if redraw {
-                terminal.draw(|frame| app.draw(frame))?;
+                terminal.draw(|frame| {
+                    app.draw(frame);
+                    // Over whatever the app drew, so every space answers `?` the same way.
+                    if let Some((name, acts)) = app.help().filter(|_| help::is_open()) {
+                        help::render(frame, frame.area(), &name, &acts);
+                    }
+                })?;
             }
             redraw = if wait(app.timeout())? {
-                if app.event(event::read()?) {
+                let event = event::read()?;
+                // `?` belongs to the overlay only when the app is idle; its own `help` says so.
+                // Only `?`, and whatever closes the overlay, reach it — `app.help()` builds the row's actions, so it
+                // is asked about that one key rather than on every keystroke.
+                if let Event::Key(key) = &event {
+                    let pressed = key.kind != crossterm::event::KeyEventKind::Release;
+                    let asking = help::is_open() || key.code == crossterm::event::KeyCode::Char('?');
+                    if pressed && asking && (help::is_open() || app.help().is_some()) && help::key(key) {
+                        redraw = true;
+                        continue;
+                    }
+                }
+                if app.event(event) {
                     return Ok(());
                 }
                 true

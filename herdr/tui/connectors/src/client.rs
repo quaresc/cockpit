@@ -91,6 +91,12 @@ impl Server {
     }
 }
 
+/// The token a command printed, its last line that could be a header value: `gh` behind a mise or asdf shim prints the
+/// tool it resolved first, and a header value holds no newline.
+pub fn printed_token(stdout: &str) -> Option<String> {
+    stdout.lines().map(str::trim).rfind(|line| !line.is_empty() && line.bytes().all(|b| b.is_ascii_graphic())).map(str::to_string)
+}
+
 pub struct Connection(RunningService<RoleClient, ()>);
 
 /// Logs in to a server through the browser: discovery, registration (or the person's own app), PKCE, and a callback
@@ -191,10 +197,10 @@ pub async fn connect(server: &Server) -> Result<Connection, String> {
             let mut config = StreamableHttpClientTransportConfig::with_uri(url.as_str());
             if let Some((program, args)) = bearer_command.split_first() {
                 let out = tokio::process::Command::new(program).args(args).output().await.map_err(|e| format!("{program}: {e}"))?;
-                let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !out.status.success() || token.is_empty() {
+                let token = out.status.success().then(|| printed_token(&String::from_utf8_lossy(&out.stdout))).flatten();
+                let Some(token) = token else {
                     return Err(format!("{} printed no token", bearer_command.join(" ")));
-                }
+                };
                 config = config.auth_header(token);
             }
             let mut custom = std::collections::HashMap::new();
@@ -307,4 +313,17 @@ pub async fn call_mapped_text(connection: &Connection, section: &Value, verb: &s
 pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime").block_on(future)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shims_resolution_line_is_not_the_token() {
+        assert_eq!(printed_token("gho_abc123\n").as_deref(), Some("gho_abc123"));
+        assert_eq!(printed_token("mise ~/.config/mise/config.toml tools: gh@2.103.3\ngho_abc123\n").as_deref(), Some("gho_abc123"));
+        assert_eq!(printed_token("").as_deref(), None);
+        assert_eq!(printed_token("mise ~/.config/mise/config.toml tools: gh@2.103.3\n").as_deref(), None);
+    }
 }

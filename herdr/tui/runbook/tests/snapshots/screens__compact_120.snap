@@ -18,7 +18,7 @@ expression: "screen(&mut app, width, 40)"
  5   ⬜  to do, approved green             Merge and deploy api (consumer + limits)             api#2198
  6   ⬜  to do, approved green             Merge and deploy web (banner on settings page)       web#1836
  7   ⬜  to do, approved green             Merge and deploy billing PR 3 (store + broadcast)    billing#379
- 8   ⬜  to do                             Backfill dry run    session  s     done  x     copy command  c     edit  e
+ 8   ⬜  to do                             Backfill dry run  ▸ session  s     done  x     copy command  c     edit  e
                                           $ ./bin/backfill_daily_quota_usage --dry-run
                                           ↳ running in its session…
  9   ⬜  to do                             Backfill real run                                    prod

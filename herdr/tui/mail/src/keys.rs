@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use cockpit_core::keys::{self, Move};
+use cockpit_core::palette::{Entry, Outcome};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
@@ -31,8 +32,49 @@ impl App {
         }
     }
 
+    /// Every message's actions, and a jump to each: what ctrl+p offers, as in every other space.
+    fn palette_entries(&mut self) -> Vec<Entry> {
+        let mut cmds = vec![Cmd::Refresh];
+        let mut entries = vec![Entry { text: "refresh the mail".into(), help: "R".into(), featured: true, id: 0 }];
+        // Every message: read it, and the actions the selected one offers, so the palette reaches the whole list.
+        let selected = self.selected.clone();
+        for m in self.mail.messages.clone() {
+            let help = format!("{} · {}", m.name, m.subject);
+            entries.push(Entry { text: format!("read  {}", m.subject), help: help.clone(), featured: m.unread, id: cmds.len() });
+            cmds.push(Cmd::See(m.id.clone()));
+            if selected.as_deref() == Some(m.id.as_str()) {
+                for (act, cmd) in self.acts() {
+                    if act.id == "see" {
+                        continue;
+                    }
+                    entries.push(Entry { text: format!("{}  {}", act.label, m.subject), help: help.clone(), featured: false, id: cmds.len() });
+                    cmds.push(cmd);
+                }
+            }
+        }
+        self.cmds = cmds;
+        entries
+    }
+
     fn key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if self.palette.is_open {
+            match self.palette.key(key) {
+                Outcome::Chosen(id) => {
+                    if let Some(cmd) = self.cmds.get(id).cloned() {
+                        self.run(cmd);
+                    }
+                }
+                Outcome::Elsewhere(target) => cockpit_core::hub::go(&target),
+                _ => {}
+            }
+            return false;
+        }
+        if ctrl && key.code == KeyCode::Char('p') {
+            let entries = self.palette_entries();
+            self.palette.open(entries);
+            return false;
+        }
         if keys::is_quit(&key) {
             return true;
         }

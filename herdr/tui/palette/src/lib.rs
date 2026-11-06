@@ -72,7 +72,8 @@ impl Over {
 /// The palette's own entries.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    Space(String),
+    /// A pinned space and the chord that jumps to it, when herdr's config binds one.
+    Space(String, Option<String>),
     RefreshInbox,
     Doctor,
     Brief,
@@ -102,14 +103,15 @@ pub enum Command {
 impl Command {
     fn entry(&self, id: usize) -> Entry {
         let (text, help) = match self {
-            Command::Space(name) => (format!("Go to the {name} space"), "a pinned space".to_string()),
-            Command::RefreshInbox => ("Refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
-            Command::Doctor => ("Check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
-            Command::Brief => ("Today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
-            Command::Editor(cwd) => (format!("Open {} in your editor", folder_name(cwd)), cwd.clone()),
-            Command::Fork { title, .. } => ("Fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
-            Command::Link { label, detail, url } => (format!("Open {label}"), if detail.is_empty() { url.clone() } else { detail.clone() }),
-            Command::Document { title, .. } => (format!("Show {title}"), "a document this agent showed, in a pane beside it".into()),
+            // Lowercase, as every in-app palette: the same command must not read two ways.
+            Command::Space(name, key) => (format!("go to the {name} space"), key.clone().unwrap_or_else(|| "a pinned space".into())),
+            Command::RefreshInbox => ("refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
+            Command::Doctor => ("check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
+            Command::Brief => ("today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
+            Command::Editor(cwd) => (format!("open {} in your editor", folder_name(cwd)), cwd.clone()),
+            Command::Fork { title, .. } => ("fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
+            Command::Link { label, detail, url } => (format!("open {label}"), if detail.is_empty() { url.clone() } else { detail.clone() }),
+            Command::Document { title, .. } => (format!("show {title}"), "a document this agent showed, in a pane beside it".into()),
         };
         Entry { text, help, featured: true, id }
     }
@@ -259,7 +261,7 @@ impl App {
 
     fn choose(&mut self, id: usize) -> bool {
         match self.commands.get(id).cloned() {
-            Some(Command::Space(name)) => self.then = Some(Then::Space(name)),
+            Some(Command::Space(name, _)) => self.then = Some(Then::Space(name)),
             Some(Command::RefreshInbox) => self.then = Some(Then::RefreshInbox),
             Some(Command::Editor(cwd)) => self.then = Some(Then::Editor(cwd)),
             Some(Command::Fork { agent, session, cwd, title }) => self.then = Some(Then::Fork { agent, session, cwd, title, prompt: String::new() }),
@@ -365,7 +367,12 @@ impl App {
 
 /// The pinned spaces to jump to, then the commands.
 pub fn commands(pinned: &[String]) -> Vec<Command> {
-    let spaces = pinned.iter().filter(|n| !n.is_empty()).map(|n| Command::Space(n.clone()));
+    keyed_commands(pinned, &actions::space_keys())
+}
+
+/// The same, with the chords given rather than read from herdr's config: what the screens' tests draw.
+pub fn keyed_commands(pinned: &[String], keys: &std::collections::HashMap<String, String>) -> Vec<Command> {
+    let spaces = pinned.iter().filter(|n| !n.is_empty()).map(|n| Command::Space(n.clone(), keys.get(n).cloned()));
     spaces.chain([Command::RefreshInbox, Command::Doctor, Command::Brief]).collect()
 }
 

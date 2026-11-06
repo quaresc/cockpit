@@ -236,7 +236,7 @@ mod tests {
         json!({
             "id": id,
             "attributes": {"created_at": created, "phase": phase, "current_outcome": outcome},
-            "references": {"event": {"attributes": {"vcs": {"origin_repository_url": format!("https://github.com/WTTJ/{repo}.git"), "branch": branch}}}}
+            "references": {"event": {"attributes": {"vcs": {"origin_repository_url": format!("https://github.com/acme/{repo}.git"), "branch": branch}}}}
         })
     }
 

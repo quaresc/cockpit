@@ -1337,7 +1337,7 @@ export default class Runbook {
     if (!m) return this.overlays(root.child(this.loading(k)), k, cx);
     if (!book) {
       return this.overlays(
-        root.child(Empty({ icon: "book", title: "No runbook yet", description: "Run /runbook in a Claude Code session working on a ticket: its deploy steps, PRs and commands land here." })),
+        root.child(Empty({ icon: "book", title: "No runbook yet", description: "Ask your agent for a runbook on the ticket you are on: its deploy steps, PRs and commands land here." })),
         k,
         cx,
       );

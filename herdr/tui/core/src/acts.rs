@@ -45,7 +45,9 @@ pub fn buttons(acts: &[Act]) -> Line<'static> {
     for act in acts {
         let style = if act.main { Style::new().fg(BG).bg(ORANGE).add_modifier(Modifier::BOLD) } else { Style::new().fg(FG).bg(LINE) };
         let key = act.key.map(|k| format!("  {k}")).unwrap_or_default();
-        spans.push(Span::styled(format!("  {}{key}  ", act.label), style));
+        // The main action is marked, not only coloured: on a terminal with few colours the accent alone says nothing.
+        let lead = if act.main { "▸ " } else { "  " };
+        spans.push(Span::styled(format!("{lead}{}{key}  ", act.label), style));
         spans.push(Span::raw(" "));
     }
     Line::from(spans)

@@ -10,9 +10,16 @@ type $ = EngineInterface
 const REPO = 'quaresc/cockpit'
 const UPDATE_EVERY_MS = 6 * 3600_000
 
+// Read once and kept: after an update the manifest on disk is the new version, while this session still runs the
+// code it loaded, and a heartbeat claiming the new one would hide the session from doctor.
+let loaded: string | undefined
+
 export async function ownVersion($: $) {
-  const manifest = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)) as { version: string }
-  return manifest.version
+  if (loaded === undefined) {
+    const manifest = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)) as { version: string }
+    loaded = manifest.version
+  }
+  return loaded
 }
 
 // One file per running session, so /cockpit:doctor can tell which sessions run which version, and which run none.
