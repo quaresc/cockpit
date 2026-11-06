@@ -2,7 +2,7 @@
 source: meetings/tests/snapshots.rs
 expression: "render(&mut app, 60, 8)"
 ---
-   Meetings   waiting for the first fetch from your calend
+   Meetings   no calendar connected · cockpit setup adds o
 
 
 

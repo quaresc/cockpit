@@ -21,6 +21,7 @@ pub mod resume;
 pub mod routines;
 pub mod seen;
 pub mod sites;
+pub mod sources;
 pub mod term;
 pub mod testing;
 pub mod text;

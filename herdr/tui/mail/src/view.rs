@@ -3,6 +3,7 @@
 
 use chrono::{DateTime, Local, Utc};
 use cockpit_core::acts;
+use cockpit_core::sources;
 use cockpit_core::text::{fit, width, wrap};
 use cockpit_core::theme::{FG, LINE, ORANGE, PANEL, RED, base, bold, dim, fg};
 use cockpit_core::widgets;
@@ -69,7 +70,13 @@ impl App {
         let inner = Rect { x: area.x + 1, width: area.width.saturating_sub(2), ..area };
         let w = inner.width as usize;
         if self.mail.messages.is_empty() {
-            let text = if self.mail.at.is_none() { "No mail yet: the hub fills it in from your mail connector." } else { "Inbox zero." };
+            let waiting = sources::empty_line(
+                &[sources::Source::Mail],
+                "No mail yet",
+                "the hub fills it in from your mail connector, within two minutes.",
+                "no mail server is connected · cockpit setup adds one.",
+            );
+            let text = if self.mail.at.is_none() { waiting.as_str() } else { "Inbox zero." };
             frame.render_widget(Paragraph::new(Line::styled(text, dim())), inner);
             return;
         }

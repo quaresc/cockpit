@@ -4,8 +4,8 @@ expression: "render(&mut App::with(Some(clock()), Density::Comfortable, false), 
 ---
    Monitor   waiting for the mod
 
- No monitor data yet: cockpit setup connects your deploy
- platform and monitoring, then this fills in.
+ No monitor data yet: no deploy platform or monitoring is
+ connected · cockpit setup adds them.
 
 
 

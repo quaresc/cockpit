@@ -3,6 +3,7 @@
 
 use cockpit_core::acts::{self, Act};
 use cockpit_core::files::Density;
+use cockpit_core::sources;
 use cockpit_core::text::{fit, width, wrap};
 use cockpit_core::theme::{FG, GREEN, LINE, ORANGE, PANEL, RED, base, bold, dim, fg};
 use cockpit_core::widgets;
@@ -83,7 +84,13 @@ impl App {
         let at = self.week.as_ref().and_then(|w| w.at).and_then(chrono::DateTime::from_timestamp_millis);
         match at {
             Some(at) => spans.push(Span::styled(format!("   updated {}", self.clock.local(at).format("%H:%M")), dim())),
-            None => spans.push(Span::styled("   waiting for the first fetch from your calendar", dim())),
+            None => {
+                let waiting = match sources::waiting_for(&[sources::Source::Calendar]) {
+                    sources::Waiting::FirstFetch => "   waiting for the first fetch from your calendar",
+                    sources::Waiting::NotConnected => "   no calendar connected · cockpit setup adds one",
+                };
+                spans.push(Span::styled(waiting, dim()))
+            }
         }
         if self.week_view {
             spans.push(Span::styled("   week view", fg(ORANGE)));

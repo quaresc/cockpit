@@ -25,7 +25,9 @@ tools are not mapped.
 ## The sources
 
 Each source is `{"enabled": true, "name": …, "server": …}` plus a `tools` and `fields` mapping, which setup writes
-by reading the server's own tool schemas. Linear, CircleCI, Gmail and Google Calendar are mapped by cockpit
+by reading the server's own tool schemas. A source counts as connected when its block is on **and** it has
+something to reach — a `server`, the calendar's `ics`, or `gh` for GitHub and its checks. A space whose sources
+are none of those says so in its empty state rather than waiting for data that will never come. Linear, CircleCI, Gmail and Google Calendar are mapped by cockpit
 itself and need no `tools`.
 
 | Key | What it covers |

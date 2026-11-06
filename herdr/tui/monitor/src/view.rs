@@ -5,6 +5,7 @@
 use cockpit_core::acts::{self, Act};
 use cockpit_core::files::Density;
 use cockpit_core::seen;
+use cockpit_core::sources;
 use cockpit_core::text::{fit, width, wrap};
 use cockpit_core::theme::{BLUE, DIM, FG, GREEN, LINE, ORANGE, PANEL, RED, base, bold, dim, fg};
 use cockpit_core::widgets;
@@ -107,11 +108,13 @@ impl App {
         self.hits.list = area;
         let rows = self.rows();
         if rows.is_empty() {
-            let text = if self.doc.is_some() {
-                "No app in the monitor."
-            } else {
-                "No monitor data yet: cockpit setup connects your deploy platform and monitoring, then this fills in."
-            };
+            let waiting = sources::empty_line(
+                &[sources::Source::Platform],
+                "No monitor data yet",
+                "the hub reads your deploy platform and monitoring, then this fills in.",
+                "no deploy platform or monitoring is connected · cockpit setup adds them.",
+            );
+            let text = if self.doc.is_some() { "No app in the monitor." } else { waiting.as_str() };
             frame.render_widget(Paragraph::new(Line::styled(text, dim())).wrap(Wrap { trim: false }), area);
             return;
         }

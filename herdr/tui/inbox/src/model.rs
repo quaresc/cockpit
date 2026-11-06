@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use cockpit_core::sources;
 use cockpit_core::theme::{DIM, GREEN, ORANGE, RED, bold, dim, fg};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -48,7 +49,14 @@ pub fn usable(inputs: &Inputs) -> Option<&Value> {
 /// The header with its error lines, and the tree's top rows.
 pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static>>, Vec<Row>) {
     let Some(data) = &inputs.data else {
-        return (vec![Line::styled("No data yet: the hub fills this within a minute.", dim())], Vec::new());
+        // Nothing wired waits for ever, which reads the same as waiting a minute unless the line says which.
+        let waiting = sources::empty_line(
+            &[sources::Source::Github, sources::Source::Tickets, sources::Source::Ci],
+            "No data yet",
+            "the hub fills this within a minute.",
+            "nothing is connected · cockpit setup wires your PRs, tickets and CI.",
+        );
+        return (vec![Line::styled(waiting, dim())], Vec::new());
     };
     if usable(inputs).is_none() {
         return (vec![Line::styled("Refreshing: this was last filled by another version of cockpit.", dim())], Vec::new());

@@ -15,7 +15,8 @@ What it reports most often:
 
 The hub fills them within a minute of the first app opening. If they stay empty:
 
-- **Nothing is set up yet.** `cockpit setup` connects your work; `cockpit doctor` says so when no config is there.
+- **Nothing is set up yet.** Each space says which of the two it is: *"no mail server is connected · cockpit setup
+  adds one"* means waiting will not help, while *"the hub fills this within a minute"* means it is on its way.
 - **No binary for this machine.** `cockpit doctor` says so; `sh ~/.config/cockpit/herdr/fetch-apps.sh` fetches it.
   A release that has no binary for your platform yet leaves the spaces empty until the next one.
 - **A feature is off.** Tickets, CI, meetings, mail, deploys and the monitor each need a connector picked in

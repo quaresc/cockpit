@@ -72,7 +72,8 @@ impl Over {
 /// The palette's own entries.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    Space(String),
+    /// A pinned space and the chord that jumps to it, when herdr's config binds one.
+    Space(String, Option<String>),
     RefreshInbox,
     Doctor,
     Brief,
@@ -103,10 +104,7 @@ impl Command {
     fn entry(&self, id: usize) -> Entry {
         let (text, help) = match self {
             // Lowercase, as every in-app palette: the same command must not read two ways.
-            Command::Space(name) => {
-                let key = actions::space_keys().get(name).cloned();
-                (format!("go to the {name} space"), key.unwrap_or_else(|| "a pinned space".into()))
-            }
+            Command::Space(name, key) => (format!("go to the {name} space"), key.clone().unwrap_or_else(|| "a pinned space".into())),
             Command::RefreshInbox => ("refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
             Command::Doctor => ("check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
             Command::Brief => ("today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
@@ -263,7 +261,7 @@ impl App {
 
     fn choose(&mut self, id: usize) -> bool {
         match self.commands.get(id).cloned() {
-            Some(Command::Space(name)) => self.then = Some(Then::Space(name)),
+            Some(Command::Space(name, _)) => self.then = Some(Then::Space(name)),
             Some(Command::RefreshInbox) => self.then = Some(Then::RefreshInbox),
             Some(Command::Editor(cwd)) => self.then = Some(Then::Editor(cwd)),
             Some(Command::Fork { agent, session, cwd, title }) => self.then = Some(Then::Fork { agent, session, cwd, title, prompt: String::new() }),
@@ -369,7 +367,12 @@ impl App {
 
 /// The pinned spaces to jump to, then the commands.
 pub fn commands(pinned: &[String]) -> Vec<Command> {
-    let spaces = pinned.iter().filter(|n| !n.is_empty()).map(|n| Command::Space(n.clone()));
+    keyed_commands(pinned, &actions::space_keys())
+}
+
+/// The same, with the chords given rather than read from herdr's config: what the screens' tests draw.
+pub fn keyed_commands(pinned: &[String], keys: &std::collections::HashMap<String, String>) -> Vec<Command> {
+    let spaces = pinned.iter().filter(|n| !n.is_empty()).map(|n| Command::Space(n.clone(), keys.get(n).cloned()));
     spaces.chain([Command::RefreshInbox, Command::Doctor, Command::Brief]).collect()
 }
 
