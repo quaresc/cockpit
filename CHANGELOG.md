@@ -5,6 +5,20 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.39.0 (2026-11-06)
+
+- A UX pass over the first ten minutes: `install.sh` checks herdr, `gh` and `jq` before downloading, `cockpit setup`
+  offers a one-minute path with nothing to connect, and `cockpit` is on PATH after `/cockpit:setup` (#15).
+- `?` opens a keys overlay in every space: the row's actions, how to move, and the `prefix+…` chords, built from each
+  app's own actions so it cannot drift; `m` there gives the mouse to the terminal (#15).
+- New docs: getting started, configuration, the `show` blocks and troubleshooting (#15).
+- The main action, toasts and CI tone carry a mark, not only a colour, and empty states name your agent rather than
+  Claude Code (#15).
+- `monitor.serviceReplace` renames a platform's service to the name Datadog knows, so its queries, monitors and APM
+  link resolve (#12).
+- The hub reads the last line of `gh auth token`, so a mise or asdf shim's tool line no longer breaks every GitHub call
+  (#14).
+
 ## 0.38.5 (2026-11-05)
 
 - The status bar shows as many of the agent's links as fit, the rest in "+N", and GitHub's own checks read as CI beside
