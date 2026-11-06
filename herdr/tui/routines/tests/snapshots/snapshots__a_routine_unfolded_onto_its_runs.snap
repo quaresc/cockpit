@@ -30,5 +30,5 @@ expression: "render(&mut app, 110, 30)"
  ran 25 h ago · took 58 s · ~$0.15 · scheduled for 09:00
  2 PRs wait for review, api#41 fails lint
 
-   open  o     talk  t     run  r
- enter main  a add  space runs  R refresh  q quit                                                 ▏^p palette
+ ▸ open  o     talk  t     run  r
+ q quit  enter main  a add  space runs  R refresh                                                 ▏^p palette

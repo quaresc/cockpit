@@ -48,10 +48,10 @@ pub fn usable(inputs: &Inputs) -> Option<&Value> {
 /// The header with its error lines, and the tree's top rows.
 pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static>>, Vec<Row>) {
     let Some(data) = &inputs.data else {
-        return (vec![Line::styled("No data yet: the cockpit hub fills ~/.cache/cockpit/inbox.json.", dim())], Vec::new());
+        return (vec![Line::styled("No data yet: the hub fills this within a minute.", dim())], Vec::new());
     };
     if usable(inputs).is_none() {
-        return (vec![Line::styled("Refreshing: the inbox cache comes from another cockpit version.", dim())], Vec::new());
+        return (vec![Line::styled("Refreshing: this was last filled by another version of cockpit.", dim())], Vec::new());
     }
     let ci = if inputs.ci.is_object() { inputs.ci.clone() } else { json!({"runs": []}) };
     let mut head = vec![heading("inbox", "Inbox", &format!("updated {}", facts::clock(&data["at"])))];

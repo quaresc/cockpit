@@ -59,11 +59,19 @@ fn connect(timeout: Duration) -> Option<UnixStream> {
         }
         *started = Some(Instant::now());
     }
+    // Whatever the hub says on its way down goes to this file: started detached, it has nowhere else to say it, and
+    // "the cockpit hub did not start" is otherwise a dead end.
+    let log = files::cache().join("hub.log");
+    // Kept small: what matters is the last start, not every one of them.
+    if std::fs::metadata(&log).is_ok_and(|m| m.len() > 256 * 1024) {
+        let _ = std::fs::remove_file(&log);
+    }
+    let errors = std::fs::OpenOptions::new().create(true).append(true).open(&log).ok();
     let _ = std::process::Command::new(binary())
         .arg("hub")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(errors.map_or_else(std::process::Stdio::null, std::process::Stdio::from))
         .spawn();
     let start = Instant::now();
     while start.elapsed() < timeout.min(Duration::from_secs(2)) {
@@ -77,7 +85,7 @@ fn connect(timeout: Duration) -> Option<UnixStream> {
 
 /// One request and its answer; an error when the hub cannot be reached or answers with `error`.
 pub fn request(req: &Value, timeout: Duration) -> Result<Value, String> {
-    let mut stream = connect(timeout).ok_or("the cockpit hub did not start")?;
+    let mut stream = connect(timeout).ok_or("the cockpit hub did not start; what it said is in ~/.cache/cockpit/hub.log")?;
     stream.set_read_timeout(Some(timeout)).ok();
     stream.set_write_timeout(Some(timeout)).ok();
     writeln!(stream, "{req}").map_err(|e| e.to_string())?;

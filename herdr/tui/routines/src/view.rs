@@ -343,7 +343,8 @@ impl App {
     }
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
-        let keys = [("enter", "main"), ("a", "add"), ("space", "runs"), ("R", "refresh"), ("q", "quit")];
+        // q first: the footer drops hints from the end when the pane is narrow, and how to leave must survive.
+        let keys = [("q", "quit"), ("enter", "main"), ("a", "add"), ("space", "runs"), ("R", "refresh")];
         let mut spans = Vec::new();
         for (key, what) in keys {
             spans.push(Span::styled(format!(" {key}"), bold(ORANGE)));

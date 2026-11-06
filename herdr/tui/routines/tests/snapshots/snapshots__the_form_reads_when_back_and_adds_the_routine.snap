@@ -1,6 +1,5 @@
 ---
 source: routines/tests/snapshots.rs
-assertion_line: 105
 expression: "render(&mut app, 90, 30)"
 ---
    Routines   6 routines · 1 running · 3 runs today · ~$0.74 this week
@@ -31,5 +30,5 @@ expression: "render(&mut app, 90, 30)"
  git pull --rebase --autostash
  running for 40 s · every 30 min
 
-   stop  s     edit  e     open  o     pause  p     delete  D
- enter main  a add  space runs  R refresh  q quit                             ▏^p palette
+ ▸ stop  s     edit  e     open  o     pause  p     delete  D
+ q quit  enter main  a add  space runs  R refresh                             ▏^p palette

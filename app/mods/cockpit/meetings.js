@@ -841,7 +841,7 @@ export default class Meetings {
   render(cx) {
     const k = tokens();
     const m = this.model;
-    const description = !m ? "Loading…" : m.waiting ? "Waiting for a Claude Code session with the Google Calendar connector" : m.updated ? `Updated ${m.updated}` : "This week";
+    const description = !m ? "Loading…" : m.waiting ? "Waiting for the first fetch from your calendar" : m.updated ? `Updated ${m.updated}` : "This week";
     let root = v_flex()
       .id("meetings")
       .track_focus(this.handle)

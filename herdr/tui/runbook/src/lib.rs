@@ -37,6 +37,10 @@ impl cockpit_core::term::App for app::App {
         app::App::event(self, event)
     }
 
+    fn help(&self) -> Option<(String, Vec<cockpit_core::acts::Act>)> {
+        let busy = self.dialog.is_some() || self.palette.is_open;
+        (!busy).then(|| ("the runbook".to_string(), Vec::new()))
+    }
     fn tick(&mut self) -> bool {
         app::App::tick(self)
     }

@@ -17,7 +17,9 @@ use crate::model::{GROUPS, Group, Message, age};
 use crate::thread::Thread;
 
 const ICON_MAIL: &str = "\u{f42f}";
-const NAME: usize = 18;
+/// The sender's column: as wide as 18 when there is room, never so wide that the subject has none.
+const NAME_MAX: usize = 18;
+const NAME_MIN: usize = 6;
 const AGE: usize = 4;
 /// From this width the preview sits beside the list, under it below.
 const SIDE_BY_SIDE: u16 = 110;
@@ -40,6 +42,9 @@ impl App {
         self.draw_preview(frame, preview, area.width >= SIDE_BY_SIDE);
         self.draw_foot(frame, foot);
         self.toasts.render(frame, area);
+        if self.palette.is_open {
+            self.palette.render(frame, area);
+        }
     }
 
     fn head_lines(&self) -> Vec<Line<'static>> {
@@ -64,8 +69,7 @@ impl App {
         let inner = Rect { x: area.x + 1, width: area.width.saturating_sub(2), ..area };
         let w = inner.width as usize;
         if self.mail.messages.is_empty() {
-            let text =
-                if self.mail.at.is_none() { "No mail yet: the hub or a Claude Code session with the mail connector fills it in." } else { "Inbox zero." };
+            let text = if self.mail.at.is_none() { "No mail yet: the hub fills it in from your mail connector." } else { "Inbox zero." };
             frame.render_widget(Paragraph::new(Line::styled(text, dim())), inner);
             return;
         }
@@ -184,9 +188,18 @@ impl App {
             x += w;
             spans.extend(line.spans);
         }
-        let hints = " j k move · ] [ group · ctrl+d/u scroll · R refresh · q quit";
+        // q first, as in every other space: a narrow pane drops the hints from the end, and how to leave must stay.
+        let hints = " q quit · j k move · ] [ group · ctrl+d/u scroll · R refresh · ? keys";
         if (x - area.x) as usize + width(hints) <= area.width as usize {
             spans.push(Span::styled(hints, dim()));
+        }
+        // The palette is pinned to the right, as the other spaces pin it, so it survives a narrow pane.
+        let palette = " ▏^p palette";
+        let room = area.width.saturating_sub(1) as usize;
+        let used: usize = spans.iter().map(|s| width(&s.content)).sum();
+        if used + width(palette) <= room {
+            spans.push(Span::raw(" ".repeat(room - used - width(palette))));
+            spans.push(Span::styled(palette, dim()));
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), Rect { x: area.x + 1, width: area.width.saturating_sub(1), ..area });
     }
@@ -196,16 +209,18 @@ impl App {
 fn row_line(m: &Message, selected: bool, w: usize, now: DateTime<Utc>) -> Line<'static> {
     let mark = if m.unread { Span::styled("● ", fg(ORANGE)) } else { Span::raw("  ") };
     let name_style = if m.unread { Style::new().fg(FG).add_modifier(Modifier::BOLD) } else { dim() };
-    let rest = w.saturating_sub(2 + NAME + 2 + AGE + 1);
+    // The sender gives up its cells before the subject does: a narrow pane keeps what the message is about.
+    let name_col = NAME_MAX.min(w.saturating_sub(2 + 2 + AGE + 1 + 12)).max(NAME_MIN);
+    let rest = w.saturating_sub(2 + name_col + 2 + AGE + 1);
     let subject = fit(m.title(), rest).trim_end().to_string();
     let snippet_room = rest.saturating_sub(width(&subject) + 3);
     let snippet = if snippet_room > 4 && !m.snippet.is_empty() { format!(" — {}", fit(&m.snippet, snippet_room).trim_end()) } else { String::new() };
-    let used = 2 + NAME + 2 + width(&subject) + width(&snippet);
+    let used = 2 + name_col + 2 + width(&subject) + width(&snippet);
     let pad = w.saturating_sub(used + AGE);
     let subject_style = if m.unread || selected { fg(FG) } else { dim() };
     Line::from(vec![
         mark,
-        Span::styled(format!("{:<NAME$}", fit(&m.name, NAME)), name_style),
+        Span::styled(format!("{:<name_col$}", fit(&m.name, name_col)), name_style),
         Span::raw("  "),
         Span::styled(subject, subject_style),
         Span::styled(snippet, dim()),

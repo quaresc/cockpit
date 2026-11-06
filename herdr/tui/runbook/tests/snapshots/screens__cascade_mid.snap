@@ -38,7 +38,7 @@ expression: "screen(&mut app, 90, 40)"
  • The backfill only counts accounts whose plan sets a daily quota on its exports.
 ──────────────────────────────────────────────────────────────────────────────────────────
  #7  Merge and deploy billing PR 3 (store + broadcast)
- status ✅  done 28 Oct                   │ ENG-410: steps 5, 6, 7 done
+ status ✅  done 28 Oct                   │ ✓ ENG-410: steps 5, 6, 7 done
 
-   open billing#379  o     edit  e
+ ▸ open billing#379  o     edit  e
  q quit  / filter  v pick  e edit  a add  R refresh  t talk  [ ] runbooks     ▏^p palette

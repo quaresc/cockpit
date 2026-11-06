@@ -28,6 +28,11 @@ impl cockpit_core::term::App for app::App {
         app::App::event(self, event)
     }
 
+    /// Idle only: `?` must type into the filter, an edit or a dialog when one of them is open.
+    fn help(&self) -> Option<(String, Vec<cockpit_core::acts::Act>)> {
+        let busy = self.filtering || self.editing.is_some() || self.dialog.is_some() || self.palette.is_open;
+        (!busy).then(|| ("to-do".to_string(), self.acts().into_iter().map(|(act, _)| act).collect()))
+    }
     fn tick(&mut self) -> bool {
         app::App::tick(self)
     }

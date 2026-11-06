@@ -107,8 +107,11 @@ impl App {
         self.hits.list = area;
         let rows = self.rows();
         if rows.is_empty() {
-            let text =
-                if self.doc.is_some() { "No app in the monitor." } else { "A Claude Code session connected to your deploy platform and Datadog fills this." };
+            let text = if self.doc.is_some() {
+                "No app in the monitor."
+            } else {
+                "No monitor data yet: cockpit setup connects your deploy platform and monitoring, then this fills in."
+            };
             frame.render_widget(Paragraph::new(Line::styled(text, dim())).wrap(Wrap { trim: false }), area);
             return;
         }
@@ -408,7 +411,8 @@ impl App {
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let view = if self.timeline { "by app" } else { "releases" };
-        let keys = [("enter", "main"), ("space", "fold"), ("w", view), ("R", "refresh"), ("q", "quit")];
+        // q first: the footer drops hints from the end when the pane is narrow, and how to leave must survive.
+        let keys = [("q", "quit"), ("enter", "main"), ("space", "fold"), ("w", view), ("R", "refresh")];
         let mut spans = Vec::new();
         for (key, what) in keys {
             spans.push(Span::styled(format!(" {key}"), bold(ORANGE)));

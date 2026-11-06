@@ -30,5 +30,5 @@ expression: "render(&mut app(Density::Comfortable), 120, 30)"
  git pull --rebase --autostash
  running for 40 s · every 30 min
 
-   stop  s     edit  e     open  o     pause  p     delete  D
- enter main  a add  space runs  R refresh  q quit                                                           ▏^p palette
+ ▸ stop  s     edit  e     open  o     pause  p     delete  D
+ q quit  enter main  a add  space runs  R refresh                                                           ▏^p palette

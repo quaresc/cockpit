@@ -4,9 +4,9 @@ expression: "render(&mut App::with(Some(clock()), Density::Comfortable, false), 
 ---
    Monitor   waiting for the mod
 
- A Claude Code session connected to your deploy platform
- and Datadog fills this.
+ No monitor data yet: cockpit setup connects your deploy
+ platform and monitoring, then this fills in.
 
 
 
- enter main  space fold  w releases  R refresh  ▏^p palette
+ q quit  enter main  space fold  w releases     ▏^p palette

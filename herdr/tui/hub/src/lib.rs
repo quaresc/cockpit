@@ -56,8 +56,13 @@ pub fn run() {
     if let Some(dir) = socket.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let Ok(listener) = UnixListener::bind(&socket) else {
-        return;
+    let listener = match UnixListener::bind(&socket) {
+        Ok(listener) => listener,
+        // Said on stderr, which the app that started the hub points at ~/.cache/cockpit/hub.log.
+        Err(why) => {
+            eprintln!("cockpit hub: cannot listen on {}: {why}", socket.display());
+            return;
+        }
     };
     let inode = std::fs::metadata(&socket).map(|m| m.ino()).unwrap_or_default();
     let _ = cockpit_core::notify::GUI.set(views::notify);

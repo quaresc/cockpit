@@ -65,5 +65,5 @@ expression: "render(&mut app, 90, HEIGHT + 1)"
 ──────────────────────────────────────────────────────────────────────────────────────────
    Today   morning brief, 09:00
 
-   dismiss  x
+ ▸ dismiss  x
  q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

@@ -30,5 +30,5 @@ expression: "render(&mut app, 90, 30)"
 ──────────────────────────────────────────────────────────────────────────────────────────
     preview preview-quota expires in 1.5 h
 
-   extend 2 days  +
+ ▸ extend 2 days  +
  q quit  / filter  v pick  w group by  R refresh  space fold  enter main       ^p palette

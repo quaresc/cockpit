@@ -1,7 +1,8 @@
 # Cockpit
 
-See at a glance which of your coding agents needs you, and answer it without leaving what you're doing. Each agent
-sits next to its ticket, PR and CI; your inbox, runbooks and meetings are one key away.
+See every coding agent you are running and what it is working on, and answer the ones waiting for you without
+leaving what you are doing. Each agent is shown with its ticket, PR and CI run; your inbox, runbooks and meetings
+are one key away.
 
 ![Cockpit](preview.png)
 

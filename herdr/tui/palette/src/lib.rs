@@ -102,14 +102,18 @@ pub enum Command {
 impl Command {
     fn entry(&self, id: usize) -> Entry {
         let (text, help) = match self {
-            Command::Space(name) => (format!("Go to the {name} space"), "a pinned space".to_string()),
-            Command::RefreshInbox => ("Refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
-            Command::Doctor => ("Check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
-            Command::Brief => ("Today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
-            Command::Editor(cwd) => (format!("Open {} in your editor", folder_name(cwd)), cwd.clone()),
-            Command::Fork { title, .. } => ("Fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
-            Command::Link { label, detail, url } => (format!("Open {label}"), if detail.is_empty() { url.clone() } else { detail.clone() }),
-            Command::Document { title, .. } => (format!("Show {title}"), "a document this agent showed, in a pane beside it".into()),
+            // Lowercase, as every in-app palette: the same command must not read two ways.
+            Command::Space(name) => {
+                let key = actions::space_keys().get(name).cloned();
+                (format!("go to the {name} space"), key.unwrap_or_else(|| "a pinned space".into()))
+            }
+            Command::RefreshInbox => ("refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
+            Command::Doctor => ("check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
+            Command::Brief => ("today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
+            Command::Editor(cwd) => (format!("open {} in your editor", folder_name(cwd)), cwd.clone()),
+            Command::Fork { title, .. } => ("fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
+            Command::Link { label, detail, url } => (format!("open {label}"), if detail.is_empty() { url.clone() } else { detail.clone() }),
+            Command::Document { title, .. } => (format!("show {title}"), "a document this agent showed, in a pane beside it".into()),
         };
         Entry { text, help, featured: true, id }
     }

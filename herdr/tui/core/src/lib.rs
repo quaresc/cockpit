@@ -11,6 +11,7 @@ pub mod dialog;
 pub mod files;
 pub mod focus;
 pub mod frontend;
+pub mod help;
 pub mod hub;
 pub mod input;
 pub mod keys;

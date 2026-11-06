@@ -111,13 +111,14 @@ fn render(fetched: &Fetched) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let title = |text: String, color| Line::styled(text, Style::new().fg(color).add_modifier(Modifier::BOLD));
     if let Some((text, tone)) = &fetched.ready {
-        let color = match tone.as_str() {
-            "bad" => RED,
-            "warn" => ORANGE,
-            "good" => GREEN,
-            _ => DIM,
+        // The mark says what the colour says, for a terminal with few colours.
+        let (color, mark) = match tone.as_str() {
+            "bad" => (RED, "✗ "),
+            "warn" => (ORANGE, "! "),
+            "good" => (GREEN, "✓ "),
+            _ => (DIM, "· "),
         };
-        lines.push(Line::styled(format!("GitHub: {text}"), fg(color)));
+        lines.push(Line::styled(format!("{mark}GitHub: {text}"), fg(color)));
     }
     if !fetched.threads.is_empty() {
         lines.push(title(format!("{} unresolved review thread{}", fetched.threads.len(), if fetched.threads.len() == 1 { "" } else { "s" }), FG));

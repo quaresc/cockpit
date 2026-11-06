@@ -513,6 +513,13 @@ pub fn default() -> Agent {
     list.iter().find(|a| a.installed()).cloned().unwrap_or_else(|| list[0].clone())
 }
 
+/// How to ask the default agent for what a cockpit command writes: Claude Code has the slash commands, every other
+/// agent is asked in words. `cockpit setup` picks which agent this is.
+pub fn ask_for(command: &str, in_words: &str) -> String {
+    let agent = default();
+    if agent.id == "claude" { format!("run /{command} in a Claude Code session") } else { format!("ask {} to {in_words}", agent.name) }
+}
+
 /// `id` when given and known, else the default.
 pub fn pick(id: Option<&str>) -> Agent {
     id.filter(|i| !i.is_empty()).and_then(get).unwrap_or_else(default)
@@ -803,6 +810,10 @@ mod tests {
     #[test]
     fn a_model_goes_only_to_the_agent_it_belongs_to() {
         assert!(row("claude").takes_model("haiku") && !row("codex").takes_model("haiku"));
+        // The slash commands are Claude Code's; another agent is asked in words.
+        let agent = default();
+        let expected = if agent.id == "claude" { "run /runbook in a Claude Code session".to_string() } else { format!("ask {} to write one", agent.name) };
+        assert_eq!(ask_for("runbook", "write one"), expected);
         assert!(row("codex").takes_model("gpt-5-mini") && !row("claude").takes_model("gpt-5-mini"));
         assert!(row("opencode").takes_model("anthropic/claude-sonnet-4"), "a name nobody claims passes");
         let both = serde_json::json!({"claude": "haiku", "codex": "gpt-5-mini"});
