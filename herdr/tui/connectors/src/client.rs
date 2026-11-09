@@ -1,6 +1,6 @@
 //! One MCP server, reached over HTTP (with its OAuth login) or started as a local command.
 
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation, ProtocolVersion};
 use rmcp::service::RunningService;
 use rmcp::transport::auth::{AuthClient, AuthorizationManager, AuthorizationRequest, OAuthClientConfig, OAuthState};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -97,7 +97,14 @@ pub fn printed_token(stdout: &str) -> Option<String> {
     stdout.lines().map(str::trim).rfind(|line| !line.is_empty() && line.bytes().all(|b| b.is_ascii_graphic())).map(str::to_string)
 }
 
-pub struct Connection(RunningService<RoleClient, ()>);
+pub struct Connection(RunningService<RoleClient, ClientConfig>);
+
+/// cockpit as an MCP client, opening with the newest protocol version that still has an `initialize` handshake: rmcp's
+/// latest has none, and servers such as Google's refuse a handshake under it.
+fn handler() -> ClientConfig {
+    ClientConfig::new(ClientCapabilities::default(), Implementation::new("cockpit", env!("CARGO_PKG_VERSION")))
+        .with_protocol_version(ProtocolVersion::LATEST_WITH_INITIALIZE)
+}
 
 /// Logs in to a server through the browser: discovery, registration (or the person's own app), PKCE, and a callback
 /// on a local port.
@@ -169,10 +176,10 @@ pub async fn connect(server: &Server) -> Result<Connection, String> {
                 manager.set_credential_store(store);
                 manager.initialize_from_store().await.map_err(|e| format!("{url}: stored login unusable ({e}) → cockpit connector login {url}"))?;
                 let client = AuthClient::new(reqwest::Client::default(), manager);
-                ().serve(StreamableHttpClientTransport::with_client(client, config)).await.map_err(|e| format!("{url}: {e}"))?
+                handler().serve(StreamableHttpClientTransport::with_client(client, config)).await.map_err(|e| format!("{url}: {e}"))?
             } else {
                 let transport = StreamableHttpClientTransport::with_client(reqwest::Client::default(), config);
-                ().serve(transport).await.map_err(|e| format!("{url}: {e} (a server that needs a login: cockpit connector login {url})"))?
+                handler().serve(transport).await.map_err(|e| format!("{url}: {e} (a server that needs a login: cockpit connector login {url})"))?
             }
         }
         Server::App { url, client_id, client_secret, .. } => {
@@ -189,7 +196,8 @@ pub async fn connect(server: &Server) -> Result<Connection, String> {
             }
             manager.configure_client(app).map_err(|e| format!("{url}: {e}"))?;
             let client = AuthClient::new(reqwest::Client::default(), manager);
-            ().serve(StreamableHttpClientTransport::with_client(client, StreamableHttpClientTransportConfig::with_uri(url.as_str())))
+            handler()
+                .serve(StreamableHttpClientTransport::with_client(client, StreamableHttpClientTransportConfig::with_uri(url.as_str())))
                 .await
                 .map_err(|e| format!("{url}: {e}"))?
         }
@@ -210,14 +218,14 @@ pub async fn connect(server: &Server) -> Result<Connection, String> {
                 custom.insert(name, value);
             }
             let transport = StreamableHttpClientTransport::with_client(reqwest::Client::default(), config.custom_headers(custom));
-            ().serve(transport).await.map_err(|e| format!("{url}: {e}"))?
+            handler().serve(transport).await.map_err(|e| format!("{url}: {e}"))?
         }
         Server::Command { argv, env } => {
             let (program, args) = argv.split_first().ok_or("no command")?;
             let mut command = tokio::process::Command::new(program);
             command.args(args).envs(env.iter().map(|(k, v)| (k, expand_env(v))));
             let transport = TokioChildProcess::new(command).map_err(|e| format!("{program}: {e}"))?;
-            ().serve(transport).await.map_err(|e| format!("{program}: {e}"))?
+            handler().serve(transport).await.map_err(|e| format!("{program}: {e}"))?
         }
     };
     Ok(Connection(service))
@@ -318,6 +326,13 @@ pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_handshake_names_a_version_that_has_one() {
+        let info = handler();
+        assert!(info.protocol_version.has_initialize());
+        assert_eq!(info.client_info.name, "cockpit");
+    }
 
     #[test]
     fn a_shims_resolution_line_is_not_the_token() {
