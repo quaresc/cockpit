@@ -276,7 +276,8 @@ mod tests {
 
     #[test]
     fn a_date_has_its_age_in_days() {
-        let want = (Utc::now().timestamp() - 946_684_800) as f64 / 86_400.0;
+        // Against the clock the function reads, which another test in this binary may have frozen.
+        let want = (now().timestamp() - 946_684_800) as f64 / 86_400.0;
         let got = age_days("2000-01-01T00:00:00Z").expect("a readable date");
         assert!((got - want).abs() < 0.01, "{got} days, not {want}");
     }
