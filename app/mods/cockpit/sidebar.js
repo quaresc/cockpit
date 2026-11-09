@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { run, shared, setShared, focused, spaces, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
+import { run, shared, setShared, focused, spaces, machines, hc, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
 import * as hub from "./hub.js";
 import { togglePalette } from "./palette.js";
 import { openCode } from "./code.js";
@@ -68,6 +68,9 @@ export default class Sidebar {
     this.flashes = new Flashes();
     this.folded = new Set();
     this.repos = new Map();
+    this.machineList = [];
+    this.refreshMachines(cx);
+    cx.timer.every(15000, cx => this.refreshMachines(cx));
     this.drag = null;
     this.update = null;
     this.agents = new AgentsModel();
@@ -149,6 +152,16 @@ export default class Sidebar {
       } catch {}
     });
     return null;
+  }
+
+  refreshMachines(cx) {
+    cx.spawn(async cx => {
+      try {
+        const r = await hc(["machine", "ls", "--json"]);
+        if (r.code === 0) this.machineList = (JSON.parse(r.stdout).machines ?? []).filter(m => !m.temporary);
+      } catch {}
+      cx.notify();
+    });
   }
 
   render(cx) {
@@ -608,7 +621,7 @@ export default class Sidebar {
       ordered.push({ ...r, tree: false });
       if (r.repo && !r.repo.linked) for (const kid of info.filter((x) => nested(x) && x.repo.common === r.repo.common)) ordered.push({ ...kid, tree: true });
     }
-    const machines = [...new Set(sp.map((s) => s.machine).filter(Boolean))];
+    const machineNames = [...new Set([...sp.map(s => s.machine).filter(Boolean), ...machines().map(m => m.name).filter(Boolean), ...this.machineList.map(m => m.name)])].sort();
     const row = ({ s, i, tree }) => {
       const on = s.active && (shared("cockpit.app") ?? "work") === "work";
       const fill = colors[s.id] ?? k.ring;
@@ -687,9 +700,13 @@ export default class Sidebar {
         .child(Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space  ⌘N", onClick: () => run("space.new") })),
     });
     const withTerms = (r) => [row(r), ...(folded.has(r.s.id) ? [] : this.termRows(k, r.s, ps, byAddress, r.tree))];
-    if (!machines.length) return [head, ...ordered.flatMap(withTerms)];
+    if (!machineNames.length) return [head, ...ordered.flatMap(withTerms)];
     const out = [head];
-    for (const m of [null, ...machines]) {
+    for (const m of [null, ...machineNames]) {
+      const machine = this.machineList.find(x => x.name === m);
+      const layout = machines().find(x => x.name === m)?.layout;
+      const connected = m === null || machine?.state === "connected";
+      const state = (machine?.state ?? "asleep").replace(/_/g, " ");
       out.push(
         h_flex()
           .id(`machine-${m ?? "local"}`)
@@ -701,9 +718,16 @@ export default class Sidebar {
           .text_color(k.dim)
           .child(Icon(m ? "container" : "terminal", { size: 12 }))
           .child(div().flex_1().child(m ?? "This computer"))
-          .child(Button(`machine-new-${m ?? "local"}`, { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space there", onClick: () => run("space.new", m ? { machine: m } : {}) })),
+          .when(Boolean(m) && !connected, e => e.child(div().text_color(k.dim).child(state)))
+          .child(div().size(6).flex_none().rounded(3).bg(connected ? k.success : k.dim).when(Boolean(m), e => e.tooltip(connected ? "connected" : state)))
+          .child(Button(`machine-new-${m ?? "local"}`, { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: `${m ?? "This computer"} · New space there`, onClick: () => run("space.new", { machine: m ?? "" }) })),
       );
-      out.push(...ordered.filter((r) => (r.s.machine ?? null) === m).flatMap(withTerms));
+      const mine = ordered.filter(r => (r.s.machine ?? null) === m);
+      if (!mine.length) {
+        out.push(layout === "loading"
+          ? h_flex().id(`machine-loading-${m ?? "local"}`).h(26).px(8).text_size(TEXT.xs).text_color(k.dim).child("Loading…")
+          : h_flex().id(`machine-empty-${m ?? "local"}`).h(26).px(8).gap(6).items_center().rounded(RADIUS.md).cursor_pointer().text_size(TEXT.xs).text_color(k.dim).hover(s => s.bg(k.accent).text_color(k.foreground)).tooltip(`${m ?? "This computer"} · New space there`).on_click(() => run("space.new", { machine: m ?? "" })).child(Icon("plus", { size: 12 })).child("New space there"));
+      } else out.push(...mine.flatMap(withTerms));
     }
     return out;
   }
