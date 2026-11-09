@@ -1,14 +1,14 @@
-<p align="center"><img src="docs/logo.svg" width="96" alt="cockpit logo"></p>
+<p align="center"><a href="https://quaresc.github.io/cockpit/"><img src="docs/social.png" width="100%"
+  alt="cockpit: see every coding agent you are running, and what it is working on"></a></p>
 
-<h1 align="center">cockpit</h1>
+<p align="center">See it running on the website: <a href="https://quaresc.github.io/cockpit/"><b>quaresc.github.io/cockpit</b></a></p>
 
-<p align="center"><b>See every coding agent you are running, and what it is working on.</b><br>
-Claude Code, Codex and the other agents Herdr runs, each shown with its ticket, pull request, CI run and deploy,<br>
-and which of them are waiting for an answer. Your reviews, mail, runbooks, meetings and releases are one key away.</p>
+<p align="center">Claude Code, Codex and the other agents Herdr runs, each shown with its ticket, pull request, CI run and
+deploy, and which of them are waiting for an answer. Your reviews, mail, runbooks, meetings and releases are one key
+away.</p>
 
-<p align="center"><a href="https://quaresc.github.io/cockpit/">Website</a> ·
-<a href="https://quaresc.github.io/cockpit/desktop.html">Herdr APP</a> ·
-<a href="https://quaresc.github.io/cockpit/terminal.html">Herdr TUI</a> ·
+<p align="center"><a href="https://quaresc.github.io/cockpit/desktop.html">Herdr app</a> ·
+<a href="https://quaresc.github.io/cockpit/terminal.html">herdr in the terminal</a> ·
 <a href="https://github.com/quaresc/cockpit/releases">Changelog</a></p>
 
 <video src="https://raw.githubusercontent.com/quaresc/cockpit/main/docs/cockpit.mp4" controls muted
@@ -48,6 +48,10 @@ cockpit setup
 Setup asks what you want and wires herdr, the Herdr app, or both; `cockpit doctor` checks everything afterwards.
 macOS notifications use a small notifier app, Linux `notify-send`. What cockpit asks an agent to do (recaps,
 routines, meeting briefs) runs on the agent you pick in setup.
+
+In the Herdr app, cockpit is the layout and mod in [app/](app/), which the Herdr gallery installs. They show
+cockpit's data, so install cockpit as above too; until then, Home says how. [RECIPE.md](app/RECIPE.md) describes the
+layout pane by pane.
 
 [Getting started](docs/getting-started.md) walks through all of it, [configuration.md](docs/configuration.md) lists
 every setting, [show.md](docs/show.md) the blocks an agent can draw, and [troubleshooting.md](docs/troubleshooting.md)
