@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.39.2 (2026-11-09)
+
+- A release workflow opens the version bump and changelog pull request (#20)
+- A shorter README with one picture, and app/ gets the same one (#21)
+- GitHub Issues: the preset maps itself (#23)
+
 ## 0.39.1 (2026-11-09)
 
 - The Google Calendar and Gmail presets connect: cockpit opens with the newest MCP protocol version that still has a
