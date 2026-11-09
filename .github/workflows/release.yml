@@ -1,107 +1,44 @@
 name: release
 
-# A new version in plugin.json on main gets its tag and GitHub release, with its CHANGELOG.md section as notes, then the
-# `cockpit` binary built for each machine, with the Herdr app half beside it, as release assets, which
-# herdr/fetch-apps.sh installs. A manual run rebuilds them.
+# Opens a pull request bumping every half to the next version, with its CHANGELOG.md section written from the commits
+# since the last release. Merging it lets publish.yml tag the version and build its binaries.
 on:
-  push:
-    branches: [main]
-    paths: [plugin/.claude-plugin/plugin.json]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  release:
+  cut:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-      build: ${{ steps.release.outputs.build }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Tag and release the version
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          version=$(jq -r .version plugin/.claude-plugin/plugin.json)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if gh release view "v$version" >/dev/null 2>&1; then
-            echo "v$version is already released"
-            echo "build=$MANUAL" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          herdr=$(sed -n 's/^version = "\(.*\)"$/\1/p' herdr/herdr-plugin.toml)
-          if [ "$herdr" != "$version" ]; then
-            echo "::error::herdr/herdr-plugin.toml is on $herdr, plugin.json on $version"
-            exit 1
-          fi
-          apps=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' herdr/tui/Cargo.toml)
-          if [ "$apps" != "$version" ]; then
-            echo "::error::herdr/tui/Cargo.toml is on $apps, plugin.json on $version"
-            exit 1
-          fi
-          codex=$(jq -r .version codex/.codex-plugin/plugin.json)
-          if [ "$codex" != "$version" ]; then
-            echo "::error::codex/.codex-plugin/plugin.json is on $codex, plugin.json on $version"
-            exit 1
-          fi
-          awk -v head="## $version" '$0 == head || index($0, head " ") == 1 { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md |
-            sed '/^$/d' | awk '/^  / { sub(/^ +/, ""); line = line " " $0; next } { if (line != "") print line; line = $0 } END { if (line != "") print line }' > notes.md
-          if [ ! -s notes.md ]; then
-            echo "::error::CHANGELOG.md has no section for $version"
-            exit 1
-          fi
-          gh release create "v$version" --target "$GITHUB_SHA" --title "$version" --notes-file notes.md
-          echo "build=true" >> "$GITHUB_OUTPUT"
-
-  apps:
-    needs: release
-    if: needs.release.outputs.build == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Both macOS targets build on the arm runner, x86_64 by cross-compiling.
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    env:
-      VERSION: ${{ needs.release.outputs.version }}
-      TARGET: ${{ matrix.target }}
-      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.release.outputs.version }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: herdr/tui
-          key: ${{ matrix.target }}
-      - name: Build the binary
-        working-directory: herdr/tui
-        run: cargo build --release --locked --target "$TARGET"
-      - name: Pack and upload it to the release
+          fetch-depth: 0
+      - name: Bump the version and write its changelog section
+        id: cut
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: echo "version=$(sh scripts/cut-release.sh "$BUMP")" >> "$GITHUB_OUTPUT"
+      - name: Open the release pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          COPYFILE_DISABLE: "1"
+          VERSION: ${{ steps.cut.outputs.version }}
         run: |
-          name="cockpit-apps-$VERSION-$TARGET.tar.gz"
-          # The Herdr app half (layout, mod, keys) travels with the binary, so `cockpit app install` has its own version,
-          # and so do the licence and the third-party notices.
-          tar -czf "$name" -C "herdr/tui/target/$TARGET/release" cockpit -C "$GITHUB_WORKSPACE" app/layouts app/mods app/keys.json \
-            LICENSE THIRD_PARTY_NOTICES.md LICENSES herdr/tui/THIRD_PARTY_CRATES.md
-          if command -v sha256sum >/dev/null; then sha256sum "$name"; else shasum -a 256 "$name"; fi > "$name.sha256"
-          cat "$name.sha256"
-          gh release upload "v$VERSION" "$name" "$name.sha256" --clobber
+          branch="release/v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add CHANGELOG.md plugin/.claude-plugin/plugin.json codex/.codex-plugin/plugin.json herdr/herdr-plugin.toml \
+            herdr/tui/Cargo.toml herdr/tui/Cargo.lock
+          git commit -m "$VERSION"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" --title "$VERSION" \
+            --body "Merging this releases v$VERSION: the publish workflow tags it and builds its binaries. Edit the CHANGELOG.md section here first if it needs it."

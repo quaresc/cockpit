@@ -119,6 +119,7 @@ and wiring cockpit's MCP server into its config is `herdr/tui/cli/src/connect.rs
 - One topic per pull request, with a short description of what changes for the person using cockpit.
 - Commit subjects are one short line saying what changes, e.g. `Inbox: rerun GitHub Actions CI through gh`.
 - Doc comments are one or two plain sentences in the present tense, saying what the code does.
-- Don't bump versions or edit `CHANGELOG.md`: the maintainer does both when releasing.
+- Don't bump versions or edit `CHANGELOG.md`: the maintainer runs the `release` workflow, which opens a pull request
+  doing both; merging it tags the version and builds the binaries.
 
 By contributing, you agree that your contributions are licensed under the MIT licence of this repository.

@@ -1,6 +1,6 @@
 # Changelog
 
-Each version is tagged `v<version>` and has a GitHub release with these notes, both made by the release workflow once
+Each version is tagged `v<version>` and has a GitHub release with these notes, both made by the publish workflow once
 `plugin/.claude-plugin/plugin.json` reaches main with a new version. Both halves, the Claude Code plugin and the herdr
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
