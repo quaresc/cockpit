@@ -30,6 +30,10 @@ cockpit setup
 
 The shell installer checks the three things above before it downloads anything, and says what is missing.
 
+Setup asks what you want and wires herdr, the Herdr app, or both. What cockpit asks an agent to do (recaps, routines,
+meeting briefs) runs on the agent you pick there. Notifications use a small notifier app on macOS, `notify-send` on
+Linux.
+
 ## 3. Connect your work
 
 ```sh
@@ -65,5 +69,6 @@ In the Herdr app the same spaces are `⌘⌥1` to `⌘⌥7`, and Home shows whic
 - `cockpit doctor` checks every part and names the fix for anything wrong.
 - `/cockpit` in Claude Code flips the settings worth changing often; everything else is in
   [configuration.md](configuration.md).
-- cockpit tells you when a new version is out; `cockpit update` updates every part.
+- cockpit tells you when a new version is out; `cockpit update` updates every part, then restarts the apps. In
+  Claude Code alone, `/plugin update cockpit@cockpit` updates the plugin.
 - Something not working? [troubleshooting.md](troubleshooting.md).
