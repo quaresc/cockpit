@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.39.3 (2026-11-09)
+
+- A chart's unit keeps a measured quantity in its unit (#25)
+
 ## 0.39.2 (2026-11-09)
 
 - The GitHub Issues preset maps itself, so naming GitHub's server is enough for your open issues to reach the inbox,
