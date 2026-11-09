@@ -25,7 +25,9 @@ function bySort(model) {
   model.sections.forEach(walk);
   const section = (key, title, icon, children, extra = "") => ({ key, path: `s:${key}`, kind: "plain", name: title, title, icon, extra, expand: true, children, acts: [], text: [] });
   const keep = (key) => model.sections.find((s) => s.key === key);
-  const prs = flat.filter((r) => r.kind === "pr");
+  const allPrs = flat.filter((r) => r.kind === "pr");
+  const childPrKeys = new Set(allPrs.flatMap((r) => (r.children ?? []).filter((c) => c.kind === "pr").map((c) => c.key)));
+  const prs = allPrs.filter((r) => !childPrKeys.has(r.key));
   const tickets = flat.filter((r) => r.kind === "ticket").map((t) => ({ ...t, children: (t.children ?? []).filter((c) => c.kind !== "pr" && c.kind !== "ticket") }));
   const trees = flat.filter((r) => r.kind === "worktree");
   const review = keep("review");
