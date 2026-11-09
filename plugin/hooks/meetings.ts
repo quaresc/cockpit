@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Inbox, Meeting, MeetingsState } from '../types'
 
 import { isMcpNotReady, notify } from './ci'
+import type { Calendar } from './config'
 import { cacheDir, home, loadConfig } from './config'
 import { hubOwnsMeetings } from './feed'
 import { hasTicket } from './match'
@@ -26,16 +27,38 @@ export async function readMeetings($: $): Promise<MeetingsState | null> {
 
 export type CalendarCapability = 'listEvents' | 'getEvent'
 
-// The coming timed events of my calendar, without the declined ones and those the mapping leaves out (cancelled, free,
-// out of office); an all-day marker has no start time and drops out too.
+// The coming timed events of my calendars, without the declined ones and those the mapping leaves out (cancelled, free,
+// out of office); an all-day marker has no start time and drops out too. The config's `calendars` are read in turn, an
+// event on several of them kept from the first, and each meeting names the calendar it came from.
 async function fetchMeetings($: $): Promise<Meeting[]> {
   const calendar = (await loadConfig($)).calendar
+  const named = (calendar.calendars ?? []).filter(Boolean)
+  if (!named.length) return fromCalendar($, calendar)
+  const seen = new Set<string>()
+  const all: Meeting[] = []
+  for (const id of named) {
+    const meetings = await fromCalendar($, calendar, id).catch((err: Error) => {
+      throw new Error(`calendar ${id}: ${err.message}`)
+    })
+    for (const m of meetings) {
+      if (m.id && seen.has(m.id)) continue
+      seen.add(m.id)
+      all.push({ ...m, calendar: id })
+    }
+  }
+  // Calendars answer in their own time zones, so the merge sorts by instant; a start that does not parse goes last.
+  const instant = (m: Meeting) => Date.parse(m.start) || Number.MAX_SAFE_INTEGER
+  return all.sort((a, b) => instant(a) - instant(b))
+}
+
+// The meetings of one calendar, or of the server's default one when `id` is none.
+async function fromCalendar($: $, calendar: Calendar, id?: string): Promise<Meeting[]> {
   const f = calendar.fields
   // Small pages: one large answer is cut by the engine's size limit before it reaches the mod.
   const events: unknown[] = []
   let pageToken: string | undefined
   for (let page = 0; page < 8; page++) {
-    const body = await callMapped($, calendar, 'listEvents', { pageToken })
+    const body = await callMapped($, calendar, 'listEvents', { calendar: id, pageToken })
     events.push(...listAt(body, f.events))
     pageToken = text(pick(body, f.nextPage))
     if (!pageToken) break

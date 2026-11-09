@@ -36,7 +36,7 @@ impl Tools for Mapped<'_> {
 }
 
 /// Answers by verb (or by tool name for `text`), each a list taken in turn (the last one repeats), and the calls made,
-/// for tests; a `text` answer that is a JSON string is given as that string.
+/// for tests; a `text` answer that is a JSON string is given as that string, and `{"_error": "…"}` fails the call.
 #[derive(Default)]
 pub struct Fake {
     pub answers: std::collections::HashMap<String, Vec<Value>>,
@@ -55,7 +55,11 @@ impl Tools for Fake {
         let n = self.calls.borrow().iter().filter(|(v, _)| v == verb).count();
         self.calls.borrow_mut().push((verb.to_string(), values.clone()));
         let answers = self.answers.get(verb).ok_or_else(|| format!("no tool mapped for {verb}"))?;
-        Ok(answers.get(n).or(answers.last()).cloned().unwrap_or(Value::Null))
+        let answer = answers.get(n).or(answers.last()).cloned().unwrap_or(Value::Null);
+        match answer["_error"].as_str() {
+            Some(error) => Err(error.to_string()),
+            None => Ok(answer),
+        }
     }
 
     fn has(&self, verb: &str) -> bool {
