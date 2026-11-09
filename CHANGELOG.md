@@ -7,9 +7,13 @@ must be here first.
 
 ## 0.39.2 (2026-11-09)
 
-- A release workflow opens the version bump and changelog pull request (#20)
-- A shorter README with one picture, and app/ gets the same one (#21)
-- GitHub Issues: the preset maps itself (#23)
+- The GitHub Issues preset maps itself, so naming GitHub's server is enough for your open issues to reach the inbox,
+  with reading, closing, assigning and filing an issue all mapped (#23).
+- A tickets mapping can name an issue by several values: `idPattern` reads owner, repo and number out of a ticket's URL,
+  `idTemplate` writes its id as `owner/repo#number`, and `teamPattern` splits the repo a new issue is filed in (#23).
+- A mapping with no tool to list the states a ticket can move to holds its own `states`, which is how a GitHub issue
+  closes from the inbox (#23).
+- A shorter README, with the same picture in `app/` for the Herdr gallery (#21).
 
 ## 0.39.1 (2026-11-09)
 
