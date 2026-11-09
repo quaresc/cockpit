@@ -130,6 +130,7 @@ fn every_source_reads_through_its_server() {
         &sandbox,
         "outlook",
         json!({
+            "_versions": ["2025-11-25", "2025-06-18"],
             "list_events": {"value": [{"id": "e1", "subject": "Team daily", "start": at(3), "end": at(20), "webLink": "https://outlook/e1",
                 "onlineMeeting": "https://teams/x", "responseStatus": "accepted"}]}
         }),

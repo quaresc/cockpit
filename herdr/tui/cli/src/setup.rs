@@ -482,6 +482,7 @@ fn source(io: &mut Io, section: &str, claude: bool, mapper: Option<&agent::Agent
             "{} needs an OAuth client of your own: Google Cloud console → APIs & Services → enable the {} MCP API, then Credentials → Create OAuth client ID → Desktop app.",
             preset.name, preset.name
         );
+        println!("Its tools answer only once the Cloud project is enrolled in Google's Workspace Developer Preview Program.");
         let id = io.ask("Its client ID?", "");
         if id.is_empty() {
             return Source::Off;
