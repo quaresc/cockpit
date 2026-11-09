@@ -110,6 +110,8 @@ export type Meeting = {
   series?: string
   people?: string[]
   attachments?: { title: string; url: string }[]
+  // The calendar it was read from, when the config names several; getEvent needs it.
+  calendar?: string
   // Whether the meetings app offers a brief: not a daily, not declined, someone else invited, not in meetingBrief.skip.
   briefable?: boolean
 }

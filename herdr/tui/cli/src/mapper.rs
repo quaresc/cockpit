@@ -38,7 +38,8 @@ pub fn brief(section: &str) -> Option<&'static str> {
              Answer {\"tools\", \"fields\", \"outcomes\", \"endedPhases\"}."
         }
         "calendar" => {
-            "Map listEvents (my coming events, with {pageToken} for the next page when it pages) and getEvent (one event, {event}), each \
+            "Map listEvents (my coming events, with {pageToken} for the next page when it pages and {calendar} for the calendar to read when it \
+             takes one) and getEvent (one event, {event}, in {calendar}), each \
              `{\"tool\", \"args\"}`. Fill `fields` with dotted paths (`a.b`, `a.0.b`, `a|b`): events (the list), nextPage, id, title, start and end \
              (date-times; all-day events must have none at that path), url, join (the video call), location, description, series, myResponse, \
              attendees, attendeeSelf, attendeeResponse, attendeeResource, attendeeName, attachments, attachmentTitle, attachmentUrl. List in `skip` \

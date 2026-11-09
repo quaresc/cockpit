@@ -1,6 +1,8 @@
 //! My coming meetings through a calendar connector's mapping, the hub's twin of the plugin's `fetchMeetings`
 //! (meetings.ts): the list meetings.json holds, before the hub marks which ones get a brief.
 
+use std::collections::HashSet;
+
 use serde_json::{Map, Value, json};
 
 use crate::mapping::{list_at, pick, text};
@@ -18,8 +20,8 @@ pub fn google() -> Value {
         "name": "Google Calendar",
         "server": "claude.ai Google Calendar",
         "tools": {
-            "listEvents": {"tool": "list_events", "args": {"orderBy": "startTime", "pageSize": 12, "pageToken": "{pageToken}"}},
-            "getEvent": {"tool": "get_event", "args": {"eventId": "{event}"}}
+            "listEvents": {"tool": "list_events", "args": {"calendarId": "{calendar}", "orderBy": "startTime", "pageSize": 12, "pageToken": "{pageToken}"}},
+            "getEvent": {"tool": "get_event", "args": {"calendarId": "{calendar}", "eventId": "{event}"}}
         },
         "fields": {
             "events": "events", "nextPage": "nextPageToken", "id": "id", "title": "summary", "start": "start.dateTime", "end": "end.dateTime",
@@ -44,17 +46,45 @@ pub fn mapping(section: &Value) -> Value {
 }
 
 /// My coming timed events, in the plugin's `Meeting` shape, without the declined ones and those the mapping leaves out
-/// (cancelled, free, out of office); an all-day marker has no start time and drops out too.
+/// (cancelled, free, out of office); an all-day marker has no start time and drops out too. The config's `calendars`
+/// are read in turn, an event on several of them kept from the first, and each meeting names the calendar it came from.
 pub async fn meetings(tools: &impl Tools, calendar: &Value) -> Result<Vec<Value>, String> {
+    let named: Vec<&str> = calendar["calendars"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|c| !c.is_empty()).collect();
+    if named.is_empty() {
+        return from_calendar(tools, calendar, None).await;
+    }
+    let mut seen = HashSet::new();
+    let mut all = Vec::new();
+    for id in &named {
+        let meetings = from_calendar(tools, calendar, Some(id)).await.map_err(|e| format!("calendar {id}: {e}"))?;
+        for mut m in meetings {
+            let key = m["id"].as_str().unwrap_or_default().to_string();
+            if key.is_empty() || seen.insert(key) {
+                m["calendar"] = json!(id);
+                all.push(m);
+            }
+        }
+    }
+    // Calendars answer in their own time zones, so the merge sorts by instant; a start that does not parse goes last.
+    let instant = |m: &Value| chrono::DateTime::parse_from_rfc3339(m["start"].as_str().unwrap_or_default()).map_or(i64::MAX, |t| t.timestamp());
+    all.sort_by_key(instant);
+    Ok(all)
+}
+
+/// The meetings of one calendar, or of the server's default one when `id` is none.
+async fn from_calendar(tools: &impl Tools, calendar: &Value, id: Option<&str>) -> Result<Vec<Value>, String> {
     let f = |name: &str| calendar["fields"][name].as_str().unwrap_or("").to_string();
     let mut answers = Vec::new();
     let mut page_token: Option<String> = None;
     for _ in 0..MAX_PAGES {
-        let values = match &page_token {
-            Some(token) => json!({"pageToken": token}),
-            None => json!({}),
-        };
-        let body = tools.call("listEvents", &values).await?;
+        let mut values = Map::new();
+        if let Some(id) = id {
+            values.insert("calendar".into(), json!(id));
+        }
+        if let Some(token) = &page_token {
+            values.insert("pageToken".into(), json!(token));
+        }
+        let body = tools.call("listEvents", &Value::Object(values)).await?;
         page_token = text(pick(&body, &f("nextPage"))).filter(|t| !t.is_empty());
         answers.push(body);
         if page_token.is_none() {
@@ -231,6 +261,43 @@ mod tests {
         let titles: Vec<&str> = meetings.iter().map(|m| m["title"].as_str().unwrap()).collect();
         assert_eq!(titles, ["Platform sync", "1:1 Maya / me", "Out of office", "Town hall"], "no `only`: out of office stays");
         assert_eq!(meetings[0]["people"], json!(["Maya Lopez"]), "sam's answer reads as declined");
+    }
+
+    #[test]
+    fn reads_each_calendar_named_and_merges_them_by_start() {
+        let mut shared = event("oneonone", "1:1 Maya / me", "2026-11-04T15:00:00+01:00", "2026-11-04T15:30:00+01:00");
+        shared["attendees"] = json!([{"email": "me@acme.example", "self": true, "responseStatus": "accepted"}]);
+        let primary = json!({"events": [event("standup", "Standup", "2026-11-04T09:00:00+01:00", "2026-11-04T09:15:00+01:00"), shared.clone()]});
+        let mut early = event("review", "Design review", "2026-11-04T08:30:00Z", "2026-11-04T09:00:00Z");
+        early["attendees"] = json!([{"email": "me@acme.example", "self": true, "responseStatus": "needsAction"}]);
+        shared["attendees"][0]["responseStatus"] = json!("declined");
+        let fake = Fake::default().with("listEvents", primary).with("listEvents", json!({"events": [shared, early]}));
+        let section = json!({"calendars": ["primary", "team@acme.example"]});
+        let meetings = crate::block_on(meetings(&fake, &mapping(&section))).unwrap();
+        let read: Vec<(&str, &str)> = meetings.iter().map(|m| (m["title"].as_str().unwrap(), m["calendar"].as_str().unwrap())).collect();
+        assert_eq!(
+            read,
+            [("Standup", "primary"), ("Design review", "team@acme.example"), ("1:1 Maya / me", "primary")],
+            "09:30 Paris comes after 09:00 Paris, and the 1:1 stays as primary has it"
+        );
+        let calls: Vec<Value> = fake.calls.borrow().iter().map(|(_, v)| v.clone()).collect();
+        assert_eq!(calls, [json!({"calendar": "primary"}), json!({"calendar": "team@acme.example"})]);
+    }
+
+    #[test]
+    fn without_calendars_the_server_reads_its_default_one() {
+        let fake = fake();
+        let meetings = crate::block_on(meetings(&fake, &google())).unwrap();
+        assert!(meetings.iter().all(|m| m.get("calendar").is_none()));
+        let args = crate::mapping::fill_args(&google()["tools"]["listEvents"]["args"], &Map::new()).unwrap();
+        assert!(args.get("calendarId").is_none(), "no calendarId argument at all");
+    }
+
+    #[test]
+    fn a_calendar_that_fails_is_named() {
+        let fake = Fake::default().with("listEvents", json!({"events": []})).with("listEvents", json!({"_error": "not found"}));
+        let error = crate::block_on(meetings(&fake, &mapping(&json!({"calendars": ["primary", "typo@acme.example"]})))).unwrap_err();
+        assert_eq!(error, "calendar typo@acme.example: not found");
     }
 
     #[test]

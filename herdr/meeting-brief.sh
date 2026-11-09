@@ -35,8 +35,9 @@ live=$(jq -c '{tickets: [.tickets[] | {id, status}],
 prompt="Write the brief for this meeting to $DIR/$name.md, so I come prepared. Meeting, from my calendar:
 $meeting
 
-Read the full event with $get_event (id $id) for its description and attachments; without that tool, cockpit's
-cockpit_read tool reads it (source calendar, verb getEvent, values {\"event\": \"$id\"}), and tickets the same way (source
+Read the full event with $get_event (id $id, and the meeting's calendar as calendarId when it names one) for its
+description and attachments; without that tool, cockpit's cockpit_read tool reads it (source calendar, verb getEvent,
+values {\"event\": \"$id\", \"calendar\": <the meeting's calendar, if any>}), and tickets the same way (source
 tickets, verb details or comments, values {\"ticket\": \"<key>\"}). Open the Notion pages and tickets it links or names,
 with the tools you have; my assigned tickets and PRs are in $CACHE/inbox.json, and a ticket's runbook,
 when it has one, in ~/.config/cockpit/runbooks/<ticket lowercased>.md. Use nothing else: no Slack, no web.

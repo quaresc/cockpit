@@ -90,6 +90,8 @@ export type Calendar = {
   email?: string | string[]
   name: string
   server: string
+  // The calendars to read, by the server's ids ("primary", an address); none reads the server's default one.
+  calendars?: string[]
   tools: Partial<Record<CalendarCapability, Recipe>>
   fields: CalendarFields
   // Events left out when a field holds one of these values (cancelled, free), and kept only when a field holds one of
@@ -228,8 +230,8 @@ const GOOGLE_CALENDAR: Calendar = {
   name: 'Google Calendar',
   server: 'claude.ai Google Calendar',
   tools: {
-    listEvents: { tool: 'list_events', args: { orderBy: 'startTime', pageSize: 12, pageToken: '{pageToken}' } },
-    getEvent: { tool: 'get_event', args: { eventId: '{event}' } },
+    listEvents: { tool: 'list_events', args: { calendarId: '{calendar}', orderBy: 'startTime', pageSize: 12, pageToken: '{pageToken}' } },
+    getEvent: { tool: 'get_event', args: { calendarId: '{calendar}', eventId: '{event}' } },
   },
   fields: {
     events: 'events', nextPage: 'nextPageToken', id: 'id', title: 'summary', start: 'start.dateTime', end: 'end.dateTime', url: 'htmlLink',
