@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use cockpit_core::theme::{FG, SERIES, bold, dim, fg};
 
 use crate::row::Row;
-use crate::value::{at, axes, cell, compact, number, rows};
+use crate::value::{Unit, at, axes, cell, number, rows};
 
 /// The fewest points a zoom keeps.
 const CLOSEST: usize = 3;
@@ -36,9 +36,11 @@ pub fn tooltip(block: &Value, k: usize) -> Row {
     let rows = rows(block);
     let Some(r) = rows.get(k) else { return Row::new() };
     let (xi, ys, names) = axes(block);
+    let top = rows.iter().flat_map(|r| ys.iter().filter_map(|&i| number(at(r, i)))).fold(0.0, f64::max);
+    let unit = Unit::of(block, top);
     let mut row = Row::text("◆ ", fg(SERIES[0])).add(cell(at(r, xi)), bold(FG));
     for (n, (&i, name)) in ys.iter().zip(&names).enumerate() {
-        let value = number(at(r, i)).map_or_else(|| "—".to_string(), compact);
+        let value = number(at(r, i)).map_or_else(|| "—".to_string(), |v| unit.show(v));
         row = row.add("   ● ", fg(SERIES[n % SERIES.len()])).add(format!("{name} "), dim()).add(value, Style::new().fg(FG));
     }
     row

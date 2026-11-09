@@ -31,7 +31,7 @@ call broke, so you can also learn it by calling it.
 | Block | Fields | For |
 | --- | --- | --- |
 | `stats` *(page)* | `items: [{label, value, note?, delta?, good?, spark?: [numbers]}]`, 1–8 | Headline figures as tiles. `good` says whether the delta is good news. |
-| `chart` *(page)* | `kind: line\|area\|bar\|donut`, `columns`, `rows`, `x?`, `y?: [columns]`, `stacked?`, `percent?`, `horizontal?`, `show_values?` | Line or area over time, bar for categories, donut for one whole in a few parts. `horizontal` for rankings and long names; `stacked`/`percent` for parts of a whole per category. |
+| `chart` *(page)* | `kind: line\|area\|bar\|donut`, `columns`, `rows`, `x?`, `y?: [columns]`, `stacked?`, `percent?`, `horizontal?`, `show_values?`, `unit?: ms\|s\|bytes\|<own>` | Line or area over time, bar for categories, donut for one whole in a few parts. `unit` keeps a measured quantity in its unit instead of counting in thousands: the whole chart reads in the one its largest value picks (`ms` peaking at 96000 draws 96s, not 96k). `horizontal` for rankings and long names; `stacked`/`percent` for parts of a whole per category. |
 | `table` *(page)* | `columns`, `rows` | Rows as arrays, up to 5000. |
 | `flow` *(page)* | `nodes: [{id, label, kind?: box\|round\|decision}]`, `edges: [{from, to, label?}]`, `direction?: down\|right` | A process or an architecture, up to 60 nodes. |
 | `sequence` *(page)* | `actors?`, `messages: [{from, to, label, reply?} \| {note, over}]` | An exchange between parts. |
