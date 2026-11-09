@@ -87,6 +87,10 @@ at /pane: a short name of lowercase letters, digits and dashes, such as quota-ch
 
 Only the first broken rule is reported, so a call with several mistakes takes a few turns.
 
+In Claude Code, the plugin also refuses a hand-made HTML page beside the session, or a claude.ai artifact, when `show`
+could draw it. Asking for a page or a link in so many words lets it through, as does prefixing the command with
+`COCKPIT_SHOW_FALLBACK="<what show cannot draw>"`.
+
 ## Where it draws
 
 In herdr and the Herdr app the pane opens beside the session; `q` hides it and its footer chip brings it back.

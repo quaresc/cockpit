@@ -90,7 +90,11 @@ shellcheck -S warning herdr/*.sh install.sh scripts/*.sh docs/screenshots/*.sh
 for f in app/mods/cockpit/*.js; do node --input-type=module --check < "$f" || echo "$f"; done
 claude plugin validate plugin && claude plugin test plugin
 sh scripts/check-skills.sh
+sh scripts/app-readme.sh --check
 ```
+
+`app/README.md` is a copy of `README.md` for visitors from the Herdr gallery: edit the root one, then run
+`sh scripts/app-readme.sh`.
 
 Rust is formatted by `cargo fmt` with `herdr/tui/rustfmt.toml` (160 columns). The minimum Rust version is the
 workspace's `rust-version` in `herdr/tui/Cargo.toml`.

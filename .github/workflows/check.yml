@@ -17,6 +17,8 @@ jobs:
           shellcheck -S warning herdr/*.sh herdr/notifier/build.sh install.sh scripts/*.sh app/*.sh docs/screenshots/*.sh
       # The side-browser skill ships twice, to Claude Code and to Codex: both copies must say the same thing.
       - run: sh scripts/check-skills.sh
+      # app/README.md, where the Herdr gallery sends visitors, is the root README's copy.
+      - run: sh scripts/app-readme.sh --check
 
   app:
     runs-on: ubuntu-latest
