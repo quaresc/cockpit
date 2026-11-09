@@ -84,7 +84,7 @@ pub const PRESETS: &[Preset] = &[
         bearer_command: &["gh", "auth", "token"],
         app_scopes: &[],
         marks: &["api.githubcopilot.com/mcp", "github-mcp-server", "server-github"],
-        mapping: None,
+        mapping: Some(crate::tickets::github),
     },
     Preset {
         id: "gitlab",

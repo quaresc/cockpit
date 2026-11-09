@@ -3,7 +3,7 @@
 
 An answer {"_list": [...]} is that list; {"_range": true} answers a Prometheus-style range query over the asked window.
 A "_versions" list makes `initialize` refuse any other protocol version with -32601, as Google's servers do. Every call
-is appended to <answers>.calls as {"tool", "args"}.
+is appended to <answers>.calls as {"tool", "args"}, the handshake included, as {"tool": "initialize"}.
 """
 import datetime
 import json
@@ -41,6 +41,8 @@ for line in sys.stdin:
     method, ident = message.get("method"), message["id"]
     if method == "initialize":
         version = message["params"].get("protocolVersion", "2025-06-18")
+        log.write(json.dumps({"tool": "initialize", "args": message["params"]}) + "\n")
+        log.flush()
         if versions is not None and version not in versions:
             send({"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "Method not supported"}})
             continue

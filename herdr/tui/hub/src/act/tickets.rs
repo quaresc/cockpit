@@ -191,7 +191,7 @@ pub fn assign(ctx: &mut Ctx, args: &[Value]) -> Res {
     let who = opt(args, 1).as_str().filter(|w| !w.is_empty()).unwrap_or("me").to_string();
     if let Some((server, mapping)) = served().filter(|(_, m)| m["tools"]["assign"]["tool"].is_string()) {
         use cockpit_connectors::{tickets, tools::Mapped};
-        crate::feed::mcp::with(&server, async |c| tickets::assign(&Mapped { connection: c, section: &mapping }, &id, &who).await)?;
+        crate::feed::mcp::with(&server, async |c| tickets::assign(&Mapped { connection: c, section: &mapping }, &mapping, &id, &who).await)?;
         // A ticket given to someone else is no longer mine.
         if who != "me" {
             show_now(&id, |_| None);

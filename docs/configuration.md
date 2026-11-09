@@ -33,7 +33,7 @@ itself and need no `tools`.
 | Key | What it covers |
 | --- | --- |
 | `github` | `{enabled, org}` — your pull requests, through `gh`. `org` limits them to one organization. |
-| `tickets` | Your tickets: `name`, `server`, `keys` (prefixes such as `ENG`), `urlTemplate`, and `token` for refreshes with no agent session. |
+| `tickets` | Your tickets: `name`, `server`, `keys` (prefixes such as `ENG`), `urlTemplate`, and `token` for refreshes with no agent session. Linear and GitHub Issues are mapped by cockpit; naming their server is enough. |
 | `ci` | CI runs: `name`, `server`, `imageJob` (the job that pushes a preview's image), `token`. Empty `server` reads GitHub checks through `gh`. |
 | `calendar` | Meetings: `server`, and `calendars` (ids such as `primary` or an address) to read more than its default calendar; or `ics` (the calendar's secret iCal address) and `email` so the hub fetches them itself. |
 | `mail` | Unread mail: `name`, `server`. A tool that sends mail is never mapped. |

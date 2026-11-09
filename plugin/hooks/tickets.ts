@@ -4,7 +4,7 @@ import type { Ticket } from '../types'
 
 import { fill, loadConfig } from './config'
 import type { Tickets } from './config'
-import { callMapped, listAt, pick, text } from './platform'
+import { callMapped, capture, fillArgs, listAt, pick, text } from './platform'
 
 type $ = EngineInterface
 
@@ -39,17 +39,45 @@ export function ticketUrl(config: Tickets, ticket: string, known: Ticket[] = [])
   return sample ? `${sample.url.slice(0, sample.url.lastIndexOf(`/${sample.id}`) + 1)}${id}` : undefined
 }
 
+// A ticket's id as `idTemplate` writes it from the parts `idPattern` reads in its URL, for a tool whose issues are not
+// named by one value (GitHub's owner/repo#number).
+export function composedId(config: Tickets, url: string) {
+  const { idPattern, idTemplate } = config
+  if (!idPattern || !idTemplate) return undefined
+  const parts = capture(idPattern, url)
+  return parts && String(fillArgs(idTemplate, parts))
+}
+
+// What a mapped tool's arguments are filled from: the ticket, its team, and the parts `idTemplate` reads in its id.
+function values(config: Tickets, ticket: string) {
+  const parts = config.idTemplate ? capture(config.idTemplate, ticket) : undefined
+  return { ticket, team: ticket.split('-')[0] ?? '', ...parts }
+}
+
+// The states a ticket can move to: the ones a tool lists, else the ones the mapping holds itself.
+async function ticketStates($: $, config: Tickets, ticket: string) {
+  if (!config.tools.listStates?.tool) return config.states ?? []
+  const f = config.fields
+  return listAt(await callMapped($, config, 'listStates', values(config, ticket)), f.states).map(s => ({
+    id: text(pick(s, f.stateId)) ?? '',
+    name: text(pick(s, f.stateName)) ?? '',
+    type: statusType(config, pick(s, f.stateType)),
+  }))
+}
+
 // My open tickets, in progress first; null when tickets are off.
 export async function myTickets($: $): Promise<Ticket[] | null> {
   const config = await ticketSystem($)
   if (!config) return null
   const f = config.fields
   const tickets = listAt(await callMapped($, config, 'listMine'), f.tickets).map((raw): Ticket => {
-    const id = text(pick(raw, f.id)) ?? ''
+    const read = text(pick(raw, f.id)) ?? ''
+    const url = text(pick(raw, f.url)) ?? fill(config.urlTemplate, { id: read }) ?? ''
+    const id = composedId(config, url) ?? read
     return {
       id,
       title: text(pick(raw, f.title)) ?? '',
-      url: text(pick(raw, f.url)) ?? fill(config.urlTemplate, { id }) ?? '',
+      url,
       status: text(pick(raw, f.status)) ?? '',
       statusType: statusType(config, pick(raw, f.statusType)),
       parentId: text(pick(raw, f.parentId)) ?? null,
@@ -65,7 +93,7 @@ export async function ticketDetail($: $, id: string) {
   const config = await ticketSystem($)
   if (!config?.tools.get?.tool) return null
   const f = config.fields
-  const raw = await callMapped($, config, 'get', { ticket: id })
+  const raw = await callMapped($, config, 'get', values(config, id))
   return {
     id: text(pick(raw, f.id)) ?? id,
     title: text(pick(raw, f.title)) ?? '',
@@ -79,15 +107,9 @@ export async function ticketDetail($: $, id: string) {
 export async function completeTicket($: $, ticket: string) {
   const config = await ticketSystem($)
   if (!config) throw new Error('tickets are off: run /cockpit:setup')
-  const f = config.fields
-  const team = ticket.split('-')[0] ?? ''
-  const states = listAt(await callMapped($, config, 'listStates', { ticket, team }), f.states).map(s => ({
-    id: text(pick(s, f.stateId)) ?? '',
-    name: text(pick(s, f.stateName)) ?? '',
-    type: statusType(config, pick(s, f.stateType)),
-  }))
+  const states = await ticketStates($, config, ticket)
   const done = states.find(s => s.type === 'completed' && /^done$/i.test(s.name)) ?? states.find(s => s.type === 'completed')
   if (!done) throw new Error(`no completed state for ${ticket}`)
-  await callMapped($, config, 'setState', { ticket, team, state: done.id })
+  await callMapped($, config, 'setState', { ...values(config, ticket), state: done.id })
   return done.name
 }

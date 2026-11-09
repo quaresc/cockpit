@@ -43,6 +43,12 @@ export type Tickets = {
   keys: string[]
   // A ticket's page ({id}); empty, it follows the URL of an assigned ticket.
   urlTemplate: string
+  // For a tool whose issues are not named by one value (GitHub's owner, repo and number): how to read the parts out of
+  // a ticket's URL, and how to write its id from them. The verbs then take {owner}, {repo} and {number} too.
+  idPattern?: string
+  idTemplate?: string
+  // The states a ticket can move to, for a tool with no `listStates` to ask (GitHub's open and closed).
+  states?: { id: string; name: string; type: string }[]
   tools: Partial<Record<TicketCapability, Recipe>>
   fields: TicketFields
   statusTypes: Record<string, string>
@@ -196,6 +202,34 @@ const LINEAR: Tickets = {
     createdId: 'id|identifier', createdUrl: 'url',
   },
   statusTypes: {},
+}
+
+// The GitHub Issues connector's mapping. An issue is owner, repo and number, which idPattern and idTemplate carry
+// through cockpit's one id as owner/repo#number.
+const GITHUB_ISSUES: Tickets = {
+  enabled: false,
+  name: 'GitHub Issues',
+  server: 'github',
+  keys: [],
+  urlTemplate: '',
+  idPattern: 'github.com/{owner}/{repo}/issues/{number}',
+  idTemplate: '{owner}/{repo}#{number}',
+  states: [
+    { id: 'open', name: 'Open', type: 'unstarted' },
+    { id: 'closed', name: 'Closed', type: 'completed' },
+  ],
+  tools: {
+    listMine: { tool: 'search_issues', args: { query: 'is:issue is:open assignee:@me', perPage: 100, fields: ['number', 'title', 'html_url', 'state', 'repository_url'] } },
+    get: { tool: 'issue_read', args: { method: 'get', owner: '{owner}', repo: '{repo}', issue_number: '{number}' } },
+    comments: { tool: 'issue_read', args: { method: 'get_comments', owner: '{owner}', repo: '{repo}', issue_number: '{number}' } },
+    setState: { tool: 'issue_write', args: { method: 'update', owner: '{owner}', repo: '{repo}', issue_number: '{number}', state: '{state}' } },
+    assign: { tool: 'issue_write', args: { method: 'update', owner: '{owner}', repo: '{repo}', issue_number: '{number}', assignees: ['{assignee}'] } },
+  },
+  fields: {
+    tickets: 'items', id: '', title: 'title', url: 'html_url', status: 'state', statusType: 'state', description: 'body', states: '',
+    stateId: 'id', stateName: 'name', stateType: 'type', labels: 'labels', labelName: 'name', assignee: 'assignees.0.login',
+  },
+  statusTypes: { open: 'unstarted', closed: 'completed' },
 }
 
 // The CircleCI connector's mapping, for a config from before CI connectors were mapped.
@@ -353,6 +387,8 @@ export async function loadConfig($: $): Promise<Config> {
   if (!raw.e2eBrowser && raw.checksBrowser) raw.e2eBrowser = raw.checksBrowser === 'chrome' ? 'chrome' : 'terminal-browser'
   // A CircleCI connector named without a mapping gets CircleCI's.
   if (raw.ci?.server && !raw.ci.tools && /circleci/i.test(raw.ci.server)) raw.ci = { ...CIRCLECI, ...raw.ci }
+  // Likewise a GitHub Issues connector named without a mapping gets GitHub's.
+  if (raw.tickets?.server && !raw.tickets.tools && /github/i.test(`${raw.tickets.name ?? ''} ${raw.tickets.server}`)) raw.tickets = { ...GITHUB_ISSUES, ...raw.tickets }
   // Likewise a Gmail connector named without a mapping gets Gmail's.
   if (raw.mail?.server && !raw.mail.tools && /gmail/i.test(raw.mail.server)) raw.mail = { ...GMAIL, ...raw.mail }
   const config: Config = {

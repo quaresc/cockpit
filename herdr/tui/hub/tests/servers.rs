@@ -274,6 +274,9 @@ fn requests_and_ticket_actions_go_out_through_the_servers() {
     let refused = wait_for(&requests.join("results/2-rerun.req"), |v| v["state"].is_string());
     assert_eq!(refused["state"], "refused", "a rerun names its workflow");
     assert_eq!(calls(&sandbox, "circleci").iter().find(|c| c["tool"] == "rerun_workflow").unwrap()["args"]["workflow"], "w1");
+    // The handshake cockpit opens with: the newest protocol version that has one, under cockpit's own name.
+    let handshake = calls(&sandbox, "circleci").into_iter().find(|c| c["tool"] == "initialize").expect("a handshake");
+    assert_eq!((&handshake["args"]["protocolVersion"], &handshake["args"]["clientInfo"]["name"]), (&json!("2025-11-25"), &json!("cockpit")));
 
     // A thread asked of a session is read by the hub when it reaches the mail server, and kept where the mail space looks.
     std::fs::write(requests.join("3-mail-get.req"), json!({"type": "mail-get", "label": "Quota numbers", "message": "t1"}).to_string()).unwrap();
