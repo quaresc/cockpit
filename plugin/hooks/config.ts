@@ -44,9 +44,11 @@ export type Tickets = {
   // A ticket's page ({id}); empty, it follows the URL of an assigned ticket.
   urlTemplate: string
   // For a tool whose issues are not named by one value (GitHub's owner, repo and number): how to read the parts out of
-  // a ticket's URL, and how to write its id from them. The verbs then take {owner}, {repo} and {number} too.
+  // a ticket's URL, how to write its id from them, and how a team names them. The verbs then take {owner}, {repo} and
+  // {number} too.
   idPattern?: string
   idTemplate?: string
+  teamPattern?: string
   // The states a ticket can move to, for a tool with no `listStates` to ask (GitHub's open and closed).
   states?: { id: string; name: string; type: string }[]
   tools: Partial<Record<TicketCapability, Recipe>>
@@ -214,6 +216,7 @@ const GITHUB_ISSUES: Tickets = {
   urlTemplate: '',
   idPattern: 'github.com/{owner}/{repo}/issues/{number}',
   idTemplate: '{owner}/{repo}#{number}',
+  teamPattern: '{owner}/{repo}',
   states: [
     { id: 'open', name: 'Open', type: 'unstarted' },
     { id: 'closed', name: 'Closed', type: 'completed' },
@@ -224,10 +227,12 @@ const GITHUB_ISSUES: Tickets = {
     comments: { tool: 'issue_read', args: { method: 'get_comments', owner: '{owner}', repo: '{repo}', issue_number: '{number}' } },
     setState: { tool: 'issue_write', args: { method: 'update', owner: '{owner}', repo: '{repo}', issue_number: '{number}', state: '{state}' } },
     assign: { tool: 'issue_write', args: { method: 'update', owner: '{owner}', repo: '{repo}', issue_number: '{number}', assignees: ['{assignee}'] } },
+    create: { tool: 'issue_write', args: { method: 'create', owner: '{owner}', repo: '{repo}', title: '{title}', body: '{description}' } },
   },
   fields: {
     tickets: 'items', id: '', title: 'title', url: 'html_url', status: 'state', statusType: 'state', description: 'body', states: '',
     stateId: 'id', stateName: 'name', stateType: 'type', labels: 'labels', labelName: 'name', assignee: 'assignees.0.login',
+    createdId: 'id', createdUrl: 'url',
   },
   statusTypes: { open: 'unstarted', closed: 'completed' },
 }

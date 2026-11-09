@@ -32,7 +32,8 @@ pub fn linear() -> Value {
 }
 
 /// The GitHub Issues connector's mapping (config.ts `GITHUB_ISSUES`). An issue is `owner`, `repo` and `number`, which
-/// `idPattern` and `idTemplate` carry through cockpit's one id as `owner/repo#number`.
+/// `idPattern` and `idTemplate` carry through cockpit's one id as `owner/repo#number`; a team is a repo, which
+/// `teamPattern` splits for a new issue.
 pub fn github() -> Value {
     json!({
         "tools": {
@@ -43,17 +44,20 @@ pub fn github() -> Value {
             "setState": {"tool": "issue_write", "args": {"method": "update", "owner": "{owner}", "repo": "{repo}", "issue_number": "{number}",
                 "state": "{state}"}},
             "assign": {"tool": "issue_write", "args": {"method": "update", "owner": "{owner}", "repo": "{repo}", "issue_number": "{number}",
-                "assignees": ["{assignee}"]}}
+                "assignees": ["{assignee}"]}},
+            "create": {"tool": "issue_write", "args": {"method": "create", "owner": "{owner}", "repo": "{repo}", "title": "{title}", "body": "{description}"}}
         },
         "fields": {
             "tickets": "items", "id": "", "title": "title", "url": "html_url", "status": "state", "statusType": "state", "parentId": "",
             "project": "", "description": "body", "attachments": "", "states": "", "stateId": "id", "stateName": "name", "stateType": "type",
-            "labels": "labels", "labelName": "name", "priority": "", "assignee": "assignees.0.login", "branch": ""
+            "labels": "labels", "labelName": "name", "priority": "", "assignee": "assignees.0.login", "branch": "", "createdId": "id",
+            "createdUrl": "url"
         },
         "statusTypes": {"open": "unstarted", "closed": "completed"},
         "states": [{"id": "open", "name": "Open", "type": "unstarted"}, {"id": "closed", "name": "Closed", "type": "completed"}],
         "idPattern": "github.com/{owner}/{repo}/issues/{number}",
-        "idTemplate": "{owner}/{repo}#{number}"
+        "idTemplate": "{owner}/{repo}#{number}",
+        "teamPattern": "{owner}/{repo}"
     })
 }
 
@@ -71,7 +75,7 @@ pub fn mapping(tickets: &Value) -> Value {
             base.extend(over.clone());
         }
     }
-    for key in ["urlTemplate", "idPattern", "idTemplate", "states"] {
+    for key in ["urlTemplate", "idPattern", "idTemplate", "teamPattern", "states"] {
         if !tickets[key].is_null() {
             merged[key] = tickets[key].clone();
         }
@@ -168,9 +172,16 @@ pub async fn assign(tools: &impl Tools, mapping: &Value, ticket: &str, who: &str
 
 /// Files a ticket in a team, assigned to me as the mapping says; its id and URL.
 pub async fn create(tools: &impl Tools, mapping: &Value, team: &str, title: &str, description: &str) -> Result<(String, String), String> {
-    let answer = tools.call("create", &json!({"team": team, "title": title, "description": description})).await?;
+    let mut args = json!({"team": team, "title": title, "description": description});
+    if let Some(parts) = mapping["teamPattern"].as_str().and_then(|pattern| capture(pattern, team))
+        && let Some(values) = args.as_object_mut()
+    {
+        values.extend(parts);
+    }
+    let answer = tools.call("create", &args).await?;
     let f = |name: &str| mapping["fields"][name].as_str().unwrap_or("").to_string();
     let (id, url) = (text(pick(&answer, &f("createdId"))).unwrap_or_default(), text(pick(&answer, &f("createdUrl"))).unwrap_or_default());
+    let id = composed_id(mapping, &url).unwrap_or(id);
     if id.is_empty() && url.is_empty() {
         return Err(format!("the tool answered no ticket: {}", answer.to_string().chars().take(160).collect::<String>()));
     }
@@ -290,6 +301,12 @@ mod tests {
         assert_eq!(card["states"], json!([{"name": "Open", "type": "unstarted"}, {"name": "Closed", "type": "completed"}]));
         assert_eq!(crate::block_on(complete(&fake, &m, "acme/api#22")).unwrap(), "Closed");
         assert_eq!(fake.calls.borrow()[1].1["state"], "closed");
+        // A new issue is filed in the repo the team names, and reads back under the id the mapping composes.
+        let filed = json!({"id": "3521", "url": "https://github.com/acme/api/issues/23"});
+        let fake = Fake::default().with("create", filed);
+        assert_eq!(crate::block_on(create(&fake, &m, "acme/api", "Export fails", "500")).unwrap().0, "acme/api#23");
+        let args = fake.calls.borrow()[0].1.clone();
+        assert_eq!((&args["owner"], &args["repo"], &args["title"]), (&json!("acme"), &json!("api"), &json!("Export fails")));
     }
 
     #[test]

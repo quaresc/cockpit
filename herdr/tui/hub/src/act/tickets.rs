@@ -226,7 +226,9 @@ pub fn file_issue(ctx: &mut Ctx, args: &[Value]) -> Res {
     let spec = arg(args, 0)?;
     let title = spec["title"].as_str().map(str::trim).filter(|t| !t.is_empty()).ok_or("an issue needs a title")?.to_string();
     let keys: Vec<String> = list(&ctx.cfg.0["tickets"]["keys"]).iter().map(text).collect();
-    let team = spec["team"].as_str().filter(|t| !t.is_empty()).map(str::to_uppercase).or_else(|| keys.first().cloned()).ok_or("say which team files it")?;
+    // A team is a key to upper-case (ENG), unless it names a repo (acme/api), which is case-sensitive.
+    let cased = |team: &str| if team.contains('/') { team.to_string() } else { team.to_uppercase() };
+    let team = spec["team"].as_str().filter(|t| !t.is_empty()).map(cased).or_else(|| keys.first().cloned()).ok_or("say which team files it")?;
     let description = spec["description"].as_str().unwrap_or_default().to_string();
     if let Some((server, mapping)) = served().filter(|(_, m)| m["tools"]["create"]["tool"].is_string()) {
         use cockpit_connectors::{tickets, tools::Mapped};
