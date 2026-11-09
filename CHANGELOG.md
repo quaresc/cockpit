@@ -5,6 +5,13 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.39.1 (2026-11-09)
+
+- The Google Calendar and Gmail presets connect: cockpit opens with the newest MCP protocol version that still has a
+  handshake, which Google's servers accept, and setup mentions Google's Workspace Developer Preview Program (#18).
+- `calendar.calendars` lists the calendars to read, not only the primary one: each meeting keeps its calendar, so
+  meeting briefs can read the full event (#19).
+
 ## 0.39.0 (2026-11-06)
 
 - A UX pass over the first ten minutes: `install.sh` checks herdr, `gh` and `jq` before downloading, `cockpit setup`
