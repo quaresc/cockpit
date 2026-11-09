@@ -49,6 +49,60 @@ pub fn compact(value: f64) -> String {
     trimmed(format!("{value:.2}"))
 }
 
+/// One unit for a whole chart, picked from its largest value, so every tick and label reads the same: a `ms` series
+/// peaking at 96000 reads in seconds. No unit counts in thousands, per value, as before.
+pub struct Unit {
+    step: f64,
+    name: String,
+}
+
+impl Unit {
+    /// The unit a chart's values are in (`unit`), scaled to its largest.
+    pub fn of(block: &Value, top: f64) -> Unit {
+        let unit = block["unit"].as_str().unwrap_or_default();
+        let (step, name) = match unit {
+            "ms" => seconds(top / 1000.0),
+            "s" => seconds(top),
+            "bytes" => bytes(top),
+            other => (1.0, other),
+        };
+        // A ms series scaled in seconds steps by its own thousandth.
+        let step = if unit == "ms" { step * 1000.0 } else { step };
+        Unit { step, name: name.to_string() }
+    }
+
+    /// One value in that unit: 42000 ms in a seconds chart is 42s.
+    pub fn show(&self, value: f64) -> String {
+        if self.name.is_empty() {
+            return compact(value);
+        }
+        trimmed(format!("{:.1}", value / self.step)) + &self.name
+    }
+}
+
+/// The step and name a duration in seconds reads in. Each unit holds until the next one has whole numbers to show, so a
+/// chart topping at 96 seconds reads in seconds, not in 1.6 minutes.
+fn seconds(top: f64) -> (f64, &'static str) {
+    match top.abs() {
+        t if t < 1.0 => (0.001, "ms"),
+        t if t < 180.0 => (1.0, "s"),
+        t if t < 10_800.0 => (60.0, "min"),
+        _ => (3600.0, "h"),
+    }
+}
+
+/// The step and name a size in bytes reads in, by 1024.
+fn bytes(top: f64) -> (f64, &'static str) {
+    let mut step = 1.0;
+    for name in ["B", "KB", "MB", "GB"] {
+        if top.abs() < step * 1024.0 {
+            return (step, name);
+        }
+        step *= 1024.0;
+    }
+    (step, "TB")
+}
+
 /// The x column and the y columns: as given, else the first column against every other one.
 pub fn axes(block: &Value) -> (usize, Vec<usize>, Vec<String>) {
     let columns: Vec<String> = block["columns"].as_array().into_iter().flatten().map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)).collect();
@@ -150,5 +204,31 @@ pub fn rows_of(output: &str) -> Result<(Value, Value), String> {
             Ok((Value::Array(header), Value::Array(list[1..].to_vec())))
         }
         _ => Err(shape.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One chart, one unit: the whole axis reads in the unit its largest value picked.
+    fn shown(unit: &str, top: f64, values: &[f64]) -> Vec<String> {
+        let block = serde_json::json!({"unit": unit});
+        let unit = Unit::of(&block, top);
+        values.iter().map(|v| unit.show(*v)).collect()
+    }
+
+    #[test]
+    fn a_measured_quantity_keeps_its_unit() {
+        assert_eq!(shown("ms", 42.0, &[0.0, 20.0, 42.0]), ["0ms", "20ms", "42ms"]);
+        assert_eq!(shown("ms", 96_000.0, &[0.0, 42_000.0, 96_000.0]), ["0s", "42s", "96s"]);
+        assert_eq!(shown("ms", 7_200_000.0, &[3_600_000.0, 7_200_000.0]), ["60min", "120min"]);
+        assert_eq!(shown("ms", 14_400_000.0, &[7_200_000.0, 14_400_000.0]), ["2h", "4h"]);
+        assert_eq!(shown("s", 150.0, &[0.0, 90.0, 150.0]), ["0s", "90s", "150s"]);
+        assert_eq!(shown("s", 600.0, &[0.0, 300.0, 600.0]), ["0min", "5min", "10min"]);
+        assert_eq!(shown("bytes", 5_242_880.0, &[1_048_576.0, 5_242_880.0]), ["1MB", "5MB"]);
+        assert_eq!(shown("rps", 12.0, &[12.0, 3.5]), ["12rps", "3.5rps"]);
+        // No unit counts in thousands, per value, as it always has.
+        assert_eq!(shown("", 3.4e6, &[42_000.0, 3.4e6]), ["42k", "3.4M"]);
     }
 }

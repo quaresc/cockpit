@@ -228,7 +228,7 @@ fn chart(spec: &Value) -> Value {
     let kind = spec["kind"].as_str().filter(|k| matches!(*k, "bar" | "area" | "donut")).unwrap_or("line");
     let on = |key: &str| spec[key].as_bool().unwrap_or(false);
     json!({
-        "kind": kind, "x": x, "labels": labels, "series": series,
+        "kind": kind, "x": x, "labels": labels, "series": series, "unit": spec["unit"].as_str().unwrap_or_default(),
         "horizontal": on("horizontal"), "stacked": on("stacked") || on("percent"), "percent": on("percent"), "show_values": on("show_values"),
     })
 }

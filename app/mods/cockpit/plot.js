@@ -21,6 +21,33 @@ export function compact(v) {
   return trimmed(v.toFixed(2));
 }
 
+/** The step and name a duration in seconds reads in; each unit holds until the next has whole numbers to show. */
+function seconds(top) {
+  const t = Math.abs(top);
+  return t < 1 ? [0.001, "ms"] : t < 180 ? [1, "s"] : t < 10800 ? [60, "min"] : [3600, "h"];
+}
+
+/** The step and name a size in bytes reads in, by 1024. */
+function bytes(top) {
+  let step = 1;
+  for (const name of ["B", "KB", "MB", "GB"]) {
+    if (Math.abs(top) < step * 1024) return [step, name];
+    step *= 1024;
+  }
+  return [step, "TB"];
+}
+
+/**
+ * One unit for a whole chart, picked from its largest value, so every tick and label reads the same: a `ms` series
+ * peaking at 96000 reads in seconds. No unit counts in thousands, per value, as before.
+ */
+export function unitOf(unit, top) {
+  if (!unit) return { show: compact };
+  const [size, name] = unit === "ms" ? seconds(top / 1000) : unit === "s" ? seconds(top) : unit === "bytes" ? bytes(top) : [1, unit];
+  const step = unit === "ms" ? size * 1000 : size;
+  return { show: (v) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : trimmed((v / step).toFixed(1)) + name) };
+}
+
 const percent = (v) => (!Number.isFinite(v) ? "—" : v > 0 && v < 0.1 ? "<0.1%" : `${trimmed(v.toFixed(v < 10 ? 1 : 0))}%`);
 const finite = (v) => typeof v === "number" && Number.isFinite(v);
 /** 21234 → "21,234": the mod's runtime has no locale formatting. */
@@ -87,7 +114,7 @@ function Legend(id, series, hidden, onToggle, ml) {
 }
 
 /** The hovered row's card: its label, each shown series' value (and share), the total when stacked. */
-function Tip(label, shown, at, { percent: pct, totals, stacked }) {
+function Tip(label, shown, at, { percent: pct, totals, stacked, unit = { show: compact } }) {
   const k = tokens();
   const line = (color, name, value) =>
     h_flex().gap(6).items_center().text_size(TEXT.xs)
@@ -96,8 +123,8 @@ function Tip(label, shown, at, { percent: pct, totals, stacked }) {
       .child(div().font_medium().text_color(k.foreground).child(value));
   return v_flex().gap(4).p(8).min_w(150).rounded(RADIUS.md).border_1().border_color(k.border).bg(k.popover).shadow_md()
     .child(div().text_size(TEXT.xs).font_semibold().text_color(k.foreground).child(String(label ?? "")))
-    .children(shown.map((s) => line(s.color, s.name, pct ? `${compact(s.raw[at])} · ${percent(s.values[at])}` : compact(s.values[at]))))
-    .when(stacked && shown.length > 1, (e) => e.child(line(null, "Total", compact(totals[at]))));
+    .children(shown.map((s) => line(s.color, s.name, pct ? `${unit.show(s.raw[at])} · ${percent(s.values[at])}` : unit.show(s.values[at]))))
+    .when(stacked && shown.length > 1, (e) => e.child(line(null, "Total", unit.show(totals[at]))));
 }
 
 /**
@@ -122,6 +149,7 @@ function Plot(id, model, { height = 180, width = 480, hover = null, hidden = new
   const bars = model.kind === "bar";
   const area = model.kind === "area";
   const [vmin, vmax] = [Math.min(...values), Math.max(...values)];
+  const unit = unitOf(model.unit, vmax);
   // Bars, areas and stacks start at zero; a line too, unless its values sit far from it.
   const fromZero = bars || area || stacked || (vmin >= 0 && vmin < vmax / 2);
   const yt = model.percent ? [0, 25, 50, 75, 100] : ticks(fromZero ? Math.min(0, vmin) : vmin, vmax);
@@ -130,7 +158,7 @@ function Plot(id, model, { height = 180, width = 480, hover = null, hidden = new
   const n = labels.length;
   const xOf = (i) => (bars ? ((i + 0.5) / n) * 100 : n === 1 ? 50 : (i / (n - 1)) * 100);
   const at = hover !== null && hover >= start && hover < start + n ? hover - start : null;
-  const tick = (t) => (model.percent ? `${t}%` : compact(t));
+  const tick = (t) => (model.percent ? `${t}%` : unit.show(t));
   // Value labels: over every bar or stack, on a line's points only when there are few.
   const labelled = Boolean(model.show_values) && (bars ? n <= 24 : n <= 12);
   const valueAt = (i, v, text) => div().absolute().left(`${xOf(i)}%`).top(`${yOf(v)}%`).mt(-16).ml(-28).w(56).text_center().text_size(TEXT.xs).font_medium().text_color(k.foreground).child(text);
@@ -154,8 +182,8 @@ function Plot(id, model, { height = 180, width = 480, hover = null, hidden = new
     plot = plot.child(h_flex().absolute().inset_0().children(groups));
     if (labelled) {
       for (let i = 0; i < n; i++) {
-        if (stacked && !model.percent && totals[i]) plot = plot.child(valueAt(i, totals[i], compact(totals[i])));
-        else if (!stacked && shown.length === 1 && finite(shown[0].values[i])) plot = plot.child(valueAt(i, shown[0].values[i], compact(shown[0].values[i])));
+        if (stacked && !model.percent && totals[i]) plot = plot.child(valueAt(i, totals[i], unit.show(totals[i])));
+        else if (!stacked && shown.length === 1 && finite(shown[0].values[i])) plot = plot.child(valueAt(i, shown[0].values[i], unit.show(shown[0].values[i])));
       }
     }
   } else {
@@ -179,7 +207,7 @@ function Plot(id, model, { height = 180, width = 480, hover = null, hidden = new
       } else if (pts.length === 1) {
         plot = plot.child(div().absolute().left(`${xOf(pts[0][1])}%`).top(`${yOf(pts[0][0])}%`).ml(-3).mt(-3).size(6).rounded_full().bg(s.color));
       }
-      if (labelled && shown.length === 1) for (const [v, i] of pts) plot = plot.child(valueAt(i, v, model.percent ? percent(v) : compact(s.raw[i])));
+      if (labelled && shown.length === 1) for (const [v, i] of pts) plot = plot.child(valueAt(i, v, model.percent ? percent(v) : unit.show(s.raw[i])));
     }
     if (at !== null) {
       plot = plot.child(div().absolute().top(0).bottom(0).left(`${xOf(at)}%`).w(1).bg(alpha(k.foreground, 0.35)));
@@ -202,7 +230,7 @@ function Plot(id, model, { height = 180, width = 480, hover = null, hidden = new
 
   if (at !== null) {
     const left = xOf(at) > 60;
-    const tip = Tip(labels[at], shown, at, { percent: model.percent, totals, stacked });
+    const tip = Tip(labels[at], shown, at, { percent: model.percent, totals, stacked, unit });
     plot = plot.child(div().absolute().top(4).when(left, (e) => e.right(`${100 - xOf(at) + 2}%`)).when(!left, (e) => e.left(`${xOf(at) + 2}%`)).child(tip));
   }
 
@@ -231,6 +259,7 @@ function Rows(id, model, { width = 480, hover = null, hidden = new Set(), window
   const n = labels.length;
   const end = (i) => (stacked ? (model.percent ? 100 : totals[i]) : Math.max(0, ...shown.map((s) => (finite(s.values[i]) ? s.values[i] : 0))));
   const max = Math.max(0, ...labels.map((_, i) => end(i)));
+  const unit = unitOf(model.unit, max);
   if (!n || !max) return empty(k);
   const at = hover !== null && hover >= start && hover < start + n ? hover - start : null;
   const labelW = Math.min(Math.max(...labels.map((l) => String(l ?? "").length)) * 7 + 12, Math.max(80, Math.floor(width * 0.32)));
@@ -241,10 +270,10 @@ function Rows(id, model, { width = 480, hover = null, hidden = new Set(), window
   const sum = totals.reduce((a, b) => a + b, 0);
   const written = (i) => {
     // A row to 100% writes its first part's share, the one the stack is usually about.
-    if (stacked) return model.percent ? percent(shown[0]?.values[i]) : compact(totals[i]);
+    if (stacked) return model.percent ? percent(shown[0]?.values[i]) : unit.show(totals[i]);
     if (grouped) return "";
     const v = shown[0]?.values[i];
-    return finite(v) ? `${compact(v)}${model.show_values && sum ? ` · ${percent((v / sum) * 100)}` : ""}` : "—";
+    return finite(v) ? `${unit.show(v)}${model.show_values && sum ? ` · ${percent((v / sum) * 100)}` : ""}` : "—";
   };
   const rows = labels.map((label, i) => {
     const paint = (s) => (at === null || at === i ? s.color : alpha(s.color, 0.45));
@@ -278,6 +307,7 @@ function Donut(id, model, { width = 480, hover = null, onHover } = {}) {
   if (slices.length > SLICES + 1) slices = [...slices.slice(0, SLICES), { label: "Other", value: slices.slice(SLICES).reduce((a, s) => a + s.value, 0), other: true }];
   slices = slices.map((s, i) => ({ ...s, color: s.other ? k.mutedFg : SERIES[i % SERIES.length] }));
   const total = slices.reduce((a, s) => a + s.value, 0);
+  const unit = unitOf(model.unit, total);
   if (!total) return empty(k);
   const size = Math.min(180, Math.max(120, Math.floor(width * 0.4)));
   const stroke = Math.round(size * 0.16);
@@ -300,7 +330,7 @@ function Donut(id, model, { width = 480, hover = null, onHover } = {}) {
   }
   const focus = at !== null ? slices[at] : null;
   ring = ring.child(v_flex().absolute().inset_0().items_center().justify_center()
-    .child(div().text_size(TEXT.lg).font_semibold().text_color(k.foreground).child(focus ? percent((focus.value / total) * 100) : compact(total)))
+    .child(div().text_size(TEXT.lg).font_semibold().text_color(k.foreground).child(focus ? percent((focus.value / total) * 100) : unit.show(total)))
     .child(div().max_w(Math.max(40, size - stroke * 2 - 12)).truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(focus ? String(focus.label) : String(model.series?.[0]?.name ?? "total"))));
   const legend = v_flex().flex_1().min_w(0).max_w(380).gap(2).children(slices.map((s, i) =>
     h_flex().id(`${id}-s${i}`).h(24).px(6).gap(8).items_center().rounded(RADIUS.sm).text_size(TEXT.xs)
@@ -308,7 +338,7 @@ function Donut(id, model, { width = 480, hover = null, onHover } = {}) {
       .when(Boolean(onHover), (e) => e.on_hover((on, cx) => onHover(on ? i : null, cx)))
       .child(div().size(8).flex_none().rounded(2).bg(s.color))
       .child(div().flex_1().min_w(0).truncate().text_color(at === i ? k.foreground : k.mutedFg).child(String(s.label)))
-      .child(div().flex_none().font_medium().text_color(k.foreground).child(compact(s.value)))
+      .child(div().flex_none().font_medium().text_color(k.foreground).child(unit.show(s.value)))
       .child(div().w(44).flex_none().text_right().text_color(k.mutedFg).child(percent((s.value / total) * 100)))));
   return h_flex().id(id).w_full().gap(20).items_center().child(ring).child(legend);
 }

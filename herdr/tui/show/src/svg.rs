@@ -7,7 +7,7 @@ use std::fmt::Write;
 
 use serde_json::Value;
 
-use crate::value::{at, axes, cell, compact, number, rows, text};
+use crate::value::{Unit, at, axes, cell, number, rows, text};
 
 const BG: &str = "#101010";
 const PANEL: &str = "#1E1E22";
@@ -94,10 +94,11 @@ pub fn line_chart(block: &Value, width: f64, height: f64, font: f64, hover: Opti
         return None;
     }
     let marks = ticks(values.iter().copied().fold(0.0, f64::min), values.iter().copied().fold(f64::MIN, f64::max), 4.0);
+    let unit = Unit::of(block, marks[marks.len() - 1]);
     let (lo, hi) = (marks[0], marks[marks.len() - 1]);
     let s = font / 16.0;
-    let left = marks.iter().map(|m| text_width(&compact(*m), font)).fold(0.0, f64::max) + font * 1.2;
-    let right = text_width(&compact(values[values.len() - 1]), font) + font * 1.4;
+    let left = marks.iter().map(|m| text_width(&unit.show(*m), font)).fold(0.0, f64::max) + font * 1.2;
+    let right = text_width(&unit.show(values[values.len() - 1]), font) + font * 1.4;
     let (top, bottom) = (font * if ys.len() > 1 { 2.4 } else { 1.2 }, font * 2.2);
     let (pw, ph) = (width - left - right, height - top - bottom);
     let last_k = rows.len().saturating_sub(1);
@@ -114,7 +115,7 @@ pub fn line_chart(block: &Value, width: f64, height: f64, font: f64, hover: Opti
             r#"<text x="{:.1}" y="{:.1}" font-size="{font:.1}" fill="{AXIS}" text-anchor="end">{}</text>"#,
             left - font * 0.6,
             y + font * 0.35,
-            esc(&compact(m))
+            esc(&unit.show(m))
         );
     }
     let shown = (rows.len().min((pw / (font * 6.0)).floor().max(0.0) as usize)).max(2);
@@ -156,7 +157,7 @@ pub fn line_chart(block: &Value, width: f64, height: f64, font: f64, hover: Opti
             2.4 * s,
             lx + font * 0.6,
             ly + font * 0.35,
-            esc(&compact(last))
+            esc(&unit.show(last))
         );
     }
     if let Some(k) = hover.filter(|k| *k < rows.len()) {
@@ -193,10 +194,11 @@ pub fn bar_chart(block: &Value, width: f64, font: f64, hover: Option<usize>) -> 
         return None;
     }
     let top_value = Some(values.iter().copied().fold(0.0, f64::max)).filter(|v| *v != 0.0).unwrap_or(1.0);
+    let unit = Unit::of(block, top_value);
     let (bar, gap) = (font * 1.15, font * 0.55);
     let widest = rows.iter().map(|r| text_width(&cell(at(r, xi)), font)).fold(0.0, f64::max);
     let label = text_width(&"M".repeat(22), font).min(widest) + font;
-    let value_room = values.iter().map(|v| text_width(&compact(*v), font)).fold(0.0, f64::max) + font * 1.2;
+    let value_room = values.iter().map(|v| text_width(&unit.show(*v), font)).fold(0.0, f64::max) + font * 1.2;
     let top = if ys.len() > 1 { font * 2.4 } else { font * 0.4 };
     let track = width - label - value_room;
     let mut body = String::new();
@@ -217,7 +219,7 @@ pub fn bar_chart(block: &Value, width: f64, font: f64, hover: Option<usize>) -> 
             let value = number(at(r, i));
             let color = SERIES[n % SERIES.len()];
             let length = (bar * 0.4).max(track * value.unwrap_or(0.0).max(0.0) / top_value);
-            let shown = value.map_or_else(|| "—".to_string(), |v| esc(&compact(v)));
+            let shown = value.map_or_else(|| "—".to_string(), |v| esc(&unit.show(v)));
             let _ = write!(
                 body,
                 r#"<rect x="{label:.1}" y="{y:.1}" width="{track:.1}" height="{h:.1}" rx="{rx:.1}" fill="{PANEL}"/><rect x="{label:.1}" y="{y:.1}" width="{length:.1}" height="{h:.1}" rx="{rx:.1}" fill="{color}" fill-opacity="0.9"/><text x="{:.1}" y="{:.1}" font-size="{font:.1}" fill="{TEXT}">{shown}</text>"#,
@@ -410,6 +412,18 @@ pub fn svg_size(text: &str) -> (f64, f64) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_charts_unit_reaches_its_axis_and_its_last_value() {
+        let block = json!({"columns": ["d", "p95"], "rows": [["a", 42_000], ["b", 96_000]], "unit": "ms"});
+        let (drawn, _) = line_chart(&block, 400.0, 200.0, 10.0, None).unwrap();
+        assert!(drawn.contains(">96s<") && !drawn.contains("96k"), "a latency chart reads in seconds: {drawn}");
+        assert!(drawn.contains(">25s<") && !drawn.contains("ms<"), "every tick in the same unit");
+        let (bars, _, _) = bar_chart(&json!({"columns": ["d", "p95"], "rows": [["a", 42]], "unit": "ms"}), 400.0, 10.0, None).unwrap();
+        assert!(bars.contains("42ms"), "a chart under a second reads in milliseconds: {bars}");
+        let (counts, _) = line_chart(&json!({"columns": ["d", "hits"], "rows": [["a", 42_000], ["b", 96_000]]}), 400.0, 200.0, 10.0, None).unwrap();
+        assert!(counts.contains("96k"), "a plain count still counts in thousands");
+    }
 
     #[test]
     fn the_hovered_point_gets_a_crosshair_and_the_mouse_finds_it() {
