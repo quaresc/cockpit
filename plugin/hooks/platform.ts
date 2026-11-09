@@ -54,6 +54,30 @@ export function listAt(value: unknown, path: string | undefined) {
   return nodes.flatMap(list)
 }
 
+// The values a "{name}" template reads out of a text ("{owner}/{repo}#{number}" over a GitHub issue's id); undefined
+// when a literal piece of the template is missing. A value of digits becomes a number, for an argument that takes one.
+export function capture(template: string, text: string): Record<string, unknown> | undefined {
+  const values: Record<string, unknown> = {}
+  let [rest, left] = [template, text]
+  while (rest.includes('{')) {
+    const open = rest.indexOf('{')
+    const close = rest.indexOf('}', open)
+    const name = close < 0 ? '' : rest.slice(open + 1, close)
+    if (!/^\w+$/.test(name)) return undefined
+    const before = rest.slice(0, open)
+    const at = left.indexOf(before)
+    if (at < 0) return undefined
+    left = left.slice(at + before.length)
+    rest = rest.slice(close + 1)
+    const until = rest.split('{')[0] ?? ''
+    const end = until ? left.indexOf(until) : left.length
+    if (end <= 0) return undefined
+    values[name] = /^\d+$/.test(left.slice(0, end)) ? Number(left.slice(0, end)) : left.slice(0, end)
+    left = left.slice(end)
+  }
+  return values
+}
+
 // The arguments with their "{name}" placeholders filled: a whole-string placeholder keeps the value's type.
 export function fillArgs(template: unknown, values: Record<string, unknown>): unknown {
   if (typeof template === 'string') {

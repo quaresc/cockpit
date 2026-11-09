@@ -56,6 +56,37 @@ pub fn fill_args(template: &Value, values: &Map<String, Value>) -> Option<Value>
     }
 }
 
+/// A "{name}" template filled from `values`, as an argument's text is.
+pub fn fill(template: &str, values: &Map<String, Value>) -> String {
+    replace_placeholders(template, values)
+}
+
+/// The values a "{name}" template reads out of a text ("github.com/{owner}/{repo}/issues/{number}" over an issue's
+/// URL, "{owner}/{repo}#{number}" over its id); `None` when a literal piece of the template is missing. A value of
+/// digits becomes a number, for an argument that takes one.
+pub fn capture(template: &str, text: &str) -> Option<Map<String, Value>> {
+    let (mut values, mut rest, mut left) = (Map::new(), template, text);
+    while let Some(open) = rest.find('{') {
+        let close = rest[open..].find('}').map(|c| open + c)?;
+        let name = &rest[open + 1..close];
+        if !is_word(name) {
+            return None;
+        }
+        let before = &rest[..open];
+        left = &left[left.find(before)? + before.len()..];
+        rest = &rest[close + 1..];
+        let until = rest.split('{').next().unwrap_or_default();
+        let end = if until.is_empty() { left.len() } else { left.find(until)? };
+        let (value, after) = left.split_at(end);
+        if value.is_empty() {
+            return None;
+        }
+        values.insert(name.to_string(), value.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(value.to_string())));
+        left = after;
+    }
+    Some(values)
+}
+
 fn is_word(name: &str) -> bool {
     !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
@@ -100,6 +131,18 @@ mod tests {
         assert_eq!(list_at(&v, "runs[].steps"), vec![&json!(1), &json!(2), &json!(3)]);
         assert_eq!(list_at(&json!([1]), "").len(), 1);
         assert!(list_at(&v, "missing").is_empty());
+    }
+
+    #[test]
+    fn a_template_reads_its_parts_back_out_of_a_text() {
+        let parts = |t, text| capture(t, text).map(Value::Object);
+        let url = "https://github.com/acme/api/issues/22";
+        assert_eq!(parts("github.com/{owner}/{repo}/issues/{number}", url), Some(json!({"owner": "acme", "repo": "api", "number": 22})));
+        assert_eq!(parts("{owner}/{repo}#{number}", "acme/api#22"), Some(json!({"owner": "acme", "repo": "api", "number": 22})));
+        assert_eq!(parts("github.com/{owner}/{repo}/issues/{number}", "https://gitlab.com/acme/api/-/issues/22"), None);
+        assert_eq!(parts("{owner}/{repo}#{number}", "ENG-1"), None);
+        let values = capture("{owner}/{repo}#{number}", "acme/api#22").unwrap();
+        assert_eq!(fill("{owner}/{repo}#{number}", &values), "acme/api#22");
     }
 
     #[test]

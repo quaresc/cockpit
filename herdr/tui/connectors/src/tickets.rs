@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::mapping::{list_at, pick, text};
+use crate::mapping::{capture, fill, list_at, pick, text};
 use crate::tools::Tools;
 
 /// Cockpit's status types are Linear's categories; the open ones, in the order the inbox lists them.
@@ -31,9 +31,42 @@ pub fn linear() -> Value {
     })
 }
 
-/// The config's tickets block over the Linear default, as the plugin's loadConfig merges it.
+/// The GitHub Issues connector's mapping (config.ts `GITHUB_ISSUES`). An issue is `owner`, `repo` and `number`, which
+/// `idPattern` and `idTemplate` carry through cockpit's one id as `owner/repo#number`; a team is a repo, which
+/// `teamPattern` splits for a new issue.
+pub fn github() -> Value {
+    json!({
+        "tools": {
+            "listMine": {"tool": "search_issues", "args": {"query": "is:issue is:open assignee:@me", "perPage": 100,
+                "fields": ["number", "title", "html_url", "state", "repository_url"]}},
+            "get": {"tool": "issue_read", "args": {"method": "get", "owner": "{owner}", "repo": "{repo}", "issue_number": "{number}"}},
+            "comments": {"tool": "issue_read", "args": {"method": "get_comments", "owner": "{owner}", "repo": "{repo}", "issue_number": "{number}"}},
+            "setState": {"tool": "issue_write", "args": {"method": "update", "owner": "{owner}", "repo": "{repo}", "issue_number": "{number}",
+                "state": "{state}"}},
+            "assign": {"tool": "issue_write", "args": {"method": "update", "owner": "{owner}", "repo": "{repo}", "issue_number": "{number}",
+                "assignees": ["{assignee}"]}},
+            "create": {"tool": "issue_write", "args": {"method": "create", "owner": "{owner}", "repo": "{repo}", "title": "{title}", "body": "{description}"}}
+        },
+        "fields": {
+            "tickets": "items", "id": "", "title": "title", "url": "html_url", "status": "state", "statusType": "state", "parentId": "",
+            "project": "", "description": "body", "attachments": "", "states": "", "stateId": "id", "stateName": "name", "stateType": "type",
+            "labels": "labels", "labelName": "name", "priority": "", "assignee": "assignees.0.login", "branch": "", "createdId": "id",
+            "createdUrl": "url"
+        },
+        "statusTypes": {"open": "unstarted", "closed": "completed"},
+        "states": [{"id": "open", "name": "Open", "type": "unstarted"}, {"id": "closed", "name": "Closed", "type": "completed"}],
+        "idPattern": "github.com/{owner}/{repo}/issues/{number}",
+        "idTemplate": "{owner}/{repo}#{number}",
+        "teamPattern": "{owner}/{repo}"
+    })
+}
+
+/// The config's tickets block over a default mapping, as the plugin's loadConfig merges it: GitHub's when it names
+/// GitHub's server and maps no tool, else Linear's.
 pub fn mapping(tickets: &Value) -> Value {
-    let mut merged = linear();
+    let names = |key: &str| tickets[key].as_str().unwrap_or_default().to_lowercase();
+    let is_github = ["server", "name"].iter().any(|key| names(key).contains("github"));
+    let mut merged = if is_github && tickets["tools"].is_null() { github() } else { linear() };
     if tickets["tools"].as_object().is_some_and(|t| !t.is_empty()) {
         merged["tools"] = tickets["tools"].clone();
     }
@@ -42,7 +75,11 @@ pub fn mapping(tickets: &Value) -> Value {
             base.extend(over.clone());
         }
     }
-    merged["urlTemplate"] = tickets["urlTemplate"].clone();
+    for key in ["urlTemplate", "idPattern", "idTemplate", "teamPattern", "states"] {
+        if !tickets[key].is_null() {
+            merged[key] = tickets[key].clone();
+        }
+    }
     merged
 }
 
@@ -58,8 +95,9 @@ pub async fn mine(tools: &impl Tools, mapping: &Value) -> Result<Vec<Value>, Str
     let mut tickets: Vec<Value> = list_at(&answer, &f("tickets"))
         .into_iter()
         .map(|raw| {
-            let id = text(pick(raw, &f("id"))).unwrap_or_default();
-            let url = text(pick(raw, &f("url"))).unwrap_or_else(|| url_template.replace("{id}", &id));
+            let read = text(pick(raw, &f("id"))).unwrap_or_default();
+            let url = text(pick(raw, &f("url"))).unwrap_or_else(|| url_template.replace("{id}", &read));
+            let id = composed_id(mapping, &url).unwrap_or(read);
             json!({
                 "id": id,
                 "title": text(pick(raw, &f("title"))).unwrap_or_default(),
@@ -78,8 +116,10 @@ pub async fn mine(tools: &impl Tools, mapping: &Value) -> Result<Vec<Value>, Str
 
 /// The states a ticket can move to, as `{id, name, type}` with Linear's categories as types.
 pub async fn states(tools: &impl Tools, mapping: &Value, ticket: &str) -> Result<Vec<Value>, String> {
-    let team = ticket.split('-').next().unwrap_or_default();
-    let answer = tools.call("listStates", &json!({"ticket": ticket, "team": team})).await?;
+    if !tools.has("listStates") {
+        return Ok(mapping["states"].as_array().cloned().unwrap_or_default());
+    }
+    let answer = tools.call("listStates", &values(mapping, ticket)).await?;
     let f = |name: &str| mapping["fields"][name].as_str().unwrap_or("").to_string();
     Ok(list_at(&answer, &f("states"))
         .into_iter()
@@ -102,8 +142,9 @@ pub async fn set_state(tools: &impl Tools, mapping: &Value, ticket: &str, name: 
         .find(|s| named(s) == wanted)
         .or_else(|| states.iter().find(|s| named(s).starts_with(&wanted)))
         .ok_or_else(|| format!("{ticket} has no state like {name:?}"))?;
-    let team = ticket.split('-').next().unwrap_or_default();
-    tools.call("setState", &json!({"ticket": ticket, "team": team, "state": to["id"]})).await?;
+    let mut args = values(mapping, ticket);
+    args["state"] = to["id"].clone();
+    tools.call("setState", &args).await?;
     Ok((to["name"].as_str().unwrap_or(name).to_string(), to["type"].as_str().unwrap_or_default().to_string()))
 }
 
@@ -116,21 +157,31 @@ pub async fn complete(tools: &impl Tools, mapping: &Value, ticket: &str) -> Resu
         .find(|s| completed(s) && s["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case("done")))
         .or_else(|| states.iter().find(completed))
         .ok_or_else(|| format!("no completed state for {ticket}"))?;
-    let team = ticket.split('-').next().unwrap_or_default();
-    tools.call("setState", &json!({"ticket": ticket, "team": team, "state": done["id"]})).await?;
+    let mut args = values(mapping, ticket);
+    args["state"] = done["id"].clone();
+    tools.call("setState", &args).await?;
     Ok(done["name"].as_str().unwrap_or("Done").to_string())
 }
 
 /// Assigns a ticket to `who`: "me", or a person the tool knows by name or email.
-pub async fn assign(tools: &impl Tools, ticket: &str, who: &str) -> Result<(), String> {
-    tools.call("assign", &json!({"ticket": ticket, "assignee": who, "team": team_of(ticket)})).await.map(|_| ())
+pub async fn assign(tools: &impl Tools, mapping: &Value, ticket: &str, who: &str) -> Result<(), String> {
+    let mut args = values(mapping, ticket);
+    args["assignee"] = who.into();
+    tools.call("assign", &args).await.map(|_| ())
 }
 
 /// Files a ticket in a team, assigned to me as the mapping says; its id and URL.
 pub async fn create(tools: &impl Tools, mapping: &Value, team: &str, title: &str, description: &str) -> Result<(String, String), String> {
-    let answer = tools.call("create", &json!({"team": team, "title": title, "description": description})).await?;
+    let mut args = json!({"team": team, "title": title, "description": description});
+    if let Some(parts) = mapping["teamPattern"].as_str().and_then(|pattern| capture(pattern, team))
+        && let Some(values) = args.as_object_mut()
+    {
+        values.extend(parts);
+    }
+    let answer = tools.call("create", &args).await?;
     let f = |name: &str| mapping["fields"][name].as_str().unwrap_or("").to_string();
     let (id, url) = (text(pick(&answer, &f("createdId"))).unwrap_or_default(), text(pick(&answer, &f("createdUrl"))).unwrap_or_default());
+    let id = composed_id(mapping, &url).unwrap_or(id);
     if id.is_empty() && url.is_empty() {
         return Err(format!("the tool answered no ticket: {}", answer.to_string().chars().take(160).collect::<String>()));
     }
@@ -141,7 +192,7 @@ pub async fn create(tools: &impl Tools, mapping: &Value, team: &str, title: &str
 /// categories' order.
 pub async fn details(tools: &impl Tools, mapping: &Value, ticket: &str) -> Result<Value, String> {
     let verb = if tools.has("details") { "details" } else { "get" };
-    let raw = tools.call(verb, &json!({"ticket": ticket, "team": team_of(ticket)})).await?;
+    let raw = tools.call(verb, &values(mapping, ticket)).await?;
     let f = |name: &str| mapping["fields"][name].as_str().unwrap_or("").to_string();
     let get = |name: &str| text(pick(&raw, &f(name)));
     let labels: Vec<Value> = list_at(&raw, &f("labels"))
@@ -149,7 +200,7 @@ pub async fn details(tools: &impl Tools, mapping: &Value, ticket: &str) -> Resul
         .filter_map(|l| if l.is_string() { text(Some(l)) } else { text(pick(l, &f("labelName"))) })
         .map(|name| json!({"name": name}))
         .collect();
-    let mut states = if tools.has("listStates") { states(tools, mapping, ticket).await.unwrap_or_default() } else { Vec::new() };
+    let mut states = states(tools, mapping, ticket).await.unwrap_or_default();
     let order = |s: &Value| ["triage", "backlog", "unstarted", "started", "completed", "canceled"].iter().position(|t| s["type"] == *t).unwrap_or(9);
     states.sort_by_key(order);
     let raw_type = get("statusType").unwrap_or_default();
@@ -170,6 +221,24 @@ pub async fn details(tools: &impl Tools, mapping: &Value, ticket: &str) -> Resul
 
 fn team_of(ticket: &str) -> &str {
     ticket.split('-').next().unwrap_or_default()
+}
+
+/// A ticket's id as `idTemplate` writes it from the parts `idPattern` reads in its URL, for a tool whose issues are not
+/// named by one value (GitHub's `owner/repo#number`).
+fn composed_id(mapping: &Value, url: &str) -> Option<String> {
+    let (pattern, template) = (mapping["idPattern"].as_str()?, mapping["idTemplate"].as_str()?);
+    Some(fill(template, &capture(pattern, url)?))
+}
+
+/// What a mapped tool's arguments are filled from: the ticket, its team, and the parts `idTemplate` reads in its id.
+fn values(mapping: &Value, ticket: &str) -> Value {
+    let mut values = json!({"ticket": ticket, "team": team_of(ticket)});
+    if let Some(parts) = mapping["idTemplate"].as_str().and_then(|t| capture(t, ticket))
+        && let Some(args) = values.as_object_mut()
+    {
+        args.extend(parts);
+    }
+    values
 }
 
 fn rank(ticket: &Value) -> Option<usize> {
@@ -200,7 +269,7 @@ mod tests {
     fn a_ticket_is_assigned_filed_and_detailed() {
         let m = mapping(&json!({}));
         let fake = Fake::default().with("assign", json!({})).with("create", json!({"id": "SOU-9", "url": "https://linear.app/x/SOU-9"}));
-        crate::block_on(assign(&fake, "SOU-1", "me")).unwrap();
+        crate::block_on(assign(&fake, &m, "SOU-1", "me")).unwrap();
         assert_eq!(crate::block_on(create(&fake, &m, "SOU", "T", "D")).unwrap(), ("SOU-9".into(), "https://linear.app/x/SOU-9".into()));
         assert_eq!(fake.calls.borrow()[0].1["assignee"], "me");
         assert_eq!(fake.calls.borrow()[1].1, json!({"team": "SOU", "title": "T", "description": "D"}));
@@ -214,6 +283,30 @@ mod tests {
         assert_eq!(card["state"], json!({"name": "To Review", "type": "started"}));
         assert_eq!(card["states"][0]["name"], "Todo");
         assert!(crate::block_on(create(&Fake::default().with("create", json!({})), &m, "SOU", "T", "")).is_err());
+    }
+
+    #[test]
+    fn a_github_issue_carries_its_owner_repo_and_number() {
+        let m = mapping(&json!({"enabled": true, "name": "GitHub Issues", "server": "github"}));
+        assert_eq!(m["tools"]["listMine"]["tool"], "search_issues", "naming GitHub's server is enough to map it");
+        let found = json!({"items": [{"number": 22, "title": "T", "html_url": "https://github.com/acme/api/issues/22", "state": "open"}]});
+        let tickets = crate::block_on(mine(&Fake::default().with("listMine", found), &m)).unwrap();
+        assert_eq!(tickets[0]["id"], "acme/api#22");
+        assert_eq!(tickets[0]["statusType"], "unstarted");
+        let issue = json!({"number": 22, "title": "T", "html_url": "https://github.com/acme/api/issues/22", "body": "b", "state": "open"});
+        let fake = Fake::default().with("get", issue).with("setState", json!({}));
+        let card = crate::block_on(details(&fake, &m, "acme/api#22")).unwrap();
+        let args = fake.calls.borrow()[0].1.clone();
+        assert_eq!((&args["owner"], &args["repo"], &args["number"]), (&json!("acme"), &json!("api"), &json!(22)));
+        assert_eq!(card["states"], json!([{"name": "Open", "type": "unstarted"}, {"name": "Closed", "type": "completed"}]));
+        assert_eq!(crate::block_on(complete(&fake, &m, "acme/api#22")).unwrap(), "Closed");
+        assert_eq!(fake.calls.borrow()[1].1["state"], "closed");
+        // A new issue is filed in the repo the team names, and reads back under the id the mapping composes.
+        let filed = json!({"id": "3521", "url": "https://github.com/acme/api/issues/23"});
+        let fake = Fake::default().with("create", filed);
+        assert_eq!(crate::block_on(create(&fake, &m, "acme/api", "Export fails", "500")).unwrap().0, "acme/api#23");
+        let args = fake.calls.borrow()[0].1.clone();
+        assert_eq!((&args["owner"], &args["repo"], &args["title"]), (&json!("acme"), &json!("api"), &json!("Export fails")));
     }
 
     #[test]
