@@ -60,7 +60,9 @@ subscriptions leave it out, so they cannot consume a pending remote-desk navigat
 
 The Herdr app can read a Linux or macOS runner's hub, including from Windows. Both ends need this version of the
 cockpit mod/hub. Connect the runner through Herdr's machine settings first, then put the cockpit layout and mod in
-the desktop's Herdr home. The desktop needs no cockpit binary.
+the desktop's Herdr home. The desktop needs no cockpit binary. The runner needs no window of its own: with neither the
+Herdr app nor the herdr TUI running there, its hub lists the agents from herdr-core, in the spaces and tabs the
+desktop placed them in.
 
 On the runner, start the hub with `COCKPIT_HUB_LISTEN` set to its Tailscale IP, for example
 `COCKPIT_HUB_LISTEN=100.64.0.10 cockpit hub start`. If a hub already runs, restart it deliberately with that variable;
