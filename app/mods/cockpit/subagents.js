@@ -110,7 +110,7 @@ export default class Subagents {
     const k = tokens();
     const row = this.current();
     const now = Date.now();
-    const shell = (...kids) => v_flex().id("subagents").size_full().bg(k.background).text_color(k.foreground).text_size(TEXT.base).p(14).gap(10).children(kids);
+    const shell = (...kids) => v_flex().id("subagents").size_full().bg(k.background).text_color(k.foreground).text_size(TEXT.base).p(14).gap(10).children(kids.filter(Boolean));
     if (!row) return shell(Empty({ icon: "git-fork", title: "No agent in focus", description: "Click an agent to see its sub-agents here." }));
     const session = sessionFor(row);
     const known = Boolean(session) && session in this.subs.by;
