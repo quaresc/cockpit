@@ -35,7 +35,7 @@ export default class Bell {
 
   command(c) {
     const [scope, address] = c.split(":");
-    if (scope === "bell" && address) goToAgent(address);
+    if (scope === "bell" && address) goToAgent(this.waiting().find(a => a.address === address));
   }
 
   render() {
@@ -55,7 +55,7 @@ export default class Bell {
       .hover((s) => s.bg(k.accent).text_color(n ? k.blocked : k.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click(() => {
-        if (list[0]) goToAgent(list[0].address);
+        if (list[0]) goToAgent(list[0]);
       })
       .on_mouse_down("right", (_e, cx) => {
         cx.stop_propagation();
@@ -78,7 +78,7 @@ export default class Bell {
             .bg(alpha(k.blocked, 0.08))
             .cursor_pointer()
             .hover((s) => s.bg(alpha(k.blocked, 0.16)))
-            .on_click(() => goToAgent(a.address))
+            .on_click(() => goToAgent(a))
             .child(h_flex().gap(6).child(div().flex_1().truncate().text_size(TEXT.sm).font_medium().child(a.title)).child(Mono(a.since ? dur(this.now - a.since) : "", { color: k.blocked })))
             .when(Boolean(a.question?.text), (e) => e.child(div().whitespace_normal().text_size(TEXT.xs).text_color(k.mutedFg).child(a.question?.text ?? ""))),
         ),

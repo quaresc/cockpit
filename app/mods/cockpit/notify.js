@@ -11,7 +11,7 @@ const WHERE = { inbox: "the inbox", runbook: "the runbook", meeting: "Meetings",
 
 /** A notification from the hub, {title, body, action, row, buttons}: shown as fits the window. */
 export function deliver(n, install, cx) {
-  const always = install?.env?.COCKPIT_TOASTS === "always";
+  const always = Boolean(install?.machine) || install?.env?.COCKPIT_TOASTS === "always";
   if (!win().active && !always) {
     cx.spawn(async () => hub.cockpit(["notify", "--system", n.title ?? "", n.body ?? "", n.action ?? "", ...(n.buttons ?? [])]));
     return;

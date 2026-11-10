@@ -9,7 +9,7 @@ import { run, spaces, knownAgents, setShared, layout, readTextFile } from "herdr
 import { show } from "./sidebar.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
-import { fleet, goToAgent, agentAct } from "./fleet.js";
+import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
 import {
   tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
   Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
@@ -148,7 +148,7 @@ export default class Home {
     const settled = new Set(spaces().flatMap((s) => s.tabs.filter((t) => t.settled).map((t) => t.id)));
     const branches = new Set(agents.filter((a) => a.branch).map((a) => `${a.repo ?? ""}/${a.branch}`));
     const covered = (pr) => branches.has(`${pr.repo}/${pr.branch}`) || agents.some((a) => a.branch && a.branch === pr.branch);
-    const agentCard = (a) => ({ kind: "agent", key: `a:${a.address}`, stage: a.stage, project: a.repo ?? a.space_name, agent: a, archived: settled.has(a.tab) });
+    const agentCard = (a) => ({ kind: "agent", key: `a:${a.address}`, stage: a.stage, project: a.repo ?? a.space_name, agent: a, archived: !a.remote && settled.has(a.tab) });
     const prCard = (pr, stage) => ({ kind: "pr", key: `p:${pr.url}`, stage, project: pr.repo, pr, agent: agents.find((a) => a.branch && a.branch === pr.branch) ?? null });
     const all = [
       ...agents.map(agentCard),
@@ -232,7 +232,7 @@ export default class Home {
   }
 
   openBeside(cx, a) {
-    if (!a) return;
+    if (!a || refuseRemoteAgent(a)) return;
     run("agent.focus", { terminal: a.address });
     run("layout.show", { id: "home-agent" });
     this.focusMode = true;
@@ -266,11 +266,14 @@ export default class Home {
   }
 
   archive(cx, a) {
+    if (refuseRemoteAgent(a)) return;
     run("tab.settle", { id: a.tab });
     this.toasts.push(cx, `Archived ${a.title}`, { kind: "success", description: "Its tab keeps running, folded away.", action: { label: "Undo", onClick: () => run("tab.unsettle", { id: a.tab }) } });
   }
 
   archiveAll(cx, cards) {
+    const remote = cards.find(c => c.agent?.remote);
+    if (remote && refuseRemoteAgent(remote.agent)) return;
     const tabs = [...new Set(cards.filter((c) => c.agent && !c.archived).map((c) => c.agent.tab))];
     for (const id of tabs) run("tab.settle", { id });
     this.toasts.push(cx, `Archived ${plural(tabs.length, "agent")}`, { kind: "success", action: { label: "Undo", onClick: () => tabs.forEach((id) => run("tab.unsettle", { id })) } });
@@ -319,7 +322,7 @@ export default class Home {
   run(action, card, cx) {
     const a = card.agent;
     const pr = card.pr ?? a?.pr;
-    if (action === "go" && a) goToAgent(a.address);
+    if (action === "go" && a) goToAgent(a);
     else if (action === "go" && pr?.url) this.openUrl(cx, pr.url);
     else if (action === "beside" && a) this.openBeside(cx, a);
     else if (action === "recap" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Recap…", () => agentAct("recap", { terminal: a.handle })));
@@ -654,7 +657,7 @@ export default class Home {
       .w_full()
       .gap(12)
       .flex_wrap()
-      .child(tile("kpi-agents", { label: "Agents", icon: "bot", value: needs ? `${needs} need you` : String(cols.working.length + cols.needs.length + cols.done.length), hint: `${cols.working.length} working · ${cols.done.length} done`, onClick: () => needs && goToAgent(cols.needs.find((c) => c.agent).agent.address) }))
+      .child(tile("kpi-agents", { label: "Agents", icon: "bot", value: needs ? `${needs} need you` : String(cols.working.length + cols.needs.length + cols.done.length), hint: `${cols.working.length} working · ${cols.done.length} done`, onClick: () => needs && goToAgent(cols.needs.find((c) => c.agent).agent) }))
       .child(tile("kpi-reviews", { label: "Reviews for you", icon: "eye", value: String(inbox.direct ?? 0), hint: `${Math.max(0, (inbox.reviews ?? 0) - (inbox.direct ?? 0))} for your team`, onClick: () => show("inbox") }))
       .child(tile("kpi-prs", { label: "Your PRs", icon: "git-pull-request", value: String(prs.length), hint: [ready && `${ready} ready`, fix && `${fix} to fix`].filter(Boolean).join(" · ") || "nothing to do", onClick: () => show("inbox") }))
       .child(tile("kpi-shipped", { label: "Merged this week", icon: "git-merge", value: String(shipped), hint: `${landed.at(-1) ?? 0} today` }))
@@ -832,7 +835,7 @@ export default class Home {
         actions: [
           !replying && Button("next-reply", { label: narrow ? null : "Reply", icon: "message", variant: "outline", size: narrow ? "icon-sm" : "sm", kbd: narrow ? null : "t", tooltip: "Type an answer here  t", onClick: (_e, cx) => this.startReply(cx, a) }),
           Button("next-beside", { label: narrow ? null : "Open beside", icon: "panel-right", variant: "outline", size: narrow ? "icon-sm" : "sm", tooltip: "Its terminal beside the board  f", onClick: (_e, cx) => this.openBeside(cx, a) }),
-          ToneButton("next-go", { label: "Go to agent", tone: k.blocked, kbd: "⏎", onClick: () => goToAgent(a.address) }),
+          ToneButton("next-go", { label: "Go to agent", tone: k.blocked, kbd: "⏎", onClick: () => goToAgent(a) }),
         ].filter(Boolean),
       });
     }
@@ -1002,21 +1005,21 @@ export default class Home {
     if (busy) actions.push(h_flex().gap(6).items_center().child(Spinner({ size: 12, color: tone })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child(busy)));
     else if (card.stage === "needs" && isAgentCard && a.status !== "blocked") {
       actions.push(ToneButton(`${card.key}-fix`, { label: "Ask it to fix", tone, onClick: (_e, cx) => this.answer(cx, a, { text: a.ci === "FAILURE" ? "The PR's checks fail: look at the failing jobs and fix them." : "Changes were requested on the PR: read the review comments and address them." }) }));
-      actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a.address) }));
+      actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
       if (pr?.url) actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "ghost", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
     } else if (card.stage === "needs" && isAgentCard) {
       if (!a.question?.choices?.length) actions.push(ToneButton(`${card.key}-reply`, { label: "Reply", tone, kbd: "t", onClick: (_e, cx) => this.startReply(cx, a) }));
       actions.push(Button(`${card.key}-beside`, { label: "Open beside", variant: "outline", size: "sm", onClick: (_e, cx) => this.openBeside(cx, a) }));
-      actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a.address) }));
+      actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a) }));
     } else if (card.stage === "fix") {
       actions.push(ToneButton(`${card.key}-fix`, { label: `Fix with ${this.home?.agent?.name ?? "the agent"}`, tone: k.destructive, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, card.key, "Starting…", () => hub.act("inbox", "fix_ci", [pr.url]))) }));
       actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
     } else if (card.stage === "ready" || card.stage === "land") {
       if (pr?.url) actions.push(ToneButton(`${card.key}-merge`, { label: "Merge", tone: k.success, kbd: "m", onClick: (_e, cx) => this.merge(cx, pr) }));
       if (pr?.url) actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
-      if (a) actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a.address) }));
+      if (a) actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a) }));
     } else if (showing && isAgentCard) {
-      actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a.address) }));
+      actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
       if (card.stage === "done") actions.push(Button(`${card.key}-archive`, { label: "Archive", icon: "archive", variant: "ghost", size: "sm", kbd: "a", onClick: (_e, cx) => this.archive(cx, a) }));
       if (card.stage === "working") actions.push(Button(`${card.key}-queue`, { label: "Queue a prompt", icon: "list-ordered", variant: "ghost", size: "sm", onClick: (_e, cx) => this.run("queue", card, cx) }));
     }

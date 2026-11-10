@@ -123,7 +123,7 @@ export default class Show {
     const args = this.name ? { name: this.name } : { terminal: this.terminal, pick: this.pick };
     this.sub = hub.subscribe(
       cx,
-      { views: [{ name: "show", args }] },
+      { views: [{ name: "show", args }], focus: this.panel ? "show" : null },
       (m, cx) => {
         if (m.view === "show") this.take(m.value, cx);
         if (m.focus === "show") this.goTo(m.target?.key ?? m.target, cx);

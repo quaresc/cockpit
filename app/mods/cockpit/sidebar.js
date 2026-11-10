@@ -151,7 +151,7 @@ export default class Sidebar {
     // Home answers them in its NEXT MOVE and cards: there the waiting agents stay in the list below. Without the hub
     // nothing answers in place, so they stay in the list too.
     const band = active === "home" || model.down ? [] : waiting;
-    setAgentOrder(order.map((r) => r.address));
+    setAgentOrder(order.filter(r => !r.remote).map((r) => r.address));
 
     const navItem = (child, label, icon, count, key, tone) => {
       const on = active === child;
@@ -449,6 +449,7 @@ export default class Sidebar {
 
   /** Sub-agents an agent started (`hc run`), under it with tree lines; a click peeks. */
   subRows(k, r) {
+    if (r.remote) return [];
     const kids = (terminals() ?? []).filter((t) => t.parent === r.address && t.state === "live");
     return kids.map((t, i) =>
       h_flex()

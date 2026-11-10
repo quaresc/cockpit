@@ -24,6 +24,44 @@ fn ping() {
 }
 
 #[test]
+fn tcp_on_an_explicit_interface_authenticates_and_streams_inbox_updates() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+
+    let sandbox = sandbox();
+    let hub = Hub::start(&sandbox, &[("COCKPIT_HUB_LISTEN", "127.0.0.2")]);
+    let started = Instant::now();
+    let info: Value = loop {
+        if let Ok(text) = std::fs::read_to_string(sandbox.home().join(".cache/cockpit/hub.json")) {
+            break serde_json::from_str(&text).unwrap();
+        }
+        assert!(started.elapsed() < Duration::from_secs(5), "no TCP discovery file");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(info["host"], "127.0.0.2");
+    let connect = || {
+        let stream = TcpStream::connect(("127.0.0.2", info["port"].as_u64().unwrap() as u16)).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        BufReader::new(stream)
+    };
+    let read = |stream: &mut BufReader<TcpStream>| {
+        let mut line = String::new();
+        stream.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    let mut denied = connect();
+    writeln!(denied.get_mut(), "{}", json!({"op": "ping", "token": "wrong"})).unwrap();
+    assert!(read(&mut denied)["error"].is_string());
+    let mut stream = connect();
+    writeln!(stream.get_mut(), "{}", json!({"op": "ping", "token": info["token"]})).unwrap();
+    assert_eq!(read(&mut stream), json!({"ok": true}));
+    writeln!(stream.get_mut(), "{}", json!({"op": "subscribe", "docs": ["inbox"], "token": info["token"]})).unwrap();
+    assert_eq!(read(&mut stream)["doc"], "inbox");
+    hub.request(&json!({"op": "store.put", "name": "inbox", "value": {"tickets": [{"id": "ENG-401"}]}}));
+    assert_eq!(read(&mut stream)["value"]["tickets"][0]["id"], "ENG-401");
+}
+
+#[test]
 fn several_requests_on_one_connection_and_bad_ones() {
     use std::io::{BufRead, BufReader, Write};
     let sandbox = sandbox();

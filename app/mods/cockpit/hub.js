@@ -2,13 +2,28 @@
 // connection, and subscriptions that come back by themselves when the hub restarts.
 
 import net from "net";
-import { Buffer } from "buffer";
-import { exec, appHome, readTextFile, window as win } from "herdr";
+import { exec, appHome, readTextFile, run, window as win } from "herdr";
 
 /** Waits `ms` on the context's timer (mods have no setTimeout). */
 export const sleep = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
 
 const NOT_INSTALLED = "cockpit is not installed in this Herdr home";
+const READ_ONLY = "the remote cockpit client is read-only; this action needs a local cockpit installation";
+const REMOTE_READS = new Set(["ping", "view", "search", "fetch", "events", "history", "shown"]);
+const APPS = new Set(["inbox", "todo", "runbook", "meetings", "mail", "monitor", "routines", "show"]);
+
+function localFocus(target) {
+  if (!APPS.has(target?.app)) throw new Error(READ_ONLY);
+  const focus = (globalThis.cockpitRemoteFocus ??= { targets: new Map(), listeners: new Set() });
+  focus.targets.set(target.app, target);
+  if (target.app === "show") {
+    run("cockpit.go:work");
+    run("layout.select", { stack: "panel-body", child: "show" });
+    run("layout.show", { id: "panel" });
+  } else run(`cockpit.go:${target.app}`);
+  for (const listener of focus.listeners) if (listener(target)) break;
+  return { ok: true };
+}
 
 /** Whether an error (or a subscription's "error: …" state) says this Herdr home has no cockpit.json. */
 export const isNotInstalled = (e) => String(e?.message ?? e ?? "").includes(NOT_INSTALLED);
@@ -28,13 +43,17 @@ export async function install() {
   if (installed && Date.now() - installed.at < 3000) return installed.value;
   const text = await readTextFile(`${appHome()}/cockpit.json`);
   if (!text) throw new Error(`${NOT_INSTALLED}: run \`cockpit app install\`, or install cockpit first: github.com/quaresc/cockpit#install`);
-  installed = { at: Date.now(), value: installed?.text === text ? installed.value : JSON.parse(text), text };
+  const value = installed?.text === text ? installed.value : JSON.parse(text);
+  if (value.machine !== undefined && (typeof value.machine !== "string" || !value.machine.trim() || typeof value.host !== "string" || !value.host.trim())) {
+    throw new Error("a remote cockpit install needs a machine and host");
+  }
+  installed = { at: Date.now(), value, text };
   return installed.value;
 }
 
 async function readInfo() {
-  const { cache } = await install();
-  const text = await readTextFile(`${cache}/hub.json`);
+  const { cache, machine } = await install();
+  const text = await readTextFile(`${cache}/hub.json`, machine ? { on: machine } : undefined);
   return text ? JSON.parse(text) : null;
 }
 
@@ -61,11 +80,12 @@ async function startHub() {
 }
 
 /** hub.json's { port, token }: as written, else after `cockpit hub start` started a hub. */
-async function address(fresh) {
+async function address(fresh, state) {
   if (!fresh) {
     const info = await readInfo();
     if (info?.port) return info;
   }
+  if (state?.stopped) throw new Error("subscription stopped");
   return startHub();
 }
 
@@ -80,7 +100,8 @@ class Lines {
     for (;;) {
       const at = this.pending.indexOf(10);
       if (at >= 0) {
-        const line = Buffer.from(this.pending.slice(0, at)).toString("utf8");
+        // Herdr's Windows Buffer shim returns empty buffers; decode complete UTF-8 lines with the runtime built-in.
+        const line = decodeURIComponent(Array.from(this.pending.subarray(0, at), byte => `%${byte.toString(16).padStart(2, "0")}`).join(""));
         this.pending = this.pending.slice(at + 1);
         return line;
       }
@@ -94,25 +115,55 @@ class Lines {
   }
 }
 
-async function open(fresh) {
-  const info = await address(fresh);
-  const socket = await net.connect("127.0.0.1", info.port);
-  return { socket, token: info.token };
+async function open(fresh, state) {
+  const { host, machine } = await install();
+  const info = await address(fresh, state);
+  if (state?.stopped) throw new Error("subscription stopped");
+  const socket = await net.connect(machine ? host : (info.host ?? "127.0.0.1"), info.port);
+  const lines = new Lines(socket);
+  try {
+    if (state?.stopped) throw new Error("subscription stopped");
+    if (state) state.socket = socket;
+    await socket.write(JSON.stringify({ op: "ping", token: info.token }) + "\n");
+    const answer = JSON.parse(await lines.next());
+    if (answer?.ok !== true) throw new Error(answer?.error ?? "the cockpit hub did not answer ping");
+    return { socket, token: info.token, lines, remote: machine ?? null };
+  } catch (error) {
+    socket.close();
+    throw error;
+  }
 }
 
-async function connect() {
+async function connect(state) {
   try {
-    return await open(false);
-  } catch {
+    return await open(false, state);
+  } catch (error) {
+    if (state?.stopped) throw error;
     // hub.json named a hub that is gone: start one.
-    return await open(true);
+    return await open(true, state);
   }
 }
 
 /** Runs the cockpit binary on the install's HOME, driving this Herdr window: { code, stdout, stderr }. */
 export async function cockpit(args) {
-  const { bin, home, env = {} } = await install();
-  const vars = Object.entries(env).map(([k, v]) => `${k}=${v}`);
+  const { bin, home, env = {}, machine, host } = await install();
+  const vars = Object.entries(env).filter(([k]) => !machine || k !== "HERDR_APP_HOME").map(([k, v]) => `${k}=${v}`);
+  if (machine) {
+    if (args[0] === "focus" && args.length === 2) {
+      const target = args[1].replace(/^herdr-app:/, "");
+      const at = target.indexOf(":");
+      if (at < 1) throw new Error(READ_ONLY);
+      const app = target.slice(0, at);
+      const key = target.slice(at + 1);
+      const step = key.indexOf(":");
+      localFocus(app === "runbook"
+        ? { app, key: step < 0 ? key : key.slice(0, step), steps: step < 0 ? [] : key.slice(step + 1).split(",").filter(Boolean) }
+        : { app: { meeting: "meetings", routine: "routines" }[app] ?? app, key });
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    if (args[0] !== "hub" || !["start", "ping", "shown"].includes(args[1])) throw new Error(READ_ONLY);
+    return exec("env", [...vars, `HOME=${home}`, `COCKPIT_HUB_LISTEN=${host}`, "COCKPIT_FRONTEND=app", bin, ...args], { on: machine });
+  }
   return exec("env", [`HOME=${home}`, `HERDR_APP_HOME=${appHome()}`, "COCKPIT_FRONTEND=app", ...vars, bin, ...args]);
 }
 
@@ -124,13 +175,18 @@ export async function request(op, fields = {}) {
     const r = await openUrl(url);
     return r.code === 0 ? { note: `opened ${url}`, pending: {}, refreshing: {} } : { error: r.stderr.trim() || `could not open ${url}`, pending: {} };
   }
-  const { socket, token } = await connect();
+  if ((await install()).machine) {
+    if (op === "go") return localFocus(fields.target);
+    if (!REMOTE_READS.has(op)) throw new Error(READ_ONLY);
+  }
+  const { socket, token, lines, remote } = await connect();
   try {
     await socket.write(JSON.stringify({ op, token, frontend: "app", ...fields }) + "\n");
-    const line = await new Lines(socket).next();
+    const line = await lines.next();
     if (line === null) throw new Error("the cockpit hub closed the connection");
     const answer = JSON.parse(line);
     if (answer.error && answer.note === undefined) throw new Error(answer.error);
+    if (remote && op === "view" && fields.name === "agents") answer.value = { ...answer.value, remote };
     return answer;
   } finally {
     socket.close();
@@ -163,32 +219,65 @@ export const history = async (kind, key) => (await request("history", { kind, ke
  * `{view, args, value}`, `{doc, value}` and `{focus, target}` line, then every new version; with `notify`, the
  * hub's notifications too, as `{notify}` (the sidebar asks, one copy per window). `onState` hears
  * "connecting", "live" and "error: …". Reconnects with backoff whenever the hub goes.
+ * `focus` names the app whose pending local navigation this view handles.
  *
  *   subscribe(cx, { views: ["todo"] }, (m, cx) => { this.model = m.value; cx.notify(); });
  */
-export function subscribe(cx, { views = [], docs = [], notify = false }, onMessage, onState = () => {}) {
+export function subscribe(cx, { views = [], docs = [], notify = false, focus = null }, onMessage, onState = () => {}) {
   const state = { stopped: false };
+  const navigation = (globalThis.cockpitRemoteFocus ??= { targets: new Map(), listeners: new Set() });
+  const ready = new Set();
+  const focused = target => {
+    if (!state.stopped && focus === target.app && ready.has(target.app)) {
+      navigation.targets.delete(target.app);
+      onMessage({ focus: target.app, target }, cx);
+      return true;
+    }
+    return false;
+  };
+  navigation.listeners.add(focused);
   cx.spawn(async (cx) => {
     let wait = 250;
     while (!state.stopped) {
       onState("connecting", cx);
       try {
-        const { socket, token } = await connect();
+        const { socket, token, lines, remote } = await connect(state);
         state.socket = socket;
+        if (state.stopped) break;
         await socket.write(JSON.stringify({ op: "subscribe", token, views, docs, notify }) + "\n");
-        const lines = new Lines(socket);
         onState("live", cx);
         wait = 250;
         for (;;) {
-          const line = await lines.next();
+          let deadline;
+          let line;
+          try {
+            line = await Promise.race([
+              lines.next(),
+              new Promise((_, reject) => {
+                deadline = cx.timer.after(65_000, () => reject(new Error("the cockpit hub heartbeat timed out")));
+              }),
+            ]);
+          } finally {
+            deadline?.cancel();
+          }
           if (line === null) break;
           if (!line.trim()) continue;
           const message = JSON.parse(line);
           if (message.error) throw new Error(message.error);
+          if (remote && message.focus) continue;
+          if (remote && message.view === "agents") message.value = { ...message.value, remote };
           onMessage(message, cx);
+          if (message.view && !ready.has(message.view)) {
+            ready.add(message.view);
+            const target = navigation.targets.get(message.view);
+            if (target) focused(target);
+          }
         }
       } catch (e) {
-        onState(`error: ${e?.message ?? e}`, cx);
+        if (!state.stopped) onState(`error: ${e?.message ?? e}`, cx);
+      } finally {
+        state.socket?.close();
+        state.socket = null;
       }
       if (state.stopped) break;
       await sleep(cx, wait);
@@ -198,6 +287,7 @@ export function subscribe(cx, { views = [], docs = [], notify = false }, onMessa
   return {
     stop() {
       state.stopped = true;
+      navigation.listeners.delete(focused);
       try {
         state.socket?.close();
       } catch {}

@@ -1,7 +1,7 @@
 // The agents as the shell's views see them: Herdr's live agents (status, place, times) joined with the hub's `agents`
 // view (question, recap, branch, PR, CI, changes, cost), each placed in a stage: whose move it is.
 
-import { agents, spaces, run, setShared } from "herdr";
+import { agents, spaces, run, setShared, notify } from "herdr";
 import * as hub from "./hub.js";
 
 /** The stages, in the order the Home board shows them. */
@@ -9,8 +9,9 @@ export const STAGES = ["needs", "working", "ready", "done"];
 
 /** The agents view's rows, whatever the list is called in its model. */
 export function rowsOf(value) {
-  if (Array.isArray(value)) return value;
-  return value?.agents ?? value?.rows ?? [];
+  const rows = Array.isArray(value) ? value : value?.agents ?? value?.rows ?? [];
+  if (!value?.remote) return rows;
+  return rows.map(r => ({ ...r, remote: value.remote, address: `${value.remote}/${addressOf(r)}`, terminal: `app:${value.remote}/${addressOf(r)}` }));
 }
 
 const addressOf = (r) => String(r?.address ?? r?.terminal ?? "").replace(/^app:/, "");
@@ -49,10 +50,10 @@ const prOf = (row) => {
 export function fleet(rows, home) {
   const byAddress = new Map(rowsOf(rows).map((r) => [addressOf(r), r]));
   const tabs = new Map();
-  for (const s of spaces()) for (const t of s.tabs) tabs.set(t.id, { tab: t, space: s });
+  if (!rows?.remote) for (const s of spaces()) for (const t of s.tabs) tabs.set(t.id, { tab: t, space: s });
   const merged = new Set((home?.merged ?? []).map((m) => `${m.repo}/${m.branch}`));
   // Herdr's list, plus the agents only the hub sees (a Claude session attached from the background, the demo's).
-  const live = agents();
+  const live = rows?.remote ? [] : agents();
   const seen = new Set(live.map((a) => a.address));
   for (const r of rowsOf(rows)) {
     const address = addressOf(r);
@@ -67,6 +68,7 @@ export function fleet(rows, home) {
     const repo = r.repo ?? pr?.repo ?? null;
     const landed = Boolean(branch && repo && merged.has(`${repo}/${branch}`)) || pr?.state === "MERGED" || pr?.merged === true;
     const agent = {
+      remote: r.remote,
       address: a.address,
       handle: `app:${a.address}`,
       status: a.status,
@@ -116,10 +118,18 @@ export function stageOf(a) {
 }
 
 /** The agent's terminal in front: the work area, its tab, its pane focused. */
-export function goToAgent(address) {
-  run("agent.focus", { terminal: address });
+export function goToAgent(agent) {
+  if (!agent || refuseRemoteAgent(agent)) return;
+  run("agent.focus", { terminal: agent.address });
   run("layout.select", { stack: "center", child: "work" });
   setShared("cockpit.app", "work");
+}
+
+/** Explains why a remote row cannot run terminal or tab commands on this desktop. */
+export function refuseRemoteAgent(agent) {
+  if (!agent?.remote) return false;
+  notify({ title: "Read-only remote desk", body: "Agent controls are unavailable in the remote preview.", level: "info" });
+  return true;
 }
 
 /** The hub's agents actions, by the contract the agents view keeps: answer, recap, snooze, seen, fork. */

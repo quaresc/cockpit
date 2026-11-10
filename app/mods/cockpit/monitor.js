@@ -305,7 +305,7 @@ export default class Monitor {
     this.query.on("submit", (_e, cx) => this.runPalette(cx));
     this.sub = hub.subscribe(
       cx,
-      { views: ["monitor"] },
+      { views: ["monitor"], focus: "monitor" },
       (m, cx) => {
         if (m.view === "monitor") this.take(m.value, cx);
         if (m.focus === "monitor") this.goTo(m.target?.key, cx);
