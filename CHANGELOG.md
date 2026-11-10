@@ -7,7 +7,10 @@ must be here first.
 
 ## 0.40.1 (2026-11-10)
 
-- Doctor: a mapping's own states answer for listStates, and the cockpit on PATH goes back on the link (#37)
+- A ticket mapping that holds its own `states` is no longer asked for a `listStates` tool, so `cockpit doctor`
+  stops warning about one the GitHub Issues preset does not need (#37).
+- `cockpit` on PATH is linked through `~/.config/cockpit/herdr`, not an install folder the next update prunes: a
+  link left pointing nowhere goes back on it, and `cockpit doctor` says when one does (#37).
 
 ## 0.40.0 (2026-11-10)
 
