@@ -96,7 +96,7 @@ export default class AgentHead {
         }),
       )
       .child(Button("head-recap", { icon: "sparkles", variant: "ghost", size: "icon-sm", tooltip: "Recap  ⌘R", onClick: (_e, cx) => cx.spawn(async () => agentAct("recap", { terminal: a.handle })) }))
-      .when(this.place === "home", (e) => e.child(Button("head-go", { icon: "maximize", variant: "ghost", size: "icon-sm", tooltip: "Go to its tab", onClick: () => goToAgent(a.address) })))
+      .when(this.place === "home", (e) => e.child(Button("head-go", { icon: "maximize", variant: "ghost", size: "icon-sm", tooltip: "Go to its tab", onClick: () => goToAgent(a) })))
       .child(back);
   }
 }

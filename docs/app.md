@@ -41,7 +41,7 @@ Claude Code ─── plugin hooks ─────────── cockpit CLI
 
 ```js
 import * as hub from "./hub.js";
-this.sub = hub.subscribe(cx, { views: ["todo"], docs: ["inbox"] }, (m, cx) => { /* {view,args,value} | {doc,value} | {focus,target} */ }, (state, cx) => {});
+this.sub = hub.subscribe(cx, { views: ["todo"], docs: ["inbox"], focus: "todo" }, (m, cx) => { /* {view,args,value} | {doc,value} | {focus,target} */ }, (state, cx) => {});
 await hub.act("todo", "add", ["text"]);   // {note, pending, refreshing, error}
 await hub.view("todo");  await hub.search("quota");  await hub.go(target);  await hub.fetchDetails("ci_log", args);
 await hub.events("inbox", sinceMs);  await hub.history("ci_duration", key);
@@ -53,7 +53,45 @@ hub.isNotInstalled(state);  // a subscription's "error: …" when the Herdr home
 `subscribe` reconnects by itself and starts the hub when none runs (a failed `cockpit hub start` is tried again after
 30 s, for every view at once); stop it in `close()`. `{focus, target}` arrives when the palette or a notification asks
 the view to bring `target.key` into view (`cockpit focus`, `hub.go`). Without `cockpit.json` Home draws the install
-panel and `AgentsModel` (agentsui.js) falls back to Herdr's `agents()`.
+panel and `AgentsModel` (agentsui.js) falls back to Herdr's `agents()`. Only the app's main view sets `focus`; count
+subscriptions leave it out, so they cannot consume a pending remote-desk navigation.
+
+## A remote desk (read-only preview)
+
+The Herdr app can read a Linux or macOS runner's hub, including from Windows. Both ends need this version of the
+cockpit mod/hub. Connect the runner through Herdr's machine settings first, then put the cockpit layout and mod in
+the desktop's Herdr home. The desktop needs no cockpit binary.
+
+On the runner, start the hub with `COCKPIT_HUB_LISTEN` set to its Tailscale IP, for example
+`COCKPIT_HUB_LISTEN=100.64.0.10 cockpit hub start`. If a hub already runs, restart it deliberately with that variable;
+`hub start` reuses an existing process and cannot change its interface. The default is loopback. Wildcard and
+multicast addresses are refused, as is an address no interface holds: the hub says why on stderr and leaves the
+running one alone.
+
+In the desktop's Herdr home, write `cockpit.json` using the runner's paths and its name in Herdr:
+
+```json
+{
+  "machine": "runner",
+  "host": "100.64.0.10",
+  "bin": "/home/sam/.local/bin/cockpit",
+  "home": "/home/sam",
+  "cache": "/home/sam/.cache/cockpit"
+}
+```
+
+The mod reads the port and token through Herdr's remote file API, authenticates before requesting data, and follows
+updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing for 65 seconds. Links and item
+navigation open on the desktop. Notifications appear as in-app toasts. Mutating actions and remote agent controls
+are unavailable in this preview. Runner agents have machine-scoped display identities and are not joined to local
+terminals or tabs with matching IDs.
+
+TCP has no TLS: use an encrypted private network such as Tailscale, and keep `hub.json` private. A hub listening
+off loopback answers reads only, whoever holds the token; the mod keeps the same list so a remote desk says so
+without asking. That holds for the runner's own window too, so leave `COCKPIT_HUB_LISTEN` unset on a machine whose
+desktop writes.
+
+Desktop checks: `node --experimental-vm-modules --test app/tests/*.test.mjs`.
 
 ## Window-wide plumbing (the sidebar copy owns it)
 

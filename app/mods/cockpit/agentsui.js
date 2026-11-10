@@ -6,6 +6,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { run, notify, openOverlay, agents } from "herdr";
 import * as hub from "./hub.js";
+import { rowsOf, refuseRemoteAgent } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
 
 /** Each stage: its label, color token and mark. Whose move it is, yours first. */
@@ -191,7 +192,7 @@ export class AgentsModel {
 
   /** The hub's rows; while it doesn't answer, Herdr's own agents (status, title, place), so none vanishes. */
   get rows() {
-    if (!this.down) return this.value?.agents ?? [];
+    if (!this.down || this.value?.remote) return rowsOf(this.value);
     const stage = { blocked: "needs_you", working: "working", done: "done", idle: "idle" };
     return agents().map((a) => ({
       terminal: `app:${a.address}`,
@@ -273,6 +274,7 @@ export class AgentsModel {
   }
 
   go(cx, row) {
+    if (refuseRemoteAgent(row)) return;
     run("agent.focus", { terminal: row.address });
     run("layout.select", { stack: "center", child: "work" });
     if (!row.herdr) this.act(cx, "seen", { terminal: row.terminal });
@@ -312,7 +314,7 @@ export class AgentsModel {
     const row = this.row(terminal);
     if (!row) return true;
     if (what === "go") this.go(cx, row);
-    else if (what === "peek") run("terminal.peek", { terminal: row.address });
+    else if (what === "peek" && !refuseRemoteAgent(row)) run("terminal.peek", { terminal: row.address });
     else if (what === "recap") this.act(cx, "recap", { terminal, force: true }, "recapping");
     else if (what === "snooze") this.act(cx, "snooze", { terminal, until: arg });
     else if (what === "wake") this.act(cx, "snooze", { terminal, until: null });

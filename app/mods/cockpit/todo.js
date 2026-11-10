@@ -54,7 +54,7 @@ export default class Todo {
 
     this.sub = hub.subscribe(
       cx,
-      { views: ["todo"] },
+      { views: ["todo"], focus: "todo" },
       (m, cx) => {
         if (m.view === "todo") this.take(m.value, cx);
         if (m.focus === "todo") this.goTo(m.target?.key, cx);

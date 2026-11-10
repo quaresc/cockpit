@@ -11,7 +11,7 @@ const WHERE = { inbox: "the inbox", runbook: "the runbook", meeting: "Meetings",
 
 /** A notification from the hub, {title, body, action, row, buttons}: shown as fits the window. */
 export function deliver(n, install, cx) {
-  const always = install?.env?.COCKPIT_TOASTS === "always";
+  const always = Boolean(install?.machine) || install?.env?.COCKPIT_TOASTS === "always";
   if (!win().active && !always) {
     cx.spawn(async () => hub.cockpit(["notify", "--system", n.title ?? "", n.body ?? "", n.action ?? "", ...(n.buttons ?? [])]));
     return;
@@ -35,5 +35,6 @@ export function deliver(n, install, cx) {
 /** What a toast's click asks: a URL opens, the rest goes through `cockpit focus` (rows, spaces, tabs, buttons). */
 export function follow(target, cx) {
   if (/^https?:\/\//.test(target)) cx.spawn(async () => hub.openUrl(target));
-  else cx.spawn(async () => hub.cockpit(["focus", target]));
+  // A remote desk refuses what needs its own terminals: the click says so instead of going nowhere.
+  else cx.spawn(async () => hub.cockpit(["focus", target]).catch((e) => notify({ title: "Could not follow it", body: String(e?.message ?? e), level: "warning", timeout: 5000 })));
 }

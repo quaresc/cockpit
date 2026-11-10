@@ -10,6 +10,7 @@ import * as hub from "./hub.js";
 import { togglePalette } from "./palette.js";
 import { openCode } from "./code.js";
 import { deliver, follow } from "./notify.js";
+import { rowsOf } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
 
@@ -115,8 +116,8 @@ export default class Sidebar {
 
   /** The agents view arrived: rows whose stage moved flash in its color. */
   agentsChanged(value, before, cx) {
-    const was = new Map((before?.agents ?? []).map((r) => [r.terminal, r.stage]));
-    for (const r of value?.agents ?? []) if (was.has(r.terminal) && was.get(r.terminal) !== r.stage) this.flashes.start(cx, r.terminal, stageColor(r.stage));
+    const was = new Map(rowsOf(before).map((r) => [r.terminal, r.stage]));
+    for (const r of rowsOf(value)) if (was.has(r.terminal) && was.get(r.terminal) !== r.stage) this.flashes.start(cx, r.terminal, stageColor(r.stage));
   }
 
   /** Each space's repo, for nesting worktrees under their checkout: asked of git once per folder. */
@@ -151,7 +152,7 @@ export default class Sidebar {
     // Home answers them in its NEXT MOVE and cards: there the waiting agents stay in the list below. Without the hub
     // nothing answers in place, so they stay in the list too.
     const band = active === "home" || model.down ? [] : waiting;
-    setAgentOrder(order.map((r) => r.address));
+    setAgentOrder(order.filter(r => !r.remote).map((r) => r.address));
 
     const navItem = (child, label, icon, count, key, tone) => {
       const on = active === child;
@@ -449,6 +450,7 @@ export default class Sidebar {
 
   /** Sub-agents an agent started (`hc run`), under it with tree lines; a click peeks. */
   subRows(k, r) {
+    if (r.remote) return [];
     const kids = (terminals() ?? []).filter((t) => t.parent === r.address && t.state === "live");
     return kids.map((t, i) =>
       h_flex()

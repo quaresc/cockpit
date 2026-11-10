@@ -99,7 +99,7 @@ export default class Status {
     else if (c.startsWith("panel:")) togglePanel(c.slice(6));
     else if (c === "next-waiting" || c === "next:blocked" || c === "next:done") {
       const a = this.next(list, c === "next:done" ? "done" : c === "next:blocked" ? "needs" : null) ?? (c === "next-waiting" ? this.next(list, "done") : null);
-      if (a) goToAgent(a.address);
+      if (a) goToAgent(a);
     } else if (c === "pr" && me?.pr?.url) cx.spawn(async () => hub.openUrl(me.pr.url));
     else if (c === "ticket" && me?.ticketUrl) cx.spawn(async () => hub.openUrl(me.ticketUrl));
     else if (c === "resume") cx.spawn(async () => hub.act("home", "resume", []));

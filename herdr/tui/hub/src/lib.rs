@@ -51,6 +51,14 @@ pub fn run() {
     if UnixStream::connect(&socket).is_ok() {
         return;
     }
+    // Before anything is touched: a hub without its TCP side is one `cockpit hub start` stops.
+    let tcp = match listen() {
+        Ok(tcp) => tcp,
+        Err(why) => {
+            eprintln!("cockpit hub: cannot listen on COCKPIT_HUB_LISTEN: {why}");
+            return;
+        }
+    };
     // Nothing answers on it: a hub that died left it behind.
     let _ = std::fs::remove_file(&socket);
     if let Some(dir) = socket.parent() {
@@ -81,8 +89,10 @@ pub fn run() {
         let dir = files::herdr_dir();
         cockpit_update::keep_current(&dir, |binary| hand_over(&dir, binary, &socket, inode));
     });
-    tcp(last.clone());
-    let gate = server::Gate { token: None, frontend: None };
+    if let Err(error) = serve_tcp(tcp, last.clone()) {
+        eprintln!("cockpit hub: cannot start TCP: {error}");
+    }
+    let gate = server::Gate { token: None, frontend: None, read_only: false };
     for stream in listener.incoming().flatten() {
         last.store(server::now_secs(), Ordering::SeqCst);
         let (last, gate) = (last.clone(), gate.clone());
@@ -96,29 +106,33 @@ pub fn tcp_file() -> PathBuf {
 }
 
 /// A random token from the system's source, as hex.
-fn token() -> String {
+fn token() -> std::io::Result<String> {
     let mut bytes = [0u8; 16];
-    if let Ok(mut random) = std::fs::File::open("/dev/urandom") {
-        let _ = std::io::Read::read_exact(&mut random, &mut bytes);
-    }
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom")?, &mut bytes)?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// The same protocol on 127.0.0.1, for the Herdr app's mod (it opens TCP, not unix sockets); each request carries the
-/// token written to hub.json.
-fn tcp(last: Arc<AtomicU64>) {
-    let Ok(listener) = TcpListener::bind("127.0.0.1:0") else { return };
-    let Ok(port) = listener.local_addr().map(|a| a.port()) else { return };
-    let token = token();
-    let info = serde_json::json!({"port": port, "token": token, "pid": std::process::id()});
+/// Takes the desktop protocol's port on loopback, or on COCKPIT_HUB_LISTEN's explicit interface.
+fn listen() -> std::io::Result<(TcpListener, std::net::IpAddr)> {
+    let host = std::env::var("COCKPIT_HUB_LISTEN").unwrap_or_else(|_| "127.0.0.1".into());
+    let host: std::net::IpAddr = host.parse().map_err(|_| std::io::Error::other("COCKPIT_HUB_LISTEN must be an IP address"))?;
+    if host.is_unspecified() || host.is_multicast() {
+        return Err(std::io::Error::other("COCKPIT_HUB_LISTEN must name one interface, not a wildcard or multicast address"));
+    }
+    Ok((TcpListener::bind((host, 0))?, host))
+}
+
+/// Serves that port: hub.json carries the token each request needs, and off loopback the connection reads only.
+fn serve_tcp((listener, host): (TcpListener, std::net::IpAddr), last: Arc<AtomicU64>) -> std::io::Result<()> {
+    let port = listener.local_addr()?.port();
+    let token = token()?;
+    let info = serde_json::json!({"host": host.to_string(), "port": port, "token": token, "pid": std::process::id()});
     let path = tcp_file();
     let tmp = path.with_extension("tmp");
     let _ = std::fs::remove_file(&tmp);
     let written = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp).and_then(|mut f| f.write_all(info.to_string().as_bytes()));
-    if written.and_then(|_| std::fs::rename(&tmp, &path)).is_err() {
-        return;
-    }
-    let gate = server::Gate { token: Some(token), frontend: Some(cockpit_core::frontend::Frontend::App) };
+    written.and_then(|_| std::fs::rename(&tmp, &path))?;
+    let gate = server::Gate { token: Some(token), frontend: Some(cockpit_core::frontend::Frontend::App), read_only: !host.is_loopback() };
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             last.store(server::now_secs(), Ordering::SeqCst);
@@ -126,6 +140,7 @@ fn tcp(last: Arc<AtomicU64>) {
             std::thread::spawn(move || server::serve(stream, last, gate));
         }
     });
+    Ok(())
 }
 
 /// Takes hub.json away when it names this hub.
