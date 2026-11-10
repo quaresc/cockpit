@@ -5,6 +5,7 @@
 # the old installs go, since until the release has the binary the previous install's is copied in.
 sh "$ROOT/fetch-apps.sh"
 prune_installs
+link_bin
 
 ensure() {
   name=$1 label=$2 app=$3 cwd=${4:-$REPOS}

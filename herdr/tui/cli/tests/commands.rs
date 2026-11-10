@@ -664,6 +664,31 @@ fn doctor_prints_a_line_per_check() {
     assert!(at("herdr 0.8.1") < at("config.json") && at("config.json") < at("session") && at("session") < at("inbox:") && at("inbox:") < at("platform tools"));
 }
 
+/// A mapping with no tool for the states a ticket moves to lists them itself (GitHub Issues').
+#[test]
+fn doctor_takes_a_mappings_own_states_for_the_tool_listing_them() {
+    let sandbox = Sandbox::new();
+    sandbox.write(
+        "home/.config/cockpit/config.json",
+        r#"{"tickets": {"enabled": true, "states": [{"id": "open", "name": "Open", "type": "unstarted"}],
+            "tools": {"listMine": {"tool": "a"}, "get": {"tool": "b"}, "setState": {"tool": "c"}}}}"#,
+    );
+    let printed = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
+    assert!(printed.contains("ok    ticket tools mapped"), "{printed}");
+}
+
+/// The `cockpit` on PATH left on an install folder that an update pruned.
+#[test]
+fn doctor_catches_a_cockpit_on_path_that_leads_nowhere() {
+    let sandbox = Sandbox::new();
+    sandbox.write("home/.config/cockpit/config.json", "{}");
+    let bin = sandbox.home().join(".local/bin/cockpit");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(sandbox.home().join("gone/bin/cockpit"), &bin).unwrap();
+    let printed = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
+    assert!(printed.contains("fail  ~/.local/bin/cockpit points at a folder that is gone"), "{printed}");
+}
+
 /// Without --all, only what needs doing is printed, and the last line says how much passed.
 #[test]
 fn doctor_holds_back_the_checks_that_passed() {
