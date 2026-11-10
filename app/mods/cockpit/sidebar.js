@@ -91,6 +91,14 @@ export default class Sidebar {
     this.perf.follow(cx, () => this.agents.rows);
     this.omo = new OmoModel();
     this.omo.follow(cx);
+    // How many sub-agents work now, as the badge on the side panel's Subagents icon.
+    cx.timer.every(3000, () => {
+      const working = Object.values(this.subagents.by).reduce((n, l) => n + l.filter((x) => x.status === "working").length, 0);
+      if (working !== this.lastWorking) {
+        this.lastWorking = working;
+        setShared("badge.subagents", working ? { count: working, tone: "working" } : null);
+      }
+    });
     cx.spawn(async (cx) => {
       try {
         this.install = await hub.install();

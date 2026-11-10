@@ -20,6 +20,7 @@
     "ctrl-cmd-4": "cockpit.panel:files",
     "ctrl-cmd-5": "cockpit.panel:changes",
     "ctrl-cmd-6": "cockpit.panel:context",
+    "ctrl-cmd-7": "cockpit.panel:subagents",
     "cmd-j": "cockpit.next-waiting",
     "cmd-shift-j": "cockpit.next:blocked",
     "cmd-shift-u": "cockpit.next:done",

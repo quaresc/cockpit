@@ -20,6 +20,9 @@ DAY_MS = 24 * 3600 * 1000
 OUTCOMES = {"succeeded": "done", "failed": "failed", "interrupted": "stopped"}
 
 
+FAILED = set()
+
+
 def opencode(sessions, now):
     """Children of the given roots, and theirs (a fixer's own explorer), each under its root."""
     out = {}
@@ -38,6 +41,8 @@ def opencode(sessions, now):
             (*sessions, now - DAY_MS),
         ).fetchall()
     except sqlite3.Error:
+        # A busy database is not "no sub-agents": say which sessions could not be read.
+        FAILED.update(sessions)
         return out
     for root, sid, title, agent, created, busy, idle, outcome, cost in rows:
         working = (busy or 0) > (idle or 0) or (idle is None and not outcome)
@@ -107,7 +112,7 @@ def main():
         found.update(part)
     for kids in found.values():
         kids.sort(key=lambda k: (k["status"] != "working", -(k["since"] or 0)))
-    result = {"at": now, "sessions": found}
+    result = {"at": now, "sessions": found, "failed": sorted(FAILED)}
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     with open(CACHE + ".tmp", "w", encoding="utf-8") as f:
         json.dump(result, f)

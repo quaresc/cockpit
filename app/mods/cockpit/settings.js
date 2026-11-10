@@ -8,7 +8,6 @@ import * as hub from "./hub.js";
 import { openCode } from "./code.js";
 import { tokens, TEXT, Button, Checkbox, Toggle, Card } from "./ui.js";
 import { APPS, DEFAULT_SPACES } from "./sidebar.js";
-import { sectionOpen, setSectionOpen } from "./agentsui.js";
 
 /** Opens the settings window over whatever is showing. */
 export function openSettings() {
@@ -25,6 +24,7 @@ export default class Settings {
   init(_p, cx) {
     this.spaces = DEFAULT_SPACES;
     this.titles = true;
+    this.header = ["usage", "machines", "omo"];
     const read = (cx) =>
       cx.spawn(async (cx) => {
         try {
@@ -32,6 +32,7 @@ export default class Settings {
           const cfg = JSON.parse((await readTextFile(`${home}/.config/cockpit/config.json`)) ?? "{}");
           if (Array.isArray(cfg.spaces)) this.spaces = cfg.spaces.map((s) => (typeof s === "string" ? s : s.name));
           this.titles = cfg.titles?.enabled !== false;
+          this.header = (cfg.sidebar?.header ?? this.header).filter((x) => SECTIONS.some(([n]) => n === x));
           cx.notify();
         } catch {}
       });
@@ -66,13 +67,20 @@ export default class Settings {
     cx.spawn(async () => this.write((cfg) => ({ ...cfg, titles: { ...(cfg.titles ?? {}), enabled: on } })).catch((e) => this.fail(e)));
   }
 
-  sectionOpen(name) {
-    return sectionOpen(name);
+  moveHeader(cx, name, by) {
+    const i = this.header.indexOf(name);
+    const j = i + by;
+    if (i < 0 || j < 0 || j >= this.header.length) return;
+    const next = [...this.header];
+    [next[i], next[j]] = [next[j], next[i]];
+    this.header = next;
+    this.saveHeader(cx);
   }
 
-  setSection(cx, name) {
-    setSectionOpen(name, !sectionOpen(name));
+  saveHeader(cx) {
+    const header = this.header;
     cx.notify();
+    cx.spawn(async () => this.write((cfg) => ({ ...cfg, sidebar: { ...(cfg.sidebar ?? {}), header } })).catch((e) => this.fail(e)));
   }
 
   render() {
@@ -122,8 +130,26 @@ export default class Settings {
               padding: 16,
               gap: 10,
               children: [
-                head("Sidebar sections", "Shown open or folded; each also folds on its own with a click in the sidebar"),
-                v_flex().gap(6).children(SECTIONS.map(([name, label]) => row(`set-sec-${name}`, label, this.sectionOpen(name) ? "open" : "folded", Toggle(`set-sec-toggle-${name}`, this.sectionOpen(name), (cx) => this.setSection(cx, name))))),
+                head("Sidebar sections", "Under \"Search or run\": a section that is off is gone from the sidebar, not folded; the arrows set the order"),
+                v_flex()
+                  .gap(6)
+                  .children(
+                    [...this.header, ...SECTIONS.map(([n]) => n).filter((n) => !this.header.includes(n))].map((name) => {
+                      const on = this.header.includes(name);
+                      const i = this.header.indexOf(name);
+                      return h_flex()
+                        .id(`set-sec-${name}`)
+                        .gap(10)
+                        .items_center()
+                        .child(Toggle(`set-sec-toggle-${name}`, on, (cx) => this.setHeader(cx, name, !on)))
+                        .child(div().flex_1().text_size(TEXT.sm).text_color(on ? k.foreground : k.dim).child(SECTIONS.find(([n]) => n === name)[1]))
+                        .when(on, (e) =>
+                          e
+                            .child(Button(`set-sec-up-${name}`, { icon: "chevron-up", variant: "ghost", size: "icon-sm", disabled: i === 0, tooltip: "Move up", onClick: (_e, cx) => this.moveHeader(cx, name, -1) }))
+                            .child(Button(`set-sec-down-${name}`, { icon: "chevron-down", variant: "ghost", size: "icon-sm", disabled: i === this.header.length - 1, tooltip: "Move down", onClick: (_e, cx) => this.moveHeader(cx, name, 1) })),
+                        );
+                    }),
+                  ),
               ],
             }),
           )

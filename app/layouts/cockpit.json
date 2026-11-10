@@ -126,7 +126,8 @@
                         { "id": "runbook-panel", "type": "block", "content": { "mod": "cockpit", "props": { "app": "runbook", "scope": "focused" } } },
                         { "id": "files", "type": "block", "content": { "mod": "files" } },
                         { "id": "changes", "type": "block", "content": { "mod": "changes" } },
-                        { "id": "context", "type": "block", "content": { "mod": "cockpit", "props": { "app": "context" } } }
+                        { "id": "context", "type": "block", "content": { "mod": "cockpit", "props": { "app": "context" } } },
+                        { "id": "subagents", "type": "block", "content": { "mod": "cockpit", "props": { "app": "subagents" } } }
                       ]
                     },
                     { "id": "activity", "type": "block", "size": { "px": 44 }, "content": { "mod": "cockpit", "props": { "app": "activity", "stack": "panel-body" } } }

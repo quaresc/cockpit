@@ -33,8 +33,9 @@ import Usage from "./usage.js";
 import Machines from "./machines.js";
 import Settings from "./settings.js";
 import Context from "./context.js";
+import Subagents from "./subagents.js";
 
-const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, mail: Mail, usage: Usage, machines: Machines, settings: Settings, context: Context, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader, update: Update };
+const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, mail: Mail, usage: Usage, machines: Machines, settings: Settings, context: Context, subagents: Subagents, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader, update: Update };
 
 export default class Cockpit extends View {
   init(p, cx) {

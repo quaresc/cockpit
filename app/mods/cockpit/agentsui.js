@@ -612,9 +612,11 @@ export function QuestionCard(id, row, model, { wide = false, header, footer } = 
 export function worstQuota(quota) {
   const short = { "Claude Code": "Claude", Codex: "Codex", Antigravity: "Agy" };
   const best = new Map();
+  // The 5-hour session window for every agent, so the bars compare like with like; the weekly one takes over only when it is close to its limit.
+  const rank = (q) => ((q.percent ?? 0) >= 90 ? 2 : q.name.endsWith("5h") ? 1 : 0) * 1000 + (q.percent ?? 0);
   for (const q of quota ?? []) {
     const agent = Object.keys(short).find((a) => q.name.startsWith(a)) ?? q.name;
-    if (!best.has(agent) || (q.percent ?? 0) > (best.get(agent).percent ?? 0)) best.set(agent, { ...q, label: `${short[agent] ?? agent} ${q.name.split(" ").pop()}` });
+    if (!best.has(agent) || rank(q) > rank(best.get(agent))) best.set(agent, { ...q, label: `${short[agent] ?? agent} ${q.name.split(" ").pop()}` });
   }
   return [...best.values()];
 }
@@ -642,6 +644,7 @@ const SUB_DONE_MS = 10 * 60_000;
 export class SubagentsModel {
   constructor() {
     this.by = {};
+    this.missed = new Map();
     this.key = "";
     this.at = 0;
     this.pending = false;
@@ -668,18 +671,33 @@ export class SubagentsModel {
       cx.spawn(async (cx) => {
         try {
           const { home } = await hub.install();
-          const by = {};
+          // What is known stays unless a machine answers: a failed or empty reading (a busy database) is not "no sub-agents".
+          const next = { ...this.by };
           const machines = [...new Set(sessions.map((s) => wanted.get(s)))];
           await Promise.all(
             machines.map(async (m) => {
               const mine = sessions.filter((s) => wanted.get(s) === m);
-              const r = m
-                ? await exec("python3", ["-c", await helperSource("cockpit-subagents.py"), ...mine], { on: m, timeout: 20000 })
-                : await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-subagents.py`, ...mine], { timeout: 15000 });
-              Object.assign(by, JSON.parse(r.stdout || "{}").sessions ?? {});
+              try {
+                const r = m
+                  ? await exec("python3", ["-c", await helperSource("cockpit-subagents.py"), ...mine], { on: m, timeout: 20000 })
+                  : await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-subagents.py`, ...mine], { timeout: 15000 });
+                const got = JSON.parse(r.stdout || "null");
+                if (!got?.sessions) return;
+                for (const s of mine) {
+                  if ((got.failed ?? []).includes(s)) continue;
+                  const list = got.sessions[s] ?? [];
+                  if (!list.length && (this.by[s]?.length ?? 0) > 0 && (this.missed.get(s) ?? 0) < 2) {
+                    this.missed.set(s, (this.missed.get(s) ?? 0) + 1);
+                    continue;
+                  }
+                  this.missed.delete(s);
+                  next[s] = list;
+                }
+              } catch {}
             }),
           );
-          this.by = by;
+          for (const s of Object.keys(next)) if (!wanted.has(s)) delete next[s];
+          this.by = next;
           this.key = key;
           this.at = Date.now();
         } catch {}

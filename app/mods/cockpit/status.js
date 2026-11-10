@@ -24,7 +24,7 @@ export function findNode(node, id) {
 }
 
 /** The side panel's children by the names keys and the activity bar use. */
-export const PANELS = { show: "show", review: "review", runbook: "runbook-panel", files: "files", changes: "changes", context: "context" };
+export const PANELS = { show: "show", review: "review", runbook: "runbook-panel", files: "files", changes: "changes", context: "context", subagents: "subagents" };
 
 /** Opens the side panel on that child, left open when it already shows it. */
 export function openPanel(name) {

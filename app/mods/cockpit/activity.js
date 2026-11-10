@@ -15,6 +15,7 @@ const ITEMS = [
   { name: "files", icon: "folder", label: "Files", key: "⌃⌘4" },
   { name: "changes", icon: "git-commit", label: "Changes", key: "⌃⌘5" },
   { name: "context", icon: "gauge", label: "Context", key: "⌃⌘6" },
+  { name: "subagents", icon: "git-fork", label: "Subagents", key: "⌃⌘7" },
 ];
 
 export default class Activity {
