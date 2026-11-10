@@ -9,6 +9,9 @@ must be here first.
 
 - Inbox: do not duplicate stacked PRs at the section root (#29)
 - Dashboard tiles wrap instead of overflowing their card (#31)
+- Remote: connect Herdr to a Cockpit server (#30)
+- Inbox: the age test freezes the clock before reading it (#33)
+- Remote: a hub listening off loopback answers reads only (#35)
 
 ## 0.39.3 (2026-11-09)
 
