@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.39.4 (2026-11-10)
+
+- Inbox: do not duplicate stacked PRs at the section root (#29)
+- Dashboard tiles wrap instead of overflowing their card (#31)
+
 ## 0.39.3 (2026-11-09)
 
 - A chart's unit keeps a measured quantity in its unit (#25)
