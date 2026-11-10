@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.40.0 (2026-11-10)
+
+- Inbox: do not duplicate stacked PRs at the section root (#29)
+- Dashboard tiles wrap instead of overflowing their card (#31)
+- Remote: connect Herdr to a Cockpit server (#30)
+- Inbox: the age test freezes the clock before reading it (#33)
+- Remote: a hub listening off loopback answers reads only (#35)
+
 ## 0.39.3 (2026-11-09)
 
 - A chart's unit keeps a measured quantity in its unit (#25)
