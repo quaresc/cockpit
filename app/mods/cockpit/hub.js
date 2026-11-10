@@ -89,6 +89,10 @@ async function address(fresh, state) {
   return startHub();
 }
 
+// Herdr's Windows runtime has no TextDecoder and its Buffer shim returns empty buffers, so it decodes percent-encoded bytes.
+const utf8 = typeof TextDecoder === "function" ? new TextDecoder() : null;
+const decode = bytes => (utf8 ? utf8.decode(bytes) : decodeURIComponent(Array.from(bytes, byte => `%${byte.toString(16).padStart(2, "0")}`).join("")));
+
 /** Splits a socket's bytes into lines, decoding each whole line (a UTF-8 character may span two reads). */
 class Lines {
   constructor(socket) {
@@ -100,8 +104,7 @@ class Lines {
     for (;;) {
       const at = this.pending.indexOf(10);
       if (at >= 0) {
-        // Herdr's Windows Buffer shim returns empty buffers; decode complete UTF-8 lines with the runtime built-in.
-        const line = decodeURIComponent(Array.from(this.pending.subarray(0, at), byte => `%${byte.toString(16).padStart(2, "0")}`).join(""));
+        const line = decode(this.pending.subarray(0, at));
         this.pending = this.pending.slice(at + 1);
         return line;
       }

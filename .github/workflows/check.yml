@@ -34,6 +34,7 @@ jobs:
             ':(glob)plugin/hooks/*.json' ':(glob)codex/**/*.json' 'codex/.mcp.json' ':(glob).agents/**/*.json' |
             xargs -0 -n1 sh -c 'jq empty "$0" || { echo "::error file=$0::not valid JSON"; exit 255; }'
       - run: for f in app/mods/cockpit/*.js; do node --input-type=module --check < "$f" || { echo "$f"; exit 1; }; done
+      - run: node --experimental-vm-modules --test app/tests/*.test.mjs
 
   plugin:
     runs-on: ubuntu-latest

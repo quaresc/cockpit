@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 import { test } from "node:test";
 
-async function fixture(t, remote = true) {
+async function fixture(t, remote = true, globals = {}) {
   const calls = [], clients = new Set(), messages = [];
   const behavior = { token: "test-token", silent: false, bytewise: false, tickets: [{ id: "ENG-401" }] };
   const server = net.createServer(socket => {
@@ -26,12 +26,12 @@ async function fixture(t, remote = true) {
       }
     });
   });
-  server.listen(0, remote ? "127.0.0.2" : "127.0.0.1");
+  server.listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(() => { for (const socket of clients) socket.destroy(); server.close(); });
-  const info = { host: remote ? "127.0.0.2" : "127.0.0.1", port: server.address().port, token: "test-token" };
-  const install = { bin: "/runner/cockpit", home: "/runner", cache: "/runner/cache", ...(remote ? { machine: "runner", host: "127.0.0.2" } : {}) };
-  const context = createContext({ console });
+  const info = { host: remote ? "10.99.99.99" : "127.0.0.1", port: server.address().port, token: "test-token" };
+  const install = { bin: "/runner/cockpit", home: "/runner", cache: "/runner/cache", ...(remote ? { machine: "runner", host: "127.0.0.1" } : {}) };
+  const context = createContext({ console, ...globals });
   const imports = {
     herdr: {
       appHome: () => "C:/Herdr",
@@ -73,12 +73,12 @@ async function fixture(t, remote = true) {
 test("a desktop reads the runner's discovery file and authenticates before requesting its inbox", async t => {
   const f = await fixture(t);
   assert.equal((await f.hub.view("inbox")).tickets[0].id, "ENG-401");
-  assert.equal(f.calls.find(call => call[0] === "connect")[1], "127.0.0.2");
+  assert.equal(f.calls.find(call => call[0] === "connect")[1], "127.0.0.1");
   assert.deepEqual(f.messages.map(message => message.op), ["ping", "view"]);
 });
 
-test("inbox reads and live updates preserve Unicode split across socket reads", async t => {
-  const f = await fixture(t), r = runtime(t);
+for (const [name, globals] of [["TextDecoder", { TextDecoder }], ["the percent fallback", {}]]) test(`inbox reads and live updates preserve Unicode split across socket reads with ${name}`, async t => {
+  const f = await fixture(t, true, globals), r = runtime(t);
   f.behavior.bytewise = true;
   f.behavior.tickets = [{ id: "ENG-412", title: "Café € 漢字 🚀" }];
   assert.equal((await f.hub.view("inbox")).tickets[0].title, "Café € 漢字 🚀");
@@ -117,7 +117,7 @@ test("runner startup never receives the desktop's app home", async t => {
   const [, command, args, options] = f.calls.find(call => call[0] === "exec");
   assert.equal(command, "env");
   assert.equal(options.on, "runner");
-  assert.ok(args.includes("COCKPIT_HUB_LISTEN=127.0.0.2"));
+  assert.ok(args.includes("COCKPIT_HUB_LISTEN=127.0.0.1"));
   assert.ok(!args.some(arg => arg.startsWith("HERDR_APP_HOME=")));
   assert.ok(args.includes("COCKPIT_FRONTEND=app"));
 });
@@ -133,6 +133,7 @@ test("the runner's own desktop can use its advertised private interface", async 
   const f = await fixture(t);
   delete f.install.machine;
   delete f.install.host;
+  f.info.host = "127.0.0.1";
   assert.equal((await f.hub.view("inbox")).tickets[0].id, "ENG-401");
 });
 
@@ -197,7 +198,7 @@ test("subscriptions rediscover the port and token after a hub restart", async t 
   f.server.close();
   for (const socket of f.clients) socket.destroy();
   await closed;
-  f.server.listen(0, "127.0.0.2");
+  f.server.listen(0, "127.0.0.1");
   await once(f.server, "listening");
   f.info.port = f.server.address().port;
   f.info.token = f.behavior.token = "restarted-test-token";

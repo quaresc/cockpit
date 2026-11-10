@@ -29,7 +29,7 @@ fn tcp_on_an_explicit_interface_authenticates_and_streams_inbox_updates() {
     use std::net::TcpStream;
 
     let sandbox = sandbox();
-    let hub = Hub::start(&sandbox, &[("COCKPIT_HUB_LISTEN", "127.0.0.2")]);
+    let hub = Hub::start(&sandbox, &[("COCKPIT_HUB_LISTEN", "::1")]);
     let started = Instant::now();
     let info: Value = loop {
         if let Ok(text) = std::fs::read_to_string(sandbox.home().join(".cache/cockpit/hub.json")) {
@@ -38,9 +38,9 @@ fn tcp_on_an_explicit_interface_authenticates_and_streams_inbox_updates() {
         assert!(started.elapsed() < Duration::from_secs(5), "no TCP discovery file");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert_eq!(info["host"], "127.0.0.2");
+    assert_eq!(info["host"], "::1");
     let connect = || {
-        let stream = TcpStream::connect(("127.0.0.2", info["port"].as_u64().unwrap() as u16)).unwrap();
+        let stream = TcpStream::connect(("::1", info["port"].as_u64().unwrap() as u16)).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         BufReader::new(stream)
     };
