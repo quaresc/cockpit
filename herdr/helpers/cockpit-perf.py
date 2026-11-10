@@ -225,14 +225,16 @@ def opencode_tps(con, session, cwd, name=None, title=None):
 
 
 def claude_tps(session):
+    """Output tokens over the time since the previous line of the transcript (the turn's start: the prompt, or the tool result
+    it answers). Claude writes one line per content block with the same usage, so only the last block of a message counts, and a
+    gap under 1.5 s or a speed no model reaches is left out."""
     files = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{session}.jsonl"))
     if not files:
         return None
     with open(files[0], "rb") as f:
-        f.seek(max(0, os.path.getsize(files[0]) - 262144))
+        f.seek(max(0, os.path.getsize(files[0]) - 524288))
         lines = f.read().decode(errors="ignore").splitlines()[1:]
-    prev = None
-    best = None
+    events = []
     for line in lines:
         try:
             e = json.loads(line)
@@ -240,16 +242,26 @@ def claude_tps(session):
             ms = int(datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp() * 1000) if at else None
         except Exception:
             continue
-        u = (e.get("message") or {}).get("usage") if e.get("type") == "assistant" else None
-        if u and prev and ms and ms > prev and u.get("output_tokens"):
-            best = {"tps": round(u["output_tokens"] * 1000 / (ms - prev), 1), "tokens": u["output_tokens"], "at": ms, "session": session, "model": (e.get("message") or {}).get("model")}
         if ms:
-            prev = ms
+            events.append((ms, e))
+    best = None
+    for i in range(1, len(events)):
+        ms, e = events[i]
+        m = e.get("message") or {}
+        u = m.get("usage") or {}
+        if e.get("type") != "assistant" or not u.get("output_tokens"):
+            continue
+        # The first block of this message id starts when the line before it was written.
+        first = next((j for j in range(i, 0, -1) if (events[j - 1][1].get("message") or {}).get("id") != m.get("id")), 0)
+        if (events[i + 1][1].get("message") or {}).get("id") == m.get("id") if i + 1 < len(events) else False:
+            continue
+        start = events[first - 1][0] if first > 0 else None
+        if start and ms - start >= 1500:
+            tps = u["output_tokens"] * 1000 / (ms - start)
+            if tps <= 1500:
+                best = {"tps": round(tps, 1), "tokens": u["output_tokens"], "at": ms, "session": session, "model": m.get("model")}
     return best
 
-
-# ---------------------------------------------------------------------------------------------------------------------
-# What each agent runs on: model, effort, sandbox, cost, and how full its context window is.
 
 def cfg():
     try:

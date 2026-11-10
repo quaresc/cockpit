@@ -14,7 +14,7 @@ import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
 import {
   tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
-  Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
+  Progress, Mono, dur, Chip, Tabs, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
 } from "./ui.js";
 
 /** An event's row, brought into view in its app. */
@@ -125,6 +125,11 @@ export default class Home {
     this.subagents.follow(cx, () => localSessions(this.rows?.agents));
     this.perf = new PerfModel();
     this.perf.follow(cx, () => this.rows?.agents);
+    // How the cards fill the board: auto (stages stacked, cards stretch to the row), horizontal (stages side by side), vertical (one card a row).
+    try {
+      this.layoutMode = localStorage.getItem("cockpit.home.layout");
+    } catch {}
+    if (!["auto", "horizontal", "vertical"].includes(this.layoutMode)) this.layoutMode = "auto";
     this.omo = null;
     const readOmo = (cx) =>
       cx.spawn(async (cx) => {
@@ -655,6 +660,9 @@ export default class Home {
         h_flex()
           .gap(8)
           .flex_none()
+          .when(!narrow, (e) =>
+            e.child(Tabs("home-layout", { items: [{ value: "auto", label: "Auto" }, { value: "horizontal", label: "Horizontal" }, { value: "vertical", label: "Vertical" }], value: this.layoutMode, onChange: (v, cx) => this.setLayout(v, cx) })),
+          )
           .child(Button("home-new", { label: narrow ? null : "New agent", icon: "plus", variant: "outline", size: narrow ? "icon-sm" : "sm", kbd: narrow ? null : "n", tooltip: "Start an agent in a new tab  n", onClick: (_e, cx) => this.newAgent(cx) }))
           .child(
             Button("home-focus", {
@@ -725,7 +733,7 @@ export default class Home {
     return v_flex()
       .gap(10)
       .child(StageHeading("head-prs", "Your PRs", { color: k.info, count: prs.length }))
-      .child(div().w_full().flex().flex_row().flex_wrap().gap(14).children(prs.map((c) => div().w(narrow ? "100%" : 440).flex_none().child(this.card(c, { stage: c.stage, tone: c.stage === "fix" ? "destructive" : "success" })))));
+      .child(div().w_full().flex().flex_row().flex_wrap().gap(14).children(prs.map((c) => this.cardBox(narrow)(this.card(c, { stage: c.stage, tone: c.stage === "fix" ? "destructive" : "success" })))));
   }
 
   /** A side card: a title, rows, and an empty line when there are none. */
@@ -979,6 +987,7 @@ export default class Home {
 
   board(cols, wide, narrow) {
     const k = tokens();
+    const box = this.cardBox(narrow);
     const column = (c) => {
       const list = cols[c.stage];
       const dimmed = this.focusMode && c.stage !== "needs";
@@ -993,7 +1002,11 @@ export default class Home {
         .gap(10)
         .when(dimmed, (e) => e.opacity(0.28))
         .child(StageHeading(`head-${c.stage}`, c.label, { color: k[c.tone], count: list.length, pulse: Boolean(c.pulse) && list.length > 0, spin: Boolean(c.spin) && list.length > 0, action: archive ?? undefined }))
-        .child(div().id(`cards-${c.stage}`).w_full().flex().flex_row().flex_wrap().gap(14).children(list.map((card) => div().w(narrow ? "100%" : 440).flex_none().child(this.card(card, c)))))
+        .child(
+          this.layoutMode === "auto" && !narrow
+            ? div().id(`cards-${c.stage}`).w_full().flex().flex_row().flex_wrap().gap(14).children(list.map((card) => box(this.card(card, c))))
+            : v_flex().id(`cards-${c.stage}`).w_full().gap(14).children(list.map((card) => box(this.card(card, c)))),
+        )
         .when(!list.length, (e) => e.child(this.emptyColumn(c)))
         .when(c.stage === "done" && cols.archived > 0, (e) =>
           e.child(
@@ -1005,10 +1018,11 @@ export default class Home {
     const full = COLUMNS.filter((c) => cols[c.stage].length || (c.stage === "done" && cols.archived > 0));
     const empty = COLUMNS.filter((c) => !full.includes(c));
     const quiet = { needs: "nothing needs you", working: "nothing working", ready: "nothing to land", done: "nothing finished lately" };
+    const side = this.layoutMode === "horizontal" && !narrow;
     return v_flex()
       .w_full()
       .gap(22)
-      .children(full.map((c) => column(c).flex_none().w_full()))
+      .child(side ? h_flex().w_full().gap(18).items_start().children(full.map((c) => column(c).min_w(280))) : v_flex().w_full().gap(22).children(full.map((c) => column(c).flex_none().w_full())))
       .when(empty.length > 0, (e) =>
         e.child(
           h_flex()
@@ -1017,6 +1031,20 @@ export default class Home {
             .children(empty.map((c) => h_flex().gap(6).items_center().text_size(TEXT.sm).text_color(k.dim).child(div().size(6).rounded(3).bg(alpha(k[c.tone], 0.6))).child(quiet[c.stage]))),
         ),
       );
+  }
+
+  /** The box a card sits in, by layout mode: auto stretches to the row (a min and max width keep them readable). */
+  cardBox(narrow) {
+    const mode = narrow ? "vertical" : this.layoutMode;
+    return (el) => (mode === "auto" ? div().flex_1().min_w(380).max_w(560).child(el) : div().w_full().min_w(0).child(el));
+  }
+
+  setLayout(mode, cx) {
+    this.layoutMode = mode;
+    try {
+      localStorage.setItem("cockpit.home.layout", mode);
+    } catch {}
+    cx.notify();
   }
 
   emptyColumn(c) {
