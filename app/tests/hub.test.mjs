@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 import { test } from "node:test";
 
-async function fixture(t, remote = true, globals = {}) {
+async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
   const calls = [], clients = new Set(), messages = [];
   const behavior = { token: "test-token", silent: false, bytewise: false, tickets: [{ id: "ENG-401" }] };
   const server = net.createServer(socket => {
@@ -26,10 +26,10 @@ async function fixture(t, remote = true, globals = {}) {
       }
     });
   });
-  server.listen(0, "127.0.0.1");
+  server.listen(0, host);
   await once(server, "listening");
   t.after(() => { for (const socket of clients) socket.destroy(); server.close(); });
-  const info = { host: remote ? "10.99.99.99" : "127.0.0.1", port: server.address().port, token: "test-token" };
+  const info = { host: remote ? "10.99.99.99" : host, port: server.address().port, token: "test-token" };
   const install = { bin: "/runner/cockpit", home: "/runner", cache: "/runner/cache", ...(remote ? { machine: "runner", host: "127.0.0.1" } : {}) };
   const context = createContext({ console, ...globals });
   const imports = {
@@ -67,7 +67,7 @@ async function fixture(t, remote = true, globals = {}) {
     for (const [key, value] of Object.entries(imports[name])) this.setExport(key, value);
   }, { context }));
   await module.evaluate();
-  return { hub: module.namespace, calls, info, install, messages, clients, behavior, server };
+  return { hub: module.namespace, calls, info, install, messages, clients, behavior, server, host };
 }
 
 test("a desktop reads the runner's discovery file and authenticates before requesting its inbox", async t => {
@@ -130,11 +130,9 @@ test("local installations retain their actions and localhost connection", async 
 });
 
 test("the runner's own desktop can use its advertised private interface", async t => {
-  const f = await fixture(t);
-  delete f.install.machine;
-  delete f.install.host;
-  f.info.host = "127.0.0.1";
+  const f = await fixture(t, false, {}, "::1");
   assert.equal((await f.hub.view("inbox")).tickets[0].id, "ENG-401");
+  assert.equal(f.calls.find(call => call[0] === "connect")[1], "::1", "hub.json's interface, not the loopback default");
 });
 
 function runtime(t) {
@@ -198,7 +196,7 @@ test("subscriptions rediscover the port and token after a hub restart", async t 
   f.server.close();
   for (const socket of f.clients) socket.destroy();
   await closed;
-  f.server.listen(0, "127.0.0.1");
+  f.server.listen(0, f.host);
   await once(f.server, "listening");
   f.info.port = f.server.address().port;
   f.info.token = f.behavior.token = "restarted-test-token";
@@ -294,4 +292,17 @@ test("remote agent models carry their machine through reads and subscriptions", 
   assert.equal(r.received[0].value.remote, "runner");
   sub.stop();
   await Promise.all(r.tasks);
+});
+
+test("a notification that names a space opens it on the desktop", async t => {
+  const f = await fixture(t);
+  await f.hub.cockpit(["focus", "herdr-app:space:inbox"]);
+  assert.deepEqual(f.calls.find(call => call[0] === "run"), ["run", "cockpit.go:inbox"]);
+  assert.equal(f.messages.length, 0);
+});
+
+test("a notification that needs the runner's own terminals says so", async t => {
+  const f = await fixture(t);
+  await assert.rejects(f.hub.cockpit(["focus", "herdr-app:workspace:s1"]), /read-only/);
+  await assert.rejects(f.hub.cockpit(["focus", "herdr-app:resume"]), /read-only/);
 });

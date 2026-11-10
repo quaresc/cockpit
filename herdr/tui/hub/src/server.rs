@@ -33,12 +33,22 @@ impl Conn for TcpStream {
     }
 }
 
+/// What a connection off this machine may ask: the ops that only read, and the subscription stream. The mod keeps the
+/// same list, so a remote desk says so without a round trip.
+const READS: [&str; 8] = ["ping", "view", "search", "fetch", "events", "history", "shown", "subscribe"];
+
 /// Who may ask: anyone on the unix socket (its folder is the user's), on TCP only a request carrying hub.json's token,
-/// whose frontend is the Herdr app unless it says otherwise.
+/// whose frontend is the Herdr app unless it says otherwise. A hub listening off loopback reads only.
 #[derive(Clone)]
 pub struct Gate {
     pub token: Option<String>,
     pub frontend: Option<Frontend>,
+    pub read_only: bool,
+}
+
+/// Whether this gate turns the op away: off loopback, everything that is not a read.
+fn refused(gate: &Gate, op: &str) -> bool {
+    gate.read_only && !READS.contains(&op)
 }
 
 pub fn now_secs() -> u64 {
@@ -64,6 +74,9 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
             Ok(request) if gate.token.as_ref().is_some_and(|t| request["token"].as_str() != Some(t)) => {
                 let _ = writeln!(writer, "{}", json!({"error": "a request on TCP needs hub.json's token"}));
                 return;
+            }
+            Ok(request) if refused(&gate, request["op"].as_str().unwrap_or_default()) => {
+                json!({"error": "this cockpit hub serves reads only off loopback: start it without COCKPIT_HUB_LISTEN to write from this machine"})
             }
             Ok(request) if request["op"] == "subscribe" => return subscribe(writer, &request),
             Ok(request) => {
@@ -190,5 +203,25 @@ fn store_op(op: &str, request: &Value) -> Value {
             json!({"value": store::global().update(name, merge).1})
         }
         other => json!({"error": format!("unknown op {other:?}")}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gate(read_only: bool) -> Gate {
+        Gate { token: None, frontend: None, read_only }
+    }
+
+    #[test]
+    fn a_read_only_gate_turns_away_everything_that_writes() {
+        for op in ["ping", "view", "search", "fetch", "events", "history", "shown", "subscribe"] {
+            assert!(!refused(&gate(true), op), "{op} only reads");
+        }
+        for op in ["act", "go", "notify", "store.put", "store.patch", "store.lease", "store.release", "dance", ""] {
+            assert!(refused(&gate(true), op), "{op} must not reach a hub read off loopback");
+            assert!(!refused(&gate(false), op), "{op} belongs to a hub on this machine");
+        }
     }
 }

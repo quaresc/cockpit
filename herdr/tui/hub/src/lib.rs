@@ -51,6 +51,14 @@ pub fn run() {
     if UnixStream::connect(&socket).is_ok() {
         return;
     }
+    // Before anything is touched: a hub without its TCP side is one `cockpit hub start` stops.
+    let tcp = match listen() {
+        Ok(tcp) => tcp,
+        Err(why) => {
+            eprintln!("cockpit hub: cannot listen on COCKPIT_HUB_LISTEN: {why}");
+            return;
+        }
+    };
     // Nothing answers on it: a hub that died left it behind.
     let _ = std::fs::remove_file(&socket);
     if let Some(dir) = socket.parent() {
@@ -81,10 +89,10 @@ pub fn run() {
         let dir = files::herdr_dir();
         cockpit_update::keep_current(&dir, |binary| hand_over(&dir, binary, &socket, inode));
     });
-    if let Err(error) = tcp(last.clone()) {
+    if let Err(error) = serve_tcp(tcp, last.clone()) {
         eprintln!("cockpit hub: cannot start TCP: {error}");
     }
-    let gate = server::Gate { token: None, frontend: None };
+    let gate = server::Gate { token: None, frontend: None, read_only: false };
     for stream in listener.incoming().flatten() {
         last.store(server::now_secs(), Ordering::SeqCst);
         let (last, gate) = (last.clone(), gate.clone());
@@ -104,14 +112,18 @@ fn token() -> std::io::Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Serves the desktop protocol on loopback, or COCKPIT_HUB_LISTEN's explicit interface on an encrypted private network.
-fn tcp(last: Arc<AtomicU64>) -> std::io::Result<()> {
+/// Takes the desktop protocol's port on loopback, or on COCKPIT_HUB_LISTEN's explicit interface.
+fn listen() -> std::io::Result<(TcpListener, std::net::IpAddr)> {
     let host = std::env::var("COCKPIT_HUB_LISTEN").unwrap_or_else(|_| "127.0.0.1".into());
     let host: std::net::IpAddr = host.parse().map_err(|_| std::io::Error::other("COCKPIT_HUB_LISTEN must be an IP address"))?;
     if host.is_unspecified() || host.is_multicast() {
         return Err(std::io::Error::other("COCKPIT_HUB_LISTEN must name one interface, not a wildcard or multicast address"));
     }
-    let listener = TcpListener::bind((host, 0))?;
+    Ok((TcpListener::bind((host, 0))?, host))
+}
+
+/// Serves that port: hub.json carries the token each request needs, and off loopback the connection reads only.
+fn serve_tcp((listener, host): (TcpListener, std::net::IpAddr), last: Arc<AtomicU64>) -> std::io::Result<()> {
     let port = listener.local_addr()?.port();
     let token = token()?;
     let info = serde_json::json!({"host": host.to_string(), "port": port, "token": token, "pid": std::process::id()});
@@ -120,7 +132,7 @@ fn tcp(last: Arc<AtomicU64>) -> std::io::Result<()> {
     let _ = std::fs::remove_file(&tmp);
     let written = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp).and_then(|mut f| f.write_all(info.to_string().as_bytes()));
     written.and_then(|_| std::fs::rename(&tmp, &path))?;
-    let gate = server::Gate { token: Some(token), frontend: Some(cockpit_core::frontend::Frontend::App) };
+    let gate = server::Gate { token: Some(token), frontend: Some(cockpit_core::frontend::Frontend::App), read_only: !host.is_loopback() };
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             last.store(server::now_secs(), Ordering::SeqCst);

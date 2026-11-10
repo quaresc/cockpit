@@ -4,6 +4,13 @@
 import net from "net";
 import { exec, appHome, readTextFile, run, window as win } from "herdr";
 
+/** Closes a socket, already closed or not: a throw here would end the subscription that is tidying up. */
+const close = (socket) => {
+  try {
+    socket?.close();
+  } catch {}
+};
+
 /** Waits `ms` on the context's timer (mods have no setTimeout). */
 export const sleep = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
 
@@ -11,6 +18,15 @@ const NOT_INSTALLED = "cockpit is not installed in this Herdr home";
 const READ_ONLY = "the remote cockpit client is read-only; this action needs a local cockpit installation";
 const REMOTE_READS = new Set(["ping", "view", "search", "fetch", "events", "history", "shown"]);
 const APPS = new Set(["inbox", "todo", "runbook", "meetings", "mail", "monitor", "routines", "show"]);
+/** The app behind a pinned space's name, as `cockpit focus space:<name>` gives it. */
+const SPACES = { inbox: "inbox", runbook: "runbook", "to-do": "todo", todo: "todo", meetings: "meetings", monitor: "monitor", routines: "routines", mail: "mail" };
+
+/** Brings an app into view on this desktop, without a row to select. */
+function localShow(app) {
+  if (!APPS.has(app)) throw new Error(READ_ONLY);
+  run(`cockpit.go:${app}`);
+  return { ok: true };
+}
 
 function localFocus(target) {
   if (!APPS.has(target?.app)) throw new Error(READ_ONLY);
@@ -132,7 +148,7 @@ async function open(fresh, state) {
     if (answer?.ok !== true) throw new Error(answer?.error ?? "the cockpit hub did not answer ping");
     return { socket, token: info.token, lines, remote: machine ?? null };
   } catch (error) {
-    socket.close();
+    close(socket);
     throw error;
   }
 }
@@ -158,6 +174,10 @@ export async function cockpit(args) {
       if (at < 1) throw new Error(READ_ONLY);
       const app = target.slice(0, at);
       const key = target.slice(at + 1);
+      if (app === "space") {
+        localShow(SPACES[key] ?? key);
+        return { code: 0, stdout: "", stderr: "" };
+      }
       const step = key.indexOf(":");
       localFocus(app === "runbook"
         ? { app, key: step < 0 ? key : key.slice(0, step), steps: step < 0 ? [] : key.slice(step + 1).split(",").filter(Boolean) }
@@ -192,7 +212,7 @@ export async function request(op, fields = {}) {
     if (remote && op === "view" && fields.name === "agents") answer.value = { ...answer.value, remote };
     return answer;
   } finally {
-    socket.close();
+    close(socket);
   }
 }
 
@@ -254,8 +274,11 @@ export function subscribe(cx, { views = [], docs = [], notify = false, focus = n
           let deadline;
           let line;
           try {
+            const next = lines.next();
+            // The heartbeat may win: the read left behind must not reject into nothing.
+            next.catch(() => {});
             line = await Promise.race([
-              lines.next(),
+              next,
               new Promise((_, reject) => {
                 deadline = cx.timer.after(65_000, () => reject(new Error("the cockpit hub heartbeat timed out")));
               }),
@@ -279,7 +302,7 @@ export function subscribe(cx, { views = [], docs = [], notify = false, focus = n
       } catch (e) {
         if (!state.stopped) onState(`error: ${e?.message ?? e}`, cx);
       } finally {
-        state.socket?.close();
+        close(state.socket);
         state.socket = null;
       }
       if (state.stopped) break;
@@ -291,9 +314,7 @@ export function subscribe(cx, { views = [], docs = [], notify = false, focus = n
     stop() {
       state.stopped = true;
       navigation.listeners.delete(focused);
-      try {
-        state.socket?.close();
-      } catch {}
+      close(state.socket);
     },
   };
 }

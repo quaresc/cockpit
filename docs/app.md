@@ -65,7 +65,8 @@ the desktop's Herdr home. The desktop needs no cockpit binary.
 On the runner, start the hub with `COCKPIT_HUB_LISTEN` set to its Tailscale IP, for example
 `COCKPIT_HUB_LISTEN=100.64.0.10 cockpit hub start`. If a hub already runs, restart it deliberately with that variable;
 `hub start` reuses an existing process and cannot change its interface. The default is loopback. Wildcard and
-multicast addresses are refused.
+multicast addresses are refused, as is an address no interface holds: the hub says why on stderr and leaves the
+running one alone.
 
 In the desktop's Herdr home, write `cockpit.json` using the runner's paths and its name in Herdr:
 
@@ -87,8 +88,10 @@ runner's hub. The machine must connect to the hc session the runner's hub reads 
 runs with `HC_SESSION`), or these reach a different terminal with the same id. Mutating actions and Archive are unavailable in this preview. Runner agents are not joined to local
 terminals or tabs with matching IDs.
 
-TCP has no TLS: use an encrypted private network such as Tailscale. The discovery token grants full hub access;
-the preview's read-only restriction is a client feature, not a server permission boundary. Keep `hub.json` private.
+TCP has no TLS: use an encrypted private network such as Tailscale, and keep `hub.json` private. A hub listening
+off loopback answers reads only, whoever holds the token; the mod keeps the same list so a remote desk says so
+without asking. That holds for the runner's own window too, so leave `COCKPIT_HUB_LISTEN` unset on a machine whose
+desktop writes.
 
 Desktop checks: `node --experimental-vm-modules --test app/tests/*.test.mjs`.
 
