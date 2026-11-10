@@ -56,7 +56,7 @@ the view to bring `target.key` into view (`cockpit focus`, `hub.go`). Without `c
 panel and `AgentsModel` (agentsui.js) falls back to Herdr's `agents()`. Only the app's main view sets `focus`; count
 subscriptions leave it out, so they cannot consume a pending remote-desk navigation.
 
-## A remote desk (read-only preview)
+## A remote desk (preview)
 
 The Herdr app can read a Linux or macOS runner's hub, including from Windows. Both ends need this version of the
 cockpit mod/hub. Connect the runner through Herdr's machine settings first, then put the cockpit layout and mod in
@@ -85,8 +85,15 @@ updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing
 navigation open on the desktop. Notifications appear as in-app toasts. Go, Peek and Open beside reach a runner agent
 through its machine-scoped address (`runner/t7`), the terminal Herdr shows for that machine; they write nothing to the
 runner's hub. The machine must connect to the hc session the runner's hub reads (its default session unless the hub
-runs with `HC_SESSION`), or these reach a different terminal with the same id. Mutating actions and Archive are unavailable in this preview. Runner agents are not joined to local
+runs with `HC_SESSION`), or these reach a different terminal with the same id. Runner agents are not joined to local
 terminals or tabs with matching IDs.
+
+The review panel works on a runner agent: focus it (Go from the agents list) and the panel reads its folder, a runner
+path, over TCP. Its three actions, `review send`, `review walkthrough` and `review stop_walkthrough`, travel as
+`cockpit hub act review <action> <JSON args>` run on the runner through Herdr's machine connection, the way `hub start`
+does; that command checks the arguments and hands the action to the runner's hub on its unix socket. Comments go only to
+an agent of the runner (`runner/t7` reaches the runner as `t7`). Every other action and Archive stay unavailable in this
+preview.
 
 TCP has no TLS: use an encrypted private network such as Tailscale, and keep `hub.json` private. A hub listening
 off loopback answers reads only, whoever holds the token; the mod keeps the same list so a remote desk says so

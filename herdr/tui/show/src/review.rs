@@ -155,7 +155,13 @@ pub fn message(review: &Value) -> Result<String, String> {
                 .filter(|s| !s.is_empty())
                 .map(|s| format!(" `{}`", one_line(s).chars().take(80).collect::<String>()))
                 .unwrap_or_default();
-            format!("{}) {}:{}{side}{code}: {}", i + 1, c["path"].as_str().unwrap_or("?"), c["line"], one_line(c["text"].as_str().unwrap_or_default()))
+            format!(
+                "{}) {}:{}{side}{code}: {}",
+                i + 1,
+                one_line(c["path"].as_str().unwrap_or("?")),
+                c["line"],
+                one_line(c["text"].as_str().unwrap_or_default())
+            )
         })
         .collect();
     let count = if items.len() == 1 { "1 comment".to_string() } else { format!("{} comments", items.len()) };
@@ -185,12 +191,12 @@ mod tests {
     fn a_review_is_one_numbered_line() {
         let review = json!({"scope": "branch", "comments": [
             {"path": "src/a.rs", "line": 12, "code": "let x =\n 2;", "text": "use the\nconstant"},
-            {"path": "src/b.rs", "line": 3, "old": true, "text": "keep this"},
+            {"path": "src/\nb.rs", "line": 3, "old": true, "text": "keep this"},
         ]});
         let line = message(&review).unwrap();
         assert_eq!(
             line,
-            "My review of this branch's changes (2 comments), please address each: 1) src/a.rs:12 `let x = 2;`: use the constant 2) src/b.rs:3 (removed line): keep this"
+            "My review of this branch's changes (2 comments), please address each: 1) src/a.rs:12 `let x = 2;`: use the constant 2) src/ b.rs:3 (removed line): keep this"
         );
         assert!(!line.contains('\n'));
         assert!(message(&json!({"comments": []})).is_err());

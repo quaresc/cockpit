@@ -198,6 +198,59 @@ fn act_failures_come_back_as_a_notification() {
 }
 
 #[test]
+fn hub_act_hands_a_review_action_to_the_hub_and_prints_its_answer() {
+    let sandbox = Sandbox::new();
+    let seen = fake_hub(&sandbox, Some(json!({"note": "review sent to the agent (1 comment)", "pending": {}, "refreshing": {}, "error": null})));
+    let review = json!({"scope": "branch", "repo": "/src/acme/api", "comments": [{"path": "src/a.rs", "line": 12, "text": "use the constant"}]});
+    let cases =
+        [("send", json!(["t7", review])), ("walkthrough", json!(["/src/acme/api", "branch", "haiku"])), ("stop_walkthrough", json!(["/src/acme/api", "pr"]))];
+    for (action, args) in &cases {
+        let out = sandbox.cockpit(&["hub", "act", "review", action, &args.to_string()], &[]);
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        assert_eq!(serde_json::from_str::<Value>(&stdout(&out)).unwrap()["note"], "review sent to the agent (1 comment)");
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), cases.len());
+    for ((action, args), request) in cases.iter().zip(seen.iter()) {
+        assert_eq!((&request["op"], &request["app"], &request["action"], &request["args"]), (&json!("act"), &json!("review"), &json!(action), args));
+    }
+}
+
+#[test]
+fn hub_act_fails_with_the_hubs_error() {
+    let sandbox = Sandbox::new();
+    fake_hub(&sandbox, Some(json!({"note": "", "pending": {}, "refreshing": {}, "error": "walkthrough: no changes to walk through"})));
+    let out = sandbox.cockpit(&["hub", "act", "review", "walkthrough", r#"["/src/acme/api", "uncommitted", "haiku"]"#], &[]);
+    assert_eq!((out.status.code(), stderr(&out).trim()), (Some(1), "walkthrough: no changes to walk through"));
+}
+
+#[test]
+fn hub_act_refuses_every_other_action_and_malformed_arguments() {
+    let sandbox = Sandbox::new();
+    let seen = fake_hub(&sandbox, Some(json!({"note": "done", "pending": {}, "refreshing": {}, "error": null})));
+    let cases: [&[&str]; 12] = [
+        &["hub", "act", "review", "send", r#"["other/t7", {"comments": []}]"#],
+        &["hub", "act", "review", "send", r#"["app:t7", {"comments": []}]"#],
+        &["hub", "act", "review", "send", r#"["w1-p2", {"comments": []}]"#],
+        &["hub", "act", "inbox", "review", "[]"],
+        &["hub", "act", "review", "open_reviewr", r#"["/src/acme/api"]"#],
+        &["hub", "act", "review", "send"],
+        &["hub", "act", "review", "walkthrough", "not json"],
+        &["hub", "act", "review", "walkthrough", r#"["acme/api", "branch", "haiku"]"#],
+        &["hub", "act", "review", "walkthrough", r#"["/src/acme/api", "everything", "haiku"]"#],
+        &["hub", "act", "review", "stop_walkthrough", r#"["/src/acme/api", "branch", "extra"]"#],
+        &["hub", "act", "review", "send", r#"["", {"comments": []}]"#],
+        &["hub", "act", "review", "send", r#"["t7", "use the constant"]"#],
+    ];
+    for args in cases {
+        let out = sandbox.cockpit(args, &[]);
+        assert_eq!(out.status.code(), Some(1), "{args:?} was taken");
+        assert!(!stderr(&out).trim().is_empty());
+    }
+    assert!(seen.lock().unwrap().is_empty(), "a refused action reached the hub");
+}
+
+#[test]
 fn hub_ping_answers_by_its_exit_code() {
     let sandbox = Sandbox::new();
     assert_eq!(sandbox.cockpit(&["hub", "ping"], &[]).status.code(), Some(1));

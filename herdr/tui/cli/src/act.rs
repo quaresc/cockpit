@@ -54,6 +54,39 @@ fn press(args: &[String]) -> Result<String, String> {
     }
 }
 
+const HUB_USAGE: &str = "cockpit hub act review send|walkthrough|stop_walkthrough <JSON list of arguments>";
+
+/// `cockpit hub act review <action> <args>`: a remote desk's review action, run on the runner through Herdr's machine
+/// connection and handed to the hub on its unix socket, `{note}` printed as JSON.
+pub fn hub_review(args: &[String]) {
+    match runner_review(args) {
+        Ok(note) => println!("{}", json!({ "note": note })),
+        Err(message) => crate::proc::fail(&message),
+    }
+}
+
+/// Only the review panel's own actions, with the arguments it sends: everything else stays out of reach.
+fn runner_review(args: &[String]) -> Result<String, String> {
+    let [app, action, list] = args else { return Err(HUB_USAGE.into()) };
+    let parsed: Vec<Value> = serde_json::from_str(list).map_err(|_| format!("review {action} takes a JSON list of arguments, not {list}"))?;
+    let repo = |v: &Value| v.as_str().is_some_and(|p| p.starts_with('/'));
+    let scope = |v: &Value| matches!(v.as_str(), Some("uncommitted" | "branch" | "pr"));
+    let fits = match (app.as_str(), action.as_str(), parsed.as_slice()) {
+        // An app terminal's own address (t7): never a handle or another machine's terminal.
+        ("review", "send", [terminal, review]) => {
+            terminal.as_str().is_some_and(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric())) && review["comments"].is_array()
+        }
+        ("review", "walkthrough", [path, s, model]) => repo(path) && scope(s) && model.is_string(),
+        ("review", "stop_walkthrough", [path, s]) => repo(path) && scope(s),
+        ("review", "send" | "walkthrough" | "stop_walkthrough", _) => false,
+        _ => return Err(HUB_USAGE.into()),
+    };
+    if !fits {
+        return Err(format!("review {action} does not take {list}"));
+    }
+    act(app, action, parsed, None)
+}
+
 /// The hub's action of that app, its note as the answer.
 fn act(app: &str, action: &str, args: Vec<Value>, armed: Option<String>) -> Result<String, String> {
     let env = json!({"HERDR_PANE_ID": std::env::var("HERDR_PANE_ID").unwrap_or_default()});
