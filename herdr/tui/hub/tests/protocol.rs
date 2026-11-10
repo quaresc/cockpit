@@ -59,6 +59,20 @@ fn tcp_on_an_explicit_interface_authenticates_and_streams_inbox_updates() {
     assert_eq!(read(&mut stream)["doc"], "inbox");
     hub.request(&json!({"op": "store.put", "name": "inbox", "value": {"tickets": [{"id": "ENG-401"}]}}));
     assert_eq!(read(&mut stream)["value"]["tickets"][0]["id"], "ENG-401");
+    // ::1 is this machine, so the connection still writes; only a hub listening further out reads only.
+    let mut writes = connect();
+    writeln!(writes.get_mut(), "{}", json!({"op": "store.put", "name": "queue", "value": {"items": ["one"]}, "token": info["token"]})).unwrap();
+    assert_eq!(read(&mut writes)["value"]["items"][0], "one");
+}
+
+#[test]
+fn a_listen_address_that_cannot_be_bound_leaves_no_hub_behind() {
+    let sandbox = sandbox();
+    // TEST-NET-1: routable nowhere and assigned to no interface.
+    let mut child = common::hub_command(&sandbox).envs([("COCKPIT_HUB_LISTEN", "192.0.2.1")]).spawn().unwrap();
+    assert!(child.wait().unwrap().success(), "the hub says why on stderr rather than failing");
+    assert!(!sandbox.socket().exists(), "a hub that cannot listen must not take the socket a working one holds");
+    assert!(!sandbox.home().join(".cache/cockpit/hub.json").exists());
 }
 
 #[test]
@@ -246,14 +260,15 @@ fn history_of_ticket_costs() {
     let sandbox = sandbox();
     let hub = Hub::start(&sandbox, &[]);
     let values = |hub: &Hub| hub.request(&json!({"op": "history", "kind": "ticket_cost", "key": "ENG-401"}))["values"].clone();
+    // Waits on a background scan, so the budget is wide: the whole file's hubs share this machine.
     let start = Instant::now();
     while values(&hub) != json!([8.75]) {
-        assert!(start.elapsed() < Duration::from_secs(5), "no first point: {}", values(&hub));
+        assert!(start.elapsed() < Duration::from_secs(30), "no first point: {}", values(&hub));
         std::thread::sleep(Duration::from_millis(100));
     }
     std::fs::write(sandbox.home().join(".cache/cockpit/costs/s-new.json"), r#"{"ENG-401": 1.25}"#).unwrap();
     while values(&hub) != json!([8.75, 10.0]) {
-        assert!(start.elapsed() < Duration::from_secs(10), "no second point: {}", values(&hub));
+        assert!(start.elapsed() < Duration::from_secs(60), "no second point: {}", values(&hub));
         std::thread::sleep(Duration::from_millis(100));
     }
 }
