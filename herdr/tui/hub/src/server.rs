@@ -76,7 +76,7 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
                 return;
             }
             Ok(request) if refused(&gate, request["op"].as_str().unwrap_or_default()) => {
-                json!({"error": "this cockpit hub serves reads only on this interface"})
+                json!({"error": "this cockpit hub serves reads only off loopback: start it without COCKPIT_HUB_LISTEN to write from this machine"})
             }
             Ok(request) if request["op"] == "subscribe" => return subscribe(writer, &request),
             Ok(request) => {
