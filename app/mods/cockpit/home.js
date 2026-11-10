@@ -8,7 +8,7 @@ import { h_flex, v_flex, InputState } from "gpui-base";
 import { run, spaces, knownAgents, setShared, layout, readTextFile, exec } from "herdr";
 import { show } from "./sidebar.js";
 import { followUsage, AgentLimits } from "./usage.js";
-import { runRecap, recapLabel, SubagentsModel, PerfModel, tpsText, localSessions, sessionFor } from "./agentsui.js";
+import { runRecap, recapLabel, SubagentsModel, PerfModel, OmoModel, machineOf, tpsText, localSessions, sessionFor } from "./agentsui.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
@@ -130,20 +130,8 @@ export default class Home {
       this.layoutMode = localStorage.getItem("cockpit.home.layout");
     } catch {}
     if (!["auto", "horizontal", "vertical"].includes(this.layoutMode)) this.layoutMode = "auto";
-    this.omo = null;
-    const readOmo = (cx) =>
-      cx.spawn(async (cx) => {
-        try {
-          const { home } = await hub.install();
-          const d = JSON.parse((await readTextFile(`${home}/.config/opencode/oh-my-opencode-slim.json`)) ?? "{}");
-          if (d.preset !== this.omo?.preset) {
-            this.omo = { preset: d.preset ?? null };
-            cx.notify();
-          }
-        } catch {}
-      });
-    readOmo(cx);
-    cx.timer.every(10000, (cx) => readOmo(cx));
+    this.omo = new OmoModel();
+    this.omo.follow(cx);
     this.sub = hub.subscribe(
       cx,
       { views: ["agents", "home", "queue", ...OVERVIEW.map((o) => o.view)] },
@@ -1113,7 +1101,8 @@ export default class Home {
     const prog0 = String(a?.row?.program ?? a?.row?.agent ?? (typeof a?.program === "string" ? a.program : a?.program?.id ?? a?.program?.name ?? "")).toLowerCase();
     const modelChips = [];
     if (info.model || info.model_name) modelChips.push(Chip(info.model_name ?? info.model, { id: `${card.key}-model`, mono: true, icon: "bot", tooltip: `Model: ${info.model ?? info.model_name}` }));
-    if (/opencode/.test(prog0) && this.omo?.preset) modelChips.push(Chip(`preset ${this.omo.preset}`, { id: `${card.key}-preset`, color: k.info, tooltip: "Oh-my-opencode-slim preset: which model each OMO agent uses" }));
+    const omoHere = /opencode/.test(prog0) ? this.omo.of(machineOf(a?.address)) : null;
+    if (omoHere?.preset) modelChips.push(Chip(`preset ${omoHere.preset}`, { id: `${card.key}-preset`, color: k.info, tooltip: `Oh-my-opencode-slim preset in ${machineOf(a?.address) ?? "this computer"}'s config (which model each OMO agent uses). A session already running keeps the preset it started with.` }));
     if (info.effort) modelChips.push(Chip(`${info.effort} effort`, { id: `${card.key}-effort`, tooltip: "Reasoning effort" }));
     if (info.sandbox) modelChips.push(Chip(`${info.sandbox}${info.approval ? ` · approvals ${info.approval}` : ""}`, { id: `${card.key}-sandbox`, tooltip: "Sandbox and approval policy" }));
     if (info.cost) modelChips.push(Mono(money(info.cost)));

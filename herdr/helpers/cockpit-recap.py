@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cockpit-recap.py <terminal> [--agent <id>] [--model <name>] [--title]
+cockpit-recap.py <terminal> [--agent <id>] [--model <name>] [--title] [--session <id> --program <name> [--machine <name>]]
 An agent's recap written by any agent and model, not only the hub's own: reads the terminal's session transcript
 (Claude Code, Codex, Antigravity or OpenCode), and asks the recap agent headless through `cockpit agent argv run`.
 The recap agent is --agent, else the config's agents.recap, else agents.default; the model is --model, else the
@@ -217,9 +217,16 @@ def session_of(row):
     try:
         title = re.sub(r"^\w{1,3} \| ", "", json.loads(subprocess.run(["hc", "get", address], capture_output=True, text=True, timeout=15).stdout or "{}").get("title") or "").strip()
         if title and cwd and os.path.exists(db):
-            hit = sqlite3.connect(f"file:{db}?mode=ro", uri=True).execute("select id from session_v2 where parent_id is null and directory = ? and title = ? and time_archived is null order by time_updated desc limit 1", (cwd, title)).fetchone()
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            hit = con.execute("select id from session_v2 where directory = ? and title = ? and time_archived is null order by time_updated desc limit 1", (cwd, title)).fetchone()
             if hit:
-                return hit[0]
+                sid = hit[0]
+                for _ in range(8):  # a sub-agent's title (the TUI shows it while you watch): its root
+                    up = con.execute("select parent_id from session_v2 where id = ?", (sid,)).fetchone()
+                    if not up or not up[0]:
+                        break
+                    sid = up[0]
+                return sid
     except Exception:
         pass
     nums = re.findall(r"\d{3,}", str((row.get("tab") or {}).get("name") or row.get("title") or ""))
@@ -237,11 +244,26 @@ def session_of(row):
     return None
 
 
+def remote_messages(machine, program, session):
+    """The session's messages read on another machine (herdr-core runs this same script there: nothing to install)."""
+    src = open(__file__, encoding="utf-8").read()
+    out = subprocess.run(["hc", "exec", "--on", machine, "python3", "-c", src, "--dump", program, session], capture_output=True, text=True, timeout=60)
+    try:
+        return [tuple(m) for m in json.loads(out.stdout)]
+    except Exception:
+        raise RuntimeError((out.stderr.strip().splitlines() or [f"could not read the session on {machine}"])[-1][:200])
+
+
 def main():
     args = sys.argv[1:]
     if not args:
         print(__doc__.strip(), file=sys.stderr)
         return 2
+    if args[0] == "--dump" and len(args) >= 3:
+        # Run on the machine the agent lives on: its messages as JSON.
+        read = reader_for(args[1])
+        print(json.dumps(read(args[2]) if read else []))
+        return 0
     terminal = args[0]
     opt = lambda name: args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else None
     global CFG
@@ -262,6 +284,9 @@ def main():
     row = next((r for r in rows if terminal in (r.get("terminal"), r.get("address"), f"app:{r.get('address')}")), None)
     result = {"terminal": terminal, "at": int(time.time() * 1000), "agent": agent, "model": model}
     try:
+        # The mod knows a remote agent's session and machine (the hub has neither on this machine).
+        if opt("--session"):
+            row = {**(row or {}), "session": opt("--session"), "program": (row or {}).get("program") or opt("--program")}
         if not row:
             raise RuntimeError("no such agent")
         read = reader_for(row.get("program") or row.get("agent"))
@@ -271,7 +296,8 @@ def main():
             row["session"] = session_of(row)
         if not row.get("session"):
             raise RuntimeError("no session known for this agent yet")
-        messages = read(row["session"])
+        machine = opt("--machine")
+        messages = remote_messages(machine, row.get("program") or row.get("agent"), row["session"]) if machine else read(row["session"])
         if not messages:
             raise RuntimeError("nothing to recap yet")
         if naming:

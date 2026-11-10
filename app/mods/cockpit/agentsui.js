@@ -4,7 +4,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, notify, openOverlay, agents, spaces, panes, exec, readTextFile, writeTextFile } from "herdr";
+import { run, notify, openOverlay, agents, spaces, panes, machines, exec, hc, readTextFile, writeTextFile } from "herdr";
 import * as hub from "./hub.js";
 import { rowsOf } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
@@ -260,7 +260,7 @@ const recapFile = (cache, terminal) => `${cache}/recaps/${String(terminal).repla
 export async function runRecap(terminal, choice = recapChoice()) {
   if (!choice?.agent) return hub.act("agents", "recap", [{ terminal, force: true }]);
   const { home } = await hub.install();
-  const args = [`${home}/.local/share/cockpit/herdr/helpers/cockpit-recap.py`, String(terminal).replace(/^app:/, ""), "--agent", choice.agent];
+  const args = [`${home}/.local/share/cockpit/herdr/helpers/cockpit-recap.py`, String(terminal).replace(/^app:/, ""), "--agent", choice.agent, ...recapArgs(terminal)];
   if (choice.model) args.push("--model", choice.model);
   const r = await exec("python3", args, { timeout: 300000 }).catch((e) => ({ stdout: "", stderr: String(e?.message ?? e) }));
   try {
@@ -650,8 +650,13 @@ export class SubagentsModel {
   /** Asks for the sessions `sessionsOf()` names: every 4 s while one of them works, else every 20 s. */
   follow(cx, sessionsOf) {
     const pull = (cx) => {
-      const sessions = [...new Set((sessionsOf() ?? []).filter(Boolean))].sort();
-      const key = sessions.join(" ");
+      const wanted = new Map();
+      for (const s of sessionsOf() ?? []) {
+        const e = typeof s === "string" ? { session: s, machine: null } : s;
+        if (e?.session) wanted.set(e.session, e.machine ?? null);
+      }
+      const sessions = [...wanted.keys()].sort();
+      const key = sessions.map((s) => `${wanted.get(s) ?? ""}:${s}`).join(" ");
       const busy = Object.values(this.by).some((l) => l.some((s) => s.status === "working"));
       if (this.pending || (key === this.key && !busy && Date.now() - this.at < 20000)) return;
       if (!sessions.length) {
@@ -663,8 +668,18 @@ export class SubagentsModel {
       cx.spawn(async (cx) => {
         try {
           const { home } = await hub.install();
-          const r = await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-subagents.py`, ...sessions], { timeout: 15000 });
-          this.by = JSON.parse(r.stdout || "{}").sessions ?? {};
+          const by = {};
+          const machines = [...new Set(sessions.map((s) => wanted.get(s)))];
+          await Promise.all(
+            machines.map(async (m) => {
+              const mine = sessions.filter((s) => wanted.get(s) === m);
+              const r = m
+                ? await exec("python3", ["-c", await helperSource("cockpit-subagents.py"), ...mine], { on: m, timeout: 20000 })
+                : await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-subagents.py`, ...mine], { timeout: 15000 });
+              Object.assign(by, JSON.parse(r.stdout || "{}").sessions ?? {});
+            }),
+          );
+          this.by = by;
           this.key = key;
           this.at = Date.now();
         } catch {}
@@ -688,7 +703,34 @@ export class SubagentsModel {
 
 /** The sessions worth asking about: this machine's agents (a remote one's sub-agents live on its machine). */
 export function localSessions(rows) {
-  return (rows ?? []).filter((r) => !String(r.address ?? r.terminal ?? "").includes("/")).map(sessionFor).filter(Boolean);
+  return (rows ?? []).map((r) => ({ session: sessionFor(r), machine: machineOf(r.address ?? r.terminal) })).filter((s) => s.session);
+}
+
+/** The machine an agent runs on: the address prefix (`lionheart/t9`), null for this one. */
+export const machineOf = (address) => {
+  const s = String(address ?? "").replace(/^app:/, "");
+  return s.includes("/") ? s.split("/")[0] : null;
+};
+
+const sources = new Map();
+/** A helper script's source (read once): another machine runs it with `python3 -c`, so nothing is installed there. */
+async function helperSource(name) {
+  if (!sources.has(name)) {
+    const { home } = await hub.install();
+    sources.set(name, (await readTextFile(`${home}/.local/share/cockpit/herdr/helpers/${name}`)) ?? "");
+  }
+  return sources.get(name);
+}
+
+/** The extra arguments cockpit-recap.py needs for an agent on another machine (the hub has no session for it here). */
+export function recapArgs(terminal) {
+  const address = String(terminal ?? "").replace(/^app:/, "");
+  const machine = machineOf(address);
+  const session = sessionFor({ address });
+  if (!machine || !session) return [];
+  const a = agents().find((x) => x.address === address);
+  const program = String(a?.app ?? a?.program?.key ?? a?.program?.name ?? "opencode").toLowerCase();
+  return ["--session", session, "--program", program, "--machine", machine];
 }
 
 /** Sessions cockpit-perf.py found for agents the hub gave none (OpenCode's terminal title is its session's title): address -> id. */
@@ -696,6 +738,70 @@ const RESOLVED = new Map();
 
 /** An agent's session: the hub's, else the one found from its terminal. */
 export const sessionFor = (r) => r?.session ?? RESOLVED.get(String(r?.address ?? r?.terminal ?? "").replace(/^app:/, "")) ?? null;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Oh-my-opencode-slim's preset, per machine: each machine's OpenCode reads its own `oh-my-opencode-slim.json` when a session
+// starts (OH_MY_OPENCODE_SLIM_PRESET, when set there, wins), so what this window shows and sets is that machine's file.
+
+const OMO_FILE = "~/.config/opencode/oh-my-opencode-slim.json";
+const OMO_READ = `import json,os;p=os.path.expanduser('${OMO_FILE}');d=json.load(open(p));print(json.dumps({'preset':d.get('preset'),'presets':list((d.get('presets') or {}).keys()),'env':os.environ.get('OH_MY_OPENCODE_SLIM_PRESET')}))`;
+const OMO_WRITE = `import re,os,json,sys,shutil;p=os.path.expanduser('${OMO_FILE}');t=open(p).read();n=re.sub(r'("preset"\\s*:\\s*)"[^"]*"',lambda m:m.group(1)+json.dumps(sys.argv[1]),t,1);json.loads(n);shutil.copy(p,p+'.bak-cockpit');open(p,'w').write(n);print('ok')`;
+
+export class OmoModel {
+  constructor() {
+    this.by = new Map();
+  }
+
+  /** The machines to ask: this one (null) and every other that herdr-core is connected to. */
+  follow(cx) {
+    const pull = (cx) =>
+      cx.spawn(async (cx) => {
+        let changed = false;
+        for (const m of machines().map((x) => x.name)) {
+          try {
+            const r = await exec("python3", ["-c", OMO_READ], m ? { on: m, timeout: 15000 } : { timeout: 15000 });
+            const v = JSON.parse(r.stdout || "null");
+            if (v && JSON.stringify(v) !== JSON.stringify(this.by.get(m ?? null))) {
+              this.by.set(m ?? null, v);
+              changed = true;
+            }
+          } catch {
+            if (this.by.delete(m ?? null)) changed = true;
+          }
+        }
+        if (changed) cx.notify();
+      });
+    pull(cx);
+    cx.timer.every(10000, (cx) => pull(cx));
+  }
+
+  /** A machine's {preset, presets, env}, null when it has no OMO config. */
+  of(machine) {
+    return this.by.get(machine ?? null) ?? null;
+  }
+
+  /** Sets a machine's preset (its file is backed up first as `.bak-cockpit`); resolves to a sentence for a toast. */
+  async set(machine, name) {
+    const v = this.of(machine);
+    if (!v?.presets.includes(name)) return { error: `${name} is not a preset there` };
+    const r = await exec("python3", ["-c", OMO_WRITE, name], machine ? { on: machine, timeout: 15000 } : { timeout: 15000 });
+    if (!/ok/.test(r.stdout ?? "")) return { error: String(r.stderr ?? "could not write the config").slice(0, 200) };
+    this.by.set(machine ?? null, { ...v, preset: name });
+    const label = machine ?? "this computer";
+    return { note: `${label}: preset ${name}. Sessions already running keep ${v.preset} until restarted.${v.env ? ` OH_MY_OPENCODE_SLIM_PRESET=${v.env} is set there and wins.` : ""}` };
+  }
+
+  /** Menu items: a section per machine, the current preset ticked; each picks `omo:<machine>|<preset>`. */
+  menu() {
+    const items = [];
+    for (const [m, v] of this.by) {
+      if (items.length) items.push("separator");
+      items.push({ label: `${m ?? "This computer"}${v.env ? ` (env ${v.env} wins)` : ""}`, disabled: true });
+      for (const p of v.presets) items.push({ label: p, icon: p === v.preset ? "check" : undefined, command: `omo:${m ?? ""}|${p}` });
+    }
+    return items;
+  }
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // What the agents cost the machines (herdr/helpers/cockpit-perf.py): this computer's CPU, memory and GPU, the GPU of the machines in perf.remotes, and per
@@ -720,14 +826,36 @@ export class PerfModel {
       const live = new Map(agents().map((a) => [a.address, a]));
       const cwd = new Map(panes().filter((p) => p.terminal).map((p) => [p.terminal, p.cwd]));
       const list = (rowsOf() ?? [])
-        .filter((r) => !String(r.address ?? "").includes("/") && live.has(r.address))
-        .map((r) => ({ address: r.address, pane: live.get(r.address).pane, session: r.session ?? null, program: r.program ?? live.get(r.address).app ?? live.get(r.address).program?.key, cwd: cwd.get(r.address) ?? null, name: live.get(r.address).tab_name }));
+        .filter((r) => r.address && (live.has(r.address) || machineOf(r.address)))
+        .map((r) => {
+          const l = live.get(r.address) ?? {};
+          return { address: r.address, pane: l.pane ?? null, session: r.session ?? null, program: r.program ?? l.app ?? l.program?.key, cwd: cwd.get(r.address) ?? null, name: l.tab_name ?? r.tab?.name };
+        });
       this.pending = true;
       cx.spawn(async (cx) => {
         try {
           const { home } = await hub.install();
-          const r = await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-perf.py`, JSON.stringify(list)], { timeout: 15000 });
+          const here = list.filter((x) => !machineOf(x.address));
+          const r = await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-perf.py`, JSON.stringify(here)], { timeout: 15000 });
           const v = JSON.parse(r.stdout || "null");
+          // Agents on other machines: the same helper runs there (its source passed in), told what only this machine knows.
+          const cfg = JSON.parse((await readTextFile(`${home}/.config/cockpit/config.json`).catch(() => null)) ?? "{}");
+          const away = list.filter((x) => machineOf(x.address));
+          const machines = [...new Set(away.map((x) => machineOf(x.address)))];
+          await Promise.all(
+            machines.map(async (m) => {
+              try {
+                const mine = [];
+                for (const x of away.filter((y) => machineOf(y.address) === m)) {
+                  const t = JSON.parse((await hc(["get", x.address])).stdout || "{}");
+                  mine.push({ ...x, cwd: x.cwd ?? t.cwd ?? null, terminal: { pid: t.pid ?? null, title: t.title ?? null } });
+                }
+                const payload = { remote: true, config: { context: cfg.context ?? {} }, agents: mine };
+                const out = await exec("python3", ["-c", await helperSource("cockpit-perf.py"), JSON.stringify(payload)], { on: m, timeout: 20000 });
+                Object.assign(v?.agents ?? {}, JSON.parse(out.stdout || "{}").agents ?? {});
+              } catch {}
+            }),
+          );
           if (v) {
             this.value = v;
             const keep = (arr, x) => (x == null ? arr : [...arr, x].slice(-PERF_KEEP));
@@ -814,7 +942,7 @@ export class TitlesModel {
   }
 
   due(r, now) {
-    if (!r.session || String(r.address ?? r.terminal ?? "").includes("/") || now < (this.next.get(r.terminal) ?? 0)) return null;
+    if (!r.session || now < (this.next.get(r.terminal) ?? 0)) return null;
     const place = this.placeOf(r);
     if (!place || !this.ours(r, place.tab)) return null;
     const mine = this.applied[r.terminal];
@@ -838,7 +966,7 @@ export class TitlesModel {
     cx.spawn(async (cx) => {
       try {
         const { home } = await hub.install();
-        const out = await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-recap.py`, r.terminal, "--title"], { timeout: 300000 });
+        const out = await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-recap.py`, r.terminal, "--title", ...recapArgs(r.terminal)], { timeout: 300000 });
         const t = JSON.parse(out.stdout || "{}");
         // No prompt yet: ask again soon, the first one names it.
         if (!t.name && /nothing to recap|no session/.test(t.error ?? "")) this.next.set(r.terminal, Date.now() + TITLE_EMPTY_RETRY_MS);

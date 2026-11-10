@@ -13,7 +13,7 @@ import { deliver, follow } from "./notify.js";
 import { rowsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur, openMenu } from "./ui.js";
-import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
 import { followUsage } from "./usage.js";
 
 const APPS = {
@@ -88,21 +88,8 @@ export default class Sidebar {
     followUsage(cx, (data) => (this.usage = data), { every: 30000 });
     this.perf = new PerfModel();
     this.perf.follow(cx, () => this.agents.rows);
-    this.omo = null;
-    const readOmo = (cx) =>
-      cx.spawn(async (cx) => {
-        try {
-          const { home } = await hub.install();
-          const d = JSON.parse((await readTextFile(`${home}/.config/opencode/oh-my-opencode-slim.json`)) ?? "{}");
-          const next = { preset: d.preset ?? null, presets: Object.keys(d.presets ?? {}) };
-          if (next.preset !== this.omo?.preset || next.presets.join() !== this.omo?.presets.join()) {
-            this.omo = next;
-            cx.notify();
-          }
-        } catch {}
-      });
-    readOmo(cx);
-    cx.timer.every(10000, (cx) => readOmo(cx));
+    this.omo = new OmoModel();
+    this.omo.follow(cx);
     cx.spawn(async (cx) => {
       try {
         this.install = await hub.install();
@@ -308,7 +295,7 @@ export default class Sidebar {
         ),
       )
       .when(!rail && Boolean(this.perf.value), (e) => e.child(this.machineLine(k)))
-      .when(!rail && Boolean(this.omo?.presets?.length), (e) => e.child(this.omoLine(k)))
+      .when(!rail && this.omo.by.size > 0, (e) => e.child(this.omoLine(k)))
       .when(rail, (e) =>
         e
           .child(navItem("home", "Home", "layout-dashboard", counts.unread || null, "⌘⌥0", counts.needs_you ? k.blocked : null))
@@ -360,21 +347,13 @@ export default class Sidebar {
       .child(Icon("chevron-right", { size: 14, color: k.mutedFg }));
   }
 
-  /** Oh-my-opencode-slim's preset (which model each OMO agent uses) lives in its config's `preset`; a new one applies to
-   *  OpenCode sessions started after. Only that line is rewritten. */
-  setOmoPreset(name, cx) {
-    if (!this.omo?.presets.includes(name)) return;
+  /** Picks a machine's OMO preset (`<machine>|<preset>`, machine empty for this computer). */
+  setOmoPreset(spec, cx) {
+    const [machine, name] = spec.split("|");
     cx.spawn(async (cx) => {
       try {
-        const { home } = await hub.install();
-        const path = `${home}/.config/opencode/oh-my-opencode-slim.json`;
-        const before = await readTextFile(path);
-        const after = before.replace(/("preset"\s*:\s*)"[^"]*"/, `$1${JSON.stringify(name)}`);
-        if (after === before) return;
-        JSON.parse(after);
-        await writeTextFile(path, after, before);
-        this.omo = { ...this.omo, preset: name };
-        notify({ title: `OMO preset: ${name}`, body: "New OpenCode sessions use it." });
+        const r = await this.omo.set(machine || null, name);
+        notify({ title: r.error ? "Could not change the OMO preset" : "OMO preset", body: r.error ?? r.note });
       } catch (e) {
         notify({ title: "Could not change the OMO preset", body: String(e?.message ?? e) });
       }
@@ -382,8 +361,10 @@ export default class Sidebar {
     });
   }
 
-  /** The OMO preset in use, a click away from the others. */
+  /** The OMO preset of each machine (this one first; the others only when they differ), a click away from the menu. */
   omoLine(k) {
+    const here = this.omo.of(null);
+    const others = [...this.omo.by].filter(([m]) => m !== null);
     return h_flex()
       .id("omo-line")
       .mb(8)
@@ -393,10 +374,11 @@ export default class Sidebar {
       .cursor_pointer()
       .text_size(TEXT.xs)
       .font_family("JetBrains Mono")
-      .tooltip("Oh-my-opencode-slim preset: which model each OMO agent uses. Click to pick; new sessions use it.")
-      .on_click(() => openMenu(this.omo.presets.map((p) => ({ label: p, icon: p === this.omo.preset ? "check" : undefined, command: `omo:${p}` })), { width: 200 }))
+      .tooltip("Oh-my-opencode-slim preset of each machine: which model each OMO agent uses. Click to pick one per machine; sessions already running keep theirs.")
+      .on_click(() => openMenu(this.omo.menu(), { width: 240 }))
       .child(div().text_color(k.dim).child("OMO"))
-      .child(div().text_color(k.foreground).child(this.omo.preset ?? "none"))
+      .when(Boolean(here), (e) => e.child(div().text_color(k.foreground).child(here.preset ?? "none")))
+      .children(others.map(([m, v]) => h_flex().gap(3).child(div().text_color(k.dim).child(m.slice(0, 6))).child(div().text_color(v.preset === here?.preset ? k.mutedFg : k.warning).child(v.preset ?? "none"))))
       .child(Icon("chevron-down", { size: 11, color: k.dim }));
   }
 

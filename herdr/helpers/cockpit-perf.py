@@ -70,7 +70,16 @@ def processes():
     return out
 
 
+# Set when this runs on another machine (the mod passes the source with `python3 -c`): the Mac's config and each
+# terminal's pid and title come in the payload, since `hc get` and the config live there.
+REMOTE = False
+CONFIG_OVERRIDE = None
+TERMINALS = {}
+
+
 def terminal_info(address):
+    if address in TERMINALS:
+        return TERMINALS[address]
     """`hc get`: the terminal's shell pid (app tabs carry no HERDR_PANE_ID, but the core knows the shell) and its title,
     which OpenCode sets to the session's title."""
     try:
@@ -189,13 +198,28 @@ def session_by_name(con, cwd, name):
     return hits[0] if hits else None
 
 
+def root_of(con, sid):
+    """A session's root: the one with no parent (the TUI's title can be a sub-agent's while you watch it)."""
+    for _ in range(8):
+        row = con.execute("select parent_id from session_v2 where id = ?", (sid,)).fetchone()
+        if not row or not row[0]:
+            return sid
+        sid = row[0]
+    return sid
+
+
 def session_by_title(con, cwd, title):
     """OpenCode sets its terminal's title to "<tag> | <session title>": the newest root session in the folder with that title."""
     t = re.sub(r"^\w{1,3} \| ", "", title or "").strip()
     if not t or not cwd:
         return None
-    hit = con.execute("select id from session_v2 where parent_id is null and directory = ? and title = ? and time_archived is null order by time_updated desc limit 1", (cwd, t)).fetchone()
-    return hit[0] if hit else None
+    # Herdr cuts a long title short with "…": match the start then.
+    if t.endswith("…"):
+        like, t = t.rstrip("…").rstrip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%", ""
+        hit = con.execute("select id from session_v2 where directory = ? and title like ? escape '\\' and time_archived is null order by time_updated desc limit 1", (cwd, like)).fetchone()
+    else:
+        hit = con.execute("select id from session_v2 where directory = ? and title = ? and time_archived is null order by time_updated desc limit 1", (cwd, t)).fetchone()
+    return root_of(con, hit[0]) if hit else None
 
 
 def opencode_tps(con, session, cwd, name=None, title=None):
@@ -264,6 +288,8 @@ def claude_tps(session):
 
 
 def cfg():
+    if CONFIG_OVERRIDE is not None:
+        return CONFIG_OVERRIDE
     try:
         return json.load(open(os.path.expanduser("~/.config/cockpit/config.json")))
     except Exception:
@@ -294,6 +320,7 @@ def window_of(model):
             with urllib.request.urlopen(req, timeout=4) as r:
                 rows = json.load(r).get("data") or []
             cache = {"at": NOW, "limits": {m["model_name"]: (m.get("model_info") or {}).get("max_input_tokens") for m in rows if m.get("model_name")}}
+            os.makedirs(CACHE, exist_ok=True)
             with open(path + ".tmp", "w") as f:
                 json.dump(cache, f)
             os.replace(path + ".tmp", path)
@@ -409,10 +436,20 @@ def tail_lines(path, limit=400):
 
 
 def main():
+    global REMOTE, CONFIG_OVERRIDE
     try:
-        wanted = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []
+        payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []
     except Exception:
-        wanted = []
+        payload = []
+    if isinstance(payload, dict):
+        REMOTE = bool(payload.get("remote"))
+        CONFIG_OVERRIDE = payload.get("config")
+        wanted = payload.get("agents") or []
+    else:
+        wanted = payload
+    for a in wanted:
+        if a.get("terminal"):
+            TERMINALS[a.get("address")] = a["terminal"]
     procs = processes()
     con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True) if os.path.exists(OPENCODE_DB) else None
     agents = {}
@@ -432,7 +469,7 @@ def main():
         # The answer's own model beats a guess from the transcript.
         out["info"] = {k: v for k, v in {**info, "model": info.get("model") or out.get("model")}.items() if v is not None}
         agents[a.get("address")] = out
-    result = {"at": int(NOW * 1000), "system": system(procs), "remote": remotes(), "agents": agents}
+    result = {"at": int(NOW * 1000), "system": system(procs), "remote": ({} if REMOTE else remotes()), "agents": agents}
     print(json.dumps(result))
 
 
