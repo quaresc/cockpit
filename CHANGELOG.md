@@ -5,6 +5,13 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.40.1 (2026-11-10)
+
+- A ticket mapping that holds its own `states` is no longer asked for a `listStates` tool, so `cockpit doctor`
+  stops warning about one the GitHub Issues preset does not need (#37).
+- `cockpit` on PATH is linked through `~/.config/cockpit/herdr`, not an install folder the next update prunes: a
+  link left pointing nowhere goes back on it, and `cockpit doctor` says when one does (#37).
+
 ## 0.40.0 (2026-11-10)
 
 - Inbox: do not duplicate stacked PRs at the section root (#29)
