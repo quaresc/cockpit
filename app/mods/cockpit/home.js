@@ -232,7 +232,7 @@ export default class Home {
   }
 
   openBeside(cx, a) {
-    if (!a || refuseRemoteAgent(a)) return;
+    if (!a) return;
     run("agent.focus", { terminal: a.address });
     run("layout.show", { id: "home-agent" });
     this.focusMode = true;

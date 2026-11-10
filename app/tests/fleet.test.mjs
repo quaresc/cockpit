@@ -47,7 +47,7 @@ async function fixture() {
   return { fleet: module.namespace, calls, notices };
 }
 
-test("a runner's t7 stays separate from local t7 and cannot focus its tab", async () => {
+test("a runner's t7 stays separate from local t7 and Go focuses the runner's terminal", async () => {
   const f = await fixture();
   const model = { remote: "runner", agents: [{ address: "t7", terminal: "app:t7", frontend: "app", title: "Runner agent", stage: "done", tab: { id: "tab7" } }] };
   const rows = f.fleet.fleet(model, {});
@@ -57,8 +57,9 @@ test("a runner's t7 stays separate from local t7 and cannot focus its tab", asyn
   assert.equal(rows[0].remote, "runner");
   assert.equal(rows[0].status, undefined);
   f.fleet.goToAgent(rows[0]);
-  assert.equal(f.calls.length, 0);
-  assert.equal(f.notices.length, 1);
+  assert.equal(f.calls[0][0], "agent.focus");
+  assert.equal(f.calls[0][1].terminal, "runner/t7");
+  assert.equal(f.notices.length, 0);
 });
 
 test("local agents retain their metadata join and navigation", async () => {
@@ -73,7 +74,7 @@ test("local agents retain their metadata join and navigation", async () => {
   assert.equal(f.notices.length, 0);
 });
 
-test("remote Go, Peek, Open beside and Archive handlers issue no desktop commands", async () => {
+test("remote Go, Peek and Open beside navigate to the runner's terminal; Archive stays refused", async () => {
   const f = await fixture();
   const model = { remote: "runner", agents: [{ address: "t7", terminal: "app:t7", title: "Runner agent", tab: { id: "tab7" } }] };
   const agents = Object.create(f.fleet.AgentsModel.prototype);
@@ -88,8 +89,13 @@ test("remote Go, Peek, Open beside and Archive handlers issue no desktop command
   home.openBeside(cx, agent);
   home.archive(cx, agent);
   home.archiveAll(cx, [{ agent }]);
-  assert.equal(f.calls.length, 0);
-  assert.equal(f.notices.length, 5);
+  assert.deepEqual(f.calls.filter(c => c[1]?.terminal).map(c => `${c[0]} ${c[1].terminal}`), [
+    "agent.focus runner/t7",
+    "terminal.peek runner/t7",
+    "agent.focus runner/t7",
+  ]);
+  assert.equal(f.calls.some(c => c[0] === "tab.settle"), false);
+  assert.equal(f.notices.length, 2);
 });
 
 test("local Go, Peek, Open beside and Archive handlers retain their commands", async () => {

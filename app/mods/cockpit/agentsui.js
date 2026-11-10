@@ -6,7 +6,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { run, notify, openOverlay, agents } from "herdr";
 import * as hub from "./hub.js";
-import { rowsOf, refuseRemoteAgent } from "./fleet.js";
+import { rowsOf } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
 
 /** Each stage: its label, color token and mark. Whose move it is, yours first. */
@@ -274,10 +274,10 @@ export class AgentsModel {
   }
 
   go(cx, row) {
-    if (refuseRemoteAgent(row)) return;
     run("agent.focus", { terminal: row.address });
     run("layout.select", { stack: "center", child: "work" });
-    if (!row.herdr) this.act(cx, "seen", { terminal: row.terminal });
+    // A runner's hub takes no writes from a remote desk.
+    if (!row.herdr && !row.remote) this.act(cx, "seen", { terminal: row.terminal });
   }
 
   /** The right-click menu of an agent; its items come back as `cockpit.agents|<what>|<terminal>|<arg>`. */
@@ -314,7 +314,7 @@ export class AgentsModel {
     const row = this.row(terminal);
     if (!row) return true;
     if (what === "go") this.go(cx, row);
-    else if (what === "peek" && !refuseRemoteAgent(row)) run("terminal.peek", { terminal: row.address });
+    else if (what === "peek") run("terminal.peek", { terminal: row.address });
     else if (what === "recap") this.act(cx, "recap", { terminal, force: true }, "recapping");
     else if (what === "snooze") this.act(cx, "snooze", { terminal, until: arg });
     else if (what === "wake") this.act(cx, "snooze", { terminal, until: null });
