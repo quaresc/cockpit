@@ -14,7 +14,7 @@ import { rowsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur, openMenu } from "./ui.js";
 import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
-import { followUsage } from "./usage.js";
+import { followUsage, projection } from "./usage.js";
 
 const APPS = {
   inbox: { label: "Inbox", icon: "inbox", key: "⌘⌥1" },
@@ -90,6 +90,11 @@ export default class Sidebar {
     this.perf.follow(cx, () => this.agents.rows);
     this.omo = new OmoModel();
     this.omo.follow(cx);
+    try {
+      this.headerOpen = localStorage.getItem("cockpit.sidebar.header") !== "folded";
+    } catch {
+      this.headerOpen = true;
+    }
     cx.spawn(async (cx) => {
       try {
         this.install = await hub.install();
@@ -282,20 +287,7 @@ export default class Sidebar {
             .child(Kbd("⌘⇧P")),
         ),
       )
-      .when(!rail && (Boolean(this.usage?.agents?.length) || Boolean(model.value?.quota?.length)), (e) =>
-        e.child(
-          div()
-            .id("quota-box")
-            .mb(8)
-            .px(4)
-            .cursor_pointer()
-            .on_click(() => show("usage"))
-            // The usage sync's own file: every agent's 5-hour and weekly window; the hub's quota until it has run.
-            .child(this.usage?.agents?.length ? QuotaBars(quotaByAgent(this.usage), { compact: true, labelW: 64, resets: true }) : QuotaBars(worstQuota(model.value.quota), { compact: true, labelW: 64 })),
-        ),
-      )
-      .when(!rail && Boolean(this.perf.value), (e) => e.child(this.machineLine(k)))
-      .when(!rail && this.omo.by.size > 0, (e) => e.child(this.omoLine(k)))
+      .when(!rail, (e) => e.child(this.headerBlock(k, model)))
       .when(rail, (e) =>
         e
           .child(navItem("home", "Home", "layout-dashboard", counts.unread || null, "⌘⌥0", counts.needs_you ? k.blocked : null))
@@ -361,52 +353,130 @@ export default class Sidebar {
     });
   }
 
-  /** The OMO preset of each machine (this one first; the others only when they differ), a click away from the menu. */
+  /** Each machine's OMO preset on its own row (full names); hover for the models its OMO agents use, click to pick. */
   omoLine(k) {
     const here = this.omo.of(null);
-    const others = [...this.omo.by].filter(([m]) => m !== null);
-    return h_flex()
+    return v_flex()
       .id("omo-line")
-      .mb(8)
       .px(4)
-      .gap(6)
-      .items_center()
+      .gap(1)
       .cursor_pointer()
       .text_size(TEXT.xs)
       .font_family("JetBrains Mono")
-      .tooltip("Oh-my-opencode-slim preset of each machine: which model each OMO agent uses. Click to pick one per machine; sessions already running keep theirs.")
       .on_click(() => openMenu(this.omo.menu(), { width: 240 }))
-      .child(div().text_color(k.dim).child("OMO"))
-      .when(Boolean(here), (e) => e.child(div().text_color(k.foreground).child(here.preset ?? "none")))
-      .children(others.map(([m, v]) => h_flex().gap(3).child(div().text_color(k.dim).child(m.slice(0, 6))).child(div().text_color(v.preset === here?.preset ? k.mutedFg : k.warning).child(v.preset ?? "none"))))
-      .child(Icon("chevron-down", { size: 11, color: k.dim }));
+      .child(h_flex().gap(4).items_center().text_color(k.dim).child("OMO preset per machine").child(Icon("chevron-down", { size: 11, color: k.dim })))
+      .children(
+        [...this.omo.by].map(([m, v]) => {
+          const models = Object.entries(v.models ?? {}).map(([agent, model]) => `${agent}: ${model}`).join("\n");
+          return h_flex()
+            .id(`omo-${m ?? "here"}`)
+            .gap(6)
+            .tooltip(`${m ?? "This computer"}: preset ${v.preset ?? "none"}${v.env ? ` (OH_MY_OPENCODE_SLIM_PRESET=${v.env} wins)` : ""}\n${models}\nClick to pick one per machine; a running session keeps the preset it started with.`)
+            .child(div().w(84).flex_none().truncate().text_color(k.mutedFg).child(m ?? "this Mac"))
+            .child(div().text_color(m === null || v.preset === here?.preset ? k.foreground : k.warning).child(v.preset ?? "none"));
+        }),
+      );
   }
 
-  /** This computer's CPU and GPU, other machines' GPUs (perf.remotes), and the agents' tokens per second, on one line. */
+  /** One row per machine: CPU, memory, GPU, VRAM measured there, and its agents' tokens per second. */
   machineLine(k) {
-    const v = this.perf.value;
-    const s = v.system ?? {};
-    const remotes = Object.entries(v.remote ?? {}).filter(([, r]) => !r.away);
-    const tps = this.perf.liveTps();
     const tone = (p) => (p >= 90 ? k.destructive : p >= 70 ? k.warning : k.mutedFg);
-    const stat = (id, label, p, tip) =>
-      h_flex().id(id).gap(3).tooltip(tip).child(div().text_color(k.dim).child(label)).child(div().text_color(tone(p ?? 0)).child(p == null ? "–" : `${Math.round(p)}%`));
-    return h_flex()
+    const stat = (label, p, tip) => (p == null ? null : h_flex().gap(3).tooltip(tip).child(div().text_color(k.dim).child(label)).child(div().text_color(tone(p)).child(`${Math.round(p)}%`)));
+    const gb = (mb) => `${(mb / 1024).toFixed(1)} GB`;
+    return v_flex()
       .id("machine-line")
-      .mb(8)
       .px(4)
-      .gap(10)
+      .gap(2)
       .text_size(TEXT.xs)
       .font_family("JetBrains Mono")
-      .child(stat("ml-cpu", "CPU", s.cpu, `This Mac's CPU: ${s.cpu ?? "–"}% of ${s.cores ?? "?"} cores${s.mem_used ? ` · memory ${(s.mem_used / 1024).toFixed(1)} of ${Math.round(s.mem_total / 1024)} GB` : ""}`))
-      .child(stat("ml-gpu", "GPU", s.gpu, "This Mac's GPU, busy %"))
       .children(
-        remotes.map(([name, r]) =>
-          stat(`ml-${name}`, name.slice(0, 5), r.gpu, `${name}'s ${r.name ?? "GPU"}: ${r.gpu}% busy · VRAM ${((r.vram_used ?? 0) / 1024).toFixed(1)} of ${((r.vram_total ?? 0) / 1024).toFixed(1)} GB${r.stale ? " · last answer, the machine is away" : ""}`),
+        [...this.perf.sys].map(([m, s]) => {
+          const tps = this.perf.tpsOf(m);
+          return h_flex()
+            .id(`ml-${m ?? "here"}`)
+            .gap(8)
+            .items_center()
+            .child(div().w(84).flex_none().truncate().text_color(k.mutedFg).child(m ?? "this Mac"))
+            .children(
+              [
+                stat("CPU", s.cpu, `${m ?? "This computer"}: CPU ${s.cpu}% of ${s.cores ?? "?"} cores`),
+                s.mem_total ? stat("MEM", (s.mem_used / s.mem_total) * 100, `${gb(s.mem_used)} of ${gb(s.mem_total)}`) : null,
+                stat("GPU", s.gpu, `${m ?? "This computer"}: GPU busy`),
+                s.vram_total ? stat("VRAM", (s.vram_used / s.vram_total) * 100, `${gb(s.vram_used)} of ${gb(s.vram_total)}`) : null,
+              ].filter(Boolean),
+            )
+            .child(div().flex_1())
+            .when(tps > 0, (e) => e.child(h_flex().tooltip("Tokens per second of its agents' answers in the last minute").text_color(k.working).child(tpsText(tps))));
+        }),
+      );
+  }
+
+  /** Quota notes under the bars: what is on pace to run out before it resets, and each plan. */
+  quotaNotes(k) {
+    const lines = [];
+    const short = { claude: "Claude", codex: "Codex", antigravity: "Agy" };
+    for (const a of this.usage?.agents ?? []) {
+      if (!short[a.id]) continue;
+      for (const w of a.windows ?? []) {
+        const full = projection(w);
+        if (full) lines.push({ tone: k.warning, text: `${short[a.id]} ${w.name}${w.group ? ` ${w.group}` : ""}: full in ~${dur(full)}, before it resets in ${dur(w.resets_at - Date.now())}` });
+      }
+      const plan = (a.windows ?? []).find((w) => w.plan)?.plan;
+      if (plan) lines.push({ tone: k.dim, text: `${short[a.id]} plan: ${plan}` });
+      if (a.stale) lines.push({ tone: k.warning, text: `${short[a.id]}: last answer is stale (${a.error ?? "the ask failed"})` });
+    }
+    return lines.slice(0, 4).map((l, i) => div().id(`qn-${i}`).px(4).text_size(TEXT.xs).text_color(l.tone).truncate().child(l.text));
+  }
+
+  /** The header block (quota, machines, OMO presets) folds to one line. */
+  headerBlock(k, model) {
+    const hasQuota = Boolean(this.usage?.agents?.length) || Boolean(model.value?.quota?.length);
+    if (!hasQuota && !this.perf.value && this.omo.by.size === 0) return div();
+    const open = this.headerOpen;
+    const worstPct = Math.round(Math.max(0, ...(this.usage?.agents ?? []).flatMap((a) => (a.windows ?? []).map((w) => w.percent ?? 0))));
+    const here = this.perf.sys.get(null);
+    const summary = [hasQuota && `${worstPct}% of limit`, here && `CPU ${Math.round(here.cpu)}%`, this.omo.of(null)?.preset].filter(Boolean).join(" · ");
+    return v_flex()
+      .id("header-block")
+      .mb(8)
+      .gap(6)
+      .child(
+        h_flex()
+          .id("header-toggle")
+          .h(22)
+          .px(4)
+          .gap(6)
+          .items_center()
+          .cursor_pointer()
+          .text_size(TEXT.xs)
+          .text_color(k.dim)
+          .tooltip(open ? "Fold the usage, machines and presets" : "Show the usage, machines and presets")
+          .on_click((_e, cx) => {
+            this.headerOpen = !this.headerOpen;
+            try {
+              localStorage.setItem("cockpit.sidebar.header", this.headerOpen ? "open" : "folded");
+            } catch {}
+            cx.notify();
+          })
+          .child(Icon(open ? "chevron-down" : "chevron-right", { size: 12, color: k.dim }))
+          .child(div().child("Usage and machines"))
+          .when(!open, (e) => e.child(div().flex_1().min_w(0).truncate().text_right().font_family("JetBrains Mono").child(summary))),
+      )
+      .when(open && hasQuota, (e) =>
+        e.child(
+          v_flex()
+            .id("quota-box")
+            .px(4)
+            .gap(3)
+            .cursor_pointer()
+            .on_click(() => show("usage"))
+            // The usage sync's own file: every agent's 5-hour and weekly window; the hub's quota until it has run.
+            .child(this.usage?.agents?.length ? QuotaBars(quotaByAgent(this.usage), { compact: true, labelW: 64, resets: true }) : QuotaBars(worstQuota(model.value.quota), { compact: true, labelW: 64 }))
+            .children(this.quotaNotes(k)),
         ),
       )
-      .child(div().flex_1())
-      .when(tps > 0, (e) => e.child(h_flex().id("ml-tps").tooltip("Tokens per second of the agents' answers in the last minute, summed").text_color(k.working).child(tpsText(tps))));
+      .when(open && this.perf.sys.size > 0, (e) => e.child(this.machineLine(k)))
+      .when(open && this.omo.by.size > 0, (e) => e.child(this.omoLine(k)));
   }
 
   /** The pinned apps as a row of tiles (label and key in the tooltip, count as a badge): the list below keeps the room. */

@@ -131,7 +131,14 @@ def system(procs):
             mem_used = mem_total - int(info["MemAvailable"]) // 1024
         except Exception:
             pass
-    return {"cpu": cpu, "cores": cores, "mem_used": mem_used, "mem_total": mem_total, "gpu": gpu_here()}
+    out = {"cpu": cpu, "cores": cores, "mem_used": mem_used, "mem_total": mem_total, "gpu": gpu_here()}
+    # An NVIDIA card also has VRAM to report.
+    vram = run(["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"]).strip().splitlines()
+    if vram and "," in vram[0]:
+        used, total = (x.strip() for x in vram[0].split(",")[:2])
+        if used.isdigit() and total.isdigit():
+            out.update(vram_used=int(used), vram_total=int(total))
+    return out
 
 
 def gpu_here():

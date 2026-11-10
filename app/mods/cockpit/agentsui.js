@@ -744,7 +744,7 @@ export const sessionFor = (r) => r?.session ?? RESOLVED.get(String(r?.address ??
 // starts (OH_MY_OPENCODE_SLIM_PRESET, when set there, wins), so what this window shows and sets is that machine's file.
 
 const OMO_FILE = "~/.config/opencode/oh-my-opencode-slim.json";
-const OMO_READ = `import json,os;p=os.path.expanduser('${OMO_FILE}');d=json.load(open(p));print(json.dumps({'preset':d.get('preset'),'presets':list((d.get('presets') or {}).keys()),'env':os.environ.get('OH_MY_OPENCODE_SLIM_PRESET')}))`;
+const OMO_READ = `import json,os;p=os.path.expanduser('${OMO_FILE}');d=json.load(open(p));cur=(d.get('presets') or {}).get(d.get('preset')) or {};print(json.dumps({'preset':d.get('preset'),'presets':list((d.get('presets') or {}).keys()),'env':os.environ.get('OH_MY_OPENCODE_SLIM_PRESET'),'models':{k:(v.get('model') if isinstance(v.get('model'),str) else ' > '.join(v.get('model') or [])) for k,v in cur.items() if isinstance(v,dict)}}))`;
 const OMO_WRITE = `import re,os,json,sys,shutil;p=os.path.expanduser('${OMO_FILE}');t=open(p).read();n=re.sub(r'("preset"\\s*:\\s*)"[^"]*"',lambda m:m.group(1)+json.dumps(sys.argv[1]),t,1);json.loads(n);shutil.copy(p,p+'.bak-cockpit');open(p,'w').write(n);print('ok')`;
 
 export class OmoModel {
@@ -816,6 +816,8 @@ export class PerfModel {
     this.history = { cpu: [], gpu: [] };
     this.remoteGpu = new Map();
     this.agentCpu = new Map();
+    // Each machine's CPU, memory, GPU, VRAM (null: this computer), from the helper run there.
+    this.sys = new Map();
     this.pending = false;
   }
 
@@ -841,9 +843,10 @@ export class PerfModel {
           // Agents on other machines: the same helper runs there (its source passed in), told what only this machine knows.
           const cfg = JSON.parse((await readTextFile(`${home}/.config/cockpit/config.json`).catch(() => null)) ?? "{}");
           const away = list.filter((x) => machineOf(x.address));
-          const machines = [...new Set(away.map((x) => machineOf(x.address)))];
+          if (v?.system) this.sys.set(null, v.system);
+          const names = [...new Set([...machines().map((x) => x.name).filter(Boolean), ...away.map((x) => machineOf(x.address))])];
           await Promise.all(
-            machines.map(async (m) => {
+            names.map(async (m) => {
               try {
                 const mine = [];
                 for (const x of away.filter((y) => machineOf(y.address) === m)) {
@@ -852,7 +855,9 @@ export class PerfModel {
                 }
                 const payload = { remote: true, config: { context: cfg.context ?? {} }, agents: mine };
                 const out = await exec("python3", ["-c", await helperSource("cockpit-perf.py"), JSON.stringify(payload)], { on: m, timeout: 20000 });
-                Object.assign(v?.agents ?? {}, JSON.parse(out.stdout || "{}").agents ?? {});
+                const o = JSON.parse(out.stdout || "{}");
+                Object.assign(v?.agents ?? {}, o.agents ?? {});
+                if (o.system) this.sys.set(m, o.system);
               } catch {}
             }),
           );
@@ -878,6 +883,13 @@ export class PerfModel {
   of(address) {
     const a = this.value?.agents?.[String(address ?? "").replace(/^app:/, "")];
     return a ? { ...a, history: this.agentCpu.get(String(address).replace(/^app:/, "")) ?? [] } : null;
+  }
+
+  /** Tokens per second summed over the agents of one machine (null: this computer) whose latest answer ended in the last minute. */
+  tpsOf(machine, now = Date.now()) {
+    return Object.entries(this.value?.agents ?? {})
+      .filter(([address, a]) => (machineOf(address) ?? null) === (machine ?? null) && a.tps && now - (a.at ?? 0) < 60_000)
+      .reduce((n, [, a]) => n + a.tps, 0);
   }
 
   /** Tokens per second summed over the agents whose latest answer ended in the last minute. */
