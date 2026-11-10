@@ -25,6 +25,7 @@ export default class Settings {
     this.spaces = DEFAULT_SPACES;
     this.titles = true;
     this.header = ["usage", "machines", "omo"];
+    this.statusItems = ["agent", "usage", "machines", "omo", "tps"];
     const read = (cx) =>
       cx.spawn(async (cx) => {
         try {
@@ -32,6 +33,7 @@ export default class Settings {
           const cfg = JSON.parse((await readTextFile(`${home}/.config/cockpit/config.json`)) ?? "{}");
           if (Array.isArray(cfg.spaces)) this.spaces = cfg.spaces.map((s) => (typeof s === "string" ? s : s.name));
           this.titles = cfg.titles?.enabled !== false;
+          this.statusItems = (cfg.statusbar?.items ?? this.statusItems).filter((n) => ["agent", "usage", "machines", "omo", "tps"].includes(n));
           this.header = (cfg.sidebar?.header ?? this.header).filter((x) => SECTIONS.some(([n]) => n === x));
           cx.notify();
         } catch {}
@@ -75,6 +77,13 @@ export default class Settings {
     [next[i], next[j]] = [next[j], next[i]];
     this.header = next;
     this.saveHeader(cx);
+  }
+
+  setStatusItem(cx, name, on) {
+    this.statusItems = on ? [...this.statusItems, name] : this.statusItems.filter((x) => x !== name);
+    const items = this.statusItems;
+    cx.notify();
+    cx.spawn(async () => this.write((cfg) => ({ ...cfg, statusbar: { ...(cfg.statusbar ?? {}), items } })).catch((e) => this.fail(e)));
   }
 
   saveHeader(cx) {
@@ -121,6 +130,17 @@ export default class Settings {
               children: [
                 head("Tabs", "Which apps the sidebar's tab strip shows (spaces in the cockpit config; applied within seconds)"),
                 v_flex().gap(6).children(Object.entries(APPS).map(([name, a]) => row(`set-tab-${name}`, a.label, a.key, Checkbox(`set-tab-box-${name}`, { checked: this.spaces.includes(name), onClick: (_e, cx) => this.setTab(cx, name, !this.spaces.includes(name)) })))),
+              ],
+            }),
+          )
+          .child(
+            Card({
+              id: "settings-statusbar",
+              padding: 16,
+              gap: 10,
+              children: [
+                head("Bottom bar", "What shows between the agent counts and the agent's links, as far as the window is wide enough"),
+                v_flex().gap(6).children([["agent", "Focused agent's model", "and its context window"], ["usage", "Usage limit", "the highest of every agent's 5h and 7d windows"], ["machines", "Machine load", "this computer's CPU and GPU"], ["omo", "OMO presets", "amber when the machines differ"], ["tps", "Tokens per second", "of the agents answering now"]].map(([name, label, hint]) => row(`set-st-${name}`, label, hint, Checkbox(`set-st-box-${name}`, { checked: this.statusItems.includes(name), onClick: (_e, cx) => this.setStatusItem(cx, name, !this.statusItems.includes(name)) })))),
               ],
             }),
           )

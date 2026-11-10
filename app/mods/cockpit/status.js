@@ -6,7 +6,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { run, focused, shared, setShared, layout } from "herdr";
+import { run, focused, shared, setShared, layout, readTextFile } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, counts } from "./fleet.js";
 import { show } from "./sidebar.js";
@@ -48,6 +48,22 @@ export function togglePanel(name) {
 
 export default class Status {
   init(_props, cx) {
+    // Which of the items between the counts and the agent's links show: `statusbar.items` in the cockpit config.
+    this.items = ["agent", "usage", "machines", "omo", "tps"];
+    const readItems = (cx) =>
+      cx.spawn(async (cx) => {
+        try {
+          const { home } = await hub.install();
+          const cfg = JSON.parse((await readTextFile(`${home}/.config/cockpit/config.json`)) ?? "{}");
+          const next = (cfg.statusbar?.items ?? this.items).filter((n) => ["agent", "usage", "machines", "omo", "tps"].includes(n));
+          if (next.join() !== this.items.join()) {
+            this.items = next;
+            cx.notify();
+          }
+        } catch {}
+      });
+    readItems(cx);
+    cx.timer.every(8000, (cx) => readItems(cx));
     this.rows = null;
     this.home = null;
     this.queue = null;
@@ -193,6 +209,18 @@ export default class Status {
         }),
       );
 
+    // The machines, limits, presets and speed, and the focused agent's model: in the room the bar has in the middle.
+    const st = shared("cockpit.status") ?? {};
+    const toneOf = (s) => (s.tone === "bad" ? k.destructive : s.tone === "warn" ? k.warning : s.tone === "live" ? k.working : k.foreground);
+    const go = { agent: () => togglePanel("context"), usage: () => show("usage"), machines: () => show("machines"), omo: () => show("machines"), tps: undefined };
+    const label = { agent: "Model", usage: "Usage", machines: "Load", omo: "OMO", tps: "Speed" };
+    const tip = { agent: "The focused agent's model and context window  ⌃⌘6", usage: "The highest of every agent's 5h and 7d limits", machines: "This computer's CPU and GPU", omo: "OMO preset of each machine (amber: they differ)", tps: "Tokens per second of the agents answering now" };
+    const room = w >= 1100 ? 5 : w >= 900 ? 3 : w >= 760 ? 1 : 0;
+    const mid = ["agent", "usage", "machines", "omo", "tps"]
+      .filter((n) => this.items.includes(n) && st[n])
+      .slice(0, room)
+      .map((n) => item(`st-mid-${n}`, [div().text_color(k.dim).child(label[n]), div().text_color(toneOf(st[n])).child(st[n].text)], { tooltip: tip[n], onClick: go[n] }));
+
     return h_flex()
       .id("cockpit-status")
       .size_full()
@@ -208,6 +236,7 @@ export default class Status {
       .border_t_1()
       .border_color(k.border)
       .children(left)
+      .when(mid.length > 0, (e) => e.child(div().w(1).h(14).mx(6).flex_none().bg(k.border)).children(mid))
       .child(div().flex_1().min_w(8))
       .children(right);
   }

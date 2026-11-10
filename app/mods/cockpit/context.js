@@ -19,7 +19,6 @@ const COLORS = {
   "Other tools": "#8a8f98",
   "System, tools and memory": "#c3c7cf",
 };
-const FREE = "#2c2f36";
 const k1 = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n ?? 0}`);
 
 export default class Context {
@@ -125,7 +124,7 @@ export default class Context {
                 .gap(1)
                 .rounded(4)
                 .overflow_hidden()
-                .bg(FREE)
+                .bg(k.muted)
                 .children(d.parts.map((p) => div().h_full().w(`${Math.max(0.6, (p.tokens * 100) / window)}%`).bg(COLORS[p.name] ?? "#8a8f98"))),
             ),
         )
@@ -133,7 +132,7 @@ export default class Context {
           v_flex()
             .gap(8)
             .children(d.parts.map((p, i) => row(`ctx-p-${i}`, p.name, COLORS[p.name] ?? "#8a8f98", p.tokens, pct(p.tokens))))
-            .child(row("ctx-free", "Free space", FREE, free, pct(free))),
+            .child(row("ctx-free", "Free space", k.muted, free, pct(free))),
         )
         .when(Boolean(d.note), (e) => e.child(div().text_size(TEXT.xs).text_color(k.dim).child(`Estimated from the transcript; ${d.note}.`)))
         .when(d.tools.length > 0, (e) =>

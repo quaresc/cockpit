@@ -101,6 +101,26 @@ export default class Sidebar {
       const list = (row && this.subagents.by[sessionFor(row)]) || [];
       const nowWorking = list.filter((x) => x.status === "working").length;
       const badge = row ? { count: list.length, zero: list.length === 0, tone: nowWorking ? "working" : null } : null;
+      // What the bottom bar shows (Herdr's shared state): the limits, the machines' load, the presets, the speed, and the
+      // focused agent's model and context.
+      const worst = Math.round(Math.max(0, ...(this.usage?.agents ?? []).flatMap((a) => (a.windows ?? []).map((w) => w.percent ?? 0))));
+      const here = this.perf.sys.get(null);
+      const presets = [...new Set([...this.omo.by.values()].map((v) => v.preset).filter(Boolean))];
+      const tps = this.perf.liveTps();
+      const info = row ? this.perf.of(row.address)?.info : null;
+      const where = row ? row.address.split("/")[0] : null;
+      const status = {
+        usage: this.usage?.agents?.length ? { text: `${worst}% of limit`, tone: worst >= 95 ? "bad" : worst >= 80 ? "warn" : null } : null,
+        machines: here ? { text: `CPU ${Math.round(here.cpu)}%${here.gpu != null ? ` · GPU ${Math.round(here.gpu)}%` : ""}`, tone: here.cpu >= 90 ? "warn" : null } : null,
+        omo: presets.length ? { text: presets.join(" / "), tone: presets.length > 1 ? "warn" : null } : null,
+        tps: tps > 0 ? { text: tpsText(tps), tone: "live" } : null,
+        agent: info?.model ? { text: [info.model_name ?? info.model, info.context?.percent != null ? `${Math.round(info.context.percent)}% ctx` : null, where && where !== row.address ? `on ${where}` : null].filter(Boolean).join(" · "), tone: info.context?.percent >= 85 ? "bad" : info.context?.percent >= 70 ? "warn" : null } : null,
+      };
+      const sj = JSON.stringify(status);
+      if (sj !== this.lastStatus) {
+        this.lastStatus = sj;
+        setShared("cockpit.status", status);
+      }
       const bj = JSON.stringify(badge);
       if (bj !== this.lastBadge) {
         this.lastBadge = bj;
