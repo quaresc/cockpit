@@ -108,49 +108,53 @@ export default class Subagents {
 
   render() {
     const k = tokens();
-    const groups = this.groups();
+    const row = this.current();
     const now = Date.now();
     const shell = (...kids) => v_flex().id("subagents").size_full().bg(k.background).text_color(k.foreground).text_size(TEXT.base).p(14).gap(10).children(kids);
-    if (!groups.length) {
-      const asking = (this.rows?.agents ?? []).some((r) => sessionFor(r) && !(sessionFor(r) in this.subs.by));
-      return shell(asking ? h_flex().h(80).justify_center().items_center().gap(8).text_color(k.mutedFg).child(Spinner({ size: 14 })).child("Looking for sub-agents…") : Empty({ icon: "git-fork", title: "No sub-agents", description: "None of your agents has started one lately." }));
+    if (!row) return shell(Empty({ icon: "git-fork", title: "No agent in focus", description: "Click an agent to see its sub-agents here." }));
+    const session = sessionFor(row);
+    const known = Boolean(session) && session in this.subs.by;
+    const list = this.groups().find((g) => g.row.address === row.address)?.list ?? [];
+    const working = list.filter((s) => s.status === "working").length;
+    // The page is for the agent in focus: its own count, zero included. The others are one line below.
+    const others = this.groups().filter((g) => g.row.address !== row.address);
+    const head = v_flex()
+      .gap(2)
+      .child(div().text_size(TEXT.sm).font_semibold().truncate().child(row.title ?? row.address))
+      .child(h_flex().gap(8).items_baseline().child(div().text_size(20).font_semibold().text_color(list.length ? k.foreground : k.dim).child(String(list.length))).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child(`sub-agent${list.length === 1 ? "" : "s"}${working ? ` · ${working} working` : ""}`)));
+    const elsewhere = others.length
+      ? div().text_size(TEXT.xs).text_color(k.dim).child(`Other agents: ${others.map((g) => `${g.row.title ?? g.row.address} (${g.list.length}${g.list.some((s) => s.status === "working") ? ", working" : ""})`).join(" · ")}`)
+      : null;
+    if (!list.length) {
+      return shell(head, known || !session ? div().text_size(TEXT.sm).text_color(k.mutedFg).child(session ? "This agent has not started any." : "No session known for this agent yet.") : h_flex().gap(8).items_center().text_color(k.mutedFg).child(Spinner({ size: 14 })).child("Looking for sub-agents…"), elsewhere);
     }
-    const total = groups.reduce((n, g) => n + g.list.length, 0);
-    const working = groups.reduce((n, g) => n + g.list.filter((s) => s.status === "working").length, 0);
-    const picked = groups.find((g) => g.row.address === this.sel?.address)?.list.find((s) => s.id === this.sel?.id);
+    const picked = this.sel?.address === row.address ? list.find((s) => s.id === this.sel?.id) : null;
     return shell(
-      div().text_size(TEXT.xs).text_color(k.dim).child(`${total} sub-agent${total === 1 ? "" : "s"} of ${groups.length} agent${groups.length === 1 ? "" : "s"}${working ? ` · ${working} working` : ""}`),
+      head,
       v_flex()
         .id("sa-list")
-        .gap(8)
-        .max_h(280)
+        .gap(2)
+        .max_h(260)
         .overflow_y_scrollbar()
         .children(
-          groups.map((g) =>
-            v_flex()
-              .id(`sa-g-${g.row.address}`)
-              .gap(2)
-              .child(div().px(8).text_size(TEXT.xs).font_semibold().text_color(g.row.address === this.address ? k.foreground : k.mutedFg).truncate().child(g.row.title ?? g.row.address))
-              .children(
-                g.list.map((s) =>
-                  h_flex()
-                    .id(`sa-${g.row.address}-${s.id}`)
-                    .h(28)
-                    .px(8)
-                    .gap(8)
-                    .items_center()
-                    .rounded(RADIUS.md)
-                    .cursor_pointer()
-                    .when(s.id === this.sel?.id && g.row.address === this.sel?.address, (e) => e.bg(k.selected))
-                    .when(!(s.id === this.sel?.id && g.row.address === this.sel?.address), (e) => e.hover((x) => x.bg(k.accent)))
-                    .on_click((_e, cx) => this.pick(cx, g.row, s))
-                    .child(div().flex_none().px(5).rounded(RADIUS.sm).bg(alpha(s.status === "failed" ? k.destructive : k.info, 0.14)).text_size(10).text_color(s.status === "failed" ? k.destructive : k.info).child(s.kind ?? "agent"))
-                    .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(s.status === "working" ? k.foreground : k.mutedFg).child(s.name))
-                    .child(div().flex_none().text_size(TEXT.xs).text_color(s.status === "working" ? k.working : k.dim).child(s.status === "working" ? dur(now - (s.since ?? now)) : s.status)),
-                ),
-              ),
+          list.map((s) =>
+            h_flex()
+              .id(`sa-${row.address}-${s.id}`)
+              .h(28)
+              .px(8)
+              .gap(8)
+              .items_center()
+              .rounded(RADIUS.md)
+              .cursor_pointer()
+              .when(s.id === picked?.id, (e) => e.bg(k.selected))
+              .when(s.id !== picked?.id, (e) => e.hover((x) => x.bg(k.accent)))
+              .on_click((_e, cx) => this.pick(cx, row, s))
+              .child(div().flex_none().px(5).rounded(RADIUS.sm).bg(alpha(s.status === "failed" ? k.destructive : k.info, 0.14)).text_size(10).text_color(s.status === "failed" ? k.destructive : k.info).child(s.kind ?? "agent"))
+              .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(s.status === "working" ? k.foreground : k.mutedFg).child(s.name))
+              .child(div().flex_none().text_size(TEXT.xs).text_color(s.status === "working" ? k.working : k.dim).child(s.status === "working" ? dur(now - (s.since ?? now)) : s.status)),
           ),
         ),
+      elsewhere,
       div().h(1).bg(k.border),
       picked
         ? v_flex()

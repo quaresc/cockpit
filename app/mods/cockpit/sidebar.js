@@ -13,7 +13,7 @@ import { deliver, follow } from "./notify.js";
 import { rowsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur, openMenu } from "./ui.js";
-import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, sectionOpen, setSectionOpen, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, sectionOpen, setSectionOpen, sessionFor, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
 import { followUsage, projection } from "./usage.js";
 
 export const APPS = {
@@ -93,10 +93,18 @@ export default class Sidebar {
     this.omo.follow(cx);
     // How many sub-agents work now, as the badge on the side panel's Subagents icon.
     cx.timer.every(3000, () => {
-      const working = Object.values(this.subagents.by).reduce((n, l) => n + l.filter((x) => x.status === "working").length, 0);
-      if (working !== this.lastWorking) {
-        this.lastWorking = working;
-        setShared("badge.subagents", working ? { count: working, tone: "working" } : null);
+      // The badge on the rail's Subagents icon is the focused agent's own count, zero included.
+      const rows = this.agents.rows;
+      const f = focused()?.terminal;
+      if (rows.some((r) => r.address === f)) this.badgeAddress = f;
+      const row = rows.find((r) => r.address === this.badgeAddress);
+      const list = (row && this.subagents.by[sessionFor(row)]) || [];
+      const nowWorking = list.filter((x) => x.status === "working").length;
+      const badge = row ? { count: list.length, zero: list.length === 0, tone: nowWorking ? "working" : null } : null;
+      const bj = JSON.stringify(badge);
+      if (bj !== this.lastBadge) {
+        this.lastBadge = bj;
+        setShared("badge.subagents", badge);
       }
     });
     cx.spawn(async (cx) => {
