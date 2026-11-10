@@ -226,7 +226,7 @@ export default class Usage {
           .pt(2)
           .border_t_1()
           .border_color(k.border)
-          .child(div().text_size(TEXT.xs).text_color(k.dim).child(a.fetched_at ? `asked ${dur(this.now - a.fetched_at)} ago` : "never asked"))
+          .child(div().text_size(TEXT.xs).text_color(k.dim).child([a.fetched_at ? `asked ${dur(this.now - a.fetched_at)} ago` : "never asked", (a.windows ?? []).find((w) => w.plan)?.plan ? `${(a.windows ?? []).find((w) => w.plan).plan} plan` : null].filter(Boolean).join(" · ")))
           .child(div().flex_1())
           .when(Boolean(ctx), (e) => e.child(div().text_size(TEXT.xs).text_color(k.dim).child(`latest session context ${Math.round(ctx.percent)}% of ${tokensText(ctx.window)}`))),
       ],

@@ -14,7 +14,7 @@ import { rowsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur, openMenu } from "./ui.js";
 import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, sectionOpen, setSectionOpen, sessionFor, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
-import { followUsage, projection } from "./usage.js";
+import { followUsage } from "./usage.js";
 
 export const APPS = {
   inbox: { label: "Inbox", icon: "inbox", key: "⌘⌥1" },
@@ -103,17 +103,26 @@ export default class Sidebar {
       const badge = row ? { count: list.length, zero: list.length === 0, tone: nowWorking ? "working" : null } : null;
       // What the bottom bar shows (Herdr's shared state): the limits, the machines' load, the presets, the speed, and the
       // focused agent's model and context.
-      const worst = Math.round(Math.max(0, ...(this.usage?.agents ?? []).flatMap((a) => (a.windows ?? []).map((w) => w.percent ?? 0))));
+      // The focused agent's own account: its 5-hour and weekly windows (an agent with no account, OpenCode, shows none).
+      const program = String(row?.program ?? "").toLowerCase();
+      const usageId = /claude/.test(program) ? "claude" : /codex/.test(program) ? "codex" : /antigravity|agy|gemini/.test(program) ? "antigravity" : null;
+      const windows = (this.usage?.agents ?? []).find((x) => x.id === usageId)?.windows ?? [];
+      const pctOf = (name) => {
+        const ps = windows.filter((w) => w.name === name && (w.source !== "estimate" || w.budget_tokens)).map((w) => w.percent ?? 0);
+        return ps.length ? Math.round(Math.max(...ps)) : null;
+      };
+      const five = pctOf("5h"), week = pctOf("7d");
+      const worst = Math.max(five ?? 0, week ?? 0);
       const here = this.perf.sys.get(null);
       const presets = [...new Set([...this.omo.by.values()].map((v) => v.preset).filter(Boolean))];
-      const tps = this.perf.liveTps();
+      const ownTps = row ? this.perf.of(row.address) : null;
       const info = row ? this.perf.of(row.address)?.info : null;
       const where = row ? row.address.split("/")[0] : null;
       const status = {
-        usage: this.usage?.agents?.length ? { text: `${worst}% of limit`, tone: worst >= 95 ? "bad" : worst >= 80 ? "warn" : null } : null,
+        usage: five != null || week != null ? { text: [five != null && `5h ${five}%`, week != null && `7d ${week}%`].filter(Boolean).join(" · "), tone: worst >= 95 ? "bad" : worst >= 80 ? "warn" : null } : null,
         machines: here ? { text: `CPU ${Math.round(here.cpu)}%${here.gpu != null ? ` · GPU ${Math.round(here.gpu)}%` : ""}`, tone: here.cpu >= 90 ? "warn" : null } : null,
         omo: presets.length ? { text: presets.join(" / "), tone: presets.length > 1 ? "warn" : null } : null,
-        tps: tps > 0 ? { text: tpsText(tps), tone: "live" } : null,
+        tps: ownTps?.tps ? { text: tpsText(ownTps.tps), tone: Date.now() - (ownTps.at ?? 0) < 60_000 ? "live" : null } : null,
         agent: info?.model ? { text: [info.model_name ?? info.model, info.context?.percent != null ? `${Math.round(info.context.percent)}% ctx` : null, where && where !== row.address ? `on ${where}` : null].filter(Boolean).join(" · "), tone: info.context?.percent >= 85 ? "bad" : info.context?.percent >= 70 ? "warn" : null } : null,
       };
       const sj = JSON.stringify(status);
@@ -444,27 +453,6 @@ export default class Sidebar {
       );
   }
 
-  /** Quota notes under the bars: what is on pace to run out before it resets, and each plan. */
-  quotaNotes(k) {
-    const lines = [];
-    const short = { claude: "Claude", codex: "Codex", antigravity: "Agy" };
-    for (const a of this.usage?.agents ?? []) {
-      if (!short[a.id]) continue;
-      for (const w of a.windows ?? []) {
-        const full = projection(w);
-        if (full) lines.push({ tone: k.warning, text: `${short[a.id]} ${w.name}${w.group ? ` ${w.group}` : ""}: full in ~${dur(full)}, before it resets in ${dur(w.resets_at - Date.now())}` });
-      }
-      const plan = (a.windows ?? []).find((w) => w.plan)?.plan;
-      if (plan) lines.push({ tone: k.dim, text: `${short[a.id]} plan: ${plan}` });
-      if (a.stale) lines.push({ tone: k.warning, text: `${short[a.id]}: last answer is stale (${a.error ?? "the ask failed"})` });
-    }
-    return lines.slice(0, 4).map((l, i) => div().id(`qn-${i}`).px(4).text_size(TEXT.xs).text_color(l.tone).truncate().child(l.text));
-  }
-
-  sectionOpen(name) {
-    return sectionOpen(name);
-  }
-
   /** The header: Usage, Machines and OMO presets, each its own foldable section with a one-line summary when folded. */
   headerBlock(k, model) {
     const hasQuota = Boolean(this.usage?.agents?.length) || Boolean(model.value?.quota?.length);
@@ -516,7 +504,6 @@ export default class Sidebar {
               .on_click(() => show("usage"))
               // The usage sync's own file: every agent's 5-hour and weekly window; the hub's quota until it has run.
               .child(this.usage?.agents?.length ? QuotaBars(quotaByAgent(this.usage), { compact: true, labelW: 64, resets: true }) : QuotaBars(worstQuota(model.value.quota), { compact: true, labelW: 64 }))
-              .children(this.quotaNotes(k)),
           ),
         ),
       )
