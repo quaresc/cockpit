@@ -129,7 +129,7 @@ export default class Inbox {
     this.sub?.stop();
     this.sub = hub.subscribe(
       cx,
-      { views: [{ name: "inbox", args: { group: this.group } }, { name: "agents", args: {} }] },
+      { views: [{ name: "inbox", args: { group: this.group } }, { name: "agents", args: {} }], focus: "inbox" },
       (m, cx) => {
         if (m.view === "inbox") this.take(m.value, cx);
         if (m.view === "agents") this.agents = m.value;

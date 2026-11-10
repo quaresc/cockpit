@@ -92,7 +92,7 @@ export default class Runbook {
 
     this.sub = hub.subscribe(
       cx,
-      { views: this.panel ? ["runbook", "agents"] : ["runbook"] },
+      { views: this.panel ? ["runbook", "agents"] : ["runbook"], focus: this.panel ? null : "runbook" },
       (m, cx) => {
         if (m.view === "runbook") this.take(m.value, cx);
         if (m.view === "agents") this.agents = m.value?.agents ?? m.value?.rows ?? (Array.isArray(m.value) ? m.value : []);

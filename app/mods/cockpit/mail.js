@@ -43,7 +43,7 @@ export default class Mail {
     this.handle = cx.focus_handle();
     this.sub = hub.subscribe(
       cx,
-      { views: ["mail"] },
+      { views: ["mail"], focus: "mail" },
       (m, cx) => {
         if (m.view === "mail") this.take(m.value, cx);
         if (m.focus === "mail") this.focusOn(m.target?.key, cx);

@@ -96,7 +96,7 @@ export default class Routines {
     this.fields.when.on("change", (_e, cx) => this.preview(cx));
     this.sub = hub.subscribe(
       cx,
-      { views: ["routines"] },
+      { views: ["routines"], focus: "routines" },
       (m, cx) => {
         if (m.view === "routines") this.take(m.value, cx);
         if (m.focus === "routines") this.goTo(m.target?.key, cx);

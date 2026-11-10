@@ -61,7 +61,7 @@ export default class Meetings {
 
     this.sub = hub.subscribe(
       cx,
-      { views: ["meetings"] },
+      { views: ["meetings"], focus: "meetings" },
       (m, cx) => {
         if (m.view === "meetings") this.take(m.value, cx);
         if (m.focus === "meetings") this.focusOn(m.target?.key, cx);
