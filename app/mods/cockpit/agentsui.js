@@ -351,7 +351,7 @@ export class AgentsModel {
 
   /** A row with the newer of its two recaps: the hub's, or the one written by the chosen recap agent. */
   withLocal(r) {
-    const l = this.local.get(r.terminal);
+    const l = this.local?.get(r.terminal);
     if (!l?.text) return r;
     const hubAt = r.recap?.at ?? 0;
     if (r.recap?.text && hubAt > l.at) return r;
