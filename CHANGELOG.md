@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.40.1 (2026-11-10)
+
+- Doctor: a mapping's own states answer for listStates, and the cockpit on PATH goes back on the link (#37)
+
 ## 0.40.0 (2026-11-10)
 
 - Inbox: do not duplicate stacked PRs at the section root (#29)
