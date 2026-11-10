@@ -222,6 +222,28 @@ fn pin_spaces_moves_the_pinned_ones_on_top_in_order() {
 }
 
 // ---------------------------------------------------------------------------
+// ensure-spaces.sh
+
+/// The `cockpit` on PATH, which an update leaves on a folder it then prunes.
+#[test]
+fn ensure_spaces_puts_the_cockpit_on_path_back_on_the_link() {
+    let sandbox = Sandbox::new();
+    sandbox.copy_script("ensure-spaces.sh");
+    sandbox.copy_script("lib.sh");
+    executable(&sandbox.root.join("herdr/fetch-apps.sh"), "#!/bin/sh\nexit 0\n");
+    executable(&sandbox.root.join("herdr/bin/cockpit"), "#!/bin/sh\necho ran\n");
+    sandbox.write("home/.config/cockpit/config.json", r#"{"spaces": []}"#);
+    let link = sandbox.home().join(".config/cockpit/herdr");
+    std::os::unix::fs::symlink(sandbox.root.join("herdr"), &link).unwrap();
+    let bin = sandbox.home().join(".local/bin/cockpit");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(sandbox.root.join("gone/bin/cockpit"), &bin).unwrap();
+    let out = sandbox.sh("ensure-spaces.sh", &[], &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(std::fs::read_link(&bin).unwrap(), link.join("bin/cockpit"));
+}
+
+// ---------------------------------------------------------------------------
 // fetch-apps.sh
 
 /// The release target of this machine, as fetch-apps.sh names it.

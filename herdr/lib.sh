@@ -12,6 +12,15 @@ if [ "$REGISTERED" = "$ROOT" ] && [ "$(readlink "$LINK")" != "$ROOT" ]; then
   mkdir -p "$(dirname "$LINK")" && ln -sfn "$ROOT" "$LINK"
 fi
 
+# The `cockpit` a shell runs, when it points nowhere: an update installs in a new folder and prunes the one a link
+# named. It goes back on the link, which stays on the current install; one that still resolves is left alone.
+link_bin() {
+  bin="$HOME/.local/bin/cockpit"
+  [ -L "$bin" ] && [ ! -e "$bin" ] || return 0
+  [ -x "$LINK/bin/cockpit" ] || return 0
+  ln -sfn "$LINK/bin/cockpit" "$bin"
+}
+
 # herdr keeps every installed version of a GitHub plugin: all but the registered one go.
 prune_installs() {
   case "$ROOT" in */github-installations/*/checkout/herdr) ;; *) return 0 ;; esac

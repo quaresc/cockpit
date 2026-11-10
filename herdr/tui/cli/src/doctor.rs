@@ -251,6 +251,27 @@ impl Doctor {
     // Both halves installed, and the link on the current herdr install
 
     fn installs(&self) {
+        self.folders();
+        self.binary_link();
+    }
+
+    /// The `cockpit` a shell runs, which has to go through the link: an update installs in a new folder and prunes the
+    /// one a link named.
+    fn binary_link(&self) {
+        let bin = files::home().join(".local/bin/cockpit");
+        if std::fs::symlink_metadata(&bin).is_err() {
+            return;
+        }
+        let through = self.link.join("bin/cockpit");
+        let fix = "→ ln -sfn ~/.config/cockpit/herdr/bin/cockpit ~/.local/bin/cockpit";
+        match (bin.canonicalize(), through.canonicalize()) {
+            (Ok(linked), Ok(current)) if linked == current => ok("link ~/.local/bin/cockpit is current"),
+            (Ok(linked), _) => warn(&format!("~/.local/bin/cockpit runs {} instead of this install {fix}", linked.display())),
+            (Err(_), _) => fail(&format!("~/.local/bin/cockpit points at a folder that is gone, so no shell finds cockpit {fix}")),
+        }
+    }
+
+    fn folders(&self) {
         let registered = &self.registered;
         if !self.has_herdr {
             // The Herdr app alone runs the scripts install.sh put in place, else the Claude plugin's marketplace copy.
@@ -698,7 +719,11 @@ impl Doctor {
         if truthy(&config["linear"]) && !truthy(&config["tickets"]) {
             warn("config has the old linear block: it still works as Linear's mapping → /cockpit:setup rewrites it as tickets");
         } else if self.enabled("tickets") {
-            let missing = unmapped(&set["tickets"]["tools"], &["listMine", "get", "listStates", "setState"]);
+            // A mapping with no tool listing the states a ticket moves to holds them in `states` instead (GitHub's open
+            // and closed), which cockpit reads in its place.
+            let listed = set["tickets"]["states"].as_array().is_some_and(|states| !states.is_empty());
+            let wanted: &[&str] = if listed { &["listMine", "get", "setState"] } else { &["listMine", "get", "listStates", "setState"] };
+            let missing = unmapped(&set["tickets"]["tools"], wanted);
             if missing.is_empty() {
                 ok("ticket tools mapped");
             } else {

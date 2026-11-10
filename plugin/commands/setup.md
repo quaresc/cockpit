@@ -9,8 +9,9 @@ Set up cockpit for me. Work through the steps in order, say in one line what eac
 2. **herdr plugin.** Without herdr (the Herdr app alone), link the scripts the Claude plugin ships instead, `ln -sfn ~/.claude/plugins/marketplaces/cockpit/herdr ~/.config/cockpit/herdr`, run `sh ~/.config/cockpit/herdr/fetch-apps.sh`, use `~/.config/cockpit/herdr` as `<plugin_root>` below and skip to step 3. With herdr, read `~/.config/herdr/plugins.json`. When no entry has `plugin_id` "cockpit", run `herdr plugin install quaresc/cockpit/herdr --yes` and read the file again. Keep that entry's `plugin_root`. Then run `sh <plugin_root>/fetch-apps.sh`: it puts this version's `cockpit` binary, which runs the space apps and the hub, built for this machine, in `<plugin_root>/bin` (for a version whose release has no binary yet it keeps the one an earlier install had, or does nothing on a first install).
 
 2a. **`cockpit` on PATH.** Link the binary so the shell commands in the README work here too:
-`mkdir -p ~/.local/bin && ln -sfn <plugin_root>/bin/cockpit ~/.local/bin/cockpit`. Say so in one line, and when
-`~/.local/bin` is not on my PATH, say to add it.
+`mkdir -p ~/.local/bin && ln -sfn ~/.config/cockpit/herdr/bin/cockpit ~/.local/bin/cockpit`. Through the link, never
+`<plugin_root>`, whose folder the next update prunes. Say so in one line, and when `~/.local/bin` is not on my PATH,
+say to add it.
 
 2b. **Default agent.** Run `sh <plugin_root>/cockpit.sh agents connected` (each agent cockpit can give its tools to, with `installed`), and check `command -v claude codex` too. Ask with AskUserQuestion which agent cockpit starts by default (new agents from the inbox, the palette, routines), offering Claude Code first and every other installed one; it goes in the config as `agents.default` (its id: `claude`, `codex`, `opencode`…).
 
