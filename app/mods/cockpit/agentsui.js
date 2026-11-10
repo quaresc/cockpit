@@ -706,7 +706,7 @@ export function localSessions(rows) {
   return (rows ?? []).map((r) => ({ session: sessionFor(r), machine: machineOf(r.address ?? r.terminal) })).filter((s) => s.session);
 }
 
-/** The machine an agent runs on: the address prefix (`lionheart/t9`), null for this one. */
+/** The machine an agent runs on: the address prefix (`gpu-box/t9`), null for this one. */
 export const machineOf = (address) => {
   const s = String(address ?? "").replace(/^app:/, "");
   return s.includes("/") ? s.split("/")[0] : null;
