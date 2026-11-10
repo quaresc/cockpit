@@ -696,7 +696,7 @@ export default class Show {
   blockBody(k, b, cx, room, narrow) {
     switch (b.type) {
       case "markdown": return TextView.markdown(`show-md-${this.liveKey(b)}`, String(b.text ?? "").slice(0, 24000)).selectable(true).text_size(TEXT.base).on_link_click((url) => this.openUrl(url));
-      case "stats": return Figures(`show-stats-${b.n}`, b.items, { narrow });
+      case "stats": return Figures(`show-stats-${b.n}`, b.items);
       case "table": return this.table(k, this.tableBlock(b), cx);
       case "chart": return this.chart(k, b, cx, room);
       case "flow": return this.graph(k, b, flowGraph(b), room);
@@ -720,7 +720,7 @@ export default class Show {
   pending(k, b, what) {
     const data = this.live.get(this.liveKey(b))?.data;
     if (data?.error) return this.callout(k, "alert", k.destructive, data.error);
-    return h_flex().gap(8).items_center().text_size(TEXT.sm).text_color(k.mutedFg).child(Spinner({ size: 14 })).child(what);
+    return h_flex().gap(8).items_center().text_size(TEXT.sm).text_color(k.mutedFg).child(Spinner({ size: 14 })).child(div().flex_1().min_w(0).truncate().child(what));
   }
 
   // Tables -------------------------------------------------------------------------------------------------------------
@@ -1029,7 +1029,7 @@ export default class Show {
       .child(h_flex().gap(8).items_center().text_size(TEXT.xs).text_color(k.mutedFg)
         .child(Badge(data.code === 0 ? "exit 0" : `exit ${data.code}`, data.code === 0 ? "success" : "destructive"))
         .child(div().font_family("JetBrains Mono").truncate().flex_1().child(`$ ${b.command}`))
-        .child(`every ${b.every}s · ${hhmm(data.at)}`));
+        .child(div().flex_none().child(`every ${b.every}s · ${hhmm(data.at)}`)));
   }
 
   ci(k, b) {
@@ -1044,9 +1044,9 @@ export default class Show {
       .child(h_flex().gap(10).items_center()
         .child(r.status === "running" ? Spinner({ size: 14, color: tone }) : Icon(r.status === "passed" ? "circle-check" : "circle-x", { size: 16, color: tone }))
         .child(div().flex_1().child(Progress(r.done / r.total, { color: tone })))
-        .child(div().text_size(TEXT.sm).font_medium().child(`${r.done}/${r.total} jobs · ${r.status === "failed" ? r.outcome || "failed" : r.status}`)))
+        .child(div().flex_none().text_size(TEXT.sm).font_medium().child(`${r.done}/${r.total} jobs · ${r.status === "failed" ? r.outcome || "failed" : r.status}`)))
       .when(Boolean(r.failed?.job), (e) => e.child(v_flex().gap(4).p(10).rounded(RADIUS.md).bg(alpha(k.destructive, 0.08))
-        .child(h_flex().gap(6).items_center().text_size(TEXT.sm).text_color(k.destructive).child(Icon("circle-x", { size: 14 })).child(`${r.failed.job}${r.failed.step ? ` · ${r.failed.step}` : ""}`))
+        .child(h_flex().gap(6).items_center().text_size(TEXT.sm).text_color(k.destructive).child(Icon("circle-x", { size: 14 })).child(div().flex_1().min_w(0).child(`${r.failed.job}${r.failed.step ? ` · ${r.failed.step}` : ""}`)))
         .children((r.failed.tests ?? []).slice(0, 12).map((t) => div().pl(20).text_size(TEXT.xs).font_family("JetBrains Mono").text_color(k.mutedFg).child(String(t))))));
   }
 
@@ -1054,7 +1054,7 @@ export default class Show {
 
   answeredRow(k, label, good = true) {
     return h_flex().gap(8).items_center().p(10).rounded(RADIUS.md).bg(alpha(good ? k.success : k.muted, good ? 0.1 : 0.6)).text_size(TEXT.sm)
-      .child(Icon(good ? "circle-check" : "circle-dashed", { size: 14, color: good ? k.success : k.mutedFg })).child(`Answered: ${label}`);
+      .child(Icon(good ? "circle-check" : "circle-dashed", { size: 14, color: good ? k.success : k.mutedFg })).child(div().flex_1().min_w(0).child(`Answered: ${label}`));
   }
 
   choice(k, b, cx) {

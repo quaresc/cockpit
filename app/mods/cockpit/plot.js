@@ -343,8 +343,8 @@ function Donut(id, model, { width = 480, hover = null, onHover } = {}) {
   return h_flex().id(id).w_full().gap(20).items_center().child(ring).child(legend);
 }
 
-/** Figure tiles: [{label, value, note, delta, good, spark}], two per row when `narrow`. */
-export function Figures(id, items, { narrow = false } = {}) {
+/** Figure tiles: [{label, value, note, delta, good, spark}], wrapping onto as many rows as the width needs. */
+export function Figures(id, items) {
   const k = tokens();
   const tiles = (items ?? []).map((t, i) => StatTile(`${id}-${i}`, {
     label: String(t.label ?? ""),
@@ -355,7 +355,7 @@ export function Figures(id, items, { narrow = false } = {}) {
     spark: Array.isArray(t.spark) && t.spark.filter(finite).length > 1 ? t.spark.filter(finite) : undefined,
     sparkColor: k.ring,
   }));
-  return Tiles(tiles, { narrow });
+  return Tiles(tiles);
 }
 
 /** The window after a zoom in (`closer`) or out around `centre`; null shows every row. */
