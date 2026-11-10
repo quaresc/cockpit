@@ -11,6 +11,7 @@ import { togglePalette } from "./palette.js";
 import { openCode } from "./code.js";
 import { deliver, follow } from "./notify.js";
 import { rowsOf } from "./fleet.js";
+import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
 
@@ -68,6 +69,7 @@ export default class Sidebar {
     this.folded = new Set();
     this.repos = new Map();
     this.drag = null;
+    this.update = null;
     this.agents = new AgentsModel();
     this.agents.loadPins();
     this.agents.follow(cx, (value, before, cx) => this.agentsChanged(value, before, cx));
@@ -80,6 +82,18 @@ export default class Sidebar {
         if (Array.isArray(pinned)) this.spaces = pinned.map((s) => (typeof s === "string" ? s : s.name));
       } catch {}
       cx.notify();
+    });
+    // The hub writes update.json every six hours; a window left open picks a newer cockpit up on its own.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        try {
+          this.update = await pendingUpdate();
+        } catch {
+          this.update = null;
+        }
+        cx.notify();
+        await hub.sleep(cx, 5 * 60 * 1000);
+      }
     });
     this.sub = hub.subscribe(cx, { views: ["todo", "inbox", "monitor", "routines", "meetings", "mail"], notify: true }, (m, cx) => {
       if (m.view) this.counts[m.view] = appBadge(m.view, m.value);
@@ -110,6 +124,7 @@ export default class Sidebar {
     else if (this.agents.command(c, cx)) return;
     else if (c === "kit" || c.startsWith("kit:")) openOverlay({ mod: "cockpit", props: { app: "kit", tab: c.split(":")[1] }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 });
     else if (c.startsWith("target:")) this.target(c.slice(7), cx);
+    else if (c === "update") openUpdate();
     else if (c.startsWith("code:open:")) openCode(c.slice(10));
     cx.notify();
   }
@@ -265,7 +280,32 @@ export default class Sidebar {
           .overflow_y_scrollbar()
           .when(rail, (e) => e.children(this.railRows(k, rows)))
           .when(!rail, (e) => e.children([...this.bandRows(k, band), ...this.agentRows(k, rows, band, cx), ...this.spaceRows(k, cx)])),
-      );
+      )
+      .when(Boolean(this.update), (e) => e.child(this.updateTag(k, rail)));
+  }
+
+  /** The published cockpit, as a tag under the lists and over Herdr's footer: a click opens what it changes. */
+  updateTag(k, rail) {
+    const u = this.update;
+    const row = h_flex()
+      .id("update-tag")
+      .mt(6)
+      .flex_none()
+      .items_center()
+      .rounded(RADIUS.md)
+      .bg(alpha(k.done, 0.14))
+      .cursor_pointer()
+      .hover((s) => s.bg(alpha(k.done, 0.24)))
+      .on_click(() => openUpdate())
+      .child(Icon("arrow-up", { size: 14, color: k.done }));
+    if (rail) return row.h(28).justify_center().tooltip(`Cockpit ${u.latest} is out \u2014 you run ${u.current}`);
+    return row
+      .h(30)
+      .px(8)
+      .gap(8)
+      .tooltip(`You run ${u.current}`)
+      .child(div().flex_1().truncate().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(`Update cockpit to ${u.latest}`))
+      .child(Icon("chevron-right", { size: 14, color: k.mutedFg }));
   }
 
   /** The pinned apps as a row of tiles (label and key in the tooltip, count as a badge): the list below keeps the room. */
