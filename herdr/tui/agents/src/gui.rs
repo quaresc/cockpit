@@ -175,9 +175,6 @@ pub fn poll() -> bool {
         for live in &lives {
             let old = before.get(&live.handle);
             let moved = st.observe(&live.handle, &live.status, live.since, now);
-            if old.is_some_and(|o| o.live.status == "done") && live.status == "idle" {
-                st.mark_seen(&live.handle);
-            }
             let mut a = old.cloned().unwrap_or_default();
             let status_changed = old.is_none_or(|o| o.live.status != live.status);
             // A waiting agent's screen is read on every look (its menu moves as keys go in); the others' on a change.
@@ -298,14 +295,15 @@ pub const STAGES: [(&str, &str); 8] = [
     ("snoozed", "Snoozed"),
 ];
 
-/// Whose move it is: its status while that says something, then its PR once it rests.
-pub fn stage(status: &str, snoozed: bool, pr: &Value, ci: &Value, changes: &Value) -> &'static str {
+/// Whose move it is: its status while that says something, then its PR once it rests. Done is an attention queue: a
+/// finished agent leaves it for what its PR says the moment the person opens it.
+pub fn stage(status: &str, snoozed: bool, seen: bool, pr: &Value, ci: &Value, changes: &Value) -> &'static str {
     if snoozed {
         return "snoozed";
     }
     match status {
         "blocked" => return "needs_you",
-        "done" => return "done",
+        "done" if !seen => return "done",
         "working" => return "working",
         _ => {}
     }
@@ -476,8 +474,8 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         let ci = ci_of(&ci, &repo, branch.as_deref(), &pr);
         let entry = st.agents.get(&l.handle).cloned().unwrap_or_default();
         let snoozed = entry.snooze.as_ref().map(|z| json!({"until": z.until, "label": state::until_label(z.until, now)}));
-        let stage = stage(&l.status, snoozed.is_some(), &pr, &ci, &changes);
         let seen = entry.seen();
+        let stage = stage(&l.status, snoozed.is_some(), seen, &pr, &ci, &changes);
         let unread = matches!(stage, "needs_you" | "done") && !seen;
         let session = session_of(l, f).or_else(|| mock["session"].as_str().map(str::to_string));
         let recap = match &session {
@@ -753,13 +751,14 @@ mod tests {
     #[test]
     fn whose_move_follows_the_status_then_the_pr() {
         let open = json!({"state": "open", "review": "REVIEW_REQUIRED"});
-        assert_eq!(stage("blocked", false, &open, &Value::Null, &Value::Null), "needs_you");
-        assert_eq!(stage("blocked", true, &open, &Value::Null, &Value::Null), "snoozed");
-        assert_eq!(stage("idle", false, &open, &Value::Null, &Value::Null), "review");
-        assert_eq!(stage("idle", false, &open, &json!({"state": "fail"}), &Value::Null), "fixing");
-        assert_eq!(stage("idle", false, &json!({"state": "merged"}), &Value::Null, &json!({"files": 0, "ahead": 0})), "merged");
-        assert_eq!(stage("idle", false, &json!({"state": "merged"}), &Value::Null, &json!({"files": 2})), "idle");
-        assert_eq!(stage("done", false, &open, &Value::Null, &Value::Null), "done");
+        assert_eq!(stage("blocked", false, false, &open, &Value::Null, &Value::Null), "needs_you");
+        assert_eq!(stage("blocked", true, false, &open, &Value::Null, &Value::Null), "snoozed");
+        assert_eq!(stage("idle", false, false, &open, &Value::Null, &Value::Null), "review");
+        assert_eq!(stage("idle", false, false, &open, &json!({"state": "fail"}), &Value::Null), "fixing");
+        assert_eq!(stage("idle", false, false, &json!({"state": "merged"}), &Value::Null, &json!({"files": 0, "ahead": 0})), "merged");
+        assert_eq!(stage("idle", false, false, &json!({"state": "merged"}), &Value::Null, &json!({"files": 2})), "idle");
+        assert_eq!(stage("done", false, false, &open, &Value::Null, &Value::Null), "done");
+        assert_eq!(stage("done", false, true, &open, &Value::Null, &Value::Null), "review", "opened, it leaves the queue");
     }
 
     #[test]
