@@ -5,8 +5,10 @@
 
 import { div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, spaces, knownAgents, setShared, layout, readTextFile } from "herdr";
+import { run, spaces, knownAgents, setShared, layout, readTextFile, exec } from "herdr";
 import { show } from "./sidebar.js";
+import { followUsage, AgentLimits } from "./usage.js";
+import { runRecap, recapLabel, SubagentsModel, PerfModel, tpsText, localSessions, sessionFor } from "./agentsui.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
@@ -115,6 +117,12 @@ export default class Home {
       } catch {}
       cx.notify();
     });
+    this.agentUsage = null;
+    this.usageFollow = followUsage(cx, (data) => (this.agentUsage = data));
+    this.subagents = new SubagentsModel();
+    this.subagents.follow(cx, () => localSessions(this.rows?.agents));
+    this.perf = new PerfModel();
+    this.perf.follow(cx, () => this.rows?.agents);
     this.sub = hub.subscribe(
       cx,
       { views: ["agents", "home", "queue", ...OVERVIEW.map((o) => o.view)] },
@@ -138,6 +146,10 @@ export default class Home {
 
   close() {
     this.sub?.stop();
+  }
+
+  refreshUsage(cx) {
+    this.usageFollow.refresh(cx);
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -325,7 +337,11 @@ export default class Home {
     if (action === "go" && a) goToAgent(a);
     else if (action === "go" && pr?.url) this.openUrl(cx, pr.url);
     else if (action === "beside" && a) this.openBeside(cx, a);
-    else if (action === "recap" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Recap…", () => agentAct("recap", { terminal: a.handle })));
+    else if (action === "recap" && a)
+      cx.spawn(async (cx) => {
+        const r = await this.act(cx, card.key, `Recap (${recapLabel()})…`, () => runRecap(a.handle));
+        if (r?.text) (this.localRecaps ??= new Map()).set(a.address, r.text);
+      });
     else if (action === "snooze" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Snoozing…", () => agentAct("snooze", { terminal: a.handle, until: "1h" })));
     else if (action === "seen" && a) cx.spawn(async (cx) => this.act(cx, card.key, "…", () => agentAct("seen", { terminal: a.handle })));
     else if (action === "fork" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Forking…", () => agentAct("fork", { terminal: a.handle, place: "tab" })));
@@ -673,7 +689,15 @@ export default class Home {
       .when(Boolean(this.nextMove(cols, narrow)), (e) => e.child(this.nextMove(cols, narrow)))
       .child(this.board(cols, wide, narrow))
       .when(cols.prs.length > 0, (e) => e.child(this.prList(cols.prs, narrow)));
-    const right = v_flex().w(320).flex_none().gap(16).child(this.upNext()).child(this.appsCard()).child(this.activity());
+    const right = v_flex()
+      .w(320)
+      .flex_none()
+      .gap(16)
+      .when(Boolean(this.usageCard()), (e) => e.child(this.usageCard()))
+      .when(Boolean(this.perf.value), (e) => e.child(this.machinesCard()))
+      .child(this.upNext())
+      .child(this.appsCard())
+      .child(this.activity());
     // Two columns from a laptop's width; under it the side cards follow the board.
     const two = !narrow && this.width >= 900;
     return (two ? h_flex() : v_flex()).w_full().items_start().gap(20).child(left).child(right.when(!two, (e) => e.w_full()));
@@ -698,6 +722,61 @@ export default class Home {
       title,
       action: onOpen ? Button(`${id}-open`, { icon: "external", variant: "ghost", size: "icon-sm", tooltip: `Open ${title}`, onClick: () => onOpen() }) : undefined,
       children: rows.length ? rows : [div().text_size(TEXT.sm).text_color(k.dim).child(empty)],
+    });
+  }
+
+  /** The agents' real rate limits: 5h session and weekly, % used, pace tick and reset countdown; the Usage tab has more. */
+  usageCard() {
+    const agents = (this.agentUsage?.agents ?? []).filter((a) => a.windows?.length);
+    if (!agents.length) return null;
+    return Card({
+      id: "home-usage",
+      padding: 14,
+      gap: 12,
+      title: "Usage & Limits",
+      action: h_flex()
+        .gap(2)
+        .child(Button("usage-refresh", { icon: "refresh-cw", variant: "ghost", size: "icon-sm", tooltip: "Ask the agents again", onClick: (_e, cx) => this.refreshUsage(cx) }))
+        .child(Button("usage-open", { icon: "external", variant: "ghost", size: "icon-sm", tooltip: "Open Usage  ⌘⌥8", onClick: () => show("usage") })),
+      children: agents.map((a) => AgentLimits(`usage-${a.id}`, a, { compact: true, now: this.now })),
+    });
+  }
+
+  /** The machines the agents run on: this one's CPU, memory and GPU, other machines' GPUs (perf.remotes), with the last
+   *  two minutes as sparklines, and the agents' tokens per second right now. */
+  machinesCard() {
+    const k = tokens();
+    const v = this.perf.value;
+    const s = v.system ?? {};
+    const remotes = Object.entries(v.remote ?? {}).filter(([, r]) => !r.away);
+    const tps = this.perf.liveTps(this.now);
+    const tone = (p) => (p >= 90 ? k.destructive : p >= 70 ? k.warning : k.success);
+    const row = (id, label, p, history, detail) =>
+      h_flex()
+        .id(id)
+        .gap(8)
+        .items_center()
+        .child(div().w(64).flex_none().text_size(TEXT.xs).font_medium().text_color(k.mutedFg).child(label))
+        .child(div().flex_1().child(Progress((p ?? 0) / 100, { color: tone(p ?? 0), h: 5 })))
+        .child(div().w(36).flex_none().text_right().child(Mono(p == null ? "–" : `${Math.round(p)}%`, { size: TEXT.xs, color: k.foreground })))
+        .child(div().w(40).flex_none().child((history?.length ?? 0) > 1 ? Sparkline(history, { w: 40, h: 12, color: tone(p ?? 0) }) : div()))
+        .when(Boolean(detail), (e) => e.tooltip(detail));
+    const gb = (mb) => `${(mb / 1024).toFixed(1)} GB`;
+    return Card({
+      id: "home-machines",
+      padding: 14,
+      gap: 10,
+      title: "Machines",
+      action: tps > 0 ? h_flex().id("machines-tps").gap(4).items_center().tooltip("Tokens per second of the agents' answers in the last minute, summed").child(Icon("activity",{ size: 12, color: k.working })).child(Mono(tpsText(tps), { color: k.foreground })) : undefined,
+      children: [
+        row("m-cpu", "Mac CPU", s.cpu, this.perf.history.cpu, `${s.cores ?? "?"} cores`),
+        s.mem_total ? row("m-mem", "Mac memory", (s.mem_used / s.mem_total) * 100, null, `${gb(s.mem_used)} of ${gb(s.mem_total)}`) : null,
+        row("m-gpu", "Mac GPU", s.gpu, this.perf.history.gpu, "Apple GPU, busy %"),
+        ...remotes.flatMap(([name, r]) => [
+          row(`m-${name}`, `${name} GPU`, r.gpu, this.perf.remoteGpu.get(name), `${r.name ?? "GPU"} on ${name}${r.stale ? " · away, last answer" : ""}`),
+          r.vram_total ? row(`m-${name}-vram`, `${name} VRAM`, (r.vram_used / r.vram_total) * 100, null, `${gb(r.vram_used)} of ${gb(r.vram_total)}`) : null,
+        ]),
+      ].filter(Boolean),
     });
   }
 
@@ -985,19 +1064,63 @@ export default class Home {
     if (ch && (ch.added || ch.removed)) facts.push(h_flex().gap(4).child(Mono(`+${ch.added ?? 0}`, { color: k.success })).child(Mono(`−${ch.removed ?? 0}`, { color: k.destructive })));
     if (ch?.files) facts.push(Mono(plural(ch.files, "file")));
     if (a?.cost) facts.push(Mono(money(a.cost)));
-    // What its processes cost the machine: a hot one shows in warning, a runaway in red.
-    if (a?.load) {
-      const hot = a.load.cpu >= 150 ? k.destructive : a.load.cpu >= 60 ? k.warning : k.mutedFg;
+    // What its processes cost the machine (herdr/helpers/cockpit-perf.py): a hot one shows in warning, a runaway in red.
+    const load = a ? this.perf.of(a.address) : null;
+    if (load?.cpu != null) {
+      const hot = load.cpu >= 150 ? k.destructive : load.cpu >= 60 ? k.warning : k.mutedFg;
       facts.push(
         h_flex()
           .id(`${card.key}-load`)
           .gap(4)
           .items_center()
-          .tooltip(`CPU ${a.load.cpu}% of a core · ${a.load.mem} MB, the last two minutes`)
-          .when((a.load.history?.length ?? 0) > 1, (e) => e.child(Sparkline(a.load.history, { w: 36, h: 12, color: hot })))
-          .child(Mono(`${a.load.cpu}% · ${a.load.mem >= 1000 ? `${(a.load.mem / 1000).toFixed(1)} GB` : `${a.load.mem} MB`}`, { color: hot })),
+          .tooltip(`CPU ${load.cpu}% of a core · ${load.mem} MB over ${load.procs ?? 1} process${load.procs === 1 ? "" : "es"}, the last two minutes`)
+          .when((load.history?.length ?? 0) > 1, (e) => e.child(Sparkline(load.history, { w: 36, h: 12, color: hot })))
+          .child(Mono(`${load.cpu}% · ${load.mem >= 1000 ? `${(load.mem / 1000).toFixed(1)} GB` : `${load.mem} MB`}`, { color: hot })),
       );
     }
+    // Its latest answer's speed: bright while it is fresh (the last minute), dim after.
+    if (load?.tps) {
+      const fresh = this.now - (load.at ?? 0) < 60_000;
+      facts.push(
+        h_flex()
+          .id(`${card.key}-tps`)
+          .gap(4)
+          .items_center()
+          .tooltip(`${load.tokens} tokens at ${load.tps} tok/s${load.model ? ` on ${load.model}` : ""}, the latest answer ${dur(this.now - load.at)} ago`)
+          .child(Icon("activity",{ size: 12, color: fresh ? k.working : k.dim }))
+          .child(Mono(tpsText(load.tps), { color: fresh ? k.foreground : k.dim })),
+      );
+    }
+    // The hub's own context % for this agent; else the latest session of its CLI (the usage sync's, one per program).
+    const prog = String(a?.row?.program ?? a?.row?.agent ?? (typeof a?.program === "string" ? a.program : a?.program?.id ?? a?.program?.name ?? "")).toLowerCase();
+    const usageId = /antigravity|agy|gemini/.test(prog) ? "antigravity" : /codex/.test(prog) ? "codex" : /claude/.test(prog) ? "claude" : null;
+    const hubCtx = typeof a?.row?.context === "number" ? a.row.context : a?.row?.context?.percent;
+    const ctxPercent = hubCtx ?? (usageId ? this.agentUsage?.agents?.find((x) => x.id === usageId)?.context?.percent : null);
+    if (ctxPercent != null && ctxPercent > 0) {
+      const p = Math.round(ctxPercent);
+      const tone = p >= 85 ? k.destructive : p >= 70 ? k.warning : k.mutedFg;
+      facts.push(
+        h_flex()
+          .id(`${card.key}-ctx`)
+          .gap(4)
+          .items_center()
+          .tooltip(`Context window: ${p}% used`)
+          .child(Icon("gauge", { size: 12, color: tone }))
+          .child(div().w(36).child(Progress(p / 100, { color: tone, h: 4 })))
+          .child(Mono(`${p}%`, { size: TEXT.xs, color: tone })),
+      );
+    }
+    const subs = sessionFor(a?.row) ? this.subagents.of(sessionFor(a.row)) : [];
+    const subsWorking = subs.filter((s) => s.status === "working");
+    if (subsWorking.length)
+      facts.push(
+        Chip(`${subsWorking.length} sub-agent${subsWorking.length === 1 ? "" : "s"} working`, {
+          id: `${card.key}-subs`,
+          color: k.working,
+          icon: "git-fork",
+          tooltip: subsWorking.map((s) => `${s.kind ?? "sub-agent"}: ${s.name}`).join("\n"),
+        }),
+      );
     const queued = this.queue?.queues?.[a ? a.handle : ""]?.length ?? 0;
     if (queued) facts.push(Chip(`${queued} queued`, { color: k.info, icon: "list-ordered" }));
 
@@ -1024,7 +1147,8 @@ export default class Home {
       if (card.stage === "working") actions.push(Button(`${card.key}-queue`, { label: "Queue a prompt", icon: "list-ordered", variant: "ghost", size: "sm", onClick: (_e, cx) => this.run("queue", card, cx) }));
     }
 
-    const recap = a?.recap && card.stage !== "needs" ? String(a.recap).split("\n").find((l) => l.trim()) : null;
+    const recapText = this.localRecaps?.get(a?.address) ?? a?.recap;
+    const recap = recapText && card.stage !== "needs" ? String(recapText).split("\n").find((l) => l.trim()) : null;
     const replying = isAgentCard && this.replying === a.address;
     let body = v_flex()
       .flex_1()

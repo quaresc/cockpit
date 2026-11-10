@@ -3,9 +3,10 @@
 
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { run, focused, props, setShared } from "herdr";
+import { run, focused, props, setShared, notify } from "herdr";
 import * as hub from "./hub.js";
-import { fleet, goToAgent, agentAct } from "./fleet.js";
+import { fleet, goToAgent } from "./fleet.js";
+import { runRecap, recapLabel } from "./agentsui.js";
 import { tokens, TEXT, Icon, Spinner, Button, Chip, Mono, dur } from "./ui.js";
 
 const WORD = { blocked: "needs you", working: "working", done: "done", idle: "idle" };
@@ -95,7 +96,19 @@ export default class AgentHead {
           },
         }),
       )
-      .child(Button("head-recap", { icon: "sparkles", variant: "ghost", size: "icon-sm", tooltip: "Recap  ⌘R", onClick: (_e, cx) => cx.spawn(async () => agentAct("recap", { terminal: a.handle })) }))
+      .child(
+        Button("head-recap", {
+          icon: "sparkles",
+          variant: "ghost",
+          size: "icon-sm",
+          tooltip: `Recap with ${recapLabel()}  ⌘R`,
+          onClick: (_e, cx) =>
+            cx.spawn(async () => {
+              const r = await runRecap(a.handle);
+              if (r?.error) notify({ title: "Could not recap it", body: r.error, level: "warning", timeout: 5000 });
+            }),
+        }),
+      )
       .when(this.place === "home", (e) => e.child(Button("head-go", { icon: "maximize", variant: "ghost", size: "icon-sm", tooltip: "Go to its tab", onClick: () => goToAgent(a) })))
       .child(back);
   }

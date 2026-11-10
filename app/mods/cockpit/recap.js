@@ -5,8 +5,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { props, closeOverlay } from "herdr";
-import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, Chip, CountPill, StageHeading, SearchField, KeyHints, Table, Empty, Spinner, dur } from "./ui.js";
-import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, Chip, CountPill, StageHeading, SearchField, KeyHints, Table, Empty, Spinner, dur, openMenu } from "./ui.js";
+import { AgentsModel, QuestionCard, QuotaBars, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours, recapLabel, loadRecapChoice, openRecapPicker, pickRecap } from "./agentsui.js";
 
 export default class Recap {
   init(_props, cx) {
@@ -16,6 +16,12 @@ export default class Recap {
     this.tab = props()?.tab ?? "all";
     this.selected = null;
     this.filtering = false;
+    this.choiceLabel = recapLabel();
+    cx.spawn(async (cx) => {
+      await loadRecapChoice();
+      this.choiceLabel = recapLabel();
+      cx.notify();
+    });
     this.filter = InputState.new({ placeholder: "Filter agents: title, ticket, branch, repo…" });
     this.filter.on("change", (_e, cx) => cx.notify());
     this.filter.on("submit", (_e, cx) => {
@@ -33,6 +39,15 @@ export default class Recap {
 
   dismiss() {
     closeOverlay(props().overlay);
+  }
+
+  command(c, cx) {
+    cx.spawn(async (cx) => {
+      if (await pickRecap(c, "recap-pick:")) {
+        this.choiceLabel = recapLabel();
+        cx.notify();
+      }
+    });
   }
 
   /** The rows the tab and the filter leave, in whose-move order. */
@@ -120,7 +135,7 @@ export default class Recap {
       m.go(cx, row);
       this.dismiss();
     } else if (e.key === "tab" && row.stage === "needs_you") m.startReply(cx, row, row.question?.choices?.find((c) => c.free)?.n ?? null);
-    else if (e.key === "r") m.act(cx, "recap", { terminal: row.terminal, force: true }, "recapping");
+    else if (e.key === "r") m.recap(cx, row.terminal);
     else if (e.key === "s") m.menu(row);
     else if (e.key === "f") m.act(cx, "fork", { terminal: row.terminal, place: "tab" });
     else if (e.key === "e") m.act(cx, "seen", { terminal: row.terminal });
@@ -136,7 +151,10 @@ export default class Recap {
     const busy = this.agents.busy.get(r.terminal);
     const recap = r.recap;
     const recapLine = recap?.text
-      ? div().text_size(TEXT.base).text_color(recap.fresh ? k.foreground : k.mutedFg).child(recap.text)
+      ? v_flex()
+          .gap(3)
+          .child(div().text_size(TEXT.base).text_color(recap.fresh ? k.foreground : k.mutedFg).child(recap.text))
+          .when(Boolean(recap.by), (e) => e.child(div().text_size(TEXT.xs).text_color(k.dim).child(`by ${recap.by}`)))
       : recap?.running || busy === "recapping"
         ? h_flex().gap(6).items_center().text_size(TEXT.sm).text_color(k.mutedFg).child(Spinner({ size: 12 })).child("Recapping…")
         : recap?.error
@@ -145,7 +163,7 @@ export default class Recap {
               .gap(8)
               .items_center()
               .child(div().text_size(TEXT.sm).italic().text_color(k.mutedFg).child(r.said ? `“${r.said}”` : r.stage === "working" ? "Nothing to recap yet." : "No recap yet."))
-              .when(r.stage !== "working", (e) => e.child(Button(`${id}-recap`, { label: "Recap", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", onClick: (_e, cx) => this.agents.act(cx, "recap", { terminal: r.terminal }, "recapping") })));
+              .when(r.stage !== "working", (e) => e.child(Button(`${id}-recap`, { label: "Recap", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", onClick: (_e, cx) => this.agents.recap(cx, r.terminal) })));
     const head = h_flex()
       .gap(10)
       .items_center()
@@ -160,7 +178,7 @@ export default class Recap {
       .gap(6)
       .items_center()
       .child(Button(`${id}-go`, { label: "Go to it", icon: "corner-down-left", size: "sm", kbd: "⏎", onClick: (_e, cx) => (this.agents.go(cx, r), this.dismiss()) }))
-      .when(Boolean(recap?.text), (e) => e.child(Button(`${id}-again`, { label: "Recap again", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", onClick: (_e, cx) => this.agents.act(cx, "recap", { terminal: r.terminal, force: true }, "recapping") })))
+      .when(Boolean(recap?.text), (e) => e.child(Button(`${id}-again`, { label: "Recap again", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", onClick: (_e, cx) => this.agents.recap(cx, r.terminal) })))
       .child(Button(`${id}-snooze`, { label: r.snoozed ? "Wake" : "Snooze", icon: "alarm-clock", variant: "ghost", size: "sm", kbd: "s", onClick: (_e, cx) => (r.snoozed ? this.agents.act(cx, "snooze", { terminal: r.terminal, until: null }) : this.agents.menu(r)) }))
       .child(Button(`${id}-fork`, { label: "Fork", icon: "git-fork", variant: "ghost", size: "sm", kbd: "f", onClick: (_e, cx) => this.agents.act(cx, "fork", { terminal: r.terminal, place: "tab" }) }))
       .when(Boolean(r.unread), (e) => e.child(Button(`${id}-seen`, { label: "Seen", icon: "check", variant: "ghost", size: "sm", kbd: "e", onClick: (_e, cx) => this.agents.act(cx, "seen", { terminal: r.terminal }) })));
@@ -291,7 +309,17 @@ export default class Recap {
               })
               .child(SearchField(this.filter, { active: this.filtering, kbd: "/" })),
           )
-          .when(Boolean(this.agents.value?.quota?.length), (e) => e.child(div().w(220).flex_none().child(QuotaBars(this.agents.value.quota, { id: "recap-quota" }))))
+          .when(Boolean(this.agents.value?.quota?.length), (e) => e.child(div().w(220).flex_none().child(QuotaBars(worstQuota(this.agents.value.quota), { id: "recap-quota", labelW: 64 }))))
+          .child(
+            Button("recap-model-picker", {
+              label: `Recap with: ${this.choiceLabel}`,
+              icon: "sparkles",
+              variant: "outline",
+              size: "sm",
+              tooltip: "The agent and model that write recaps (Auto: the hub's own)",
+              onClick: () => openRecapPicker("recap-pick:"),
+            }),
+          )
           .child(Button("recap-close", { icon: "x", variant: "ghost", size: "icon-sm", tooltip: "Close  esc", onClick: () => this.dismiss() })),
       )
       .child(

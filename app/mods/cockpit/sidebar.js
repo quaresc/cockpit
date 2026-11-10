@@ -5,15 +5,16 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { run, shared, setShared, focused, spaces, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
+import { run, shared, setShared, focused, spaces, machines, hc, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, writeTextFile, exec } from "herdr";
 import * as hub from "./hub.js";
 import { togglePalette } from "./palette.js";
 import { openCode } from "./code.js";
 import { deliver, follow } from "./notify.js";
 import { rowsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
-import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur, openMenu } from "./ui.js";
+import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { followUsage } from "./usage.js";
 
 const APPS = {
   inbox: { label: "Inbox", icon: "inbox", key: "⌘⌥1" },
@@ -23,8 +24,9 @@ const APPS = {
   monitor: { label: "Monitor", icon: "activity", key: "⌘⌥5" },
   routines: { label: "Routines", icon: "clock", key: "⌘⌥6" },
   mail: { label: "Mail", icon: "mail", key: "⌘⌥7" },
+  usage: { label: "Usage", icon: "gauge", key: "⌘⌥8" },
 };
-const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
+const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "usage"];
 
 /** An app's bubble from its view: what waits on you there, {count, tone} or null. */
 function appBadge(app, v) {
@@ -68,11 +70,39 @@ export default class Sidebar {
     this.flashes = new Flashes();
     this.folded = new Set();
     this.repos = new Map();
+    this.machineList = [];
+    this.refreshMachines(cx);
+    cx.timer.every(15000, cx => this.refreshMachines(cx));
     this.drag = null;
     this.update = null;
     this.agents = new AgentsModel();
     this.agents.loadPins();
     this.agents.follow(cx, (value, before, cx) => this.agentsChanged(value, before, cx));
+    this.subagents = new SubagentsModel();
+    this.subagents.follow(cx, () => localSessions(this.agents.rows));
+    this.openSubs = new Set();
+    this.titles = new TitlesModel();
+    this.agents.titles = this.titles;
+    this.titles.follow(cx, () => this.agents.rows);
+    this.usage = null;
+    followUsage(cx, (data) => (this.usage = data), { every: 30000 });
+    this.perf = new PerfModel();
+    this.perf.follow(cx, () => this.agents.rows);
+    this.omo = null;
+    const readOmo = (cx) =>
+      cx.spawn(async (cx) => {
+        try {
+          const { home } = await hub.install();
+          const d = JSON.parse((await readTextFile(`${home}/.config/opencode/oh-my-opencode-slim.json`)) ?? "{}");
+          const next = { preset: d.preset ?? null, presets: Object.keys(d.presets ?? {}) };
+          if (next.preset !== this.omo?.preset || next.presets.join() !== this.omo?.presets.join()) {
+            this.omo = next;
+            cx.notify();
+          }
+        } catch {}
+      });
+    readOmo(cx);
+    cx.timer.every(10000, (cx) => readOmo(cx));
     cx.spawn(async (cx) => {
       try {
         this.install = await hub.install();
@@ -120,6 +150,7 @@ export default class Sidebar {
   command(c, cx) {
     if (c.startsWith("go:")) show(c.slice(3));
     else if (c === "palette") openPalette(cx);
+    else if (c.startsWith("omo:")) this.setOmoPreset(c.slice(4), cx);
     else if (c === "recap" || c.startsWith("recap:")) this.openRecap(c.split(":")[1]);
     else if (this.agents.command(c, cx)) return;
     else if (c === "kit" || c.startsWith("kit:")) openOverlay({ mod: "cockpit", props: { app: "kit", tab: c.split(":")[1] }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 });
@@ -149,6 +180,16 @@ export default class Sidebar {
       } catch {}
     });
     return null;
+  }
+
+  refreshMachines(cx) {
+    cx.spawn(async cx => {
+      try {
+        const r = await hc(["machine", "ls", "--json"]);
+        if (r.code === 0) this.machineList = (JSON.parse(r.stdout).machines ?? []).filter(m => !m.temporary);
+      } catch {}
+      cx.notify();
+    });
   }
 
   render(cx) {
@@ -254,9 +295,20 @@ export default class Sidebar {
             .child(Kbd("⌘⇧P")),
         ),
       )
-      .when(!rail && Boolean(model.value?.quota?.length), (e) =>
-        e.child(div().id("quota-box").mb(8).px(4).cursor_pointer().on_click(() => this.openRecap("time")).child(QuotaBars(model.value.quota, { compact: true }))),
+      .when(!rail && (Boolean(this.usage?.agents?.length) || Boolean(model.value?.quota?.length)), (e) =>
+        e.child(
+          div()
+            .id("quota-box")
+            .mb(8)
+            .px(4)
+            .cursor_pointer()
+            .on_click(() => show("usage"))
+            // The usage sync's own file: every agent's 5-hour and weekly window; the hub's quota until it has run.
+            .child(this.usage?.agents?.length ? QuotaBars(quotaByAgent(this.usage), { compact: true, labelW: 64, resets: true }) : QuotaBars(worstQuota(model.value.quota), { compact: true, labelW: 64 })),
+        ),
       )
+      .when(!rail && Boolean(this.perf.value), (e) => e.child(this.machineLine(k)))
+      .when(!rail && Boolean(this.omo?.presets?.length), (e) => e.child(this.omoLine(k)))
       .when(rail, (e) =>
         e
           .child(navItem("home", "Home", "layout-dashboard", counts.unread || null, "⌘⌥0", counts.needs_you ? k.blocked : null))
@@ -306,6 +358,73 @@ export default class Sidebar {
       .tooltip(`You run ${u.current}`)
       .child(div().flex_1().truncate().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(`Update cockpit to ${u.latest}`))
       .child(Icon("chevron-right", { size: 14, color: k.mutedFg }));
+  }
+
+  /** Oh-my-opencode-slim's preset (which model each OMO agent uses) lives in its config's `preset`; a new one applies to
+   *  OpenCode sessions started after. Only that line is rewritten. */
+  setOmoPreset(name, cx) {
+    if (!this.omo?.presets.includes(name)) return;
+    cx.spawn(async (cx) => {
+      try {
+        const { home } = await hub.install();
+        const path = `${home}/.config/opencode/oh-my-opencode-slim.json`;
+        const before = await readTextFile(path);
+        const after = before.replace(/("preset"\s*:\s*)"[^"]*"/, `$1${JSON.stringify(name)}`);
+        if (after === before) return;
+        JSON.parse(after);
+        await writeTextFile(path, after, before);
+        this.omo = { ...this.omo, preset: name };
+        notify({ title: `OMO preset: ${name}`, body: "New OpenCode sessions use it." });
+      } catch (e) {
+        notify({ title: "Could not change the OMO preset", body: String(e?.message ?? e) });
+      }
+      cx.notify();
+    });
+  }
+
+  /** The OMO preset in use, a click away from the others. */
+  omoLine(k) {
+    return h_flex()
+      .id("omo-line")
+      .mb(8)
+      .px(4)
+      .gap(6)
+      .items_center()
+      .cursor_pointer()
+      .text_size(TEXT.xs)
+      .font_family("JetBrains Mono")
+      .tooltip("Oh-my-opencode-slim preset: which model each OMO agent uses. Click to pick; new sessions use it.")
+      .on_click(() => openMenu(this.omo.presets.map((p) => ({ label: p, icon: p === this.omo.preset ? "check" : undefined, command: `omo:${p}` })), { width: 200 }))
+      .child(div().text_color(k.dim).child("OMO"))
+      .child(div().text_color(k.foreground).child(this.omo.preset ?? "none"))
+      .child(Icon("chevron-down", { size: 11, color: k.dim }));
+  }
+
+  /** This computer's CPU and GPU, other machines' GPUs (perf.remotes), and the agents' tokens per second, on one line. */
+  machineLine(k) {
+    const v = this.perf.value;
+    const s = v.system ?? {};
+    const remotes = Object.entries(v.remote ?? {}).filter(([, r]) => !r.away);
+    const tps = this.perf.liveTps();
+    const tone = (p) => (p >= 90 ? k.destructive : p >= 70 ? k.warning : k.mutedFg);
+    const stat = (id, label, p, tip) =>
+      h_flex().id(id).gap(3).tooltip(tip).child(div().text_color(k.dim).child(label)).child(div().text_color(tone(p ?? 0)).child(p == null ? "–" : `${Math.round(p)}%`));
+    return h_flex()
+      .id("machine-line")
+      .mb(8)
+      .px(4)
+      .gap(10)
+      .text_size(TEXT.xs)
+      .font_family("JetBrains Mono")
+      .child(stat("ml-cpu", "CPU", s.cpu, `This Mac's CPU: ${s.cpu ?? "–"}% of ${s.cores ?? "?"} cores${s.mem_used ? ` · memory ${(s.mem_used / 1024).toFixed(1)} of ${Math.round(s.mem_total / 1024)} GB` : ""}`))
+      .child(stat("ml-gpu", "GPU", s.gpu, "This Mac's GPU, busy %"))
+      .children(
+        remotes.map(([name, r]) =>
+          stat(`ml-${name}`, name.slice(0, 5), r.gpu, `${name}'s ${r.name ?? "GPU"}: ${r.gpu}% busy · VRAM ${((r.vram_used ?? 0) / 1024).toFixed(1)} of ${((r.vram_total ?? 0) / 1024).toFixed(1)} GB${r.stale ? " · last answer, the machine is away" : ""}`),
+        ),
+      )
+      .child(div().flex_1())
+      .when(tps > 0, (e) => e.child(h_flex().id("ml-tps").tooltip("Tokens per second of the agents' answers in the last minute, summed").text_color(k.working).child(tpsText(tps))));
   }
 
   /** The pinned apps as a row of tiles (label and key in the tooltip, count as a badge): the list below keeps the room. */
@@ -434,6 +553,16 @@ export default class Sidebar {
     else if (r.ci?.state === "running") parts.push(div().text_color(k.working).child(r.ci.label));
     if (r.pr) parts.push(div().child(`#${r.pr.number}${r.pr.review === "APPROVED" ? " approved" : r.pr.review === "CHANGES_REQUESTED" ? " changes asked" : ""}`));
     if (r.changes?.files) parts.push(h_flex().gap(3).child(div().text_color(k.success).child(`+${r.changes.add}`)).child(div().text_color(k.destructive).child(`−${r.changes.del}`)));
+    const subs = this.subagents.working(r.session);
+    if (subs) parts.push(h_flex().gap(3).text_color(k.working).child(Icon("git-fork", { size: 11, color: k.working })).child(`${subs} working`));
+    // Its last answer's speed (bright for a minute, then dim) and what its processes burn right now.
+    const perf = this.perf.of(r.address);
+    if (perf?.model) parts.push(div().min_w(0).truncate().text_color(k.dim).child(perf.model));
+    if (perf?.tps) {
+      const fresh = now - (perf.at ?? 0) < 60_000;
+      parts.push(div().flex_none().font_family("JetBrains Mono").text_color(fresh ? k.foreground : k.dim).child(tpsText(perf.tps)));
+    }
+    if (perf?.cpu != null) parts.push(div().flex_none().font_family("JetBrains Mono").text_color(perf.cpu >= 150 ? k.destructive : perf.cpu >= 60 ? k.warning : k.dim).child(`${perf.cpu}% cpu`));
     if (!parts.length && r.said) parts.push(div().min_w(0).truncate().italic().child(r.said));
     const flash = this.flashes.of(r.terminal);
     const row = h_flex()
@@ -488,13 +617,52 @@ export default class Sidebar {
     return HoverCard(`${id}-hover`, tracked, card, { width: 340, openDelay: 650 });
   }
 
-  /** Sub-agents an agent started (`hc run`), under it with tree lines; a click peeks. */
+  /** Sub-agents under the agent, with tree lines: the terminals it started (`hc run`, a click peeks), then the ones in its
+   *  own process (OpenCode child sessions, Claude Task agents; a click goes to the agent), ended ones dimmed for ten
+   *  minutes and folded past four. */
   subRows(k, r) {
     if (r.remote) return [];
-    const kids = (terminals() ?? []).filter((t) => t.parent === r.address && t.state === "live");
+    const now = Date.now();
+    const kids = (terminals() ?? [])
+      .filter((t) => t.parent === r.address && t.state === "live")
+      .map((t) => ({
+        id: t.address,
+        name: t.name || t.template || t.program?.name || t.address,
+        stage: t.status === "working" ? "working" : t.status === "blocked" ? "needs_you" : "idle",
+        onClick: () => run("terminal.peek", { terminal: t.address }),
+      }));
+    const subs = this.subagents.of(r.session, now);
+    const open = this.openSubs.has(r.terminal);
+    const shown = open || subs.length <= 4 ? subs : subs.filter((s) => s.status === "working");
+    for (const s of shown) {
+      const ended = s.status !== "working";
+      kids.push({
+        id: s.id,
+        name: s.name,
+        kind: s.kind,
+        stage: ended ? "idle" : "working",
+        ended,
+        failed: s.status === "failed",
+        age: ended ? (s.status === "done" ? "done" : s.status) : dur(now - (s.since ?? now)),
+        tip: `${s.kind ?? "sub-agent"}: ${s.name}${s.cost ? ` · $${s.cost.toFixed(2)}` : ""}`,
+        onClick: (_e, cx) => this.agents.go(cx, r),
+      });
+    }
+    const hidden = subs.length - shown.length;
+    if (hidden || (open && subs.length > 4)) {
+      kids.push({
+        id: `${r.terminal}-more`,
+        name: hidden ? `+${hidden} ended` : "fold the ended ones",
+        more: true,
+        onClick: (_e, cx) => {
+          open ? this.openSubs.delete(r.terminal) : this.openSubs.add(r.terminal);
+          cx.notify();
+        },
+      });
+    }
     return kids.map((t, i) =>
       h_flex()
-        .id(`sub-${t.address}`)
+        .id(`sub-${t.id}`)
         .h(24)
         .pl(26)
         .pr(8)
@@ -503,10 +671,13 @@ export default class Sidebar {
         .rounded(RADIUS.md)
         .cursor_pointer()
         .hover((s) => s.bg(k.accent))
-        .on_click(() => run("terminal.peek", { terminal: t.address }))
+        .when(Boolean(t.tip), (e) => e.tooltip(t.tip))
+        .on_click(t.onClick)
         .child(div().text_size(TEXT.xs).text_color(k.dim).child(i === kids.length - 1 ? "└" : "├"))
-        .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(k.mutedFg).child(t.name || t.template || t.program?.name || t.address))
-        .child(StageMark(`sub-${t.address}`, t.status === "working" ? "working" : t.status === "blocked" ? "needs_you" : "idle", { size: 6 })),
+        .when(Boolean(t.kind), (e) => e.child(div().flex_none().px(4).rounded(RADIUS.sm).bg(alpha(t.failed ? k.destructive : k.info, 0.14)).text_size(10).text_color(t.failed ? k.destructive : k.info).child(t.kind)))
+        .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(t.more || t.ended ? k.dim : k.mutedFg).when(Boolean(t.more), (e) => e.italic()).child(t.name))
+        .when(Boolean(t.age), (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(t.failed ? k.destructive : k.dim).child(t.age)))
+        .when(!t.more, (e) => e.child(StageMark(`sub-${t.id}`, t.stage, { size: 6 }))),
     );
   }
 
@@ -608,7 +779,7 @@ export default class Sidebar {
       ordered.push({ ...r, tree: false });
       if (r.repo && !r.repo.linked) for (const kid of info.filter((x) => nested(x) && x.repo.common === r.repo.common)) ordered.push({ ...kid, tree: true });
     }
-    const machines = [...new Set(sp.map((s) => s.machine).filter(Boolean))];
+    const machineNames = [...new Set([...sp.map(s => s.machine).filter(Boolean), ...machines().map(m => m.name).filter(Boolean), ...this.machineList.map(m => m.name)])].sort();
     const row = ({ s, i, tree }) => {
       const on = s.active && (shared("cockpit.app") ?? "work") === "work";
       const fill = colors[s.id] ?? k.ring;
@@ -687,9 +858,13 @@ export default class Sidebar {
         .child(Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space  ⌘N", onClick: () => run("space.new") })),
     });
     const withTerms = (r) => [row(r), ...(folded.has(r.s.id) ? [] : this.termRows(k, r.s, ps, byAddress, r.tree))];
-    if (!machines.length) return [head, ...ordered.flatMap(withTerms)];
+    if (!machineNames.length) return [head, ...ordered.flatMap(withTerms)];
     const out = [head];
-    for (const m of [null, ...machines]) {
+    for (const m of [null, ...machineNames]) {
+      const machine = this.machineList.find(x => x.name === m);
+      const layout = machines().find(x => x.name === m)?.layout;
+      const connected = m === null || machine?.state === "connected";
+      const state = (machine?.state ?? "asleep").replace(/_/g, " ");
       out.push(
         h_flex()
           .id(`machine-${m ?? "local"}`)
@@ -701,9 +876,16 @@ export default class Sidebar {
           .text_color(k.dim)
           .child(Icon(m ? "container" : "terminal", { size: 12 }))
           .child(div().flex_1().child(m ?? "This computer"))
-          .child(Button(`machine-new-${m ?? "local"}`, { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space there", onClick: () => run("space.new", m ? { machine: m } : {}) })),
+          .when(Boolean(m) && !connected, e => e.child(div().text_color(k.dim).child(state)))
+          .child(div().size(6).flex_none().rounded(3).bg(connected ? k.success : k.dim).when(Boolean(m), e => e.tooltip(connected ? "connected" : state)))
+          .child(Button(`machine-new-${m ?? "local"}`, { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: `${m ?? "This computer"} · New space there`, onClick: () => run("space.new", { machine: m ?? "" }) })),
       );
-      out.push(...ordered.filter((r) => (r.s.machine ?? null) === m).flatMap(withTerms));
+      const mine = ordered.filter(r => (r.s.machine ?? null) === m);
+      if (!mine.length) {
+        out.push(layout === "loading"
+          ? h_flex().id(`machine-loading-${m ?? "local"}`).h(26).px(8).text_size(TEXT.xs).text_color(k.dim).child("Loading…")
+          : h_flex().id(`machine-empty-${m ?? "local"}`).h(26).px(8).gap(6).items_center().rounded(RADIUS.md).cursor_pointer().text_size(TEXT.xs).text_color(k.dim).hover(s => s.bg(k.accent).text_color(k.foreground)).tooltip(`${m ?? "This computer"} · New space there`).on_click(() => run("space.new", { machine: m ?? "" })).child(Icon("plus", { size: 12 })).child("New space there"));
+      } else out.push(...mine.flatMap(withTerms));
     }
     return out;
   }

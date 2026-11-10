@@ -9,6 +9,7 @@
     "cmd-alt-5": "cockpit.go:monitor",
     "cmd-alt-6": "cockpit.go:routines",
     "cmd-alt-7": "cockpit.go:mail",
+    "cmd-alt-8": "cockpit.go:usage",
     "cmd-alt-a": "cockpit.agent-view",
     "cmd-alt-b": "cockpit.panel",
     "ctrl-cmd-1": "cockpit.panel:show",
