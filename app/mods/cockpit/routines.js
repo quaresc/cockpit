@@ -681,55 +681,52 @@ export default class Routines {
     const t = this.model.tiles;
     const next = t.next;
     const room = this.width - (this.width >= SIDE_AT ? 400 : 0);
-    return Tiles(
-      [
-        Metric("tile-running", { label: "Running", value: t.running, tone: t.running ? k.working : k.foreground, spin: t.running > 0, icon: "play", hint: t.waiting ? `${t.waiting} waiting their turn` : `${t.active} of ${t.routines} active` }),
-        v_flex()
-          .id("tile-week")
-          .flex_1()
-          .min_w(200)
-          .px(16)
-          .py(12)
-          .gap(4)
-          .rounded(RADIUS.lg)
-          .border_1()
-          .border_color(k.border)
-          .bg(k.card)
-          .child(h_flex().gap(6).items_center().child(Icon("chart-column", { size: 13, color: k.mutedFg })).child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("THIS WEEK")).child(div().flex_1()).child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(`${t.weekRuns} runs`)))
-          .child(this.weekChart(k)),
-        Metric("tile-failing", {
-          label: "Needs a look",
-          value: t.failing,
-          tone: t.failing ? k.destructive : k.foreground,
-          tint: t.failing > 0,
-          icon: "triangle-alert",
-          hint: t.weekMissed ? `${t.weekFailed} failed · ${t.weekMissed} missed this week` : `${t.weekFailed} failed this week`,
-          onClick: (_e, cx) => {
-            const bad = this.model.routines.find((r) => ["failed", "broken", "missed", "over"].includes(r.state));
-            if (bad) this.select(bad.key);
-            cx.notify();
-          },
-        }),
-        Metric("tile-spent", {
-          label: "Spent",
-          value: t.spent,
-          icon: "dollar",
-          tone: t.overBudget ? k.warning : k.foreground,
-          tint: Boolean(t.overBudget),
-          hint: t.budget ? `${t.overBudget ? "over the" : "of"} $${t.budget.toFixed(2)} a week budgeted` : "estimated by Claude Code, over 7 days",
-        }),
-        room >= 860
-          ? Metric("tile-next", {
-              label: "Next run",
-              value: next ? next.text : "—",
-              icon: "alarm-clock",
-              hint: next ? next.name : "nothing scheduled",
-              onClick: next ? (_e, cx) => (this.select(next.slug), cx.notify()) : undefined,
-            })
-          : null,
-      ],
-      { narrow: room < 640 },
-    );
+    return Tiles([
+      Metric("tile-running", { label: "Running", value: t.running, tone: t.running ? k.working : k.foreground, spin: t.running > 0, icon: "play", hint: t.waiting ? `${t.waiting} waiting their turn` : `${t.active} of ${t.routines} active` }),
+      v_flex()
+        .id("tile-week")
+        .flex_1()
+        .min_w(200)
+        .px(16)
+        .py(12)
+        .gap(4)
+        .rounded(RADIUS.lg)
+        .border_1()
+        .border_color(k.border)
+        .bg(k.card)
+        .child(h_flex().gap(6).items_center().child(Icon("chart-column", { size: 13, color: k.mutedFg })).child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("THIS WEEK")).child(div().flex_1()).child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(`${t.weekRuns} runs`)))
+        .child(this.weekChart(k)),
+      Metric("tile-failing", {
+        label: "Needs a look",
+        value: t.failing,
+        tone: t.failing ? k.destructive : k.foreground,
+        tint: t.failing > 0,
+        icon: "triangle-alert",
+        hint: t.weekMissed ? `${t.weekFailed} failed · ${t.weekMissed} missed this week` : `${t.weekFailed} failed this week`,
+        onClick: (_e, cx) => {
+          const bad = this.model.routines.find((r) => ["failed", "broken", "missed", "over"].includes(r.state));
+          if (bad) this.select(bad.key);
+          cx.notify();
+        },
+      }),
+      Metric("tile-spent", {
+        label: "Spent",
+        value: t.spent,
+        icon: "dollar",
+        tone: t.overBudget ? k.warning : k.foreground,
+        tint: Boolean(t.overBudget),
+        hint: t.budget ? `${t.overBudget ? "over the" : "of"} $${t.budget.toFixed(2)} a week budgeted` : "estimated by Claude Code, over 7 days",
+      }),
+      room >= 860
+        ? Metric("tile-next", {
+            label: "Next run",
+            value: next ? next.text : "—",
+            icon: "alarm-clock",
+            hint: next ? next.name : "nothing scheduled",
+            onClick: next ? (_e, cx) => (this.select(next.slug), cx.notify()) : undefined,
+          })
+        : null,
+    ]);
   }
 
   historyStrip(id, history, k) {

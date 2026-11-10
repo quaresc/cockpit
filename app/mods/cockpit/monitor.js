@@ -688,59 +688,56 @@ export default class Monitor {
       const row = this.rows().find(pred) ?? this.rows(true).find(pred);
       if (row) this.goTo(row.key, cx);
     };
-    return Tiles(
-      [
-        Metric("tile-verdict", {
-          label: "Production",
-          value: word,
-          tone: bad ? tone(v, k) : k.success,
-          tint: bad,
-          icon: state(bad ? v : "ok")[1],
-          hint: m.headline || (m.env ? `${m.env} · ${m.ago ?? ""}` : ""),
-          onClick: (_e, cx) => (firstOf((r) => r.depth === 0 && r.item.troubled)(), cx.notify()),
-        }),
-        v_flex()
-          .id("tile-releases")
-          .flex_1()
-          .min_w(132)
-          .px(16)
-          .py(14)
-          .gap(6)
-          .rounded(RADIUS.lg)
-          .border_1()
-          .border_color(k.border)
-          .bg(k.card)
-          .child(h_flex().gap(6).items_center().child(Icon("rocket", { size: 13, color: k.mutedFg })).child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("RELEASES TODAY")))
-          .child(div().text_size(26).font_semibold().text_color(k.foreground).child(String(t.today)))
-          .child(SegBar("tile-releases-bar", segs)),
-        v_flex()
-          .id("tile-alerts")
-          .flex_1()
-          .min_w(132)
-          .px(16)
-          .py(14)
-          .gap(6)
-          .rounded(RADIUS.lg)
-          .border_1()
-          .border_color(t.alerts ? alpha(k.destructive, 0.35) : k.border)
-          .bg(t.alerts ? alpha(k.destructive, 0.06) : k.card)
-          .cursor_pointer()
-          .on_click((_e, cx) => (firstOf((r) => r.kind === "monitor")(), cx.notify()))
-          .child(h_flex().gap(6).items_center().child(Icon("bell", { size: 13, color: k.mutedFg })).child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("ALERTS")))
-          .child(h_flex().gap(8).items_end().child(div().text_size(26).font_semibold().text_color(t.alerts ? k.destructive : k.foreground).child(String(t.alerts))).child(div().pb(5).text_size(TEXT.xs).text_color(k.mutedFg).child(`of ${t.monitors} monitors`)))
-          .child(monitorsMeter("tile-alerts-meter", { ok: t.monitors - t.alerts - t.warns, warn: t.warns, alert: t.alerts, nodata: 0, total: t.monitors }, { total: 20, segW: 6 })),
-        Metric("tile-errors", {
-          label: "New errors",
-          value: t.newErrors,
-          tone: t.newErrors ? k.destructive : k.foreground,
-          icon: "bug",
-          hint: t.newErrors ? `${t.newErrorEvents} events in the last day` : "none since the last release",
-          onClick: (_e, cx) => (firstOf((r) => r.kind === "issue")(), cx.notify()),
-        }),
-        this.left() >= 820 ? Metric("tile-watched", { label: "Watched", value: `${t.watched}/${t.apps}`, icon: "eye", hint: "apps released today or pinned" }) : null,
-      ],
-      { narrow: this.left() < 640 },
-    );
+    return Tiles([
+      Metric("tile-verdict", {
+        label: "Production",
+        value: word,
+        tone: bad ? tone(v, k) : k.success,
+        tint: bad,
+        icon: state(bad ? v : "ok")[1],
+        hint: m.headline || (m.env ? `${m.env} · ${m.ago ?? ""}` : ""),
+        onClick: (_e, cx) => (firstOf((r) => r.depth === 0 && r.item.troubled)(), cx.notify()),
+      }),
+      v_flex()
+        .id("tile-releases")
+        .flex_1()
+        .min_w(132)
+        .px(16)
+        .py(14)
+        .gap(6)
+        .rounded(RADIUS.lg)
+        .border_1()
+        .border_color(k.border)
+        .bg(k.card)
+        .child(h_flex().gap(6).items_center().child(Icon("rocket", { size: 13, color: k.mutedFg })).child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("RELEASES TODAY")))
+        .child(div().text_size(26).font_semibold().text_color(k.foreground).child(String(t.today)))
+        .child(SegBar("tile-releases-bar", segs)),
+      v_flex()
+        .id("tile-alerts")
+        .flex_1()
+        .min_w(132)
+        .px(16)
+        .py(14)
+        .gap(6)
+        .rounded(RADIUS.lg)
+        .border_1()
+        .border_color(t.alerts ? alpha(k.destructive, 0.35) : k.border)
+        .bg(t.alerts ? alpha(k.destructive, 0.06) : k.card)
+        .cursor_pointer()
+        .on_click((_e, cx) => (firstOf((r) => r.kind === "monitor")(), cx.notify()))
+        .child(h_flex().gap(6).items_center().child(Icon("bell", { size: 13, color: k.mutedFg })).child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child("ALERTS")))
+        .child(h_flex().gap(8).items_end().child(div().text_size(26).font_semibold().text_color(t.alerts ? k.destructive : k.foreground).child(String(t.alerts))).child(div().pb(5).text_size(TEXT.xs).text_color(k.mutedFg).child(`of ${t.monitors} monitors`)))
+        .child(monitorsMeter("tile-alerts-meter", { ok: t.monitors - t.alerts - t.warns, warn: t.warns, alert: t.alerts, nodata: 0, total: t.monitors }, { total: 20, segW: 6 })),
+      Metric("tile-errors", {
+        label: "New errors",
+        value: t.newErrors,
+        tone: t.newErrors ? k.destructive : k.foreground,
+        icon: "bug",
+        hint: t.newErrors ? `${t.newErrorEvents} events in the last day` : "none since the last release",
+        onClick: (_e, cx) => (firstOf((r) => r.kind === "issue")(), cx.notify()),
+      }),
+      this.left() >= 820 ? Metric("tile-watched", { label: "Watched", value: `${t.watched}/${t.apps}`, icon: "eye", hint: "apps released today or pinned" }) : null,
+    ]);
   }
 
   appRow(row, k, sel) {

@@ -1074,17 +1074,19 @@ export function StatTile(id, { label, value, delta, deltaGood, hint, spark, spar
       h_flex()
         .items_center()
         .gap(6)
+        .min_w(0)
         .text_size(TEXT.sm)
         .font_medium()
         .text_color(k.mutedFg)
         .when(Boolean(icon), (e) => e.child(Icon(icon, { size: 14 })))
-        .child(label ?? ""),
+        .child(div().flex_1().min_w(0).child(label ?? "")),
     )
     .child(
       h_flex()
         .items_end()
         .gap(8)
-        .child(div().text_size(24).font_semibold().text_color(k.foreground).child(String(value ?? "—")))
+        .min_w(0)
+        .child(div().min_w(0).truncate().text_size(24).font_semibold().text_color(k.foreground).child(String(value ?? "—")))
         .when(delta !== undefined && delta !== null, (e) => e.child(Badge(delta, deltaGood === undefined ? "secondary" : deltaGood ? "success" : "destructive"))),
     )
     .when(Boolean(hint), (e) => e.child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(hint)))
@@ -1224,11 +1226,12 @@ export function Metric(id, { label, value, tone, tint = false, hint, bars, icon,
       h_flex()
         .gap(6)
         .items_center()
+        .min_w(0)
         .when(spin, (e) => e.child(Spinner({ size: 12, color: c })))
         .when(Boolean(icon) && !spin, (e) => e.child(Icon(icon, { size: 13, color: k.mutedFg })))
-        .child(div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child(String(label ?? "").toUpperCase())),
+        .child(div().flex_1().min_w(0).text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child(String(label ?? "").toUpperCase())),
     )
-    .child(div().text_size(26).font_semibold().text_color(c).child(String(value ?? "–")))
+    .child(div().min_w(0).truncate().text_size(26).font_semibold().text_color(c).child(String(value ?? "–")))
     .when(Boolean(bars?.length), (e) => e.child(MiniBars(bars, { color: c, h: 22 })))
     .when(Boolean(hint) && !bars?.length, (e) => e.child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(hint)));
   if (onClick) el = el.cursor_pointer().hover((s) => s.border_color(alpha(c, 0.6))).on_click(onClick);
@@ -1453,12 +1456,7 @@ export function Overline(text) {
   return div().text_size(TEXT.xs).font_semibold().text_color(k.mutedFg).child(String(text ?? "").toUpperCase());
 }
 
-/** Dashboard tiles side by side, in rows of two when `narrow` (none stretched alone on a row); nulls are skipped. */
-export function Tiles(tiles, { narrow = false } = {}) {
-  const shown = tiles.filter(Boolean);
-  const row = (items) => h_flex().gap(12).items_start().children(items);
-  if (!narrow) return row(shown);
-  const rows = [];
-  for (let i = 0; i < shown.length; i += 2) rows.push(row(shown.slice(i, i + 2)));
-  return v_flex().gap(12).children(rows);
+/** Dashboard tiles side by side, wrapping onto the next row once their minimum widths no longer fit; nulls are skipped. */
+export function Tiles(tiles) {
+  return h_flex().w_full().gap(12).flex_wrap().items_stretch().children(tiles.filter(Boolean));
 }
