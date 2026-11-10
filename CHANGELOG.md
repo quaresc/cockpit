@@ -12,6 +12,7 @@ must be here first.
 - Remote: connect Herdr to a Cockpit server (#30)
 - Inbox: the age test freezes the clock before reading it (#33)
 - Remote: a hub listening off loopback answers reads only (#35)
+- Remote desk: Go, Peek and Open beside reach the runner's terminal (#34)
 
 ## 0.39.3 (2026-11-09)
 
