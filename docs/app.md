@@ -81,8 +81,10 @@ In the desktop's Herdr home, write `cockpit.json` using the runner's paths and i
 
 The mod reads the port and token through Herdr's remote file API, authenticates before requesting data, and follows
 updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing for 65 seconds. Links and item
-navigation open on the desktop. Notifications appear as in-app toasts. Mutating actions and remote agent controls
-are unavailable in this preview. Runner agents have machine-scoped display identities and are not joined to local
+navigation open on the desktop. Notifications appear as in-app toasts. Go, Peek and Open beside reach a runner agent
+through its machine-scoped address (`runner/t7`), the terminal Herdr shows for that machine; they write nothing to the
+runner's hub. The machine must connect to the hc session the runner's hub reads (its default session unless the hub
+runs with `HC_SESSION`), or these reach a different terminal with the same id. Mutating actions and Archive are unavailable in this preview. Runner agents are not joined to local
 terminals or tabs with matching IDs.
 
 TCP has no TLS: use an encrypted private network such as Tailscale. The discovery token grants full hub access;

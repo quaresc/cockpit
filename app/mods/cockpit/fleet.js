@@ -119,16 +119,16 @@ export function stageOf(a) {
 
 /** The agent's terminal in front: the work area, its tab, its pane focused. */
 export function goToAgent(agent) {
-  if (!agent || refuseRemoteAgent(agent)) return;
+  if (!agent) return;
   run("agent.focus", { terminal: agent.address });
   run("layout.select", { stack: "center", child: "work" });
   setShared("cockpit.app", "work");
 }
 
-/** Explains why a remote row cannot run terminal or tab commands on this desktop. */
+/** Explains why a remote row cannot run tab commands: its tab ids belong to the runner, not this desktop. */
 export function refuseRemoteAgent(agent) {
   if (!agent?.remote) return false;
-  notify({ title: "Read-only remote desk", body: "Agent controls are unavailable in the remote preview.", level: "info" });
+  notify({ title: "Read-only remote desk", body: "Archiving a runner's agent needs a local cockpit installation.", level: "info" });
   return true;
 }
 
