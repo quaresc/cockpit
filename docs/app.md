@@ -217,6 +217,7 @@ every 2 s), when the `inbox`/`ci`/`agents` documents change, or after its own ac
     "said": "Old invoices store two dates…", // its last message on screen, or ""
     "recap": {"text": "…", "at": 1793611000000, "fresh": true, "running": false, "error": null},  // or null
     "stage": "needs_you",                    // whose move: needs_you | done | fixing | idle | working | review | merged | snoozed
+                                             // done is an attention queue: opening the agent drops it to what its PR says
     "repo": "api", "branch": "me/eng-412-daily-quotas", "cwd": "/…/api",
     "ticket": {"key": "ENG-412", "title": "…", "url": "…", "status": "In Progress"},          // or null
     "pr": {"number": 2198, "url": "…", "title": "…", "state": "open", "draft": false, "review": "APPROVED", "ci": "SUCCESS"},  // or null

@@ -179,19 +179,25 @@ fn app_list() -> Vec<Live> {
                 } else {
                     Found::default()
                 };
+                // A terminal the frontend names no agent for still runs one when it was started through a shell.
+                let (agent, program) = match (agent, found.agent.clone()) {
+                    (None, Some(a)) => (Some(a.clone()), a.bin),
+                    (agent, _) => (agent, program),
+                };
                 // Herdr reports no status for a Claude Code session attached from the background (`claude --bg`, a job):
-                // its program and its title's spinner say whether it is one and works. An agent with no Herdr status
-                // otherwise takes it from its transcript's last turn.
-                let (status, title, program) = match reported {
-                    Some(status) => (status_word(status), t["name"].as_str().map(str::to_string).unwrap_or_default(), program),
+                // its title's spinner says whether it works. An agent with no Herdr status otherwise takes it from its
+                // transcript's last turn.
+                let (status, title) = match reported {
+                    Some(status) => (status_word(status), t["name"].as_str().map(str::to_string).unwrap_or_default()),
                     None => match attached_claude(&found.got) {
-                        Some((status, title)) => (status, title, "claude".to_string()),
+                        Some((status, title)) => (status, title),
                         None => match unreported(agent.as_ref(), &found) {
-                            Some(status) => (status, found.got["title"].as_str().unwrap_or_default().to_string(), program),
+                            Some(status) => (status, found.got["title"].as_str().unwrap_or_default().to_string()),
                             None => continue,
                         },
                     },
                 };
+                let status = finished(agent.as_ref(), found.transcript.as_deref(), status);
                 let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
                 out.push(Live {
                     handle,
@@ -224,6 +230,8 @@ struct Found {
     got: Value,
     session: Option<String>,
     transcript: Option<String>,
+    /// The agent its foreground process runs, when the frontend named none.
+    agent: Option<Agent>,
 }
 
 /// How long what a terminal holds is trusted before it is looked at again (a /clear or a resume starts another session).
@@ -253,11 +261,12 @@ fn app_session(handle: &str, address: &str, agent: Option<&Agent>, cwd: &str, fr
     let pid = got["foreground"]["pid"].as_u64();
     let cwd = if cwd.is_empty() { got["cwd"].as_str().unwrap_or_default() } else { cwd };
     let reported = got["agent_session"].as_str().or(got["agent_session"]["value"].as_str());
-    let (session, transcript) = match agent {
+    let agent = agent.cloned().or_else(|| foreground_agent(&got));
+    let (session, transcript) = match &agent {
         Some(a) => which(a, reported, None, pid, &argv, cwd, got["created_ms"].as_u64().unwrap_or(0)),
         None => (None, None),
     };
-    let found = Found { got, session, transcript };
+    let found = Found { got, session, transcript, agent };
     let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
     let known = known.get_or_insert_with(HashMap::new);
     known.retain(|_, (at, _)| at.elapsed() < LOOK_AGAIN * 30);
@@ -314,6 +323,18 @@ fn claude_session_of(pid: u64) -> Option<String> {
 
 fn agent_id(program: &str) -> String {
     agent::of_program(program).map(|a| a.id).unwrap_or_default()
+}
+
+/// The agent a terminal's foreground process is, from its name: a frontend naming none still runs one when the agent
+/// was started through a shell.
+fn foreground_agent(got: &Value) -> Option<Agent> {
+    agent::of_program(Path::new(got["foreground"]["name"].as_str()?).file_name()?.to_str()?)
+}
+
+/// A resting agent that closed its turn is done until the person looks at it; only its transcript tells the two apart.
+fn finished(agent: Option<&Agent>, transcript: Option<&str>, status: String) -> String {
+    let ended = || Some(transcripts::turn(agent?.transcripts, Path::new(transcript?))? == Turn::Done);
+    if status == "idle" && ended() == Some(true) { "done".into() } else { status }
 }
 
 /// The status of an agent that reports none to Herdr, from its transcript's last turn; None when it cannot be told.
@@ -417,6 +438,7 @@ fn tui_list() -> Vec<Live> {
             Some(a) => tui_session(&s("pane_id"), a, id, path, pid, &cwd),
             None => (id.map(str::to_string), path.map(str::to_string)),
         };
+        let status = finished(found.as_ref(), transcript.as_deref(), status_word(p["agent_status"].as_str().unwrap_or("idle")));
         out.push(Live {
             handle: s("pane_id"),
             address: s("pane_id"),
@@ -428,7 +450,7 @@ fn tui_list() -> Vec<Live> {
             title: s("terminal_title_stripped"),
             program: agent.to_string(),
             agent: found.as_ref().map(|a| a.id.clone()).unwrap_or_default(),
-            status: status_word(p["agent_status"].as_str().unwrap_or("idle")),
+            status,
             context: context.or_else(|| context_of(found.as_ref(), transcript.as_deref())),
             cwd,
             session,
@@ -569,9 +591,13 @@ mod tests {
         assert_eq!(which(&agent, None, None, None, &resumed, &cwd, started - 1000), (Some(a.to_string()), shown(&old)), "the one it resumed");
         assert_eq!(which(&agent, Some(b), None, None, &[], "", 0), (Some(b.to_string()), shown(&newer)), "the one Herdr reports");
         assert_eq!(which(&agent, None, newer.to_str(), None, &[], "", 0), (Some(b.to_string()), shown(&newer)), "a path Herdr reports");
-        let found = Found { got: Value::Null, session: Some(b.into()), transcript: shown(&newer) };
+        let found = Found { got: Value::Null, session: Some(b.into()), transcript: shown(&newer), agent: None };
         assert_eq!(unreported(Some(&agent), &found).as_deref(), Some("working"));
         assert_eq!(unreported(Some(&agent), &Found { transcript: shown(&old), ..found.clone() }).as_deref(), Some("done"));
+        assert_eq!(finished(Some(&agent), shown(&old).as_deref(), "idle".into()), "done", "a rested agent that closed its turn");
+        assert_eq!(finished(Some(&agent), shown(&newer).as_deref(), "idle".into()), "idle", "one that never closed one");
+        assert_eq!(finished(Some(&agent), shown(&old).as_deref(), "working".into()), "working", "a working one is left alone");
+        assert_eq!(finished(None, shown(&old).as_deref(), "idle".into()), "idle", "no agent, nothing to read");
         assert_eq!(context_of(Some(&agent), newer.to_str()), Some(25.0));
         unsafe { std::env::remove_var("CODEX_HOME") };
     }

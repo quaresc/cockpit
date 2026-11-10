@@ -438,6 +438,21 @@ pub enum Turn {
 /// Herdr. None for formats with no such events.
 pub fn turn(kind: Transcripts, path: &Path) -> Option<Turn> {
     match kind {
+        // Claude Code closes a turn with a `turn_duration` line; the bookkeeping it writes after says nothing.
+        Transcripts::Claude => {
+            let tail = tail(path, TAIL)?;
+            tail.split(|b| *b == b'\n').rev().find_map(|l| {
+                let v: Value = serde_json::from_slice(l).ok()?;
+                if v["isSidechain"] == true {
+                    return None;
+                }
+                match (v["type"].as_str()?, v["subtype"].as_str().unwrap_or_default()) {
+                    ("system", "turn_duration") => Some(Turn::Done),
+                    ("assistant" | "user", _) => Some(Turn::Working),
+                    _ => None,
+                }
+            })
+        }
         Transcripts::Codex => {
             let tail = tail(path, TAIL)?;
             tail.split(|b| *b == b'\n').rev().filter(|l| contains(l, b"\"event_msg\"")).find_map(|l| {
@@ -1129,7 +1144,22 @@ mod tests {
         working.truncate(9);
         let working = write(dir.path(), "sessions/2026/11/03/rollout-2026-11-03T11-00-00-0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5e.jsonl", &working);
         assert_eq!(turn(Transcripts::Codex, &working), Some(Turn::Working));
-        assert_eq!(turn(Transcripts::Claude, &path), None);
+    }
+
+    #[test]
+    fn a_claude_transcript_tells_a_finished_turn_from_a_running_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let ended = json!({"type": "system", "subtype": "turn_duration", "durationMs": 1200, "isSidechain": false});
+        let reply =
+            json!({"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Done."}]}});
+        let working = write(dir.path(), "-r-api/c-2.jsonl", &[json!({"type": "user", "message": {"role": "user", "content": "go"}}), reply.clone()]);
+        assert_eq!(turn(Transcripts::Claude, &working), Some(Turn::Working));
+        let done =
+            write(dir.path(), "-r-api/c-3.jsonl", &[reply.clone(), ended.clone(), json!({"type": "last-prompt", "text": "go"}), json!({"type": "cost-state"})]);
+        assert_eq!(turn(Transcripts::Claude, &done), Some(Turn::Done), "the bookkeeping written after a turn says nothing");
+        let sidechain = json!({"type": "assistant", "isSidechain": true, "message": {"role": "assistant", "content": []}});
+        let sub = write(dir.path(), "-r-api/c-4.jsonl", &[reply, ended, sidechain]);
+        assert_eq!(turn(Transcripts::Claude, &sub), Some(Turn::Done), "a subagent still writing does not reopen the turn");
     }
 
     pub(crate) fn codex_lines(id: &str, cwd: &str, branch: &str) -> Vec<Value> {

@@ -1,6 +1,6 @@
-//! What the hub remembers of each agent across restarts: since when its status holds (done and idle count as one:
-//! looking at a finished agent turns done into idle, which is not the agent doing anything), whether it was seen in
-//! that status, and its snooze. One JSON file in the cache.
+//! What the hub remembers of each agent across restarts: since when its status holds (done and idle count as one, so
+//! a finished agent keeps the moment it stopped working), whether it was seen in that status, and its snooze. One JSON
+//! file in the cache.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -119,7 +119,7 @@ impl State {
         changed
     }
 
-    /// The person looked at a done agent (Herdr made it idle) or asked to mark it.
+    /// The person opened a done agent, or asked to mark it: it leaves Done for what its PR says.
     pub fn mark_seen(&mut self, handle: &str) -> bool {
         let Some(e) = self.agents.get_mut(handle) else { return false };
         let was = e.seen();
