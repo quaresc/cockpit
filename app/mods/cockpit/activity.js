@@ -14,6 +14,7 @@ const ITEMS = [
   { name: "runbook", icon: "book", label: "Runbook", key: "⌃⌘3" },
   { name: "files", icon: "folder", label: "Files", key: "⌃⌘4" },
   { name: "changes", icon: "git-commit", label: "Changes", key: "⌃⌘5" },
+  { name: "context", icon: "gauge", label: "Context", key: "⌃⌘6" },
 ];
 
 export default class Activity {

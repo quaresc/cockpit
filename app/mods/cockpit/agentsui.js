@@ -4,7 +4,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, notify, openOverlay, agents, spaces, panes, machines, exec, hc, readTextFile, writeTextFile } from "herdr";
+import { run, notify, openOverlay, agents, spaces, panes, machines, exec, hc, readTextFile, writeTextFile, shared, setShared } from "herdr";
 import * as hub from "./hub.js";
 import { rowsOf } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
@@ -706,6 +706,15 @@ export function localSessions(rows) {
   return (rows ?? []).map((r) => ({ session: sessionFor(r), machine: machineOf(r.address ?? r.terminal) })).filter((s) => s.session);
 }
 
+/** Whether a sidebar section (usage, machines, omo) is open: Herdr's shared state, which the sidebar and the settings window both see. */
+export function sectionOpen(name) {
+  return (shared(`cockpit.sidebar.${name}`) ?? "open") !== "folded";
+}
+
+export function setSectionOpen(name, open) {
+  setShared(`cockpit.sidebar.${name}`, open ? "open" : "folded");
+}
+
 /** The machine an agent runs on: the address prefix (`gpu-box/t9`), null for this one. */
 export const machineOf = (address) => {
   const s = String(address ?? "").replace(/^app:/, "");
@@ -714,7 +723,7 @@ export const machineOf = (address) => {
 
 const sources = new Map();
 /** A helper script's source (read once): another machine runs it with `python3 -c`, so nothing is installed there. */
-async function helperSource(name) {
+export async function helperSource(name) {
   if (!sources.has(name)) {
     const { home } = await hub.install();
     sources.set(name, (await readTextFile(`${home}/.local/share/cockpit/herdr/helpers/${name}`)) ?? "");
@@ -744,7 +753,15 @@ export const sessionFor = (r) => r?.session ?? RESOLVED.get(String(r?.address ??
 // starts (OH_MY_OPENCODE_SLIM_PRESET, when set there, wins), so what this window shows and sets is that machine's file.
 
 const OMO_FILE = "~/.config/opencode/oh-my-opencode-slim.json";
-const OMO_READ = `import json,os;p=os.path.expanduser('${OMO_FILE}');d=json.load(open(p));cur=(d.get('presets') or {}).get(d.get('preset')) or {};print(json.dumps({'preset':d.get('preset'),'presets':list((d.get('presets') or {}).keys()),'env':os.environ.get('OH_MY_OPENCODE_SLIM_PRESET'),'models':{k:(v.get('model') if isinstance(v.get('model'),str) else ' > '.join(v.get('model') or [])) for k,v in cur.items() if isinstance(v,dict)}}))`;
+const OMO_READ = `import json,os;p=os.path.expanduser('${OMO_FILE}');d=json.load(open(p));ch=lambda v:(v.get('model') if isinstance(v.get('model'),str) else ' > '.join(v.get('model') or []));allp={n:{k:ch(v) for k,v in (pr or {}).items() if isinstance(v,dict)} for n,pr in (d.get('presets') or {}).items()};print(json.dumps({'preset':d.get('preset'),'presets':list(allp.keys()),'env':os.environ.get('OH_MY_OPENCODE_SLIM_PRESET'),'models':allp.get(d.get('preset')) or {},'all':allp}))`;
+// Edits one preset's models, copies a preset to a new name, or deletes one (never the one in use); the file is backed up first.
+const OMO_EDIT = `import json,os,sys,shutil;p=os.path.expanduser('${OMO_FILE}');d=json.load(open(p));a=json.loads(sys.argv[1]);P=d.setdefault('presets',{});op=a['op'];n=a['name']
+if op=='models':
+    if n not in P: P[n]=json.loads(json.dumps(P[a['from']])) if a.get('from') in P else {}
+    for k,c in (a.get('models') or {}).items(): P[n].setdefault(k,{})['model']=c
+elif op=='delete':
+    assert n!=d.get('preset'),'that preset is in use'; P.pop(n,None)
+shutil.copy(p,p+'.bak-cockpit');open(p,'w').write(json.dumps(d,indent=2)+'\\n');print('ok')`;
 const OMO_WRITE = `import re,os,json,sys,shutil;p=os.path.expanduser('${OMO_FILE}');t=open(p).read();n=re.sub(r'("preset"\\s*:\\s*)"[^"]*"',lambda m:m.group(1)+json.dumps(sys.argv[1]),t,1);json.loads(n);shutil.copy(p,p+'.bak-cockpit');open(p,'w').write(n);print('ok')`;
 
 export class OmoModel {
@@ -771,6 +788,7 @@ export class OmoModel {
         }
         if (changed) cx.notify();
       });
+    this.refresh = (cx) => pull(cx);
     pull(cx);
     cx.timer.every(10000, (cx) => pull(cx));
   }
@@ -789,6 +807,20 @@ export class OmoModel {
     this.by.set(machine ?? null, { ...v, preset: name });
     const label = machine ?? "this computer";
     return { note: `${label}: preset ${name}. Sessions already running keep ${v.preset} until restarted.${v.env ? ` OH_MY_OPENCODE_SLIM_PRESET=${v.env} is set there and wins.` : ""}` };
+  }
+
+  /** Edits a preset's models on a machine (`models`: agent -> a model or a fallback chain), or copies `from` to a new `name`. */
+  async edit(machine, name, models, from = null) {
+    const r = await exec("python3", ["-c", OMO_EDIT, JSON.stringify({ op: "models", name, models, from })], machine ? { on: machine, timeout: 15000 } : { timeout: 15000 });
+    if (!/ok/.test(r.stdout ?? "")) return { error: String(r.stderr ?? "").split("\n").filter(Boolean).pop()?.slice(0, 200) ?? "could not write the config" };
+    return { note: `${machine ?? "this computer"}: preset ${name} saved (the file is backed up as .bak-cockpit).` };
+  }
+
+  /** Deletes a preset that is not the one in use. */
+  async remove(machine, name) {
+    const r = await exec("python3", ["-c", OMO_EDIT, JSON.stringify({ op: "delete", name })], machine ? { on: machine, timeout: 15000 } : { timeout: 15000 });
+    if (!/ok/.test(r.stdout ?? "")) return { error: String(r.stderr ?? "").split("\n").filter(Boolean).pop()?.slice(0, 200) ?? "could not delete it" };
+    return { note: `${machine ?? "this computer"}: preset ${name} deleted.` };
   }
 
   /** Menu items: a section per machine, the current preset ticked; each picks `omo:<machine>|<preset>`. */
@@ -818,6 +850,7 @@ export class PerfModel {
     this.agentCpu = new Map();
     // Each machine's CPU, memory, GPU, VRAM (null: this computer), from the helper run there.
     this.sys = new Map();
+    this.sysHistory = new Map();
     this.pending = false;
   }
 
@@ -867,6 +900,14 @@ export class PerfModel {
             this.history.cpu = keep(this.history.cpu, v.system?.cpu);
             this.history.gpu = keep(this.history.gpu, v.system?.gpu);
             for (const [name, r] of Object.entries(v.remote ?? {})) this.remoteGpu.set(name, keep(this.remoteGpu.get(name) ?? [], r.gpu));
+            for (const [m, s] of this.sys) {
+              const h = this.sysHistory.get(m) ?? { cpu: [], mem: [], gpu: [], vram: [] };
+              h.cpu = keep(h.cpu, s.cpu);
+              h.mem = keep(h.mem, s.mem_total ? (s.mem_used / s.mem_total) * 100 : null);
+              h.gpu = keep(h.gpu, s.gpu);
+              h.vram = keep(h.vram, s.vram_total ? (s.vram_used / s.vram_total) * 100 : null);
+              this.sysHistory.set(m, h);
+            }
             for (const [address, a] of Object.entries(v.agents ?? {})) if (a.session) RESOLVED.set(address, a.session);
             for (const [address, a] of Object.entries(v.agents ?? {})) if (a.cpu != null) this.agentCpu.set(address, keep(this.agentCpu.get(address) ?? [], a.cpu));
           }
@@ -926,13 +967,16 @@ export class TitlesModel {
   }
 
   follow(cx, rowsOf) {
-    cx.spawn(async () => {
-      try {
-        const { home } = await hub.install();
-        const text = await readTextFile(`${home}/.config/cockpit/config.json`);
-        this.enabled = (text ? JSON.parse(text).titles?.enabled : undefined) !== false;
-      } catch {}
-    });
+    const readSwitch = () =>
+      cx.spawn(async () => {
+        try {
+          const { home } = await hub.install();
+          const text = await readTextFile(`${home}/.config/cockpit/config.json`);
+          this.enabled = (text ? JSON.parse(text).titles?.enabled : undefined) !== false;
+        } catch {}
+      });
+    readSwitch();
+    cx.timer.every(30000, () => readSwitch());
     cx.timer.every(5000, (cx) => this.tick(cx, rowsOf() ?? []));
   }
 

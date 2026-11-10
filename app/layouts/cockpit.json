@@ -125,7 +125,8 @@
                         { "id": "review", "type": "block", "content": { "mod": "cockpit", "props": { "app": "review" } } },
                         { "id": "runbook-panel", "type": "block", "content": { "mod": "cockpit", "props": { "app": "runbook", "scope": "focused" } } },
                         { "id": "files", "type": "block", "content": { "mod": "files" } },
-                        { "id": "changes", "type": "block", "content": { "mod": "changes" } }
+                        { "id": "changes", "type": "block", "content": { "mod": "changes" } },
+                        { "id": "context", "type": "block", "content": { "mod": "cockpit", "props": { "app": "context" } } }
                       ]
                     },
                     { "id": "activity", "type": "block", "size": { "px": 44 }, "content": { "mod": "cockpit", "props": { "app": "activity", "stack": "panel-body" } } }
@@ -141,7 +142,8 @@
             { "id": "monitor", "type": "block", "content": { "mod": "cockpit", "props": { "app": "monitor" } }, "radius": 10, "border": { "width": 1, "color": "border" }, "background": "background", "shadow": "sm" },
             { "id": "routines", "type": "block", "content": { "mod": "cockpit", "props": { "app": "routines" } }, "radius": 10, "border": { "width": 1, "color": "border" }, "background": "background", "shadow": "sm" },
             { "id": "mail", "type": "block", "content": { "mod": "cockpit", "props": { "app": "mail" } }, "radius": 10, "border": { "width": 1, "color": "border" }, "background": "background", "shadow": "sm" },
-            { "id": "usage", "type": "block", "content": { "mod": "cockpit", "props": { "app": "usage" } }, "radius": 10, "border": { "width": 1, "color": "border" }, "background": "background", "shadow": "sm" }
+            { "id": "usage", "type": "block", "content": { "mod": "cockpit", "props": { "app": "usage" } }, "radius": 10, "border": { "width": 1, "color": "border" }, "background": "background", "shadow": "sm" },
+            { "id": "machines", "type": "block", "content": { "mod": "cockpit", "props": { "app": "machines" } }, "radius": 10, "border": { "width": 1, "color": "border" }, "background": "background", "shadow": "sm" }
           ],
           "padding": 8
         },

@@ -1,6 +1,6 @@
 // The Usage tab: each agent account's real rate limits (Claude Code, Codex, Antigravity), the 5-hour session window and
 // the 7-day week, with % used, a tick where the window's time stands, the pace, a projection and the reset countdown.
-// herdr/helpers/cockpit-usage-sync.py asks each agent (cached, so cheap to call) and writes ~/.cache/cockpit/agent-usage.json;
+// bin/cockpit-usage-sync.py asks each agent (cached, so cheap to call) and writes ~/.cache/cockpit/agent-usage.json;
 // Home's Usage & Limits card and the sidebar's badge draw the same data through followUsage and AgentLimits.
 // Context windows are not limits: they stay on Home's agent cards.
 
@@ -9,17 +9,28 @@ import { h_flex, v_flex } from "gpui-base";
 import { exec, readTextFile, setShared } from "herdr";
 import * as hub from "./hub.js";
 import { openCode } from "./code.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Card, PageHeader, Empty, Mono, Spinner, dur } from "./ui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Card, PageHeader, Empty, Mono, Spinner, Progress, dur } from "./ui.js";
 
 const WINDOW_LABEL = { "5h": "5-hour session", "7d": "Weekly" };
 
 /** Runs the sync (it answers from its cache while fresh) and reads what it wrote. force asks every agent again. */
 export async function syncUsage({ force = false } = {}) {
   const { cache, home } = await hub.install();
-  const script = `${home}/.local/share/cockpit/herdr/helpers/cockpit-usage-sync.py`;
+  const script = `${home}/.local/share/cockpit/herdr/bin/cockpit-usage-sync.py`;
   await exec("python3", force ? [script, "--force"] : [script], { timeout: 90000 }).catch(() => null);
   const text = await readTextFile(`${cache}/agent-usage.json`);
   return text ? JSON.parse(text) : null;
+}
+
+/** The last days' token statistics (herdr/helpers/cockpit-usage-stats.py): the biggest sessions and what fills the context. */
+export async function loadStats({ force = false } = {}) {
+  const { home } = await hub.install();
+  const r = await exec("python3", [`${home}/.local/share/cockpit/herdr/helpers/cockpit-usage-stats.py`, ...(force ? ["--force"] : [])], { timeout: 60000 }).catch(() => null);
+  try {
+    return JSON.parse(r?.stdout || "null");
+  } catch {
+    return null;
+  }
 }
 
 /** Keeps a view's usage fresh: now, then every `every` ms; also sets the sidebar's Usage badge. */
@@ -153,6 +164,15 @@ export default class Usage {
     this.data = null;
     this.now = Date.now();
     this.refreshing = false;
+    this.stats = null;
+    const pullStats = (cx, force) =>
+      cx.spawn(async (cx) => {
+        this.stats = (await loadStats({ force })) ?? this.stats;
+        cx.notify();
+      });
+    pullStats(cx, false);
+    cx.timer.every(600000, (cx) => pullStats(cx, false));
+    this.pullStats = pullStats;
     this.follow = followUsage(cx, (data, cx) => {
       this.data = data;
       this.refreshing = false;
@@ -169,6 +189,7 @@ export default class Usage {
   }
 
   refresh(cx) {
+    this.pullStats?.(cx, true);
     this.refreshing = true;
     this.follow.refresh(cx);
     cx.notify();
@@ -212,6 +233,74 @@ export default class Usage {
     });
   }
 
+  /** The biggest sessions of the last days, and per agent what fills its context windows. */
+  statsCards(k) {
+    const st = this.stats;
+    if (!st?.sessions?.length) return null;
+    const tk = tokensText;
+    const label = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
+    const max = Math.max(1, ...st.sessions.map((s) => s.tokens));
+    const sessions = Card({
+      id: "stats-sessions",
+      padding: 16,
+      gap: 10,
+      title: `Biggest sessions · last ${st.days} days`,
+      children: [
+        ...st.sessions.map((s, i) =>
+          v_flex()
+            .id(`stat-s-${i}`)
+            .gap(3)
+            .tooltip(`${label[s.agent] ?? s.agent}${s.project ? ` · ${s.project}` : ""}\n${tk(s.tokens)} tokens (input, output and reasoning) plus ${tk(s.cached)} read from cache${s.cost ? ` · $${s.cost.toFixed(2)}` : ""}${s.agents > 1 ? ` · ${s.agents} agent sessions` : ""}`)
+            .child(
+              h_flex()
+                .gap(8)
+                .items_center()
+                .child(div().w(78).flex_none().text_size(TEXT.xs).text_color(k.mutedFg).child(label[s.agent] ?? s.agent))
+                .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(k.foreground).child(s.title ?? s.id))
+                .child(Mono(tk(s.tokens), { color: k.foreground })),
+            )
+            .child(div().pl(86).child(Progress(s.tokens / max, { color: s.agent === "claude" ? k.warning : s.agent === "codex" ? k.info : k.success, h: 4 }))),
+        ),
+        h_flex()
+          .gap(14)
+          .flex_wrap()
+          .pt(4)
+          .children(Object.entries(st.by_agent ?? {}).map(([a, v]) => div().text_size(TEXT.xs).text_color(k.dim).child(`${label[a] ?? a}: ${tk(v.tokens)} over ${v.sessions} sessions · ${tk(v.cached)} cached`))),
+      ],
+    });
+    const eaters = Card({
+      id: "stats-eaters",
+      padding: 16,
+      gap: 12,
+      title: "What fills the context",
+      children: [
+        div().text_size(TEXT.xs).text_color(k.dim).child("Estimated tokens of what each agent's sessions took in: tool output, its own reasoning and text, your prompts"),
+        ...Object.entries(st.eaters ?? {})
+          .filter(([, e]) => e.length)
+          .map(([a, e]) => {
+            const m = Math.max(1, ...e.map((x) => x.tokens));
+            return v_flex()
+              .id(`stat-e-${a}`)
+              .gap(4)
+              .child(div().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(label[a] ?? a))
+              .children(
+                e.map((x, i) =>
+                  h_flex()
+                    .id(`stat-e-${a}-${i}`)
+                    .gap(8)
+                    .items_center()
+                    .tooltip(`${x.name}: ${x.calls} calls, about ${tk(x.tokens)} tokens`)
+                    .child(div().w(150).flex_none().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(x.name))
+                    .child(div().flex_1().child(Progress(x.tokens / m, { color: k.working, h: 5 })))
+                    .child(div().w(46).flex_none().text_right().child(Mono(tk(x.tokens), { size: TEXT.xs, color: k.foreground }))),
+                ),
+              );
+          }),
+      ],
+    });
+    return div().w_full().flex().flex_row().flex_wrap().gap(16).child(div().min_w(380).flex_1().child(sessions)).child(div().min_w(380).flex_1().child(eaters));
+  }
+
   render(cx) {
     const k = tokens();
     const agents = this.data?.agents ?? [];
@@ -249,6 +338,7 @@ export default class Usage {
           .gap(16)
           .overflow_y_scrollbar()
           .child(body)
+          .when(Boolean(this.stats?.sessions?.length), (e) => e.child(this.statsCards(k)))
           .when(Boolean(this.data?.updated_at), (e) => e.child(div().text_size(TEXT.xs).text_color(k.dim).child(`Updated ${dur(this.now - this.data.updated_at)} ago · Claude from Anthropic's usage endpoint, Codex from its app-server, Antigravity from agy /quota`))),
       );
   }

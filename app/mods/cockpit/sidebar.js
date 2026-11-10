@@ -13,10 +13,10 @@ import { deliver, follow } from "./notify.js";
 import { rowsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur, openMenu } from "./ui.js";
-import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { AgentsModel, SubagentsModel, TitlesModel, PerfModel, OmoModel, sectionOpen, setSectionOpen, tpsText, localSessions, QuestionCard, QuotaBars, quotaByAgent, worstQuota, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
 import { followUsage, projection } from "./usage.js";
 
-const APPS = {
+export const APPS = {
   inbox: { label: "Inbox", icon: "inbox", key: "⌘⌥1" },
   runbook: { label: "Runbook", icon: "book", key: "⌘⌥2" },
   "to-do": { child: "todo", label: "To-do", icon: "list-todo", key: "⌘⌥3" },
@@ -25,8 +25,9 @@ const APPS = {
   routines: { label: "Routines", icon: "clock", key: "⌘⌥6" },
   mail: { label: "Mail", icon: "mail", key: "⌘⌥7" },
   usage: { label: "Usage", icon: "gauge", key: "⌘⌥8" },
+  machines: { label: "Machines", icon: "layers", key: "⌘⌥9" },
 };
-const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "usage"];
+export const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings", "usage", "machines"];
 
 /** An app's bubble from its view: what waits on you there, {count, tone} or null. */
 function appBadge(app, v) {
@@ -90,11 +91,6 @@ export default class Sidebar {
     this.perf.follow(cx, () => this.agents.rows);
     this.omo = new OmoModel();
     this.omo.follow(cx);
-    try {
-      this.headerOpen = localStorage.getItem("cockpit.sidebar.header") !== "folded";
-    } catch {
-      this.headerOpen = true;
-    }
     cx.spawn(async (cx) => {
       try {
         this.install = await hub.install();
@@ -143,6 +139,7 @@ export default class Sidebar {
     if (c.startsWith("go:")) show(c.slice(3));
     else if (c === "palette") openPalette(cx);
     else if (c.startsWith("omo:")) this.setOmoPreset(c.slice(4), cx);
+    else if (c === "settings") openOverlay({ mod: "cockpit", props: { app: "settings" }, kind: "dialog", width: 0.42, height: 0.78 });
     else if (c === "recap" || c.startsWith("recap:")) this.openRecap(c.split(":")[1]);
     else if (this.agents.command(c, cx)) return;
     else if (c === "kit" || c.startsWith("kit:")) openOverlay({ mod: "cockpit", props: { app: "kit", tab: c.split(":")[1] }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 });
@@ -428,55 +425,67 @@ export default class Sidebar {
     return lines.slice(0, 4).map((l, i) => div().id(`qn-${i}`).px(4).text_size(TEXT.xs).text_color(l.tone).truncate().child(l.text));
   }
 
-  /** The header block (quota, machines, OMO presets) folds to one line. */
+  sectionOpen(name) {
+    return sectionOpen(name);
+  }
+
+  /** The header: Usage, Machines and OMO presets, each its own foldable section with a one-line summary when folded. */
   headerBlock(k, model) {
     const hasQuota = Boolean(this.usage?.agents?.length) || Boolean(model.value?.quota?.length);
-    if (!hasQuota && !this.perf.value && this.omo.by.size === 0) return div();
-    const open = this.headerOpen;
+    if (!hasQuota && this.perf.sys.size === 0 && this.omo.by.size === 0) return div();
     const worstPct = Math.round(Math.max(0, ...(this.usage?.agents ?? []).flatMap((a) => (a.windows ?? []).map((w) => w.percent ?? 0))));
     const here = this.perf.sys.get(null);
-    const summary = [hasQuota && `${worstPct}% of limit`, here && `CPU ${Math.round(here.cpu)}%`, this.omo.of(null)?.preset].filter(Boolean).join(" · ");
+    const presets = [...new Set([...this.omo.by.values()].map((v) => v.preset).filter(Boolean))];
+    const section = (name, label, summary, body) => {
+      const open = this.sectionOpen(name);
+      return v_flex()
+        .id(`sec-${name}`)
+        .gap(4)
+        .child(
+          h_flex()
+            .id(`sec-head-${name}`)
+            .h(20)
+            .px(4)
+            .gap(6)
+            .items_center()
+            .cursor_pointer()
+            .text_size(TEXT.xs)
+            .text_color(k.dim)
+            .tooltip(open ? `Fold ${label}` : `Show ${label}`)
+            .on_click((_e, cx) => {
+              setSectionOpen(name, !open);
+              cx.notify();
+            })
+            .child(Icon(open ? "chevron-down" : "chevron-right", { size: 12, color: k.dim }))
+            .child(div().child(label))
+            .when(!open, (e) => e.child(div().flex_1().min_w(0).truncate().text_right().font_family("JetBrains Mono").child(summary))),
+        )
+        .when(open, (e) => e.child(body));
+    };
     return v_flex()
       .id("header-block")
       .mb(8)
       .gap(6)
-      .child(
-        h_flex()
-          .id("header-toggle")
-          .h(22)
-          .px(4)
-          .gap(6)
-          .items_center()
-          .cursor_pointer()
-          .text_size(TEXT.xs)
-          .text_color(k.dim)
-          .tooltip(open ? "Fold the usage, machines and presets" : "Show the usage, machines and presets")
-          .on_click((_e, cx) => {
-            this.headerOpen = !this.headerOpen;
-            try {
-              localStorage.setItem("cockpit.sidebar.header", this.headerOpen ? "open" : "folded");
-            } catch {}
-            cx.notify();
-          })
-          .child(Icon(open ? "chevron-down" : "chevron-right", { size: 12, color: k.dim }))
-          .child(div().child("Usage and machines"))
-          .when(!open, (e) => e.child(div().flex_1().min_w(0).truncate().text_right().font_family("JetBrains Mono").child(summary))),
-      )
-      .when(open && hasQuota, (e) =>
+      .when(hasQuota, (e) =>
         e.child(
-          v_flex()
-            .id("quota-box")
-            .px(4)
-            .gap(3)
-            .cursor_pointer()
-            .on_click(() => show("usage"))
-            // The usage sync's own file: every agent's 5-hour and weekly window; the hub's quota until it has run.
-            .child(this.usage?.agents?.length ? QuotaBars(quotaByAgent(this.usage), { compact: true, labelW: 64, resets: true }) : QuotaBars(worstQuota(model.value.quota), { compact: true, labelW: 64 }))
-            .children(this.quotaNotes(k)),
+          section(
+            "usage",
+            "Usage limits",
+            `${worstPct}% of limit`,
+            v_flex()
+              .id("quota-box")
+              .px(4)
+              .gap(3)
+              .cursor_pointer()
+              .on_click(() => show("usage"))
+              // The usage sync's own file: every agent's 5-hour and weekly window; the hub's quota until it has run.
+              .child(this.usage?.agents?.length ? QuotaBars(quotaByAgent(this.usage), { compact: true, labelW: 64, resets: true }) : QuotaBars(worstQuota(model.value.quota), { compact: true, labelW: 64 }))
+              .children(this.quotaNotes(k)),
+          ),
         ),
       )
-      .when(open && this.perf.sys.size > 0, (e) => e.child(this.machineLine(k)))
-      .when(open && this.omo.by.size > 0, (e) => e.child(this.omoLine(k)));
+      .when(this.perf.sys.size > 0, (e) => e.child(section("machines", "Machines", [here && `CPU ${Math.round(here.cpu)}%`, `${this.perf.sys.size} machine${this.perf.sys.size === 1 ? "" : "s"}`].filter(Boolean).join(" · "), this.machineLine(k))))
+      .when(this.omo.by.size > 0, (e) => e.child(section("omo", "OMO presets", presets.join(" · ") || "none", this.omoLine(k))));
   }
 
   /** The pinned apps as a row of tiles (label and key in the tooltip, count as a badge): the list below keeps the room. */

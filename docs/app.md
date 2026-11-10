@@ -98,7 +98,7 @@ Desktop checks: `node --experimental-vm-modules --test app/tests/*.test.mjs`.
 ## Window-wide plumbing (the sidebar copy owns it)
 
 - Keys (`app/keys.json`, section `layout:cockpit`): `cmd-shift-p` → `cockpit.palette` (cockpit's palette, a superset of
-  Herdr's), `cmd-alt-1..8` → `cockpit.go:<inbox|runbook|todo|meetings|monitor|routines|mail|usage>`. A `cockpit.<command>`
+  Herdr's), `cmd-alt-1..9` → `cockpit.go:<inbox|runbook|todo|meetings|monitor|routines|mail|usage|machines>`. A `cockpit.<command>`
   reaches every shown copy's `command()`; prefix your own with your view's name (`todo:delete:<key>`).
 - `show(child)` from `sidebar.js` switches the `center` stack and gives that view the keyboard (`show:<app>`).
 - Notifications (`notify.js`): everything goes through `cockpit_core::notify::post` (or `cockpit notify`). With the app
