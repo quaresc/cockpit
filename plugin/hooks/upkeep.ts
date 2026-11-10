@@ -61,7 +61,7 @@ export async function checkUpdate($: $) {
     const current = await ownVersion($)
     const hasLink = await $.fs.stat(`${await home($)}/.config/cockpit/herdr/update.sh`).then(() => true, () => false)
     if (latest && isNewer(latest, current) && state.notified !== latest) {
-      const how = hasLink ? 'Click to update both halves and reload idle sessions.' : 'Run /plugin update cockpit@cockpit.'
+      const how = hasLink ? 'Click to update the Herdr app and TUI, then reload idle sessions.' : 'Run /plugin update cockpit@cockpit.'
       await notify($, `⬆️ Cockpit ${latest}`, `You run ${current}. ${how}`, hasLink ? 'update' : `https://github.com/${REPO}`)
       next.notified = latest
     }

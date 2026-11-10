@@ -28,7 +28,8 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
     waiting"; then **Agents** and their count, grouped by ticket ("ENG-412 Store and enforce… 2h 54m"), by space or by
     whose move (a button cycles), each agent a row with its status mark, title, PR number, `+adds −dels` and age; then
     Herdr's spaces list, each space followed by what runs in it, one line per terminal (status mark, agent or program,
-    title; waiting ones first, four lines at most, then "+N more").
+    title; waiting ones first, four lines at most, then "+N more"). At the bottom, over the footer, an **Update**
+    tag whenever a newer cockpit is published ("Update cockpit to 0.41.0"), folded to its arrow on the rail.
   - **Footer**, 69px: Herdr's `workspace-chrome` footer (Settings, Add machine).
 - **Top bar**, 42px: Herdr's `tabs`, and at the right a 52px **bell**.
 - **Center**, a stack with 8px padding; each view is a card with a 10px radius, a 1px `border` (`#2d2f32` dark), the
@@ -88,6 +89,10 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   `⌘⌥A` the focused agent alone; `⌘⌥B` the right panel, `⌃⌘1…5` its Show / Review / Runbook / Files / Changes;
   `⌘J` the next agent waiting, `⌘⇧J` the next blocked, `⌘⇧U` the next done; `⌘⌥Q` the queue; `⌘⌥R` resume agents
   lost to a restart; `⌘R` recap of every agent; `⌘G` the focused agent's PR; `⌘L` its ticket.
+- **Updating**: the hub reads the published version and the changelog every six hours into `update.json`; the tag
+  shows while it is newer than the installed one, and a click opens a dialog with each version's changes and an Install
+  button. Install runs `cockpit focus update` (update.sh in the background) and the dialog follows `update.log` until
+  cockpit.json names the new version. A checkout running its own build gets no tag.
 - **Bell**: while agents wait, a bell-dot icon in `blocked` with a red count that breathes from 70% to full every
   1.4s; when none waits but some finished, a plain bell with a 6px `done` dot. Click goes to the longest waiting, hover
   lists their questions, right-click picks one.
@@ -118,7 +123,7 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
 - **One mod** `mods/cockpit/` (`mod.json`: `place: none`, focusable): every block is the same mod with `props.app`
   (`sidebar`, `home`, `bell`, `status`, `pane`, `agent-head`, `activity`, `queue`, `show`, `review`, `runbook`, `inbox`,
   `todo`, `meetings`, `monitor`, `routines`, `mail`), and so is every overlay it opens (`palette`, `menu`, `recap`, `code`,
-  `reader`, `kit`, `monitor-window`); `main.js` maps the name to a view class. `ui.js` is a shadcn-style kit on
+  `reader`, `kit`, `update`, `monitor-window`); `main.js` maps the name to a view class. `ui.js` is a shadcn-style kit on
   `theme()`; icons are lucide SVGs in `icons/`, the mark is `cockpit.svg`. Shipped mods used: `workspace-chrome`,
   `tabs`, `files`, `changes`, `menu` (a space's right-click) and `prompt` (the palette's Duplicate mod).
 - **herdr functions**: `agents`, `terminals`, `spaces`, `panes`, `focused`, `layout`, `layouts`, `theme`, `settings`,
@@ -129,11 +134,12 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   `pane.split`/`close`/`zoom`/`focus`, `terminal.peek` (the palette runs any command `commands()` lists).
 - **Outside its folder**:
   - reads `cockpit.json` in the Herdr home (where `cockpit app install` put the binary and cache), the cache's
-    `hub.json` and `config.json`, and `~/.config/cockpit/config.json` under the install's HOME;
+    `hub.json`, `config.json` and `update.json`, and `~/.config/cockpit/config.json` under the install's HOME;
   - opens a TCP connection to the hub on `127.0.0.1` (port and token from `hub.json`); nothing else reaches the
     network but `curl` fetching a show picture an agent gives by URL;
-  - runs the `cockpit` binary (through `env`, on the install's HOME), `git` (a space's repo, the code view),
-    `hc machine ls` (Open in editor on another machine), `~/.local/bin/herdr-app do pane.split` (the code view), the
+  - runs the `cockpit` binary (through `env`, on the install's HOME; `cockpit focus update` for the update tag),
+    `git` (a space's repo, the code view), `hc machine ls` (Open in editor on another machine),
+    `~/.local/bin/herdr-app do pane.split` (the code view), the
     editor from the config's `editor` (`code`, `cursor`, `zed`, …; `code -g` from the code view; on macOS
     `open -a <app>` when its command isn't on the PATH), `open` on macOS, `xdg-open` on Linux and `cmd /c start` on
     Windows for links, and `sh -c` with `mkdir`, `curl` or `cp`, then `sips` (macOS) or `file` (elsewhere), to copy a
