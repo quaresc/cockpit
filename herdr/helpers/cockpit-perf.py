@@ -21,6 +21,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.request
 from datetime import datetime
 
 CACHE = os.path.expanduser("~/.cache/cockpit")
@@ -247,6 +248,154 @@ def claude_tps(session):
     return best
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# What each agent runs on: model, effort, sandbox, cost, and how full its context window is.
+
+def cfg():
+    try:
+        return json.load(open(os.path.expanduser("~/.config/cockpit/config.json")))
+    except Exception:
+        return {}
+
+
+def window_of(model):
+    """A model's context window: `context.limits` in the cockpit config, else the gateway's /v1/model/info (hour cache)."""
+    c = cfg()
+    lim = ((c.get("context") or {}).get("limits") or {}).get(model)
+    if lim:
+        return int(lim)
+    ll = c.get("litellm") or {}
+    if not ll.get("base_url"):
+        return None
+    path = os.path.join(CACHE, "model-limits.json")
+    try:
+        cache = json.load(open(path))
+    except Exception:
+        cache = {}
+    if NOW - cache.get("at", 0) > 3600:
+        key = os.environ.get("LITELLM_API_KEY", "")
+        kf = os.path.expanduser(ll.get("key_file") or "")
+        if not key and kf and os.path.exists(kf):
+            key = open(kf, encoding="utf-8").read().strip()
+        try:
+            req = urllib.request.Request(ll["base_url"].rstrip("/") + "/v1/model/info", headers={"Authorization": f"Bearer {key}"} if key else {})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                rows = json.load(r).get("data") or []
+            cache = {"at": NOW, "limits": {m["model_name"]: (m.get("model_info") or {}).get("max_input_tokens") for m in rows if m.get("model_name")}}
+            with open(path + ".tmp", "w") as f:
+                json.dump(cache, f)
+            os.replace(path + ".tmp", path)
+        except Exception:
+            cache = {**cache, "at": NOW - 3000}
+    return (cache.get("limits") or {}).get(model)
+
+
+def ctx(used, window):
+    return {"used": used, "window": window, "percent": round(used * 100.0 / window, 1) if window else None} if used else None
+
+
+def info_opencode(con, session):
+    if not (con and session):
+        return {}
+    for (data,) in con.execute("select data from session_message where session_id = ? and type = 'assistant' order by rowid desc limit 12", (session,)):
+        try:
+            d = json.loads(data)
+        except Exception:
+            continue
+        tok = d.get("tokens") or {}
+        used = (tok.get("input") or 0) + (tok.get("output") or 0) + (tok.get("reasoning") or 0) + ((tok.get("cache") or {}).get("read") or 0) + ((tok.get("cache") or {}).get("write") or 0)
+        model = (d.get("model") or {}).get("id")
+        if used and model:
+            return {"model": model, "context": ctx(used, window_of(model))}
+    return {}
+
+
+def info_claude(session):
+    out = {}
+    files = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{session}.jsonl"))
+    if files:
+        with open(files[0], "rb") as f:
+            f.seek(max(0, os.path.getsize(files[0]) - 262144))
+            lines = f.read().decode(errors="ignore").splitlines()
+        for line in reversed(lines):
+            if '"usage"' not in line:
+                continue
+            try:
+                m = json.loads(line).get("message") or {}
+                u = m.get("usage") or {}
+                used = (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) + (u.get("output_tokens") or 0)
+                if used and m.get("model"):
+                    out = {"model": m["model"], "context": ctx(used, 1_000_000 if used > 200_000 or "1m" in m["model"] else 200_000)}
+                    break
+            except Exception:
+                continue
+    # The statusline's payload: effort and cost, when it is this session's.
+    try:
+        s = json.load(open(os.path.join(CACHE, "usage-claude.json")))
+        if s.get("session_id") == session:
+            out.update(effort=(s.get("effort") or {}).get("level"), cost=(s.get("cost") or {}).get("total_cost_usd"), model_name=(s.get("model") or {}).get("display_name"))
+            cw = s.get("context_window") or {}
+            if cw.get("used_percentage") is not None:
+                out["context"] = {"percent": round(cw["used_percentage"], 1), "window": cw.get("context_window_size"), "used": None}
+    except Exception:
+        pass
+    return out
+
+
+def info_codex(session):
+    files = glob.glob(os.path.expanduser(f"~/.codex/sessions/**/*{session}*.jsonl"), recursive=True)
+    if not files:
+        return {}
+    out = {}
+    with open(files[0], "r", encoding="utf-8", errors="ignore") as f:
+        head = [next(f, "") for _ in range(40)]
+    for line in head:
+        if '"turn_context"' in line:
+            try:
+                p = json.loads(line).get("payload") or {}
+                out = {"model": p.get("model"), "effort": p.get("effort"), "sandbox": (p.get("sandbox_policy") or {}).get("type"), "approval": p.get("approval_policy")}
+                break
+            except Exception:
+                continue
+    with open(files[0], "rb") as f:
+        f.seek(max(0, os.path.getsize(files[0]) - 262144))
+        tail = f.read().decode(errors="ignore").splitlines()
+    for line in reversed(tail):
+        if '"token_count"' in line:
+            try:
+                info = (json.loads(line).get("payload") or {}).get("info") or {}
+                used = (info.get("last_token_usage") or {}).get("total_tokens")
+                if used:
+                    out["context"] = ctx(used, info.get("model_context_window") or 200_000)
+                    break
+            except Exception:
+                continue
+    return out
+
+
+def info_antigravity(session):
+    path = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{session}/.system_generated/logs/transcript.jsonl")
+    if not os.path.exists(path):
+        return {}
+    for line in reversed(tail_lines(path)):
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        if "input_tokens" in e:
+            return {"context": ctx((e.get("input_tokens") or 0) + (e.get("output_tokens") or 0) + (e.get("cache_read_tokens") or 0), 1_048_576)}
+    return {}
+
+
+def tail_lines(path, limit=400):
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.readlines()[-limit:]
+    except Exception:
+        return []
+
+
+
 def main():
     try:
         wanted = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []
@@ -263,6 +412,13 @@ def main():
         except Exception:
             speed = None
         out.update(speed or {})
+        session = out.get("session") or a.get("session")
+        try:
+            info = info_opencode(con, session) if "opencode" in prog else info_claude(session) if "claude" in prog and session else info_codex(session) if "codex" in prog and session else info_antigravity(session) if re.search("antigravity|agy|gemini", prog) and session else {}
+        except Exception:
+            info = {}
+        # The answer's own model beats a guess from the transcript.
+        out["info"] = {k: v for k, v in {**info, "model": info.get("model") or out.get("model")}.items() if v is not None}
         agents[a.get("address")] = out
     result = {"at": int(NOW * 1000), "system": system(procs), "remote": remotes(), "agents": agents}
     print(json.dumps(result))

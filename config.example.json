@@ -1,8 +1,24 @@
 {
   "reposDir": "~/code",
-  "github": { "enabled": true, "org": "my-org" },
-  "tickets": { "enabled": true, "name": "Linear", "server": "claude.ai Linear", "keys": ["ENG"], "urlTemplate": "" },
-  "ci": { "enabled": true, "name": "GitHub", "server": "", "imageJob": "docker_build" },
+  "github": {
+    "enabled": true,
+    "org": "my-org"
+  },
+  "tickets": {
+    "enabled": true,
+    "name": "Linear",
+    "server": "claude.ai Linear",
+    "keys": [
+      "ENG"
+    ],
+    "urlTemplate": ""
+  },
+  "ci": {
+    "enabled": true,
+    "name": "GitHub",
+    "server": "",
+    "imageJob": "docker_build"
+  },
   "platform": {
     "enabled": false,
     "server": "platform",
@@ -11,42 +27,184 @@
     "workflowUrl": "https://dashboard.example.com/runs/{namespace}/{name}",
     "previewDefaults": {},
     "tools": {
-      "deployStatus": { "tool": "deploys_status", "args": { "env": "production" } },
-      "deployHistory": { "tool": "deploys_history", "args": { "env": "production", "app": "{appId}" } },
-      "listPreviews": { "tool": "previews_list", "args": { "owner": "{login}" } },
-      "previewStatus": { "tool": "previews_get", "args": { "id": "{preview}" } },
-      "createPreview": { "tool": "previews_create", "args": { "app": "{app}", "branch": "{branch}" } },
-      "redeployPreview": { "tool": "previews_redeploy", "args": { "id": "{preview}", "app": "{app}" } },
-      "stopPreview": { "tool": "previews_stop", "args": { "id": "{preview}" } },
-      "startPreview": { "tool": "previews_start", "args": { "id": "{preview}" } },
-      "extendPreview": { "tool": "previews_extend", "args": { "id": "{preview}", "days": "{days}" } }
+      "deployStatus": {
+        "tool": "deploys_status",
+        "args": {
+          "env": "production"
+        }
+      },
+      "deployHistory": {
+        "tool": "deploys_history",
+        "args": {
+          "env": "production",
+          "app": "{appId}"
+        }
+      },
+      "listPreviews": {
+        "tool": "previews_list",
+        "args": {
+          "owner": "{login}"
+        }
+      },
+      "previewStatus": {
+        "tool": "previews_get",
+        "args": {
+          "id": "{preview}"
+        }
+      },
+      "createPreview": {
+        "tool": "previews_create",
+        "args": {
+          "app": "{app}",
+          "branch": "{branch}"
+        }
+      },
+      "redeployPreview": {
+        "tool": "previews_redeploy",
+        "args": {
+          "id": "{preview}",
+          "app": "{app}"
+        }
+      },
+      "stopPreview": {
+        "tool": "previews_stop",
+        "args": {
+          "id": "{preview}"
+        }
+      },
+      "startPreview": {
+        "tool": "previews_start",
+        "args": {
+          "id": "{preview}"
+        }
+      },
+      "extendPreview": {
+        "tool": "previews_extend",
+        "args": {
+          "id": "{preview}",
+          "days": "{days}"
+        }
+      }
     },
     "fields": {
-      "apps": "apps", "appId": "id", "appRepo": "repository", "appLink": "dashboardUrl", "appTag": "version", "appSha": "commit",
-      "deployments": "deployments", "deployWorkflow": "workflow", "deployNamespace": "namespace", "deployTag": "version", "deployBranch": "branch",
-      "previews": "previews", "previewId": "id", "previewExpires": "expiresAt", "previewActive": "running", "previewHealth": "health",
-      "previewApps": "apps", "appName": "name", "appBranch": "branch",
-      "statusApps": "apps", "statusUrl": "url", "createdId": "id", "healthy": "Healthy"
+      "apps": "apps",
+      "appId": "id",
+      "appRepo": "repository",
+      "appLink": "dashboardUrl",
+      "appTag": "version",
+      "appSha": "commit",
+      "deployments": "deployments",
+      "deployWorkflow": "workflow",
+      "deployNamespace": "namespace",
+      "deployTag": "version",
+      "deployBranch": "branch",
+      "previews": "previews",
+      "previewId": "id",
+      "previewExpires": "expiresAt",
+      "previewActive": "running",
+      "previewHealth": "health",
+      "previewApps": "apps",
+      "appName": "name",
+      "appBranch": "branch",
+      "statusApps": "apps",
+      "statusUrl": "url",
+      "createdId": "id",
+      "healthy": "Healthy"
     }
   },
-  "deployWatch": { "enabled": false, "afterMinutes": 30, "tools": ["mcp__datadog"] },
-  "recap": { "enabled": true, "awayMinutes": 10 },
-  "agents": { "recap": "auto" },
-  "meetingBrief": { "enabled": true, "model": "sonnet", "skip": ["lunch", "focus", "break"], "tools": ["mcp__notion__notion-fetch"] },
-  "calendar": { "enabled": true, "name": "Google Calendar", "server": "claude.ai Google Calendar", "ics": "" },
-  "metabase": { "server": "metabase" },
-  "datadog": { "server": "claude.ai Datadog" },
-  "monitor": { "env": "production", "notify": "mine", "serviceReplace": {}, "moved": { "errorPoints": 0.5, "p95Ratio": 1.5, "p95Ms": 100, "minHits": 50 } },
-  "brief": { "enabled": true, "at": "08:30", "weekends": false },
+  "deployWatch": {
+    "enabled": false,
+    "afterMinutes": 30,
+    "tools": [
+      "mcp__datadog"
+    ]
+  },
+  "recap": {
+    "enabled": true,
+    "awayMinutes": 10
+  },
+  "agents": {
+    "recap": "auto"
+  },
+  "meetingBrief": {
+    "enabled": true,
+    "model": "sonnet",
+    "skip": [
+      "lunch",
+      "focus",
+      "break"
+    ],
+    "tools": [
+      "mcp__notion__notion-fetch"
+    ]
+  },
+  "calendar": {
+    "enabled": true,
+    "name": "Google Calendar",
+    "server": "claude.ai Google Calendar",
+    "ics": ""
+  },
+  "metabase": {
+    "server": "metabase"
+  },
+  "datadog": {
+    "server": "claude.ai Datadog"
+  },
+  "monitor": {
+    "env": "production",
+    "notify": "mine",
+    "serviceReplace": {},
+    "moved": {
+      "errorPoints": 0.5,
+      "p95Ratio": 1.5,
+      "p95Ms": 100,
+      "minHits": 50
+    }
+  },
+  "brief": {
+    "enabled": true,
+    "at": "08:30",
+    "weekends": false
+  },
   "notifications": true,
   "names": true,
   "fetcher": true,
   "e2eBrowser": "terminal-browser",
   "browserIdleMinutes": 60,
   "herdrPluginRoot": "",
-  "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
+  "spaces": [
+    "inbox",
+    "terminal",
+    "actions",
+    "to-do",
+    "runbook",
+    "meetings"
+  ],
   "runbookTools": [],
   "worktrees": false,
   "density": "comfortable",
-  "editor": "code"
+  "editor": "code",
+  "titles": {
+    "enabled": true
+  },
+  "litellm": {
+    "base_url": "http://localhost:4000",
+    "key_file": "~/.config/litellm/keys/cockpit.key",
+    "models": [
+      "my-local-model"
+    ]
+  },
+  "context": {
+    "limits": {
+      "my-local-model": 131072
+    }
+  },
+  "perf": {
+    "remotes": [
+      {
+        "name": "gpu-box",
+        "ssh": "gpu-box"
+      }
+    ]
+  }
 }

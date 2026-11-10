@@ -557,11 +557,14 @@ export default class Sidebar {
     if (subs) parts.push(h_flex().gap(3).text_color(k.working).child(Icon("git-fork", { size: 11, color: k.working })).child(`${subs} working`));
     // Its last answer's speed (bright for a minute, then dim) and what its processes burn right now.
     const perf = this.perf.of(r.address);
-    if (perf?.model) parts.push(div().min_w(0).truncate().text_color(k.dim).child(perf.model));
+    const modelName = perf?.info?.model_name ?? perf?.info?.model ?? perf?.model;
+    if (modelName) parts.push(div().min_w(0).truncate().text_color(k.dim).child(modelName));
     if (perf?.tps) {
       const fresh = now - (perf.at ?? 0) < 60_000;
       parts.push(div().flex_none().font_family("JetBrains Mono").text_color(fresh ? k.foreground : k.dim).child(tpsText(perf.tps)));
     }
+    const ctxP = perf?.info?.context?.percent;
+    if (ctxP != null) parts.push(div().flex_none().font_family("JetBrains Mono").text_color(ctxP >= 85 ? k.destructive : ctxP >= 70 ? k.warning : k.dim).tooltip("Context window used").child(`${Math.round(ctxP)}% ctx`));
     if (perf?.cpu != null) parts.push(div().flex_none().font_family("JetBrains Mono").text_color(perf.cpu >= 150 ? k.destructive : perf.cpu >= 60 ? k.warning : k.dim).child(`${perf.cpu}% cpu`));
     if (!parts.length && r.said) parts.push(div().min_w(0).truncate().italic().child(r.said));
     const flash = this.flashes.of(r.terminal);

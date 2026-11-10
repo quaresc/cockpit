@@ -64,6 +64,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const money = (usd) => (usd === null || usd === undefined ? "–" : usd >= 100 ? `$${Math.round(usd)}` : `$${usd.toFixed(2)}`);
 const hours = (h) => (h === null || h === undefined ? "–" : h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${h.toFixed(h < 10 ? 1 : 0)}h` : `${Math.round(h / 24)}d`);
 
+const tokensK = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}K`);
+
 function greeting(now) {
   const h = now.getHours();
   return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
@@ -123,6 +125,20 @@ export default class Home {
     this.subagents.follow(cx, () => localSessions(this.rows?.agents));
     this.perf = new PerfModel();
     this.perf.follow(cx, () => this.rows?.agents);
+    this.omo = null;
+    const readOmo = (cx) =>
+      cx.spawn(async (cx) => {
+        try {
+          const { home } = await hub.install();
+          const d = JSON.parse((await readTextFile(`${home}/.config/opencode/oh-my-opencode-slim.json`)) ?? "{}");
+          if (d.preset !== this.omo?.preset) {
+            this.omo = { preset: d.preset ?? null };
+            cx.notify();
+          }
+        } catch {}
+      });
+    readOmo(cx);
+    cx.timer.every(10000, (cx) => readOmo(cx));
     this.sub = hub.subscribe(
       cx,
       { views: ["agents", "home", "queue", ...OVERVIEW.map((o) => o.view)] },
@@ -1064,6 +1080,16 @@ export default class Home {
     if (ch && (ch.added || ch.removed)) facts.push(h_flex().gap(4).child(Mono(`+${ch.added ?? 0}`, { color: k.success })).child(Mono(`−${ch.removed ?? 0}`, { color: k.destructive })));
     if (ch?.files) facts.push(Mono(plural(ch.files, "file")));
     if (a?.cost) facts.push(Mono(money(a.cost)));
+    // What it runs on: the model, and by agent the OMO preset (OpenCode), effort, sandbox, cost.
+    const info = (a ? this.perf.of(a.address)?.info : null) ?? {};
+    const prog0 = String(a?.row?.program ?? a?.row?.agent ?? (typeof a?.program === "string" ? a.program : a?.program?.id ?? a?.program?.name ?? "")).toLowerCase();
+    const modelChips = [];
+    if (info.model || info.model_name) modelChips.push(Chip(info.model_name ?? info.model, { id: `${card.key}-model`, mono: true, icon: "bot", tooltip: `Model: ${info.model ?? info.model_name}` }));
+    if (/opencode/.test(prog0) && this.omo?.preset) modelChips.push(Chip(`preset ${this.omo.preset}`, { id: `${card.key}-preset`, color: k.info, tooltip: "Oh-my-opencode-slim preset: which model each OMO agent uses" }));
+    if (info.effort) modelChips.push(Chip(`${info.effort} effort`, { id: `${card.key}-effort`, tooltip: "Reasoning effort" }));
+    if (info.sandbox) modelChips.push(Chip(`${info.sandbox}${info.approval ? ` · approvals ${info.approval}` : ""}`, { id: `${card.key}-sandbox`, tooltip: "Sandbox and approval policy" }));
+    if (info.cost) modelChips.push(Mono(money(info.cost)));
+    facts.push(...modelChips);
     // What its processes cost the machine (herdr/helpers/cockpit-perf.py): a hot one shows in warning, a runaway in red.
     const load = a ? this.perf.of(a.address) : null;
     if (load?.cpu != null) {
@@ -1095,7 +1121,7 @@ export default class Home {
     const prog = String(a?.row?.program ?? a?.row?.agent ?? (typeof a?.program === "string" ? a.program : a?.program?.id ?? a?.program?.name ?? "")).toLowerCase();
     const usageId = /antigravity|agy|gemini/.test(prog) ? "antigravity" : /codex/.test(prog) ? "codex" : /claude/.test(prog) ? "claude" : null;
     const hubCtx = typeof a?.row?.context === "number" ? a.row.context : a?.row?.context?.percent;
-    const ctxPercent = hubCtx ?? (usageId ? this.agentUsage?.agents?.find((x) => x.id === usageId)?.context?.percent : null);
+    const ctxPercent = hubCtx ?? info.context?.percent ?? (usageId ? this.agentUsage?.agents?.find((x) => x.id === usageId)?.context?.percent : null);
     if (ctxPercent != null && ctxPercent > 0) {
       const p = Math.round(ctxPercent);
       const tone = p >= 85 ? k.destructive : p >= 70 ? k.warning : k.mutedFg;
@@ -1104,7 +1130,7 @@ export default class Home {
           .id(`${card.key}-ctx`)
           .gap(4)
           .items_center()
-          .tooltip(`Context window: ${p}% used`)
+          .tooltip(`Context window: ${p}% used${info.context?.used && info.context?.window ? ` · ${tokensK(info.context.used)} of ${tokensK(info.context.window)}` : ""}`)
           .child(Icon("gauge", { size: 12, color: tone }))
           .child(div().w(36).child(Progress(p / 100, { color: tone, h: 4 })))
           .child(Mono(`${p}%`, { size: TEXT.xs, color: tone })),
@@ -1125,7 +1151,7 @@ export default class Home {
     if (queued) facts.push(Chip(`${queued} queued`, { color: k.info, icon: "list-ordered" }));
 
     const actions = [];
-    if (busy) actions.push(h_flex().gap(6).items_center().child(Spinner({ size: 12, color: tone })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child(busy)));
+    if (busy) actions.push(h_flex().h(28).gap(6).items_center().child(Spinner({ size: 12, color: tone })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child(busy)));
     else if (card.stage === "needs" && isAgentCard && a.status !== "blocked") {
       actions.push(ToneButton(`${card.key}-fix`, { label: "Ask it to fix", tone, onClick: (_e, cx) => this.answer(cx, a, { text: a.ci === "FAILURE" ? "The PR's checks fail: look at the failing jobs and fix them." : "Changes were requested on the PR: read the review comments and address them." }) }));
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
@@ -1141,8 +1167,10 @@ export default class Home {
       if (pr?.url) actions.push(ToneButton(`${card.key}-merge`, { label: "Merge", tone: k.success, kbd: "m", onClick: (_e, cx) => this.merge(cx, pr) }));
       if (pr?.url) actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
       if (a) actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a) }));
-    } else if (showing && isAgentCard) {
+    } else if (isAgentCard) {
+      // Always drawn, so a card never changes size when it is pointed at or picked.
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
+      actions.push(Button(`${card.key}-recap`, { label: "Recap", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", tooltip: `Recap with ${recapLabel()}`, onClick: (_e, cx) => this.run("recap", card, cx) }));
       if (card.stage === "done") actions.push(Button(`${card.key}-archive`, { label: "Archive", icon: "archive", variant: "ghost", size: "sm", kbd: "a", onClick: (_e, cx) => this.archive(cx, a) }));
       if (card.stage === "working") actions.push(Button(`${card.key}-queue`, { label: "Queue a prompt", icon: "list-ordered", variant: "ghost", size: "sm", onClick: (_e, cx) => this.run("queue", card, cx) }));
     }
@@ -1182,7 +1210,7 @@ export default class Home {
         ),
       )
       .when(replying, (e) => e.child(h_flex().gap(6).child(TextField(this.reply)).child(Button(`${card.key}-send`, { icon: "send", size: "icon-sm", onClick: (_e, cx) => this.sendReply(cx) }))))
-      .when(Boolean(recap), (e) => e.child(div().w_full().truncate().text_size(TEXT.sm).text_color(k.mutedFg).child(recap ?? "")))
+      .when(isAgentCard && card.stage !== "needs", (e) => e.child(div().w_full().h(18).truncate().text_size(TEXT.sm).text_color(recap ? k.mutedFg : k.dim).child(recap ?? "No recap yet")))
       .when(facts.length > 0, (e) => e.child(h_flex().w_full().flex_wrap().gap(6).items_center().children(facts)))
       .when(actions.length > 0, (e) => e.child(h_flex().w_full().flex_wrap().gap(6).items_center().children(actions)));
 
