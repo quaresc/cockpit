@@ -29,8 +29,13 @@ import Monitor, { MonitorWindow } from "./monitor.js";
 import Routines from "./routines.js";
 import Mail from "./mail.js";
 import Update from "./update.js";
+import Chat from "./chat.js";
+import ChatTop from "./chat-top.js";
+import SidePeek from "./side-peek.js";
+import PanelPeek from "./panel-peek.js";
+import Needs from "./needs.js";
 
-const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, mail: Mail, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader, update: Update };
+const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, mail: Mail, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader, update: Update, chat: Chat, "chat-top": ChatTop, "side-peek": SidePeek, "panel-peek": PanelPeek, needs: Needs };
 
 export default class Cockpit extends View {
   init(p, cx) {

@@ -24,5 +24,33 @@
     "cmd-r": "cockpit.recap",
     "cmd-g": "cockpit.pr",
     "cmd-l": "cockpit.ticket"
+  },
+  "layout:cockpit-chat": {
+    "cmd-b": "cockpit.sidebar",
+    "cmd-shift-p": "cockpit.palette",
+    "ctrl-`": "cockpit.terminal",
+    "cmd-alt-0": "cockpit.go:chat",
+    "cmd-alt-9": "cockpit.go:needs",
+    "cmd-alt-8": "cockpit.go:home",
+    "cmd-alt-1": "cockpit.go:inbox",
+    "cmd-alt-2": "cockpit.go:runbook",
+    "cmd-alt-3": "cockpit.go:todo",
+    "cmd-alt-4": "cockpit.go:meetings",
+    "cmd-alt-5": "cockpit.go:monitor",
+    "cmd-alt-6": "cockpit.go:routines",
+    "cmd-alt-7": "cockpit.go:mail",
+    "cmd-alt-t": "cockpit.go:tab",
+    "cmd-j": "cockpit.next-waiting",
+    "cmd-r": "cockpit.recap",
+    "cmd-alt-b": "cockpit.panel",
+    "ctrl-cmd-1": "cockpit.panel:show",
+    "ctrl-cmd-2": "cockpit.panel:review",
+    "ctrl-cmd-3": "cockpit.panel:runbook",
+    "ctrl-cmd-4": "cockpit.panel:files",
+    "ctrl-cmd-5": "cockpit.panel:changes",
+    "cmd-t": "cockpit.new",
+    "cmd-alt-n": "cockpit.session",
+    "shift-tab": "cockpit.mode",
+    "escape": "cockpit.stop"
   }
 }

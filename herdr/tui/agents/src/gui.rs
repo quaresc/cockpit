@@ -514,6 +514,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "links": links, "documents": crate::links::documents(&[&l.handle, &l.address]),
         }));
     }
+    rows.extend(session_rows());
     let rank = |stage: &str| STAGES.iter().position(|(id, _)| *id == stage).unwrap_or(99);
     rows.sort_by(|x, y| {
         let (sx, sy) = (x["stage"].as_str().unwrap_or_default(), y["stage"].as_str().unwrap_or_default());
@@ -553,6 +554,58 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     })
 }
 
+/// The sessions cockpit drives, as rows of the agents view: a permission it is waiting on reads as its question.
+fn session_rows() -> Vec<Value> {
+    crate::session::keys()
+        .iter()
+        .filter_map(|key| crate::session::snapshot(key))
+        .map(|s| {
+            let cwd = s["cwd"].as_str().unwrap_or_default().to_string();
+            let asking = s["pending"].as_array().and_then(|p| p.first()).cloned();
+            let title = s["messages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|m| m["role"] == "user")
+                .and_then(|m| m["text"].as_str())
+                .map(|t| t.lines().next().unwrap_or(t).chars().take(60).collect::<String>())
+                .unwrap_or_else(|| cwd.rsplit('/').next().unwrap_or("session").to_string());
+            let status = match (&asking, s["working"] == true) {
+                (Some(_), _) => "blocked",
+                (None, true) => "working",
+                (None, false) => "idle",
+            };
+            json!({
+                "terminal": s["key"], "address": s["key"], "frontend": "app", "driven": true,
+                "space": {"id": "", "name": "Driven"}, "tab": {"id": "", "name": title},
+                "title": title, "program": s["agent"], "agent": s["agent"], "status": status,
+                "stage": if asking.is_some() { "needs_you" } else if status == "working" { "working" } else { "idle" },
+                "question": asking.map(permission_question).unwrap_or(Value::Null),
+                "said": "", "recap": Value::Null, "cwd": cwd, "branch": Value::Null, "repo": "",
+                "ticket": Value::Null, "pr": Value::Null, "ci": Value::Null, "changes": Value::Null,
+                "cost": s["cost"].clone(), "session": s["session"].clone(), "seen": true, "unread": asking_unread(&s),
+                "links": [], "documents": [], "snoozed": Value::Null,
+            })
+        })
+        .collect()
+}
+
+fn asking_unread(session: &Value) -> bool {
+    session["pending"].as_array().is_some_and(|p| !p.is_empty())
+}
+
+/// A permission request in the shape the question card draws: what it wants to run, and the two answers.
+fn permission_question(ask: Value) -> Value {
+    let tool = ask["tool_name"].as_str().unwrap_or("A tool");
+    let detail = cockpit_core::transcripts::arg_line(&ask["input"]);
+    let text = if detail.is_empty() { format!("May it run {tool}?") } else { format!("May it run {tool}: {detail}?") };
+    json!({
+        "text": text, "kind": "single", "permission": true, "cursor": 1, "ask": ask["id"].clone(),
+        "preview": detail,
+        "choices": [{"n": 1, "label": "Allow once"}, {"n": 2, "label": "Deny"}],
+    })
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Actions
 
@@ -575,6 +628,17 @@ fn settle() {
 
 /// Answers the question on the agent's screen; see docs/app.md for the shapes.
 fn answer(handle: &str, arg: &Value) -> Result<String, String> {
+    if let Some(session) = crate::session::snapshot(handle) {
+        let ask = session["pending"].as_array().and_then(|p| p.first()).ok_or("it is not asking for anything")?;
+        // A permission is allowed or denied and nothing else: words, ticks or a missing choice are not an allow.
+        let allow = match arg["choice"].as_u64() {
+            Some(1) => true,
+            Some(2) => false,
+            _ => return Err("a permission takes 1 to allow or 2 to deny".into()),
+        };
+        let answered = json!({"id": ask["id"].clone(), "allow": allow, "input": ask["input"].clone()});
+        return crate::session::act("answer", &[answered]).unwrap_or(Err("the session did not take it".into()));
+    }
     let a = find(handle).ok_or("no such agent")?;
     let tab = &a.live.tab_name;
     let name = if tab.is_empty() || tab.chars().all(|c| c.is_ascii_digit()) { a.live.space_name.clone() } else { tab.clone() };

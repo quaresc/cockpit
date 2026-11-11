@@ -1,8 +1,9 @@
 // The agents as the shell's views see them: Herdr's live agents (status, place, times) joined with the hub's `agents`
 // view (question, recap, branch, PR, CI, changes, cost), each placed in a stage: whose move it is.
 
-import { agents, spaces, run, setShared, notify } from "herdr";
+import { agents, spaces, run, notify } from "herdr";
 import * as hub from "./hub.js";
+import { showWork } from "./screens.js";
 
 /** The stages, in the order the Home board shows them. */
 export const STAGES = ["needs", "working", "ready", "done"];
@@ -121,8 +122,7 @@ export function stageOf(a) {
 export function goToAgent(agent) {
   if (!agent) return;
   run("agent.focus", { terminal: agent.address });
-  run("layout.select", { stack: "center", child: "work" });
-  setShared("cockpit.app", "work");
+  showWork();
 }
 
 /** Explains why a remote row cannot run tab commands: its tab ids belong to the runner, not this desktop. */
