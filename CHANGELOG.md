@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.40.3 (2026-11-11)
+
+- Remote desk: the review panel sends comments and runs walkthroughs on the runner (#44)
+- Cockpit's sidebar lists every machine, not only those with spaces (#28)
+
 ## 0.40.2 (2026-11-10)
 
 - Update tag: what the published cockpit changes, and a click that installs it (#39)

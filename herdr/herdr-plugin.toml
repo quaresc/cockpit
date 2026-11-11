@@ -1,6 +1,6 @@
 id = "cockpit"
 name = "Cockpit"
-version = "0.40.2"
+version = "0.40.3"
 min_herdr_version = "0.7.5"
 description = "See every coding agent you are running and what it is working on: one agent per space, any agent herdr runs, with pinned inbox, to-do, runbook, meetings, monitor, routines and mail spaces, PR peek popups, E2E tests in terminal-browser beside the agent"
 platforms = ["macos", "linux"]
