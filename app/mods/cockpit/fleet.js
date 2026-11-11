@@ -7,15 +7,26 @@ import * as hub from "./hub.js";
 /** The stages, in the order the Home board shows them. */
 export const STAGES = ["needs", "working", "ready", "done"];
 
+/** Each terminal's status as this desktop's Herdr shows it, a runner's under its machine-scoped address (`runner/t7`). */
+function deskStatus() {
+  const status = new Map();
+  for (const s of spaces() ?? []) for (const t of s.tabs ?? []) for (const x of t.terminals ?? []) if (x.terminal) status.set(x.terminal, x.status);
+  for (const p of panes() ?? []) if (p.terminal && !status.has(p.terminal)) status.set(p.terminal, p.status);
+  return status;
+}
+
 /** The agents view's rows, whatever the list is called in its model. A runner's rows take their address on this desktop,
- * and whether they are unread from this desktop's Herdr: the runner never learns which of its agents you opened here. */
+ * and whether they are done and unread from this desktop's Herdr: the runner never learns which agents you opened here,
+ * so its own word stays done for good; once Herdr here shows the terminal otherwise, the row rests (idle). */
 export function rowsOf(value) {
   const rows = Array.isArray(value) ? value : value?.agents ?? value?.rows ?? [];
   if (!value?.remote) return rows;
-  const status = new Map((panes() ?? []).filter((p) => p.terminal).map((p) => [p.terminal, p.status]));
+  const status = deskStatus();
   return rows.map((r) => {
     const address = `${value.remote}/${addressOf(r)}`;
-    return { ...r, remote: value.remote, address, terminal: `app:${address}`, unread: Boolean(r.unread) && status.get(address) === "done" };
+    const desk = status.get(address);
+    const rests = r.stage === "done" && desk !== undefined && desk !== "done";
+    return { ...r, remote: value.remote, address, terminal: `app:${address}`, stage: rests ? "idle" : r.stage, unread: Boolean(r.unread) && desk === "done" };
   });
 }
 

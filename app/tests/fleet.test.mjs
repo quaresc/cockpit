@@ -63,7 +63,7 @@ test("a runner's t7 stays separate from local t7 and Go focuses the runner's ter
   assert.equal(f.notices.length, 0);
 });
 
-test("a runner's agent reads unread only while this desktop's Herdr still shows it done", async () => {
+test("a runner's agent stays done and unread only while this desktop's Herdr still shows it done", async () => {
   const f = await fixture();
   const model = {
     remote: "runner",
@@ -74,7 +74,7 @@ test("a runner's agent reads unread only while this desktop's Herdr still shows 
       { address: "t9", terminal: "app:t9", stage: "done", unread: true },
     ],
   };
-  assert.deepEqual(f.fleet.rowsOf(model).map((r) => `${r.address} ${r.unread}`), ["runner/t7 true", "runner/t8 false", "runner/t9 false"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.fleet.rowsOf(model).map((r) => `${r.address} ${r.stage} ${r.unread}`))), ["runner/t7 done true", "runner/t8 idle false", "runner/t9 done false"]);
   assert.equal(f.fleet.countsOf(model).unread, 1);
   assert.equal(f.fleet.countsOf({ counts: { unread: 3 }, agents: model.agents }).unread, 3);
 });
