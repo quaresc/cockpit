@@ -705,6 +705,7 @@ export default class Sidebar {
     for (const m of [null, ...machineNames]) {
       const machine = this.machineList.find(x => x.name === m);
       const layout = machines().find(x => x.name === m)?.layout;
+      const loading = layout === "loading" || (!layout && machine?.state === "connected");
       const connected = m === null || machine?.state === "connected";
       const state = (machine?.state ?? "asleep").replace(/_/g, " ");
       out.push(
@@ -724,7 +725,7 @@ export default class Sidebar {
       );
       const mine = ordered.filter(r => (r.s.machine ?? null) === m);
       if (!mine.length) {
-        out.push(layout === "loading"
+        out.push(loading
           ? h_flex().id(`machine-loading-${m ?? "local"}`).h(26).px(8).text_size(TEXT.xs).text_color(k.dim).child("Loading…")
           : h_flex().id(`machine-empty-${m ?? "local"}`).h(26).px(8).gap(6).items_center().rounded(RADIUS.md).cursor_pointer().text_size(TEXT.xs).text_color(k.dim).hover(s => s.bg(k.accent).text_color(k.foreground)).tooltip(`${m ?? "This computer"} · New space there`).on_click(() => run("space.new", { machine: m ?? "" })).child(Icon("plus", { size: 12 })).child("New space there"));
       } else out.push(...mine.flatMap(withTerms));
