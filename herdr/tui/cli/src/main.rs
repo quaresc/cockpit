@@ -19,6 +19,7 @@ mod mcp;
 mod proc;
 mod queue;
 mod routine;
+mod session;
 mod setup;
 mod shots;
 mod space;
@@ -106,6 +107,7 @@ fn main() {
         "palette" => app(cockpit_palette::run()),
         "agents" if rest.first().is_some_and(|c| ["connect", "disconnect", "connected"].contains(&c.as_str())) => connect::main(rest),
         "agents" => cockpit_agents::cli::main(rest),
+        "session" => session::main(rest),
         "agent" => match launch::run(rest) {
             Ok(line) => println!("{line}"),
             Err(why) => proc::fail(&why),

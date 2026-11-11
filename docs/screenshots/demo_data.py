@@ -155,6 +155,58 @@ session("-code-billing", "s-csv", "Invoice CSV export", 7000, [
     ("user", "Export invoices as CSV for ENG-398"),
     ("assistant", "The export streams rows by month; amounts are written in cents so spreadsheets don't round them.")])
 
+# The conversations the chat screen reads: the demo agents' own sessions, under the folders their cwd names.
+def conversation(cwd, sid, turns):
+    folder = os.path.join(home, ".claude", "projects", cwd.replace("/", "-"))
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, f"{sid}.jsonl"), "w") as f:
+        n = len(turns)
+        for i, turn in enumerate(turns):
+            role = turn["role"]
+            line = {"type": role, "cwd": cwd, "sessionId": sid, "gitBranch": turn.get("branch", "me/eng-412-quotas"),
+                    "timestamp": iso(minutes=(n - i) * 3), "message": {"role": role, "content": turn["content"]}}
+            if role == "assistant":
+                line["message"]["model"] = "claude-opus-4-5"
+                line["message"]["usage"] = {"input_tokens": 900, "output_tokens": 300, "cache_read_input_tokens": 62000, "cache_creation_input_tokens": 0}
+            f.write(json.dumps(line) + "\n")
+
+def says(text): return [{"type": "text", "text": text}]
+def calls(*pairs): return [{"type": "tool_use", "id": f"t{i}", "name": name, "input": args} for i, (name, args) in enumerate(pairs)]
+def results(*ids): return [{"type": "tool_result", "tool_use_id": i, "is_error": False, "content": "ok"} for i in ids]
+
+conversation("/Users/me/code/api", "demo-412", [
+    {"role": "user", "content": says("Exports and searches need a daily quota per account. Count them, answer 429 over the limit, and keep the payload the front needs.")},
+    {"role": "assistant", "content": says("I'll read the limiter and the export job first.")},
+    {"role": "assistant", "content": calls(("Read", {"file_path": "/Users/me/code/api/lib/quotas/daily.ex"}),
+                                           ("Grep", {"pattern": "Quotas.Daily"}))},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says("There is a counter per account already, but it is reset on deploy because it lives in the process. It has to move to Redis, keyed by account and day.")},
+    {"role": "assistant", "content": calls(("Edit", {"file_path": "/Users/me/code/api/lib/quotas/daily.ex"}),
+                                           ("Edit", {"file_path": "/Users/me/code/api/lib/quotas/plug.ex"}),
+                                           ("Edit", {"file_path": "/Users/me/code/api/test/quotas/daily_test.exs"}))},
+    {"role": "user", "content": results("t0", "t1", "t2")},
+    {"role": "assistant", "content": calls(("Bash", {"command": "mix test test/quotas"}),
+                                           ("Bash", {"command": "mix credo --strict"}))},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says(
+        "Done. The counter is a Redis key per account and day, and it expires at midnight UTC so nothing has to clean it up.\n\n"
+        "```elixir\ndef consume(account, kind) do\n  key = \"quota:#{account.id}:#{kind}:#{Date.utc_today()}\"\n  case Redix.command(:quotas, [\"INCR\", key]) do\n    {:ok, n} when n > limit(account, kind) -> {:error, :over_quota}\n    {:ok, n} -> {:ok, n}\n  end\nend\n```\n\n"
+        "Over the limit the plug answers 429 with the payload the banner reads:\n\n"
+        "| field | what it holds |\n| --- | --- |\n| `limit` | the account's daily limit |\n| `used` | what it has spent today |\n| `resets_at` | midnight UTC, as ISO 8601 |\n\n"
+        "All 34 tests pass and credo is clean.")},
+    {"role": "user", "content": says("Exports were counted twice when the CSV job retried.")},
+    {"role": "assistant", "content": calls(("Grep", {"pattern": "consume(.*:export"}), ("Edit", {"file_path": "/Users/me/code/api/lib/billing/export_job.ex"}))},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says("Fixed: the counter increments once per job id, and a retry reuses the one it already took. The test covers the retry.")},
+])
+
+conversation("/Users/me/code/web", "demo-413", [
+    {"role": "user", "content": says("Show the quota banner when the API answers 429, with what resets and when.")},
+    {"role": "assistant", "content": calls(("Read", {"file_path": "/Users/me/code/web/src/api/client.ts"}))},
+    {"role": "user", "content": results("t0")},
+    {"role": "assistant", "content": says("The client throws on 429 without keeping the body, so the banner has nothing to read. I'll keep the payload on the error.")},
+])
+
 with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox, f)
 with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)

@@ -348,6 +348,9 @@ impl Doctor {
             warn(&format!("Herdr app without the cockpit layout and mod → {fix}"));
             return;
         }
+        if !home.join("layouts/cockpit-chat.json").is_file() || !home.join("themes/cockpit-chat.json").is_file() {
+            warn(&format!("Herdr app without the Cockpit Chat layout or its theme → {fix}"));
+        }
         let noted = load(&home.join("cockpit.json")).unwrap_or(Value::Null);
         let bin = raw(&noted["bin"]);
         let ours = env!("CARGO_PKG_VERSION");

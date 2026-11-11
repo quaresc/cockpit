@@ -9,7 +9,7 @@ import { h_flex } from "gpui-base";
 import { run, focused, shared, setShared, layout } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, counts } from "./fleet.js";
-import { show } from "./sidebar.js";
+import { show, showWork, screens } from "./screens.js";
 import { tokens, TEXT, RADIUS, Icon, Spinner, Mono, openMenu } from "./ui.js";
 
 /** A node of the shown layout by id. */
@@ -26,24 +26,40 @@ export function findNode(node, id) {
 /** The side panel's children by the names keys and the activity bar use. */
 export const PANELS = { show: "show", review: "review", runbook: "runbook-panel", files: "files", changes: "changes" };
 
+/** Whether the side panel is open, and on what: the layout file cannot say, and the drawer on the edge reads it. */
+export const PANELED = "cockpit.panel.open";
+export const PANEL_CHILD = "cockpit.panel.child";
+
 /** Opens the side panel on that child, left open when it already shows it. */
 export function openPanel(name) {
-  run("layout.select", { stack: "panel-body", child: PANELS[name] ?? name });
+  const child = PANELS[name] ?? name ?? shared(PANEL_CHILD) ?? "show";
+  setShared(PANELED, true);
+  setShared(PANEL_CHILD, child);
+  run("layout.select", { stack: "panel-body", child });
   run("layout.show", { id: "panel" });
-  if ((shared("cockpit.app") ?? "home") !== "work") show("work");
+  onWorkScreen();
+}
+
+/** Closes the side panel, and says so: the drawer on the edge takes over from the flag. */
+export function closePanel() {
+  setShared(PANELED, false);
+  run("layout.hide", { id: "panel" });
 }
 
 /** Opens the side panel on that child, or closes it when it already shows it. */
 export function togglePanel(name) {
   const child = PANELS[name] ?? name;
-  const panel = findNode(layout(), "panel");
-  const body = findNode(layout(), "panel-body");
-  if (panel && !panel.hidden && (!child || body?.active === child)) run("layout.hide", { id: "panel" });
-  else {
-    if (child) run("layout.select", { stack: "panel-body", child });
-    run("layout.show", { id: "panel" });
-    if ((shared("cockpit.app") ?? "home") !== "work") show("work");
+  if (shared(PANELED) === true && (!child || shared(PANEL_CHILD) === child)) {
+    closePanel();
+  } else {
+    openPanel(child);
   }
+}
+
+/** The panel only shows beside the agent, so opening it brings that screen up in whichever layout is on. */
+function onWorkScreen() {
+  const here = shared("cockpit.app");
+  if (here !== screens().work) showWork();
 }
 
 export default class Status {

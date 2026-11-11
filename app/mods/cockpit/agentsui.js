@@ -8,6 +8,7 @@ import { run, notify, openOverlay, agents } from "herdr";
 import * as hub from "./hub.js";
 import { rowsOf } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
+import { showWork } from "./screens.js";
 
 /** Each stage: its label, color token and mark. Whose move it is, yours first. */
 export const STAGES = {
@@ -275,7 +276,7 @@ export class AgentsModel {
 
   go(cx, row) {
     run("agent.focus", { terminal: row.address });
-    run("layout.select", { stack: "center", child: "work" });
+    showWork();
     // A runner's hub takes no writes from a remote desk.
     if (!row.herdr && !row.remote) this.act(cx, "seen", { terminal: row.terminal });
   }

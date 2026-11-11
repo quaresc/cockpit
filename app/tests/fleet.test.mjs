@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 import { test } from "node:test";
 
-async function fixture() {
+async function fixture(layout = "cockpit") {
   const calls = [], notices = [];
   const context = createContext({ console });
   const imports = {
@@ -12,9 +12,10 @@ async function fixture() {
       spaces: () => [{ id: "s1", tabs: [{ id: "tab7" }] }],
       run: (...args) => calls.push(args),
       setShared: (...args) => calls.push(["shared", ...args]),
+      shared: key => (key === "layout" ? layout : null),
       notify: notice => notices.push(notice),
     },
-    "./hub.js": { act: () => { throw new Error("no hub action expected"); } },
+    "./hub.js": { act: () => { throw new Error("no hub action expected"); }, openUrl: () => {} },
   };
   const sources = new Map(), modules = new Map();
   const folder = new URL("../mods/cockpit/", import.meta.url);
@@ -46,6 +47,17 @@ async function fixture() {
   await module.evaluate();
   return { fleet: module.namespace, calls, notices };
 }
+
+test("the agents' screen is the one the shown layout calls it", async () => {
+  const cockpit = await fixture();
+  cockpit.fleet.goToAgent({ address: "t7" });
+  const selects = f => f.calls.filter(c => c[0] === "layout.select").map(c => `${c[1].stack}/${c[1].child}`);
+  assert.deepEqual(selects(cockpit).join(" "), "center/work");
+  const chat = await fixture("cockpit-chat");
+  chat.fleet.goToAgent({ address: "t7" });
+  // The reading layout stacks the conversation and the panes inside the screen that holds the side panel.
+  assert.deepEqual(selects(chat).join(" "), "screen/work view/chat");
+});
 
 test("a runner's t7 stays separate from local t7 and Go focuses the runner's terminal", async () => {
   const f = await fixture();
@@ -113,7 +125,7 @@ test("local Go, Peek, Open beside and Archive handlers retain their commands", a
   home.openBeside(cx, agent);
   home.archive(cx, agent);
   home.archiveAll(cx, [{ agent }]);
-  assert.deepEqual(f.calls.map(c => c[0]), ["agent.focus", "layout.select", "terminal.peek", "agent.focus", "layout.show", "tab.settle", "tab.settle"]);
+  assert.deepEqual(f.calls.map(c => c[0]), ["agent.focus", "layout.select", "shared", "terminal.peek", "agent.focus", "layout.show", "tab.settle", "tab.settle"]);
   assert.equal(f.calls.at(-1)[1].id, "tab7");
   assert.equal(f.notices.length, 0);
 });

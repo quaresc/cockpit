@@ -1,9 +1,13 @@
 # cockpit in the Herdr app
 
-The Herdr desktop app half of cockpit: a layout (`app/layouts/cockpit.json`) and one mod (`app/mods/cockpit/`), drawn
+The Herdr desktop app half of cockpit: two layouts (`app/layouts/`) and one mod (`app/mods/cockpit/`), drawn
 natively by Herdr from JavaScript, on the same hub as the herdr TUI half. `cockpit app install` copies them into the
-Herdr home (`HERDR_APP_HOME`, else `~/.config/herdr-app`), writes `cockpit.json` there (where the binary and cache are),
-merges `keys.json`, and switches the window to the cockpit layout the first time.
+Herdr home (`HERDR_APP_HOME`, else `~/.config/herdr-app`) with the themes in `app/themes/` (a theme already there is
+left alone), writes `cockpit.json` there (where the binary and cache are), merges `keys.json`, and switches the window
+to the cockpit layout the first time.
+
+`cockpit` is the default: the agents' terminals, with Home, the spaces and the side panel around them.
+`cockpit-chat` reads them instead — see [The reading layout](#the-reading-layout-cockpit-chat). ⌘⇧L switches.
 
 ## How it fits
 
@@ -168,6 +172,94 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   notification (its click resumes them all), Home's banner, the status bar, `cockpit resume [look|all|<handle>|dismiss
   <handle>]` and `cockpit focus resume`. Resuming types `cd '<cwd>' && claude --resume <id>` into its terminal when it
   sits at a shell, opens a space in its folder when it is gone, and refuses when another program runs there.
+
+## The reading layout (`cockpit-chat`)
+
+`app/layouts/cockpit-chat.json`, its brief in `app/RECIPE-cockpit-chat.md`. It draws the conversation instead of
+showing the terminal: a `screen` stack over a 56px `chat-top` bar, beside the cockpit layout's own sidebar (the same
+`workspace-chrome` brand row, `sidebar` view and footer), which ⌘B opens and closes. Its agent screen is a row of the
+`view` stack (`chat` and `tab`) beside the same `panel` the cockpit layout has, so `show`'s charts, the review screen,
+files and changes are ⌘⌥B away in both. Its own theme pair,
+`themes/cockpit-chat.json` and `cockpit-chat-light.json`: near-monochrome greys with colour kept for what an agent is
+doing.
+
+- `chat` (`chat.js`) subscribes to the hub's `chat` view for whoever is in front, and draws a 760px reading column:
+  what you said as a bubble, what the agent said as Markdown with fences split into their own boxes, and everything it
+  did between two answers as one row of chips. The question card (`QuestionCard`, wide) and the box sit under it. ⏎
+  answers a question, sends to an idle agent, and queues for a working one (the `queue` view's actions).
+- `chat-top` draws the capsule tab bar and, being the view always shown, carries ⌘B, ⌘⌥B, `cockpit.doc:<name>` and
+  `cockpit.go:<screen>`.
+- `side-peek` and `panel-peek` are the drawers on the two edges, floating blocks with `peek: 10`. Each draws nothing
+  and drops its subscription while its pinned half is open, so the sidebar and its drawer — and the panel and its
+  drawer — are never both following the hub. `panel-peek` holds a `Show` of its own for exactly as long as it draws.
+- `needs` lists every waiting agent as a question card.
+- `screens.js` holds each layout's stack and the screen it deals with an agent on (`chat` here, the panes in the
+  cockpit layout), so `show()` and `goToAgent()` land in the right place.
+- The rows are drawn with `list`, which measures each as it draws it; a list renderer takes no handlers, so a chip
+  opens through the list's own `on_item_click` and the scroll is driven with a `VirtualListScrollHandle`.
+
+### View `chat` (one agent's conversation)
+
+```json
+{"agent": {…the agents view's row…},
+ "session": {"id": "…", "cwd": "/r/api", "branch": "me/eng-412", "model": "claude-opus-4-5", "context": 31.4, "cost": 1.84},
+ "messages": [{"role": "user", "at": "…", "text": "…", "tool": null},
+              {"role": "assistant", "at": "…", "text": "", "tool": {"name": "Bash", "summary": "mix test", "ok": true}}],
+ "question": {…the same shape the agents view emits…},
+ "more": false}
+```
+
+`args`: `{terminal, frontend, limit?}`; without a terminal, or when the one in front is not an agent, the agents
+view's first row. `limit` is how many of the latest messages to send (400 by default, 20 000 at most) — "Show earlier"
+raises it. Built in `herdr/tui/agents/src/chat.rs` from `transcripts::read_detail(kind, path, Detail::Tools)` — the only
+reader that keeps tool calls, so the session index and recaps pay nothing for them. The last 400 messages, `more` true
+when there were more. It has no actions: a chat answers through `agents` and sends through `queue`.
+
+**How a turn draws** (`app/mods/cockpit/chat.js`, `rowsOf`). A turn is what you said, then one row for everything
+the agent did and thought, then the one thing it answers with — its last words. The work row says how long it took
+("Worked for 2m 14s") and opens on a click to every call it made and everything it said on the way; a rule under it
+separates the work from the answer. A turn still running keeps all its words in the fold, counts up to now, and is
+open until it answers.
+
+**The box** carries what the agent may do and which model answers it, both read from the session and set on it:
+`+` for a file, the permission mode, where it is, the model, and send. `/` completes the agent's own commands and
+`@` the folder's files (`git ls-files`, else everything not hidden), by `hintsFor`.
+
+### View `session` (an agent cockpit drives itself)
+
+`herdr/tui/agents/src/session.rs`. The agent runs under `claude -p --input-format stream-json --output-format
+stream-json --verbose`, so cockpit owns its stdin and stdout: what it says, the tools it calls and what they returned
+arrive as events, already folded into the `{role, at, text, tool}` shape the chat draws. The view serves
+`{sessions, session}`; its actions are `start {agent, cwd, mode}`, `send {key, text}` and `stop {key}`, and a session
+tells the hub to rebuild the view whenever it moves.
+
+Beyond the words, the stream carries what the reader had to guess at: `system/init` names the session, its tools and
+its slash commands, `system/commands_changed` republishes those commands with their descriptions when they change —
+together they are what the box completes `/` from, so the list is the agent's own and never goes stale —
+`rate_limit_event` carries the five-hour window, and `result` carries the cost and the token use. An agent started
+with an `--mcp-config`, as a driven session is, publishes no `commands_changed` at all, so `init` is the only list
+some sessions ever get.
+
+**Permissions.** A driven session is started with `--permission-prompt-tool mcp__cockpit-permission__permission`
+pointing at `cockpit session host <key>`, an MCP server on stdio holding that one session's prompts. The agent calls
+it before anything that would ask; the host posts the request to the hub (`session/ask`), waits for the person, and
+answers `{behavior: allow|deny}`. A session waiting on one appears in the agents view as a row whose `question` is a
+permission, so the sidebar's NEEDS YOU band and the chat's card draw it with no new UI, and answering routes to the
+session instead of pressing keys at a terminal. Only an explicit `1` or `2` answers a permission — words, ticks or a
+missing choice are refused rather than read as an allow. An allow carries the arguments back unchanged, taken from
+the ask rather than from the caller, and an ask whose tool call has already come back is dropped — the agent gave up on it,
+so no card may stay up offering an answer nothing is waiting for. Each host writes what it asked and what it was
+answered to `~/.cache/cockpit/sessions/<key>.log`.
+
+**Control.** `control_request` on the same pipe takes `set_permission_mode`, `set_model` and `interrupt`, answered by a
+`control_response` the session believes — so ⇧⇥ cycles default → acceptEdits → plan and ⎋ stops the turn, without the
+model being asked anything. The mode cycle uses the names the agent reports back, which is why the resting one is
+`default` rather than `manual`. An interrupted turn reports the same `is_error` result a real failure does; the
+session knows it asked for the interrupt and stays open for the next prompt. `set_model` takes an alias (`opus`,
+`sonnet`, `haiku`, `fable`) and answers with the full name the picker shows.
+
+Only Claude Code has a protocol cockpit speaks; `session::start` refuses any other agent, which keeps reading its
+transcript as before. `cockpit session run <agent> <cwd> <prompt>` drives one from a shell, without the window.
 
 ## The hub on its own
 

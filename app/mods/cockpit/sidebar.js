@@ -11,11 +11,12 @@ import { togglePalette } from "./palette.js";
 import { openCode } from "./code.js";
 import { deliver, follow } from "./notify.js";
 import { rowsOf } from "./fleet.js";
+import { show, showWork } from "./screens.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
 
-const APPS = {
+export const APPS = {
   inbox: { label: "Inbox", icon: "inbox", key: "⌘⌥1" },
   runbook: { label: "Runbook", icon: "book", key: "⌘⌥2" },
   "to-do": { child: "todo", label: "To-do", icon: "list-todo", key: "⌘⌥3" },
@@ -46,12 +47,7 @@ function appBadge(app, v) {
   return null;
 }
 
-/** Shows a block of the cockpit layout, `work` or an app's, and gives that app the keyboard. */
-export function show(child) {
-  run("layout.select", { stack: "center", child });
-  setShared("cockpit.app", child);
-  if (child !== "work") run(`cockpit.show:${child}`);
-}
+export { show } from "./screens.js";
 
 /** The palette over the window, on Herdr's palette geometry; again: closes it. */
 export function openPalette(cx) {
@@ -170,7 +166,7 @@ export default class Sidebar {
     // A space or tab picked anywhere brings the work area back (Home keeps its own focused agent).
     const f = focused();
     const place = f ? `${f.space}/${f.tab}` : null;
-    if (this.place !== null && place !== this.place && active !== "work" && active !== "home") cx.timer.after(1, () => show("work"));
+    if (this.place !== null && place !== this.place && active !== "work" && active !== "home") cx.timer.after(1, () => showWork());
     this.place = place;
     const rail = this.width < 160;
     const model = this.agents;

@@ -20,7 +20,25 @@ pub fn register() {
         build: cockpit_agents::gui::view,
         act: cockpit_agents::gui::act,
     });
-    cockpit_agents::gui::start(|| views::touch("agents"));
+    views::register(Def {
+        name: "session",
+        docs: &[],
+        dirs: cockpit_agents::session::dirs,
+        build: cockpit_agents::session::view,
+        act: cockpit_agents::session::act,
+    });
+    cockpit_agents::session::on_change(|| views::touch("session"));
+    views::register(Def {
+        name: "chat",
+        docs: &["inbox", "ci", "agents"],
+        dirs: cockpit_agents::chat::dirs,
+        build: cockpit_agents::chat::view,
+        act: cockpit_agents::chat::act,
+    });
+    cockpit_agents::gui::start(|| {
+        views::touch("agents");
+        views::touch("chat");
+    });
     views::register(Def {
         name: "inbox",
         docs: &["inbox", "ci", "brief"],
@@ -150,11 +168,11 @@ pub fn hub_shown(view: &str) {
 
 const USAGE: &str = "The Herdr app half of cockpit.
 
-    cockpit app install [--watch] [--from <dir>]  the cockpit layout, mod and keys into the Herdr app's home
+    cockpit app install [--watch] [--from <dir>]  the cockpit layouts, mod, themes and keys into the Herdr app's home
                                                   (HERDR_APP_HOME, else ~/.config/herdr-app); --watch keeps copying
                                                   what changes in the checkout, for working on them (Herdr loads no
                                                   mod through a symlink: its icons would not show)
-    cockpit app uninstall                         takes the layout, the mod and cockpit.json out again (keys stay)";
+    cockpit app uninstall                         takes the layouts, the mod and cockpit.json out again (keys and themes stay)";
 
 pub fn main(args: &[String]) {
     match args.first().map(String::as_str) {
@@ -177,8 +195,9 @@ pub fn main(args: &[String]) {
         }
         Some("uninstall") => {
             let home = frontend::app_home();
-            let _ = std::fs::remove_file(home.join("layouts/cockpit.json"));
-            let _ = std::fs::remove_file(home.join("layouts/cockpit.svg"));
+            for name in ["cockpit.json", "cockpit.svg", "cockpit-chat.json", "cockpit-chat.svg"] {
+                let _ = std::fs::remove_file(home.join("layouts").join(name));
+            }
             let _ = remove(&home.join("mods/cockpit"));
             let _ = std::fs::remove_file(home.join("cockpit.json"));
             println!("removed the cockpit layout and mod from {}", home.display());
@@ -210,7 +229,7 @@ fn watch(from: &Path, home: &Path) {
         for path in paths {
             let Ok(rel) = path.strip_prefix(from) else { continue };
             let to = match rel.iter().next().and_then(|c| c.to_str()) {
-                Some("mods" | "layouts") => home.join(rel),
+                Some("mods" | "layouts" | "themes") => home.join(rel),
                 _ => continue,
             };
             if path.is_file() {
@@ -272,8 +291,19 @@ pub fn install(from: &Path, home: &Path, link: bool) -> Result<Vec<String>, Stri
     }
     let mut lines = Vec::new();
     let err = |e: std::io::Error| e.to_string();
-    for name in ["cockpit.json", "cockpit.svg"] {
-        place(&from.join("layouts").join(name), &home.join("layouts").join(name), link).map_err(err)?;
+    let mut layouts = Vec::new();
+    tree(&from.join("layouts"), Path::new(""), &mut layouts);
+    for rel in &layouts {
+        place(&from.join("layouts").join(rel), &home.join("layouts").join(rel), link).map_err(err)?;
+    }
+    // A layout's own theme is the person's to edit afterwards, so one already there is left alone.
+    let mut themes = Vec::new();
+    tree(&from.join("themes"), Path::new(""), &mut themes);
+    for rel in &themes {
+        let to = home.join("themes").join(rel);
+        if !to.exists() {
+            place(&from.join("themes").join(rel), &to, link).map_err(err)?;
+        }
     }
     let mod_dir = home.join("mods/cockpit");
     let mut files_in = Vec::new();
@@ -295,7 +325,13 @@ pub fn install(from: &Path, home: &Path, link: bool) -> Result<Vec<String>, Stri
         std::fs::rename(&new, &mod_dir).map_err(err)?;
         let _ = remove(&old);
     }
-    lines.push(format!("{} the cockpit layout and mod ({} files) in {}", if link { "linked" } else { "copied" }, files_in.len(), home.display()));
+    lines.push(format!(
+        "{} {} cockpit layouts and the mod ({} files) in {}",
+        if link { "linked" } else { "copied" },
+        layouts.iter().filter(|r| r.extension().is_some_and(|e| e == "json")).count(),
+        files_in.len(),
+        home.display()
+    ));
     let exe = std::env::current_exe().map_err(err)?;
     // COCKPIT_* variables set for the install (a sandbox's test hooks) go to every cockpit command the mod runs.
     let env: Map<String, Value> =
@@ -354,18 +390,26 @@ mod tests {
             ("mods/cockpit/ui.js", "y"),
             ("layouts/cockpit.json", "{}"),
             ("layouts/cockpit.svg", "<svg/>"),
+            ("layouts/cockpit-chat.json", "{}"),
+            ("themes/cockpit-chat.json", "{}"),
             ("keys.json", "{\"global\": {\"cmd-k\": \"cockpit.palette\"}}"),
         ] {
             let p = from.path().join(path);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, text).unwrap();
         }
+        std::fs::write(home.path().join("themes-kept.json"), "mine").unwrap();
         let lines = install(from.path(), home.path(), true).unwrap();
-        assert!(lines[0].starts_with("linked the cockpit layout and mod (2 files)"));
+        assert!(lines[0].starts_with("linked 2 cockpit layouts and the mod (2 files)"), "{}", lines[0]);
+        assert!(home.path().join("layouts/cockpit-chat.json").exists());
+        assert!(home.path().join("themes/cockpit-chat.json").exists());
         assert!(std::fs::symlink_metadata(home.path().join("mods/cockpit")).unwrap().file_type().is_symlink());
         assert!(files::load(&home.path().join("cockpit.json")).unwrap()["bin"].is_string());
         assert_eq!(files::load(&home.path().join("keys.json")).unwrap()["global"]["cmd-k"], "cockpit.palette");
+        // A theme the person edited is theirs: the next install leaves it alone.
+        std::fs::write(home.path().join("themes/cockpit-chat.json"), "mine").unwrap();
         install(from.path(), home.path(), false).unwrap();
         assert!(!std::fs::symlink_metadata(home.path().join("mods/cockpit/ui.js")).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(home.path().join("themes/cockpit-chat.json")).unwrap(), "mine");
     }
 }

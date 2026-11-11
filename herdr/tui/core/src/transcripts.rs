@@ -16,6 +16,8 @@ use crate::files;
 /// The most of one message kept: a pasted log or a long answer says what it is in far less.
 const MESSAGE_CAP: usize = 16 * 1024;
 const TITLE_CAP: usize = 100;
+/// The most of a tool call's line kept.
+const SUMMARY_CAP: usize = 120;
 /// Longer lines hold tool output or pictures: skipped without being read into memory.
 const LINE_CAP: usize = 4 << 20;
 /// How much of a transcript's end `usage` reads.
@@ -33,6 +35,28 @@ pub struct Message {
     pub text: String,
     /// RFC 3339, as the agent wrote it; empty when it did not.
     pub at: String,
+    /// The tool it called in place of words, when the read asked for them.
+    pub tool: Option<Tool>,
+}
+
+/// A tool call, as a chat shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tool {
+    /// What the agent calls it: `Bash`, `Edit`, `Read`.
+    pub name: String,
+    /// The command, path or pattern it was given, on one line.
+    pub summary: String,
+    /// Whether it worked, when the transcript says.
+    pub ok: Option<bool>,
+}
+
+/// How much of a transcript a read keeps. Tool calls cost a second pass over records the other readers skip, so only
+/// what draws a conversation asks for them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Detail {
+    #[default]
+    Words,
+    Tools,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -78,7 +102,7 @@ impl Transcript {
     /// Its messages' words, one message per line, up to `cap` bytes (cut on a character).
     pub fn text(&self, cap: usize) -> String {
         let mut out = String::new();
-        for m in &self.messages {
+        for m in self.messages.iter().filter(|m| m.tool.is_none()) {
             keep(&mut out, &m.text, cap);
         }
         out
@@ -372,15 +396,20 @@ fn codex_titles() -> HashMap<String, String> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Reading
 
-/// The session in a transcript; None when it holds nothing the person typed, or cannot be read.
+/// The session in a transcript, its words alone; None when it holds nothing the person typed, or cannot be read.
 pub fn read(kind: Transcripts, path: &Path) -> Option<Transcript> {
+    read_detail(kind, path, Detail::Words)
+}
+
+/// The same, keeping the tool calls between the messages when `detail` asks for them.
+pub fn read_detail(kind: Transcripts, path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = match kind {
         Transcripts::None => return None,
-        Transcripts::Claude => read_claude(path)?,
-        Transcripts::Codex => read_codex(path)?,
-        Transcripts::Pi | Transcripts::Omp => read_pi(path)?,
-        Transcripts::Qwen => read_qwen(path)?,
-        Transcripts::Copilot => read_copilot(path)?,
+        Transcripts::Claude => read_claude(path, detail)?,
+        Transcripts::Codex => read_codex(path, detail)?,
+        Transcripts::Pi | Transcripts::Omp => read_pi(path, detail)?,
+        Transcripts::Qwen => read_qwen(path, detail)?,
+        Transcripts::Copilot => read_copilot(path, detail)?,
     };
     t.kind = kind;
     t.path = path.to_path_buf();
@@ -507,12 +536,17 @@ fn is_typed(text: &str) -> bool {
     !text.is_empty() && !tagged && !text.starts_with("[Request interrupted") && !text.starts_with("# AGENTS.md instructions")
 }
 
+/// A tool call where a message would be: `summary` is already one line.
+fn tool_message(at: &str, name: &str, summary: String, ok: Option<bool>) -> Message {
+    Message { role: Role::Assistant, text: String::new(), at: at.to_string(), tool: Some(Tool { name: name.to_string(), summary, ok }) }
+}
+
 fn message(role: Role, text: &str, at: &str) -> Message {
     let mut end = text.len().min(MESSAGE_CAP);
     while !text.is_char_boundary(end) {
         end -= 1;
     }
-    Message { role, text: text[..end].to_string(), at: at.to_string() }
+    Message { role, text: text[..end].to_string(), at: at.to_string(), tool: None }
 }
 
 /// Adds the text on a line of its own, up to the cap, cut on a character boundary.
@@ -598,8 +632,8 @@ struct ClaudeMessage {
     id: Option<String>,
     model: Option<String>,
     usage: Option<ClaudeUsage>,
-    #[serde(deserialize_with = "texts")]
-    content: Vec<String>,
+    #[serde(deserialize_with = "chunks")]
+    content: Vec<Chunk>,
 }
 
 #[derive(Deserialize, Default)]
@@ -611,10 +645,47 @@ struct ClaudeUsage {
     cache_creation_input_tokens: u64,
 }
 
-/// A message's text: the content when it is a string, else its `text` blocks (tool calls, results and thinking dropped).
-fn texts<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
-    struct Texts;
-    struct Block(Option<String>);
+/// A content block, kept only where it says something: words, a tool call, or how one ended.
+enum Chunk {
+    Text(String),
+    Call { id: String, name: String, summary: String },
+    Result { id: String, ok: bool },
+}
+
+/// The telling fields of a tool call's input; the rest is skipped unread.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ToolInput {
+    command: Option<String>,
+    file_path: Option<String>,
+    path: Option<String>,
+    pattern: Option<String>,
+    url: Option<String>,
+    description: Option<String>,
+    prompt: Option<String>,
+}
+
+impl ToolInput {
+    /// The first of its fields that says what the call did.
+    fn summary(self) -> Option<String> {
+        [self.command, self.file_path, self.path, self.pattern, self.url, self.description, self.prompt].into_iter().flatten().find(|s| !s.trim().is_empty())
+    }
+}
+
+/// A tool call on one line: the command it ran, the file it touched, else nothing.
+fn tool_line(text: &str) -> String {
+    let mut out: String = text.trim().lines().next().unwrap_or_default().chars().take(SUMMARY_CAP).collect();
+    if out.len() < text.trim().len() {
+        out.push('…');
+    }
+    out
+}
+
+/// A message's content: the words when it is a string, else its blocks. Thinking is dropped; tool calls and their
+/// results are kept, and `read_*` decides whether to show them.
+fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
+    struct Chunks;
+    struct Block(Option<Chunk>);
     impl<'de> Deserialize<'de> for Block {
         fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
             struct Fields;
@@ -624,48 +695,65 @@ fn texts<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
                     f.write_str("a content block")
                 }
                 fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Block, A::Error> {
-                    let (mut kind, mut text) = (None::<String>, None::<String>);
+                    let (mut kind, mut text, mut name) = (None::<String>, None::<String>, None::<String>);
+                    let (mut id, mut used, mut error, mut summary) = (None::<String>, None::<String>, false, None::<String>);
                     while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
                             "type" => kind = Some(map.next_value()?),
                             "text" => text = map.next_value()?,
+                            "name" => name = map.next_value()?,
+                            "id" => id = map.next_value()?,
+                            "tool_use_id" => used = map.next_value()?,
+                            "is_error" => error = map.next_value::<Option<bool>>()?.unwrap_or(false),
+                            "input" => summary = map.next_value::<ToolInput>()?.summary(),
                             _ => {
                                 map.next_value::<IgnoredAny>()?;
                             }
                         }
                     }
-                    Ok(Block(text.filter(|_| kind.as_deref() == Some("text"))))
+                    Ok(Block(match kind.as_deref() {
+                        Some("text") => text.map(Chunk::Text),
+                        Some("tool_use") => Some(Chunk::Call {
+                            id: id.unwrap_or_default(),
+                            name: name.unwrap_or_default(),
+                            summary: summary.map(|s| tool_line(&s)).unwrap_or_default(),
+                        }),
+                        Some("tool_result") => used.map(|id| Chunk::Result { id, ok: !error }),
+                        _ => None,
+                    }))
                 }
             }
             d.deserialize_any(Fields)
         }
     }
-    impl<'de> Visitor<'de> for Texts {
-        type Value = Vec<String>;
+    impl<'de> Visitor<'de> for Chunks {
+        type Value = Vec<Chunk>;
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("a string or a list of content blocks")
         }
-        fn visit_str<E>(self, s: &str) -> Result<Vec<String>, E> {
-            Ok(vec![s.to_string()])
+        fn visit_str<E>(self, s: &str) -> Result<Vec<Chunk>, E> {
+            Ok(vec![Chunk::Text(s.to_string())])
         }
-        fn visit_unit<E>(self) -> Result<Vec<String>, E> {
+        fn visit_unit<E>(self) -> Result<Vec<Chunk>, E> {
             Ok(Vec::new())
         }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<String>, A::Error> {
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Chunk>, A::Error> {
             let mut out = Vec::new();
-            while let Some(Block(text)) = seq.next_element::<Block>()? {
-                out.extend(text);
+            while let Some(Block(chunk)) = seq.next_element::<Block>()? {
+                out.extend(chunk);
             }
             Ok(out)
         }
     }
-    d.deserialize_any(Texts)
+    d.deserialize_any(Chunks)
 }
 
-fn read_claude(path: &Path) -> Option<Transcript> {
+fn read_claude(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut summary, mut named, mut ai_title) = (None::<String>, None, None, None);
     let mut counted: Option<String> = None;
+    // Where each tool call landed in the messages, so its result can say whether it worked.
+    let mut calls: HashMap<String, usize> = HashMap::new();
     let mut lines = lines_of(path)?;
     while let Some(line) = lines.next() {
         let Ok(line) = serde_json::from_slice::<ClaudeLine>(line) else { continue };
@@ -712,14 +800,28 @@ fn read_claude(path: &Path) -> Option<Transcript> {
                         t.usage.context = Some(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens);
                     }
                 }
-                for text in m.content {
-                    if role == Role::User && !is_typed(&text) {
-                        continue;
+                for chunk in m.content {
+                    match chunk {
+                        Chunk::Text(text) => {
+                            if role == Role::User && !is_typed(&text) {
+                                continue;
+                            }
+                            if role == Role::User && prompt.is_none() {
+                                prompt = Some(text.clone());
+                            }
+                            t.messages.push(message(role, &text, &at));
+                        }
+                        Chunk::Call { id, name, summary } if detail == Detail::Tools => {
+                            calls.insert(id, t.messages.len());
+                            t.messages.push(tool_message(&at, &name, summary, None));
+                        }
+                        Chunk::Result { id, ok } if detail == Detail::Tools => {
+                            if let Some(tool) = calls.get(&id).and_then(|i| t.messages.get_mut(*i)).and_then(|m| m.tool.as_mut()) {
+                                tool.ok = Some(ok);
+                            }
+                        }
+                        _ => {}
                     }
-                    if role == Role::User && prompt.is_none() {
-                        prompt = Some(text.clone());
-                    }
-                    t.messages.push(message(role, &text, &at));
                 }
             }
             _ => {}
@@ -752,7 +854,7 @@ fn codex_usage(info: &Value) -> Option<Usage> {
     })
 }
 
-fn read_codex(path: &Path) -> Option<Transcript> {
+fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let mut prompt: Option<String> = None;
     let mut window = None;
@@ -761,8 +863,11 @@ fn read_codex(path: &Path) -> Option<Transcript> {
     while let Some(raw) = lines.next() {
         let first = std::mem::take(&mut first_line);
         // Most records are tool calls, their output and reasoning: left unparsed.
-        let wanted =
-            first || [&b"\"type\":\"message\""[..], b"token_count", b"turn_context", b"task_started", b"session_meta"].iter().any(|n| contains(raw, n));
+        let mut names: Vec<&[u8]> = vec![&b"\"type\":\"message\""[..], b"token_count", b"turn_context", b"task_started", b"session_meta"];
+        if detail == Detail::Tools {
+            names.push(b"function_call");
+        }
+        let wanted = first || names.iter().any(|n| contains(raw, n));
         if !wanted {
             continue;
         }
@@ -803,6 +908,9 @@ fn read_codex(path: &Path) -> Option<Transcript> {
                     t.usage = u;
                 }
             }
+            ("response_item", "function_call") if detail == Detail::Tools => {
+                t.messages.extend(json_call(p).as_ref().and_then(|c| chunk_message(c, &at)));
+            }
             ("response_item", "message") => {
                 let role = match p["role"].as_str() {
                     Some("user") => Role::User,
@@ -842,16 +950,57 @@ fn pi_context(u: &Value) -> u64 {
     ["input", "cacheRead", "cacheWrite"].iter().map(|k| u[*k].as_u64().unwrap_or(0)).sum()
 }
 
-/// A message's words: its content when a string, else its `text` blocks.
-fn block_texts(content: &Value) -> Vec<String> {
+/// A message's content as chunks: its words when a string, else its text blocks and the tool calls between them.
+fn json_chunks(content: &Value, detail: Detail) -> Vec<Chunk> {
     match content {
-        Value::String(s) => vec![s.clone()],
-        Value::Array(blocks) => blocks.iter().filter(|b| b["type"] == "text").filter_map(|b| b["text"].as_str().map(str::to_string)).collect(),
+        Value::String(s) => vec![Chunk::Text(s.clone())],
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| match b["type"].as_str().unwrap_or_default() {
+                "text" => b["text"].as_str().map(|s| Chunk::Text(s.to_string())),
+                "toolCall" | "tool_use" | "function_call" if detail == Detail::Tools => json_call(b),
+                _ => None,
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
 
-fn read_pi(path: &Path) -> Option<Transcript> {
+/// A tool call read from a JSON object, whichever field names the agent uses.
+fn json_call(v: &Value) -> Option<Chunk> {
+    let name = ["name", "toolName", "tool"].iter().find_map(|k| v[*k].as_str()).filter(|n| !n.is_empty())?;
+    let args = ["input", "arguments", "args", "parameters"].iter().map(|k| &v[*k]).find(|a| !a.is_null());
+    Some(Chunk::Call { id: String::new(), name: name.to_string(), summary: args.map(arg_line).unwrap_or_default() })
+}
+
+/// The telling field of a call's arguments, on one line; arguments written as a JSON string are read first.
+pub fn arg_line(args: &Value) -> String {
+    let parsed = args.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok());
+    let args = parsed.as_ref().unwrap_or(args);
+    for field in ["command", "cmd", "file_path", "path", "pattern", "url", "description", "prompt", "query"] {
+        match &args[field] {
+            Value::String(s) if !s.trim().is_empty() => return tool_line(s),
+            Value::Array(parts) => {
+                let joined = parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ");
+                if !joined.trim().is_empty() {
+                    return tool_line(&joined);
+                }
+            }
+            _ => {}
+        }
+    }
+    args.as_str().map(tool_line).unwrap_or_default()
+}
+
+/// A chunk as a message, when it is a call.
+fn chunk_message(chunk: &Chunk, at: &str) -> Option<Message> {
+    match chunk {
+        Chunk::Call { name, summary, .. } => Some(tool_message(at, name, summary.clone(), None)),
+        _ => None,
+    }
+}
+
+fn read_pi(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut named) = (None::<String>, None::<String>);
     let mut cost = 0.0;
@@ -893,14 +1042,18 @@ fn read_pi(path: &Path) -> Option<Transcript> {
                         cost += u["cost"]["total"].as_f64().unwrap_or(0.0);
                     }
                 }
-                for text in block_texts(&m["content"]) {
-                    if role == Role::User && !is_typed(&text) {
+                for chunk in json_chunks(&m["content"], detail) {
+                    let Chunk::Text(text) = &chunk else {
+                        t.messages.extend(chunk_message(&chunk, &at));
+                        continue;
+                    };
+                    if role == Role::User && !is_typed(text) {
                         continue;
                     }
                     if role == Role::User && prompt.is_none() {
                         prompt = Some(text.clone());
                     }
-                    t.messages.push(message(role, &text, &at));
+                    t.messages.push(message(role, text, &at));
                 }
             }
             _ => {}
@@ -919,7 +1072,7 @@ fn qwen_context(u: &Value) -> u64 {
     u["promptTokenCount"].as_u64().unwrap_or(0) + u["candidatesTokenCount"].as_u64().unwrap_or(0)
 }
 
-fn read_qwen(path: &Path) -> Option<Transcript> {
+fn read_qwen(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut named) = (None::<String>, None::<String>);
     let mut lines = lines_of(path)?;
@@ -968,7 +1121,13 @@ fn read_qwen(path: &Path) -> Option<Transcript> {
             t.usage.window = v["contextWindowSize"].as_u64().or(t.usage.window);
         }
         let parts = v["message"]["parts"].as_array().cloned().unwrap_or_default();
-        for text in parts.iter().filter(|p| p["thought"] != true).filter_map(|p| p["text"].as_str()) {
+        for part in parts.iter().filter(|p| p["thought"] != true) {
+            let Some(text) = part["text"].as_str() else {
+                if detail == Detail::Tools {
+                    t.messages.extend(json_call(&part["functionCall"]).as_ref().and_then(|c| chunk_message(c, &at)));
+                }
+                continue;
+            };
             if role == Role::User && !is_typed(text) {
                 continue;
             }
@@ -986,7 +1145,7 @@ fn read_qwen(path: &Path) -> Option<Transcript> {
 // GitHub Copilot CLI: $COPILOT_HOME/session-state/<session>/events.jsonl, one event per line ({type, data, timestamp};
 // github/copilot-sdk's generated `session-events`)
 
-fn read_copilot(path: &Path) -> Option<Transcript> {
+fn read_copilot(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut named) = (None::<String>, None::<String>);
     let mut lines = lines_of(path)?;
@@ -1033,6 +1192,11 @@ fn read_copilot(path: &Path) -> Option<Transcript> {
             "assistant.message" => {
                 if let Some(text) = d["content"].as_str().filter(|x| !x.trim().is_empty()) {
                     t.messages.push(message(Role::Assistant, text, &at));
+                }
+                if detail == Detail::Tools {
+                    for req in d["toolRequests"].as_array().into_iter().flatten() {
+                        t.messages.extend(json_call(req).as_ref().and_then(|c| chunk_message(c, &at)));
+                    }
                 }
                 t.model = d["model"].as_str().map(str::to_string).or(t.model.take());
             }
@@ -1101,7 +1265,8 @@ mod tests {
             &[
                 json!({"type": "user", "cwd": "/r/api", "sessionId": "c-1", "gitBranch": "me/eng-412-quotas", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Enforce the daily quota for ENG-412"}}),
                 json!({"type": "assistant", "timestamp": "2026-11-03T10:00:05Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": used(100, 1000), "content": [{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "Reading the limiter."}]}}),
-                json!({"type": "assistant", "timestamp": "2026-11-03T10:00:06Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": used(100, 1000), "content": [{"type": "tool_use", "name": "Bash", "input": {}}]}}),
+                json!({"type": "assistant", "timestamp": "2026-11-03T10:00:06Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": used(100, 1000), "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "mix test\nand more"}}]}}),
+                json!({"type": "user", "timestamp": "2026-11-03T10:00:07Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "it failed"}]}}),
                 json!({"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "message": {"id": "m2", "model": "claude-opus-4-5", "usage": used(50, 3000), "content": [{"type": "text", "text": "Done: the limiter counts per day."}]}}),
                 json!({"type": "ai-title", "aiTitle": "Daily quota limiter"}),
             ],
@@ -1120,6 +1285,19 @@ mod tests {
         assert_eq!((t.usage.input, t.usage.output, t.usage.cache_read, t.usage.context), (150, 20, 4000, Some(3055)), "a streamed reply counts once");
         assert_eq!((t.first.as_str(), t.last.as_str()), ("2026-11-03T10:00:00Z", "2026-11-03T10:01:00Z"));
         assert_eq!(usage(Transcripts::Claude, &path).unwrap().context, Some(3055));
+
+        let told = read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        assert_eq!(
+            told.messages.iter().map(|m| (m.text.as_str(), m.tool.as_ref().map(|t| (t.name.as_str(), t.summary.as_str(), t.ok)))).collect::<Vec<_>>(),
+            [
+                ("Enforce the daily quota for ENG-412", None),
+                ("Reading the limiter.", None),
+                ("", Some(("Bash", "mix test…", Some(false)))),
+                ("Done: the limiter counts per day.", None)
+            ],
+            "the call sits where it was made, and its result says it failed"
+        );
+        assert_eq!(told.text(4096), t.text(4096), "a call is not words");
     }
 
     #[test]
@@ -1144,6 +1322,13 @@ mod tests {
         working.truncate(9);
         let working = write(dir.path(), "sessions/2026/11/03/rollout-2026-11-03T11-00-00-0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5e.jsonl", &working);
         assert_eq!(turn(Transcripts::Codex, &working), Some(Turn::Working));
+        assert_eq!(turn(Transcripts::Claude, &path), None);
+
+        let told = read_detail(Transcripts::Codex, &path, Detail::Tools).unwrap();
+        assert_eq!(
+            told.messages.iter().map(|m| (m.text.as_str(), m.tool.as_ref().map(|t| (t.name.as_str(), t.summary.as_str())))).collect::<Vec<_>>(),
+            [("Enforce the daily quota for ENG-412", None), ("", Some(("exec_command", "rg limiter"))), ("Done: the limiter counts per day.", None)]
+        );
     }
 
     #[test]
@@ -1233,7 +1418,7 @@ mod tests {
             json!({"type": "session", "version": 3, "id": "p-1", "timestamp": "2026-11-03T10:00:00.000Z", "cwd": cwd}),
             json!({"type": "message", "id": "a1", "parentId": null, "timestamp": "2026-11-03T10:00:01.000Z", "message": {"role": "user", "content": "Rename the quota module"}}),
             json!({"type": "message", "id": "a2", "parentId": "a1", "timestamp": "2026-11-03T10:00:09.000Z", "message": {"role": "assistant", "model": "acme-large", "usage": spent,
-                "content": [{"type": "thinking", "thinking": "hm"}, {"type": "toolCall", "name": "bash"}, {"type": "text", "text": "Renamed to limits."}]}}),
+                "content": [{"type": "thinking", "thinking": "hm"}, {"type": "toolCall", "name": "bash", "arguments": {"command": "git mv quota limits"}}, {"type": "text", "text": "Renamed to limits."}]}}),
             json!({"type": "session_info", "id": "a3", "timestamp": "2026-11-03T10:00:10.000Z", "name": "Quota rename"}),
         ])).unwrap();
         let qwen_home = dir.path().join("qwen");
@@ -1241,7 +1426,7 @@ mod tests {
         std::fs::create_dir_all(qwen.parent().unwrap()).unwrap();
         std::fs::write(&qwen, lines(&[
             json!({"uuid": "u1", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:00Z", "type": "user", "cwd": cwd, "gitBranch": "me/eng-412-quotas", "message": {"role": "user", "parts": [{"text": "Add tests for the limiter"}]}}),
-            json!({"uuid": "u2", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:07Z", "type": "assistant", "cwd": cwd, "model": "acme-coder", "message": {"role": "model", "parts": [{"text": "pondering", "thought": true}, {"text": "Added three tests."}]},
+            json!({"uuid": "u2", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:07Z", "type": "assistant", "cwd": cwd, "model": "acme-coder", "message": {"role": "model", "parts": [{"text": "pondering", "thought": true}, {"functionCall": {"name": "write_file", "args": {"file_path": "test/limiter_test.exs"}}}, {"text": "Added three tests."}]},
                 "usageMetadata": {"promptTokenCount": 9000, "candidatesTokenCount": 30, "cachedContentTokenCount": 8000}, "contextWindowSize": 90_300}),
             json!({"uuid": "u3", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:08Z", "type": "system", "subtype": "custom_title", "cwd": cwd, "systemPayload": {"customTitle": "Limiter tests"}}),
         ])).unwrap();
@@ -1251,7 +1436,7 @@ mod tests {
         std::fs::write(&copilot, lines(&[
             json!({"id": "e1", "timestamp": "2026-11-03T10:00:00.000Z", "type": "session.start", "data": {"sessionId": "5c1e0000-0000-4000-8000-000000000412", "selectedModel": "acme-mini", "context": {"cwd": cwd, "branch": "main"}}}),
             json!({"id": "e2", "timestamp": "2026-11-03T10:00:01.000Z", "type": "user.message", "data": {"content": "Run the tests"}}),
-            json!({"id": "e3", "timestamp": "2026-11-03T10:00:05.000Z", "type": "assistant.message", "data": {"content": "All 42 pass.", "toolRequests": []}}),
+            json!({"id": "e3", "timestamp": "2026-11-03T10:00:05.000Z", "type": "assistant.message", "data": {"content": "All 42 pass.", "toolRequests": [{"name": "shell", "arguments": {"command": "mix test"}}]}}),
             json!({"id": "e4", "timestamp": "2026-11-03T10:00:05.100Z", "type": "assistant.usage", "data": {"model": "acme-mini", "inputTokens": 8000, "outputTokens": 120, "cacheReadTokens": 6000, "cacheWriteTokens": 0}}),
             json!({"id": "e5", "timestamp": "2026-11-03T10:00:05.200Z", "type": "session.usage_info", "data": {"tokenLimit": 64_000, "currentTokens": 16_000}}),
         ])).unwrap();
@@ -1277,6 +1462,14 @@ mod tests {
         assert_eq!(id_of(Transcripts::Copilot, &copilot).as_deref(), Some(c.id.as_str()));
         assert_eq!(locate(&c.id, "", None).map(|(k, _)| k), Some(Transcripts::Copilot));
         assert_eq!(all(Transcripts::Copilot).len(), 1);
+
+        let called = |kind, path: &Path| {
+            read_detail(kind, path, Detail::Tools).unwrap().messages.iter().filter_map(|m| m.tool.clone()).map(|t| (t.name, t.summary)).collect::<Vec<_>>()
+        };
+        assert_eq!(called(Transcripts::Pi, &pi), [("bash".to_string(), "git mv quota limits".to_string())]);
+        assert_eq!(called(Transcripts::Qwen, &qwen), [("write_file".to_string(), "test/limiter_test.exs".to_string())]);
+        assert_eq!(called(Transcripts::Copilot, &copilot), [("shell".to_string(), "mix test".to_string())]);
+        assert_eq!(p.messages.iter().filter(|m| m.tool.is_some()).count(), 0, "words alone by default");
     }
 
     #[test]

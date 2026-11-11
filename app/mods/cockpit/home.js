@@ -10,6 +10,7 @@ import { show } from "./sidebar.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
+import { showWork } from "./screens.js";
 import {
   tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
   Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
@@ -287,7 +288,7 @@ export default class Home {
     cx.spawn(async () => {
       const known = (await knownAgents().catch(() => [])).find((k) => k.installed);
       run("tab.new", known ? { argv: known.run } : {});
-      run("layout.select", { stack: "center", child: "work" });
+      showWork();
       setShared("cockpit.app", "work");
     });
   }

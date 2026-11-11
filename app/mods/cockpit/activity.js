@@ -6,7 +6,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run, layout, shared, setShared } from "herdr";
 import { tokens, RADIUS, Icon, CornerCount } from "./ui.js";
-import { findNode, PANELS } from "./status.js";
+import { findNode, PANELS, closePanel } from "./status.js";
 
 const ITEMS = [
   { name: "show", icon: "layers", label: "Documents", key: "⌃⌘1" },
@@ -77,7 +77,7 @@ export default class Activity {
           .text_color(k.mutedFg)
           .hover((s) => s.text_color(k.foreground))
           .tooltip("Close the panel  ⌘⌥B")
-          .on_click(() => run("layout.hide", { id: "panel" }))
+          .on_click(() => closePanel())
           .child(Icon("panel-right", { size: 16 })),
       );
   }
