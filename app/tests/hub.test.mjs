@@ -43,7 +43,7 @@ async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
         assert.equal(options?.on, install.machine);
         return JSON.stringify(info);
       },
-      exec: async (...args) => { calls.push(["exec", ...args]); return { code: 0, stdout: JSON.stringify({ ...info, token: behavior.token }), stderr: "" }; },
+      exec: async (...args) => { calls.push(["exec", ...args]); return behavior.exec ?? { code: 0, stdout: JSON.stringify({ ...info, token: behavior.token }), stderr: "" }; },
     },
     net: { default: { connect: async (host, port) => {
       calls.push(["connect", host, port]);
@@ -94,9 +94,39 @@ test("remote actions and commands cannot operate the runner's desktop", async t 
   const f = await fixture(t);
   await assert.rejects(f.hub.act("inbox", "review", [{}]), /read-only/);
   await assert.rejects(f.hub.cockpit(["resume", "all"]), /read-only/);
+  await assert.rejects(f.hub.act("review", "open_reviewr", ["/runner/acme/api"]), /read-only/);
+  await assert.rejects(f.hub.cockpit(["hub", "act", "inbox", "review", "[]"]), /read-only/);
+  await assert.rejects(f.hub.cockpit(["hub", "act", "review", "send"]), /read-only/);
   await assert.rejects(f.hub.go({ app: "session", key: "past" }), /read-only/);
   assert.equal(f.messages.length, 0);
   assert.equal(f.calls.filter(call => call[0] === "exec").length, 0);
+});
+
+test("remote review actions run as a cockpit command on the runner, through its machine connection", async t => {
+  const f = await fixture(t);
+  const review = { scope: "branch", repo: "/runner/acme/api", comments: [{ path: "src/a.rs", line: 12, text: `say "hi"; $(rm -rf ~) 'x'\nnext` }] };
+  await f.hub.act("review", "walkthrough", ["/runner/acme/api", "branch", "haiku"]);
+  await f.hub.act("review", "stop_walkthrough", ["/runner/acme/api", "branch"]);
+  await f.hub.act("review", "send", ["runner/t7", review]);
+  const runs = f.calls.filter(call => call[0] === "exec").map(([, , args, options]) => [JSON.parse(JSON.stringify(args.slice(args.indexOf("/runner/cockpit")))), options?.on]);
+  assert.deepEqual(runs, [
+    [["/runner/cockpit", "hub", "act", "review", "walkthrough", '["/runner/acme/api","branch","haiku"]'], "runner"],
+    [["/runner/cockpit", "hub", "act", "review", "stop_walkthrough", '["/runner/acme/api","branch"]'], "runner"],
+    [["/runner/cockpit", "hub", "act", "review", "send", JSON.stringify(["t7", review])], "runner"],
+  ]);
+  assert.equal(f.messages.length, 0, "no write travels over TCP");
+});
+
+test("a remote review goes only to one of the runner's agents", async t => {
+  const f = await fixture(t);
+  for (const terminal of ["t7", "app:t7", "laptop/t7", "runner/laptop/t7", "runner/", ""]) await assert.rejects(f.hub.act("review", "send", [terminal, { comments: [] }]), /runner's agents/);
+  assert.equal(f.calls.filter(call => call[0] === "exec").length, 0);
+});
+
+test("the runner's refusal of a review action comes back as its error", async t => {
+  const f = await fixture(t);
+  f.behavior.exec = { code: 1, stdout: "", stderr: "walkthrough: no changes to walk through\n" };
+  await assert.rejects(f.hub.act("review", "walkthrough", ["/runner/acme/api", "uncommitted", "haiku"]), /no changes to walk through/);
 });
 
 test("links and navigation stay on the desktop", async t => {
