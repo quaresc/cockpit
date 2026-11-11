@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.40.2",
+  "version": "0.40.3",
   "description": "cockpit's tools for Codex in herdr or the Herdr app: charts, diagrams, diffs and questions drawn in a pane beside the session, search across your PRs, tickets and runbooks, and what changed in your work",
   "keywords": ["herdr", "dashboard", "charts", "pull requests"],
   "skills": "./skills",
