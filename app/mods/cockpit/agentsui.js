@@ -297,7 +297,7 @@ export class AgentsModel {
         !row.snoozed && { label: "Snooze until 18:00", icon: "clock", command: c("snooze", "18:00") },
         !row.snoozed && { label: "Snooze until tomorrow", icon: "calendar", command: c("snooze", "tomorrow") },
         !row.snoozed && { label: "Snooze till it changes", icon: "hourglass", command: c("snooze", "done") },
-        row.unread && { label: "Mark as seen", icon: "check", command: c("seen") },
+        row.unread && !row.remote && { label: "Mark as seen", icon: "check", command: c("seen") },
         "separator",
         { label: "Fork to a new tab", icon: "git-fork", command: c("fork", "tab") },
         { label: "Fork to the right", icon: "square-split", command: c("fork", "right") },

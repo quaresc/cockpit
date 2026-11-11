@@ -1,17 +1,28 @@
 // The agents as the shell's views see them: Herdr's live agents (status, place, times) joined with the hub's `agents`
 // view (question, recap, branch, PR, CI, changes, cost), each placed in a stage: whose move it is.
 
-import { agents, spaces, run, setShared, notify } from "herdr";
+import { agents, spaces, panes, run, setShared, notify } from "herdr";
 import * as hub from "./hub.js";
 
 /** The stages, in the order the Home board shows them. */
 export const STAGES = ["needs", "working", "ready", "done"];
 
-/** The agents view's rows, whatever the list is called in its model. */
+/** The agents view's rows, whatever the list is called in its model. A runner's rows take their address on this desktop,
+ * and whether they are unread from this desktop's Herdr: the runner never learns which of its agents you opened here. */
 export function rowsOf(value) {
   const rows = Array.isArray(value) ? value : value?.agents ?? value?.rows ?? [];
   if (!value?.remote) return rows;
-  return rows.map(r => ({ ...r, remote: value.remote, address: `${value.remote}/${addressOf(r)}`, terminal: `app:${value.remote}/${addressOf(r)}` }));
+  const status = new Map((panes() ?? []).filter((p) => p.terminal).map((p) => [p.terminal, p.status]));
+  return rows.map((r) => {
+    const address = `${value.remote}/${addressOf(r)}`;
+    return { ...r, remote: value.remote, address, terminal: `app:${address}`, unread: Boolean(r.unread) && status.get(address) === "done" };
+  });
+}
+
+/** The agents view's counts, its unread ones as `rowsOf` reads them on a remote desk. */
+export function countsOf(value) {
+  const counts = value?.counts ?? {};
+  return value?.remote ? { ...counts, unread: rowsOf(value).filter((r) => r.unread).length } : counts;
 }
 
 const addressOf = (r) => String(r?.address ?? r?.terminal ?? "").replace(/^app:/, "");

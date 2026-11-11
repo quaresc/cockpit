@@ -87,7 +87,8 @@ updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing
 navigation open on the desktop. Notifications appear as in-app toasts. Go, Peek and Open beside reach a runner agent
 through its machine-scoped address (`runner/t7`), the terminal Herdr shows for that machine; they write nothing to the
 runner's hub. The machine must connect to the hc session the runner's hub reads (its default session unless the hub
-runs with `HC_SESSION`), or these reach a different terminal with the same id. Mutating actions and Archive are unavailable in this preview. Runner agents are not joined to local
+runs with `HC_SESSION`), or these reach a different terminal with the same id. Mutating actions and Archive are unavailable in this preview. A runner's agent reads as unread only while the desktop's Herdr still shows it done: the runner
+never learns which agents you opened on the desktop, and the desktop cannot tell it. Runner agents are not joined to local
 terminals or tabs with matching IDs.
 
 TCP has no TLS: use an encrypted private network such as Tailscale, and keep `hub.json` private. A hub listening
