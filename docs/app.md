@@ -134,11 +134,12 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
 - **Home** (`home.js`, hub view `home` from `cli/src/home.rs`): a dashboard. A greeting with one line of counts, KPI
   tiles (agents needing you, reviews for you, your PRs, merged this week, agent spend), the NEXT MOVE callout (only an
   agent waiting on you: its question with its choices as buttons and a reply field), the agents by stage as wrapped
-  cards (empty stages on one line), then your PRs no agent works on (to fix, to land). On the right: Up next (meetings),
-  Apps (each pinned app in a few words, a click away) and Activity (the hub's events of the last days). "Needs you" means
-  agents only. With no card picked, the keys act on the NEXT MOVE agent.
+  cards (empty stages on one line; the agents pinned here or in the sidebar first, in a Pinned row, out of their stage's
+  row but still in its counts; pins live in the shared `cockpit.pins`), then your PRs no agent works on (to fix, to
+  land). On the right: Up next (meetings), Apps (each pinned app in a few words, a click away) and Activity (the hub's
+  events of the last days). "Needs you" means agents only. With no card picked, the keys act on the NEXT MOVE agent.
   Keys: `j k h l` move, `⏎` go, `1–9` answer, `t` reply, `f` the agent beside the board, `m` merge, `a` archive (tab
-  settled, Undo on the toast), `o` PR, `r` recap, `s` snooze, `q` queue, `n` new agent; right-click for the rest.
+  settled, Undo on the toast), `o` PR, `p` pin, `r` recap, `s` snooze, `q` queue, `n` new agent; right-click for the rest.
 - **Status bar** (`status.js`): Home's counts (`fleet.counts`, each a click) on the left; on the right the focused
   agent's branch, ↑↓ and files, its links (the agents view's `links`: PR, ticket, CI, deploy dashboard and run, then the
   pages its transcript cites, each named after its service, always in that order), queued prompts, agents to resume,

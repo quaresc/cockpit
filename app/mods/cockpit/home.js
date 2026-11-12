@@ -10,6 +10,7 @@ import { show } from "./sidebar.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
 import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
+import { pinsNow, togglePinOf } from "./agentsui.js";
 import {
   tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
   Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
@@ -52,6 +53,8 @@ const OVERVIEW = [
 ];
 
 const COLUMNS = [
+  // The agents pinned in the sidebar or here, whatever their stage; each card keeps its own stage's colour.
+  { stage: "pinned", label: "Pinned", tone: "info" },
   { stage: "needs", label: "Needs you", tone: "blocked", pulse: true },
   { stage: "working", label: "Working", tone: "working", spin: true },
   { stage: "ready", label: "Ready to land", tone: "success" },
@@ -171,16 +174,28 @@ export default class Home {
 
   columns(all) {
     const shown = all.filter((c) => !this.filter || c.project === this.filter);
-    const by = (stage) => shown.filter((c) => c.stage === stage && !(stage === "done" && c.archived && !this.showArchived));
+    const pins = pinsNow();
+    const isPinned = (c) => c.kind === "agent" && pins.includes(c.agent?.handle);
+    const by = (stage) => shown.filter((c) => !isPinned(c) && c.stage === stage && !(stage === "done" && c.archived && !this.showArchived));
     const since = (c) => c.agent?.since ?? 0;
+    // Every agent per stage, pinned ones included: the counts and the next move read these.
+    const every = (stage) => shown.filter((c) => c.stage === stage && !(stage === "done" && c.archived && !this.showArchived));
+    const stages = {
+      needs: every("needs").sort((a, b) => (a.kind === b.kind ? since(a) - since(b) : a.kind === "agent" ? -1 : 1)),
+      working: every("working"),
+      ready: every("ready"),
+      done: every("done"),
+    };
     return {
+      all: stages,
+      pinned: shown.filter(isPinned).sort((a, b) => pins.indexOf(a.agent.handle) - pins.indexOf(b.agent.handle)),
       needs: by("needs").sort((a, b) => (a.kind === b.kind ? since(a) - since(b) : a.kind === "agent" ? -1 : 1)),
       working: by("working").sort((a, b) => (a.agent?.working ?? 0) - (b.agent?.working ?? 0)),
       ready: by("ready"),
       done: by("done").sort((a, b) => since(b) - since(a)),
       // PRs no agent works on: to fix first, then to land.
       prs: [...by("fix"), ...by("land")],
-      archived: shown.filter((c) => c.stage === "done" && c.archived).length,
+      archived: shown.filter((c) => !isPinned(c) && c.stage === "done" && c.archived).length,
     };
   }
 
@@ -250,7 +265,7 @@ export default class Home {
   toggleFocus(cx, cols) {
     if (this.focusMode) return this.closeBeside(cx);
     const card = this.selected(cols);
-    const a = card?.agent ?? cols.needs.find((c) => c.agent)?.agent;
+    const a = card?.agent ?? cols.all.needs.find((c) => c.agent)?.agent;
     if (a) this.openBeside(cx, a);
     else this.toasts.push(cx, "No agent to open beside the board", { kind: "info" });
   }
@@ -303,6 +318,7 @@ export default class Home {
       a && { label: "Queue a prompt", icon: "list-ordered", kbd: "q", command: `home:queue:${id}` },
       a && "separator",
       a && a.status === "blocked" && { label: "Snooze for an hour", icon: "moon", kbd: "s", command: `home:snooze:${id}` },
+      a && { label: pinsNow().includes(a.handle) ? "Unpin" : "Pin to the top", icon: pinsNow().includes(a.handle) ? "pin-off" : "pin", kbd: "p", command: `home:pin:${id}` },
       a && { label: "Mark as seen", icon: "eye", command: `home:seen:${id}` },
       a && { label: "Fork to a new tab", icon: "git-fork", command: `home:fork:${id}` },
       pr?.url && { label: "Open the PR", icon: "git-pull-request", kbd: "o", command: `home:pr:${id}` },
@@ -322,7 +338,10 @@ export default class Home {
   run(action, card, cx) {
     const a = card.agent;
     const pr = card.pr ?? a?.pr;
-    if (action === "go" && a) goToAgent(a);
+    if (action === "pin" && a) {
+      togglePinOf(a.handle);
+      cx.notify();
+    } else if (action === "go" && a) goToAgent(a);
     else if (action === "go" && pr?.url) this.openUrl(cx, pr.url);
     else if (action === "beside" && a) this.openBeside(cx, a);
     else if (action === "recap" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Recap…", () => agentAct("recap", { terminal: a.handle })));
@@ -394,7 +413,7 @@ export default class Home {
     }
     const cols = this.columns(this.cards());
     // Nothing picked yet: the keys act on the NEXT MOVE agent, as its hints say.
-    const card = this.selected(cols) ?? cols.needs.find((c) => c.agent) ?? null;
+    const card = this.selected(cols) ?? cols.all.needs.find((c) => c.agent) ?? null;
     const a = card?.agent;
     if (k === "j" || k === "down") this.move(cols, 1, 0);
     else if (k === "k" || k === "up") this.move(cols, -1, 0);
@@ -408,6 +427,7 @@ export default class Home {
     else if (k === "t" && a?.question) this.startReply(cx, a);
     else if (k === "m" && card?.stage === "ready") this.run("merge", card, cx);
     else if (k === "a" && card?.stage === "done") this.run("archive", card, cx);
+    else if (k === "p" && a) this.run("pin", card, cx);
     else if (k === "o" && card) this.run("pr", card, cx);
     else if (k === "r" && a) this.run("recap", card, cx);
     else if (k === "s" && a) this.run("snooze", card, cx);
@@ -598,11 +618,11 @@ export default class Home {
   header(all, cols, narrow) {
     const k = tokens();
     const now = new Date(this.now);
-    const needs = cols.needs.length;
+    const needs = cols.all.needs.length;
     const parts = [
       needs ? `${plural(needs, "agent")} ${needs === 1 ? "needs" : "need"} you` : "no agent needs you",
-      `${cols.working.length} working`,
-      cols.ready.length ? `${cols.ready.length} ready to land` : null,
+      `${cols.all.working.length} working`,
+      cols.all.ready.length ? `${cols.all.ready.length} ready to land` : null,
     ].filter(Boolean);
     const date = now.toDateString().replace(/^(\w+) (\w+) 0?(\d+) \d+$/, "$1 $3 $2");
     return h_flex()
@@ -648,7 +668,7 @@ export default class Home {
     const landed = (this.home?.landed?.days ?? []).map((d) => d.count ?? 0);
     // Null when no agent writes cost books (Claude Code's plugin does): no tile rather than a made-up $0.
     const spend = this.home?.spend;
-    const needs = cols.needs.filter((c) => c.agent).length;
+    const needs = cols.all.needs.filter((c) => c.agent).length;
     const fix = (this.home?.fixing ?? []).length;
     const ready = (this.home?.ready ?? []).length;
     const tile = (id, o) => StatTile(id, o).min_w(narrow ? 140 : 160);
@@ -657,7 +677,7 @@ export default class Home {
       .w_full()
       .gap(12)
       .flex_wrap()
-      .child(tile("kpi-agents", { label: "Agents", icon: "bot", value: needs ? `${needs} need you` : String(cols.working.length + cols.needs.length + cols.done.length), hint: `${cols.working.length} working · ${cols.done.length} done`, onClick: () => needs && goToAgent(cols.needs.find((c) => c.agent).agent) }))
+      .child(tile("kpi-agents", { label: "Agents", icon: "bot", value: needs ? `${needs} need you` : String(cols.all.working.length + cols.all.needs.length + cols.all.done.length), hint: `${cols.all.working.length} working · ${cols.all.done.length} done`, onClick: () => needs && goToAgent(cols.all.needs.find((c) => c.agent).agent) }))
       .child(tile("kpi-reviews", { label: "Reviews for you", icon: "eye", value: String(inbox.direct ?? 0), hint: `${Math.max(0, (inbox.reviews ?? 0) - (inbox.direct ?? 0))} for your team`, onClick: () => show("inbox") }))
       .child(tile("kpi-prs", { label: "Your PRs", icon: "git-pull-request", value: String(prs.length), hint: [ready && `${ready} ready`, fix && `${fix} to fix`].filter(Boolean).join(" · ") || "nothing to do", onClick: () => show("inbox") }))
       .child(tile("kpi-shipped", { label: "Merged this week", icon: "git-merge", value: String(shipped), hint: `${landed.at(-1) ?? 0} today` }))
@@ -810,7 +830,7 @@ export default class Home {
 
   nextMove(cols, narrow) {
     const k = tokens();
-    const ask = cols.needs.find((c) => c.agent);
+    const ask = cols.all.needs.find((c) => c.agent);
     if (ask) {
       const a = ask.agent;
       const q = a.question;
@@ -898,7 +918,7 @@ export default class Home {
         .gap(10)
         .when(dimmed, (e) => e.opacity(0.28))
         .child(StageHeading(`head-${c.stage}`, c.label, { color: k[c.tone], count: list.length, pulse: Boolean(c.pulse) && list.length > 0, spin: Boolean(c.spin) && list.length > 0, action: archive ?? undefined }))
-        .child(div().id(`cards-${c.stage}`).w_full().flex().flex_row().flex_wrap().gap(14).children(list.map((card) => div().w(narrow ? "100%" : 440).flex_none().child(this.card(card, c)))))
+        .child(div().id(`cards-${c.stage}`).w_full().flex().flex_row().flex_wrap().gap(14).children(list.map((card) => div().w(narrow ? "100%" : 440).flex_none().child(this.card(card, c.stage === "pinned" ? COLUMNS.find((x) => x.stage === card.stage) ?? c : c)))))
         .when(!list.length, (e) => e.child(this.emptyColumn(c)))
         .when(c.stage === "done" && cols.archived > 0, (e) =>
           e.child(
@@ -908,7 +928,7 @@ export default class Home {
     };
     // Stages with cards each get a row of them; the empty ones say so on one line, so no blank columns fill the screen.
     const full = COLUMNS.filter((c) => cols[c.stage].length || (c.stage === "done" && cols.archived > 0));
-    const empty = COLUMNS.filter((c) => !full.includes(c));
+    const empty = COLUMNS.filter((c) => !full.includes(c) && c.stage !== "pinned");
     const quiet = { needs: "nothing needs you", working: "nothing working", ready: "nothing to land", done: "nothing finished lately" };
     return v_flex()
       .w_full()
@@ -1022,6 +1042,11 @@ export default class Home {
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
       if (card.stage === "done") actions.push(Button(`${card.key}-archive`, { label: "Archive", icon: "archive", variant: "ghost", size: "sm", kbd: "a", onClick: (_e, cx) => this.archive(cx, a) }));
       if (card.stage === "working") actions.push(Button(`${card.key}-queue`, { label: "Queue a prompt", icon: "list-ordered", variant: "ghost", size: "sm", onClick: (_e, cx) => this.run("queue", card, cx) }));
+    }
+
+    if (isAgentCard && showing && !busy) {
+      const on = pinsNow().includes(a.handle);
+      actions.push(Button(`${card.key}-pin`, { icon: on ? "pin-off" : "pin", variant: "ghost", size: "sm", kbd: "p", tooltip: on ? "Unpin" : "Pin to the top", onClick: (_e, cx) => (cx.stop_propagation(), this.run("pin", card, cx)) }));
     }
 
     const recap = a?.recap && card.stage !== "needs" ? String(a.recap).split("\n").find((l) => l.trim()) : null;
