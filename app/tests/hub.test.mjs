@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
   const calls = [], clients = new Set(), messages = [];
-  const behavior = { token: "test-token", silent: false, bytewise: false, tickets: [{ id: "ENG-401" }] };
+  const behavior = { token: "test-token", silent: false, bytewise: false, tickets: [{ id: "ENG-401" }], keepalives: 0 };
   const server = net.createServer(socket => {
     clients.add(socket);
     socket.on("close", () => clients.delete(socket));
@@ -16,8 +16,13 @@ async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
       pending += data;
       while (pending.includes("\n")) {
         const end = pending.indexOf("\n");
-        const request = JSON.parse(pending.slice(0, end));
+        const line = pending.slice(0, end);
         pending = pending.slice(end + 1);
+        if (!line.trim()) {
+          behavior.keepalives += 1;
+          continue;
+        }
+        const request = JSON.parse(line);
         messages.push(request);
         if (behavior.silent) continue;
         if (request.token !== behavior.token) socket.end('{"error":"a request on TCP needs hub.json\'s token"}\n');
@@ -215,6 +220,23 @@ test("subscriptions deliver changes, reconnect after a silent link and stop clea
   subscription.stop();
   await Promise.all(r.tasks);
   await until(() => f.clients.size === 0);
+});
+
+test("subscriptions promise the hub a line every half minute and keep it", async t => {
+  const clock = { offset: 0 };
+  const f = await fixture(t, true, { Date: { now: () => Date.now() + clock.offset } }), r = runtime(t);
+  const subscription = f.hub.subscribe(r.cx, { views: ["inbox"] }, r.message, r.state);
+  t.after(() => subscription.stop());
+  await until(() => r.received.length === 1);
+  assert.equal(f.messages.find(m => m.op === "subscribe").keepalive, 30);
+  for (const socket of f.clients) socket.write("\n");
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(f.behavior.keepalives, 0, "a line soon after the last write needs no answer");
+  clock.offset = 26_000;
+  for (const socket of f.clients) socket.write("\n");
+  await until(() => f.behavior.keepalives === 1);
+  subscription.stop();
+  await Promise.all(r.tasks);
 });
 
 test("subscriptions rediscover the port and token after a hub restart", async t => {
