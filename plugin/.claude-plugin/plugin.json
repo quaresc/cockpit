@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "version": "0.40.2",
+  "version": "0.40.3",
   "description": "See every coding agent you are running and what it is working on: Claude Code, Codex and the others Herdr runs, each with its ticket, PR, CI run and deploy, plus your reviews, runbooks, meetings and releases, in herdr and the Herdr app",
   "author": {
     "name": "quaresc"
