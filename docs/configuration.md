@@ -49,6 +49,7 @@ itself and need no `tools`.
 | `agents.default` | the first installed | The agent cockpit starts, by id (`claude`, `codex`, `opencode`…). |
 | `agents.commands.<id>` | — | Overrides an agent's command line, field by field; a new id adds an agent. |
 | `agents.recap` | `auto` | `manual` stops the recap written a minute after a turn ends. |
+| `agents.pace` | `week` | `weekdays` moves the 7d quota bar's pace tick 20% per weekday and holds it over the weekend. |
 | `recap` | `{enabled: true, awayMinutes: 10}` | The recap shown when you come back to a space. |
 | `brief` | `{enabled, at: "08:30", weekends: false}` | The morning brief. |
 | `meetingBrief` | `{enabled, model, skip, tools}` | What to read before a meeting. `skip` drops events by name. |

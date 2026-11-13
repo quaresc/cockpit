@@ -356,7 +356,8 @@ fn ci_of(ci: &Value, repo: &str, branch: Option<&str>, pr: &Value) -> Value {
 }
 
 /// Claude's rate limits with how far through its window each is (the pace tick) and whether use runs ahead of it.
-pub fn quota(limits: &Value, now: u64) -> Value {
+/// With `weekdays`, the 7d tick moves 20% per local weekday and holds still over the weekend.
+pub fn quota(limits: &Value, now: u64, weekdays: bool) -> Value {
     let fresh = limits["at"].as_u64().is_some_and(|at| now.saturating_sub(at) < 6 * 3_600_000);
     if !fresh {
         return json!([]);
@@ -378,6 +379,9 @@ pub fn quota(limits: &Value, now: u64) -> Value {
                 _ => None,
             };
             let elapsed = match (window, resets) {
+                (Some(w), Some(r)) if weekdays && name == "7d" => {
+                    Some((weekday_ms(r.saturating_sub(w), now, &chrono::Local) as f64 / (5 * 86_400_000) as f64).clamp(0.0, 1.0))
+                }
                 (Some(w), Some(r)) => Some((1.0 - r.saturating_sub(now) as f64 / w as f64).clamp(0.0, 1.0)),
                 _ => None,
             };
@@ -387,6 +391,23 @@ pub fn quota(limits: &Value, now: u64) -> Value {
         })
         .collect();
     json!(bars)
+}
+
+/// The milliseconds between `from` and `to` that fall on a Monday to Friday in `tz`.
+fn weekday_ms<Tz: chrono::TimeZone>(from: u64, to: u64, tz: &Tz) -> u64 {
+    use chrono::{Datelike, Weekday};
+    let mut total = 0;
+    let mut t = from;
+    while t < to {
+        let Some(at) = tz.timestamp_millis_opt(t as i64).earliest() else { break };
+        let midnight = at.date_naive().succ_opt().and_then(|d| d.and_hms_opt(0, 0, 0)).and_then(|d| tz.from_local_datetime(&d).earliest());
+        let end = midnight.map_or(to, |m| (m.timestamp_millis() as u64).clamp(t + 1, to));
+        if !matches!(at.weekday(), Weekday::Sat | Weekday::Sun) {
+            total += end - t;
+        }
+        t = end;
+    }
+    total
 }
 
 fn limits() -> Value {
@@ -547,7 +568,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         "stages": stages,
         "counts": counts,
         "next": next,
-        "quota": quota(&limits(), now),
+        "quota": quota(&limits(), now, config["agents"]["pace"] == "weekdays"),
         "tickets": tickets,
         "week": {"days": totals.days, "rows": week_rows},
     })
@@ -764,12 +785,33 @@ mod tests {
     #[test]
     fn quota_bars_carry_their_pace() {
         let now = 10 * 3_600_000;
-        let q = quota(&json!({"at": now, "limits": [{"name": "5h", "percent": 80, "resetsAt": (now + 3_600_000) / 1000}]}), now);
+        let q = quota(&json!({"at": now, "limits": [{"name": "5h", "percent": 80, "resetsAt": (now + 3_600_000) / 1000}]}), now, false);
         assert!((q[0]["elapsed"].as_f64().unwrap() - 0.8).abs() < 1e-9);
         assert_eq!(q[0]["ahead"], false);
-        let q = quota(&json!({"at": now, "limits": [{"name": "5h", "percent": 90, "resetsAt": (now + 4 * 3_600_000) / 1000}]}), now);
+        let q = quota(&json!({"at": now, "limits": [{"name": "5h", "percent": 90, "resetsAt": (now + 4 * 3_600_000) / 1000}]}), now, false);
         assert_eq!(q[0]["ahead"], true);
-        assert_eq!(quota(&json!({"at": 0, "limits": [{"name": "5h"}]}), now), json!([]));
+        assert_eq!(quota(&json!({"at": 0, "limits": [{"name": "5h"}]}), now, false), json!([]));
+    }
+
+    #[test]
+    fn a_weekday_pace_skips_the_weekend() {
+        let noon = |d: u32| chrono::NaiveDate::from_ymd_opt(2026, 11, d).unwrap().and_hms_opt(12, 0, 0).unwrap().and_utc().timestamp_millis() as u64;
+        let (day, week) = (86_400_000, 7 * 86_400_000);
+        let tick = |start: u64, now: u64, weekdays: bool| {
+            let q = quota(&json!({"at": now, "limits": [{"name": "7d", "percent": 30, "resetsAt": (start + week) / 1000}]}), now, weekdays);
+            q[0]["elapsed"].as_f64().unwrap()
+        };
+        let (wed, thu, fri, mon) = (noon(11), noon(12), noon(13), noon(16));
+        assert!((tick(wed, thu, true) - 0.2).abs() < 1e-9);
+        assert!((tick(fri, mon, false) - 3.0 / 7.0).abs() < 1e-9);
+        assert!((tick(fri, fri + week, true) - 1.0).abs() < 1e-9);
+        for hours in [0i64, 13, -10] {
+            let tz = chrono::FixedOffset::east_opt(hours as i32 * 3600).unwrap();
+            let local_noon = |utc: u64| (utc as i64 - hours * 3_600_000) as u64;
+            assert_eq!(weekday_ms(local_noon(fri), local_noon(mon), &tz), day, "Friday noon to Monday noon at UTC{hours:+}");
+        }
+        let q = quota(&json!({"at": mon, "limits": [{"name": "5h", "percent": 50, "resetsAt": (mon + 3_600_000) / 1000}]}), mon, true);
+        assert!((q[0]["elapsed"].as_f64().unwrap() - 0.8).abs() < 1e-9);
     }
 
     #[test]
