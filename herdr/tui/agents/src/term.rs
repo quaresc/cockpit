@@ -136,17 +136,23 @@ fn demo_lives(world: &Value) -> Vec<Live> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Listing
 
-/// Every agent terminal: the Herdr app's when it runs, herdr's panes when it runs (or the demo's alone).
+/// Every agent terminal: the Herdr app's when it runs, herdr's panes when it runs, herdr-core's own when neither does (a
+/// runner driven by a Herdr app on another machine), or the demo's alone.
 pub fn list(only: Option<&str>) -> Vec<Live> {
     if let Some(world) = demo() {
         return demo_lives(&world);
     }
+    let app = only != Some("tui") && frontend::app_home().join("herdr-app.sock").exists();
+    let tui = only != Some("app") && tui_running();
     let mut out = Vec::new();
-    if only != Some("tui") && frontend::app_home().join("herdr-app.sock").exists() {
+    if app {
         out.extend(app_list());
     }
-    if only != Some("app") && tui_running() {
+    if tui {
         out.extend(tui_list());
+    }
+    if !app && !tui && only != Some("tui") {
+        out.extend(core_list());
     }
     out
 }
@@ -155,73 +161,94 @@ fn tui_running() -> bool {
     Command::new("pgrep").args(["-x", "herdr"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
+/// The space and tab a Herdr app terminal sits in, ids and names.
+#[derive(Clone, Debug, Default)]
+struct Place {
+    space_id: String,
+    space_name: String,
+    tab_id: String,
+    tab_name: String,
+}
+
 fn app_list() -> Vec<Live> {
     let ls = json_of(output(&[frontend::program("herdr-app", "HERDR_APP_BIN"), "ls".to_string()], 10));
     let core = json_of(hc(&["ls", "--json"]));
     let in_core = |t: &str| core["terminals"].as_array().into_iter().flatten().find(|x| x["address"] == t).cloned().unwrap_or(Value::Null);
+    let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
     let mut out = Vec::new();
     for space in ls["spaces"].as_array().into_iter().flatten() {
         for tab in space["tabs"].as_array().into_iter().flatten() {
             for t in tab["terminals"].as_array().into_iter().flatten() {
-                let address = t["terminal"].as_str().unwrap_or_default().to_string();
-                let core = in_core(&address);
-                let cwd = core["cwd"].as_str().unwrap_or_default().to_string();
-                // herdr-core's own word for the agent it runs, reported or not.
-                let detected = core["agent"].as_str().filter(|a| !a.is_empty());
-                let reported = t["status"].as_str().filter(|s| !s.is_empty());
-                let program = t["app"].as_str().filter(|a| !a.is_empty()).or(detected).unwrap_or("agent").to_string();
-                let agent = agent::of_program(&program);
-                let handle = format!("{APP}{address}");
-                // A terminal that reports no status is looked at on every poll (its title may say it works); an agent's
-                // session is looked for again every LOOK_AGAIN.
-                let found = if reported.is_none() || agent.is_some() {
-                    app_session(&handle, &address, agent.as_ref(), &cwd, reported.is_none())
-                } else {
-                    Found::default()
-                };
-                // A terminal the frontend names no agent for still runs one when it was started through a shell.
-                let (agent, program) = match (agent, found.agent.clone()) {
-                    (None, Some(a)) => (Some(a.clone()), a.bin),
-                    (agent, _) => (agent, program),
-                };
-                // Herdr reports no status for a Claude Code session attached from the background (`claude --bg`, a job):
-                // its title's spinner says whether it works. An agent with no Herdr status otherwise takes it from its
-                // transcript's last turn.
-                let (status, title) = match reported {
-                    Some(status) => (status_word(status), t["name"].as_str().map(str::to_string).unwrap_or_default()),
-                    None => match attached_claude(&found.got) {
-                        Some((status, title)) => (status, title),
-                        None => match unreported(agent.as_ref(), &found) {
-                            Some(status) => (status, found.got["title"].as_str().unwrap_or_default().to_string()),
-                            None => continue,
-                        },
-                    },
-                };
-                let status = finished(agent.as_ref(), found.transcript.as_deref(), status);
-                let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
-                out.push(Live {
-                    handle,
-                    cwd: if cwd.is_empty() { s(&found.got["cwd"]) } else { cwd },
-                    address,
-                    frontend: "app",
-                    space_id: s(&space["id"]),
-                    space_name: s(&space["name"]),
-                    tab_id: s(&tab["id"]),
-                    tab_name: s(&tab["name"]),
-                    title,
-                    agent: agent_id(&program),
-                    program,
-                    status,
-                    context: context_of(agent.as_ref(), found.transcript.as_deref()),
-                    session: found.session,
-                    transcript: found.transcript,
-                    pid: found.got["pid"].as_u64().map(|p| p as u32),
-                    since: None,
-                });
+                let place = Place { space_id: s(&space["id"]), space_name: s(&space["name"]), tab_id: s(&tab["id"]), tab_name: s(&tab["name"]) };
+                out.extend(app_live(t, &in_core(t["terminal"].as_str().unwrap_or_default()), place));
             }
         }
     }
     out
+}
+
+/// The terminals a Herdr app placed in its spaces, from herdr-core alone: on a runner the app drives from another
+/// machine, the core knows each one's agent, status and the `where` label the app gave it.
+fn core_list() -> Vec<Live> {
+    let core = json_of(hc(&["ls", "--json"]));
+    let placed = core["terminals"].as_array().into_iter().flatten().filter(|t| t["where"].as_str().is_some_and(|w| !w.is_empty()));
+    placed
+        .filter_map(|t| app_live(&json!({"terminal": t["address"], "status": t["status"], "app": t["agent"], "name": t["name"]}), t, Place::default()))
+        .collect()
+}
+
+/// One app terminal as the Herdr app lists it (`terminal`, `status`, `app`, `name`), with herdr-core's entry for it;
+/// None when it runs no agent. A place the frontend left out comes from herdr-core's labels.
+fn app_live(t: &Value, core: &Value, place: Place) -> Option<Live> {
+    let address = t["terminal"].as_str().unwrap_or_default().to_string();
+    let cwd = core["cwd"].as_str().unwrap_or_default().to_string();
+    // herdr-core's own word for the agent it runs, reported or not.
+    let detected = core["agent"].as_str().filter(|a| !a.is_empty());
+    let reported = t["status"].as_str().filter(|s| !s.is_empty());
+    let program = t["app"].as_str().filter(|a| !a.is_empty()).or(detected).unwrap_or("agent").to_string();
+    let agent = agent::of_program(&program);
+    let handle = format!("{APP}{address}");
+    // A terminal that reports no status is looked at on every poll (its title may say it works); an agent's session is
+    // looked for again every LOOK_AGAIN.
+    let found = if reported.is_none() || agent.is_some() { app_session(&handle, &address, agent.as_ref(), &cwd, reported.is_none()) } else { Found::default() };
+    // A terminal the frontend names no agent for still runs one when it was started through a shell.
+    let (agent, program) = match (agent, found.agent.clone()) {
+        (None, Some(a)) => (Some(a.clone()), a.bin),
+        (agent, _) => (agent, program),
+    };
+    // Herdr reports no status for a Claude Code session attached from the background (`claude --bg`, a job): its title's
+    // spinner says whether it works. An agent with no Herdr status otherwise takes it from its transcript's last turn.
+    let (status, title) = match reported {
+        Some(status) => (status_word(status), t["name"].as_str().map(str::to_string).unwrap_or_default()),
+        None => match attached_claude(&found.got) {
+            Some(found) => found,
+            None => (unreported(agent.as_ref(), &found)?, found.got["title"].as_str().unwrap_or_default().to_string()),
+        },
+    };
+    let status = finished(agent.as_ref(), found.transcript.as_deref(), status);
+    let or = |given: String, v: Option<&str>| if given.is_empty() { v.unwrap_or_default().to_string() } else { given };
+    let labels = &found.got["labels"];
+    // The app labels each terminal `Space / Tab`.
+    let (space, tab) = core["where"].as_str().map(|w| w.rsplit_once(" / ").unwrap_or((w, ""))).unwrap_or_default();
+    Some(Live {
+        handle,
+        cwd: or(cwd, found.got["cwd"].as_str()),
+        address,
+        frontend: "app",
+        space_id: or(place.space_id, labels["herdr.space"].as_str()),
+        space_name: or(place.space_name, Some(space)),
+        tab_id: or(place.tab_id, labels["herdr.tab"].as_str()),
+        tab_name: or(place.tab_name, Some(tab)),
+        title,
+        agent: agent_id(&program),
+        program,
+        status,
+        context: context_of(agent.as_ref(), found.transcript.as_deref()),
+        session: found.session,
+        transcript: found.transcript,
+        pid: found.got["pid"].as_u64().map(|p| p as u32),
+        since: None,
+    })
 }
 
 /// What is known of an app terminal's session, and the `hc get` it was found with.
@@ -600,6 +627,44 @@ mod tests {
         assert_eq!(finished(None, shown(&old).as_deref(), "idle".into()), "idle", "no agent, nothing to read");
         assert_eq!(context_of(Some(&agent), newer.to_str()), Some(25.0));
         unsafe { std::env::remove_var("CODEX_HOME") };
+    }
+
+    #[test]
+    fn a_runner_without_a_window_lists_the_agents_herdr_core_knows() {
+        let dir = tempfile::tempdir().unwrap();
+        let ls = json!({"terminals": [
+            {"address": "t1", "agent": "claude-code", "cwd": "/home/maya/acme/api", "state": "live", "status": "done", "where": "acme/api / 1"},
+            {"address": "t2", "agent": "codex", "cwd": "/home/maya/acme/web", "state": "live", "status": "working", "where": "acme/web"},
+            {"address": "t3", "agent": "", "cwd": "/home/maya", "state": "live", "where": "acme/api / 2"},
+            {"address": "t4", "agent": "claude", "cwd": "/home/maya", "name": "cockpit-fetch", "state": "live"},
+        ]});
+        let got = |t: &str, space: &str, tab: &str, program: &str| {
+            json!({"address": t, "pid": 4242, "created_ms": 0, "foreground": {"name": program, "argv": [program], "pid": 4_000_000_001_u64},
+                   "labels": {"herdr.space": space, "herdr.tab": tab}})
+        };
+        let gets = [("t1", got("t1", "sp1", "tb1", "claude")), ("t2", got("t2", "sp2", "tb2", "codex")), ("t3", got("t3", "sp1", "tb3", "bash"))];
+        let mut script = format!("#!/bin/sh\ncase \"$1 $2\" in\n\"ls --json\") echo '{ls}' ;;\n");
+        for (t, g) in &gets {
+            script += &format!("\"get {t}\") echo '{g}' ;;\n");
+        }
+        script += "*) exit 1 ;;\nesac\n";
+        let hc = dir.path().join("hc");
+        std::fs::write(&hc, script).unwrap();
+        std::fs::set_permissions(&hc, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        // SAFETY: the only test of this crate that reads HC_BIN.
+        unsafe { std::env::set_var("HC_BIN", &hc) };
+        let lives = core_list();
+        unsafe { std::env::remove_var("HC_BIN") };
+        let shown: Vec<_> = lives.iter().map(|l| (l.handle.as_str(), l.agent.as_str(), l.status.as_str(), l.cwd.as_str())).collect();
+        assert_eq!(
+            shown,
+            [("app:t1", "claude", "done", "/home/maya/acme/api"), ("app:t2", "codex", "working", "/home/maya/acme/web")],
+            "a shell and the hub's fetcher are no agents"
+        );
+        let place = |l: &Live| (l.space_id.clone(), l.space_name.clone(), l.tab_id.clone(), l.tab_name.clone());
+        assert_eq!(place(&lives[0]), ("sp1".into(), "acme/api".into(), "tb1".into(), "1".into()), "the space and tab the app placed it in");
+        assert_eq!(place(&lives[1]), ("sp2".into(), "acme/web".into(), "tb2".into(), String::new()), "a place without a tab");
+        assert_eq!((lives[0].address.as_str(), lives[0].frontend, lives[0].pid), ("t1", "app", Some(4242)));
     }
 
     #[test]

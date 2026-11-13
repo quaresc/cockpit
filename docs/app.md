@@ -60,7 +60,9 @@ subscriptions leave it out, so they cannot consume a pending remote-desk navigat
 
 The Herdr app can read a Linux or macOS runner's hub, including from Windows. Both ends need this version of the
 cockpit mod/hub. Connect the runner through Herdr's machine settings first, then put the cockpit layout and mod in
-the desktop's Herdr home. The desktop needs no cockpit binary.
+the desktop's Herdr home. The desktop needs no cockpit binary. The runner needs no window of its own: with neither the
+Herdr app nor the herdr TUI running there, its hub lists the agents from herdr-core, in the spaces and tabs the
+desktop placed them in.
 
 On the runner, start the hub with `COCKPIT_HUB_LISTEN` set to its Tailscale IP, for example
 `COCKPIT_HUB_LISTEN=100.64.0.10 cockpit hub start`. If a hub already runs, restart it deliberately with that variable;
@@ -85,7 +87,9 @@ updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing
 navigation open on the desktop. Notifications appear as in-app toasts. Go, Peek and Open beside reach a runner agent
 through its machine-scoped address (`runner/t7`), the terminal Herdr shows for that machine; they write nothing to the
 runner's hub. The machine must connect to the hc session the runner's hub reads (its default session unless the hub
-runs with `HC_SESSION`), or these reach a different terminal with the same id. Runner agents are not joined to local
+runs with `HC_SESSION`), or these reach a different terminal with the same id. A runner's agent stays done and unread
+only while the desktop's Herdr still shows it done: the runner never learns which agents you opened on the desktop, and
+the desktop cannot tell it. Runner agents are not joined to local
 terminals or tabs with matching IDs.
 
 The review panel works on a runner agent: focus it (Go from the agents list) and the panel reads its folder, a runner
