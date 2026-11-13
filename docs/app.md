@@ -81,7 +81,9 @@ In the desktop's Herdr home, write `cockpit.json` using the runner's paths and i
 ```
 
 The mod reads the port and token through Herdr's remote file API, authenticates before requesting data, and follows
-updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing for 65 seconds. Links and item
+updates over TCP. Subscriptions reconnect when the hub restarts or sends nothing for 65 seconds, and each answers the
+hub at least every 30 seconds: the hub resets one that falls quiet for 90 seconds or stops reading, such as the sockets a
+reloaded copy of the mod leaves open in Herdr. Links and item
 navigation open on the desktop. Notifications appear as in-app toasts. Go, Peek and Open beside reach a runner agent
 through its machine-scoped address (`runner/t7`), the terminal Herdr shows for that machine; they write nothing to the
 runner's hub. The machine must connect to the hc session the runner's hub reads (its default session unless the hub

@@ -5,12 +5,13 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use redb::{Database, ReadableDatabase, TableDefinition};
 use serde_json::{Map, Value, json};
+
+use crate::outbox::Outbox;
 
 /// The documents the store keeps; any other name is refused, so no request names a file of its own.
 pub const DOCS: [&str; 9] = ["inbox", "ci", "meetings", "brief", "monitor", "routines", "queue", "agents", "mail"];
@@ -29,7 +30,7 @@ pub struct Store {
     dir: PathBuf,
     db: Option<Database>,
     docs: HashMap<String, Value>,
-    subscribers: Vec<(Vec<String>, Sender<String>)>,
+    subscribers: Vec<(Vec<String>, Outbox)>,
     leases: HashMap<String, (String, Instant)>,
     /// Handed over to a newer hub: this one writes nothing more.
     closed: bool,
@@ -185,7 +186,7 @@ impl Store {
     }
 
     /// Sends the documents now, then each new version of them, as one JSON line {doc, value} apiece.
-    pub fn subscribe(&mut self, names: Vec<String>, tx: Sender<String>) {
+    pub fn subscribe(&mut self, names: Vec<String>, tx: Outbox) {
         for name in &names {
             let _ = tx.send(json!({"doc": name, "value": self.get(name)}).to_string());
         }
@@ -255,7 +256,7 @@ pub fn patch(doc: &Value, fields: &Map<String, Value>) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::channel;
+    use crate::outbox::channel;
 
     use super::*;
 

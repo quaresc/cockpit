@@ -330,3 +330,133 @@ fn the_documents_are_written_mirrored_and_pushed() {
     hub.request(&json!({"op": "store.release", "name": "inbox", "holder": "a"}));
     assert_eq!((lease("a", true), lease("b", false)), (json!(false), json!(true)));
 }
+
+/// A subscription to the ci document, its first line read: the hub has it among its subscribers.
+fn subscribed(sandbox: &Sandbox) -> std::os::unix::net::UnixStream {
+    use std::io::{BufRead, Write};
+    let mut stream = std::os::unix::net::UnixStream::connect(sandbox.socket()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    writeln!(stream, "{}", json!({"op": "subscribe", "docs": ["ci"]})).unwrap();
+    let mut first = String::new();
+    std::io::BufReader::new(&stream).read_line(&mut first).unwrap();
+    assert!(first.starts_with(r#"{"doc":"ci""#), "{first}");
+    stream
+}
+
+/// Reads what the hub sent until it closes the connection; false when it is still open after `quiet` with nothing new.
+fn closed_by_the_hub(mut stream: std::os::unix::net::UnixStream, quiet: Duration) -> bool {
+    use std::io::Read;
+    stream.set_read_timeout(Some(quiet)).unwrap();
+    let mut buf = vec![0; 1 << 16];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => return true,
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => return true,
+            Err(_) => return false,
+        }
+    }
+}
+
+#[test]
+fn a_subscriber_that_falls_far_behind_is_cut_off() {
+    let sandbox = sandbox();
+    let hub = Hub::start(&sandbox, &[]);
+    let stream = subscribed(&sandbox);
+    let blob = "x".repeat(1 << 20);
+    for n in 0..24 {
+        hub.request(&json!({"op": "store.put", "name": "ci", "value": {"n": n, "blob": blob}}));
+    }
+    assert!(closed_by_the_hub(stream, Duration::from_secs(5)), "24 MiB of versions waited for a subscriber that read none of them");
+}
+
+#[test]
+fn a_subscriber_that_stops_reading_is_let_go() {
+    let sandbox = sandbox();
+    let hub = Hub::start(&sandbox, &[("COCKPIT_HUB_WRITE_SECS", "1")]);
+    let stream = subscribed(&sandbox);
+    let blob = "x".repeat(1 << 20);
+    for n in 0..2 {
+        hub.request(&json!({"op": "store.put", "name": "ci", "value": {"n": n, "blob": blob}}));
+    }
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(closed_by_the_hub(stream, Duration::from_secs(5)), "a write blocked past COCKPIT_HUB_WRITE_SECS keeps the connection");
+}
+
+/// The hub on ::1 with its TCP side up (and these settings), and a subscription to the ci document there, its first
+/// line read.
+fn tcp_subscribed(sandbox: &Sandbox, extra: &[(&str, &str)]) -> (Hub, std::net::TcpStream) {
+    use std::io::{BufRead, Write};
+    let hub = Hub::start(sandbox, &[&[("COCKPIT_HUB_LISTEN", "::1")], extra].concat());
+    let started = Instant::now();
+    let info: Value = loop {
+        if let Ok(info) = std::fs::read_to_string(sandbox.home().join(".cache/cockpit/hub.json")).map(|t| serde_json::from_str::<Value>(&t).unwrap()) {
+            break info;
+        }
+        assert!(started.elapsed() < Duration::from_secs(5), "no TCP discovery file");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let mut stream = std::net::TcpStream::connect(("::1", info["port"].as_u64().unwrap() as u16)).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    writeln!(stream, "{}", json!({"op": "subscribe", "docs": ["ci"], "token": info["token"]})).unwrap();
+    let mut first = String::new();
+    std::io::BufReader::new(&stream).read_line(&mut first).unwrap();
+    assert!(first.starts_with(r#"{"doc":"ci""#), "{first}");
+    (hub, stream)
+}
+
+#[test]
+fn a_tcp_subscriber_that_stopped_reading_is_reset_rather_than_left_waiting_for_a_fin() {
+    use std::io::Read;
+    let sandbox = sandbox();
+    let (hub, mut stream) = tcp_subscribed(&sandbox, &[("COCKPIT_HUB_WRITE_SECS", "1")]);
+    // Loopback buffers take megabytes before a write blocks.
+    let blob = "x".repeat(1 << 20);
+    for n in 0..30 {
+        hub.request(&json!({"op": "store.put", "name": "ci", "value": {"n": n, "blob": blob}}));
+    }
+    std::thread::sleep(Duration::from_secs(3));
+    let mut buf = vec![0; 1 << 16];
+    let end = loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break "a FIN",
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => break "a reset",
+            Err(_) => break "nothing",
+        }
+    };
+    assert_eq!(end, "a reset", "a FIN waits behind the lines a peer with its window shut never takes, so the hub resets");
+}
+
+#[test]
+fn a_subscriber_that_promised_keepalives_and_went_quiet_is_let_go() {
+    use std::io::{BufRead, Write};
+    let sandbox = sandbox();
+    let _hub = Hub::start(&sandbox, &[]);
+    let mut stream = std::os::unix::net::UnixStream::connect(sandbox.socket()).unwrap();
+    writeln!(stream, "{}", json!({"op": "subscribe", "docs": ["ci"], "keepalive": 1})).unwrap();
+    let mut first = String::new();
+    std::io::BufReader::new(&stream).read_line(&mut first).unwrap();
+    assert!(closed_by_the_hub(stream, Duration::from_secs(6)), "no line for three keepalives keeps the subscription");
+}
+
+#[test]
+fn a_subscriber_that_keeps_its_keepalives_stays() {
+    use std::io::{BufRead, Write};
+    let sandbox = sandbox();
+    let hub = Hub::start(&sandbox, &[]);
+    let mut stream = std::os::unix::net::UnixStream::connect(sandbox.socket()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    writeln!(stream, "{}", json!({"op": "subscribe", "docs": ["ci"], "keepalive": 1})).unwrap();
+    let mut pushed = std::io::BufReader::new(stream.try_clone().unwrap());
+    let mut line = String::new();
+    pushed.read_line(&mut line).unwrap();
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(500));
+        writeln!(stream).unwrap();
+    }
+    hub.request(&json!({"op": "store.put", "name": "ci", "value": {"runs": ["kept"]}}));
+    line.clear();
+    pushed.read_line(&mut line).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["value"]["runs"][0], "kept");
+}

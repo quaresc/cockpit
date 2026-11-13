@@ -3,33 +3,77 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::net::{Shutdown, TcpStream};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 use cockpit_core::files;
 use cockpit_core::frontend::{self, Frontend};
 use serde_json::{Value, json};
 
-use crate::{act, feed, fetch, fetcher, go, history, names, search, store, views};
+use crate::{act, feed, fetch, fetcher, go, history, names, outbox, search, store, views};
 
 /// A connection the hub answers on: its unix socket, or TCP on 127.0.0.1 for the Herdr app's mod.
 pub trait Conn: Read + Write + Send + Sized + 'static {
     fn dup(&self) -> std::io::Result<Self>;
+    /// How long a write may block before it fails; None waits forever.
+    fn write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+    /// How long a read may wait before it fails; None waits forever.
+    fn read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+    /// Ends the connection at once for every handle on it, waking a read or write blocked there.
+    fn abort(&self);
 }
 
 impl Conn for UnixStream {
     fn dup(&self) -> std::io::Result<Self> {
         self.try_clone()
     }
+
+    fn write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.set_write_timeout(timeout)
+    }
+
+    fn read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.set_read_timeout(timeout)
+    }
+
+    fn abort(&self) {
+        let _ = self.shutdown(Shutdown::Both);
+    }
 }
 
 impl Conn for TcpStream {
     fn dup(&self) -> std::io::Result<Self> {
         self.try_clone()
+    }
+
+    fn write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.set_write_timeout(timeout)
+    }
+
+    fn read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.set_read_timeout(timeout)
+    }
+
+    /// With a zero linger the close sends a reset: a FIN would wait behind the unsent lines of a peer that stopped
+    /// reading, and that peer would keep the connection open forever.
+    fn abort(&self) {
+        let linger = libc::linger { l_onoff: 1, l_linger: 0 };
+        // SAFETY: setsockopt only reads `linger`, whose size it is given, on this stream's own descriptor.
+        unsafe {
+            libc::setsockopt(
+                self.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_LINGER,
+                (&linger as *const libc::linger).cast(),
+                std::mem::size_of::<libc::linger>() as libc::socklen_t,
+            )
+        };
+        let _ = self.shutdown(Shutdown::Both);
     }
 }
 
@@ -51,6 +95,12 @@ fn refused(gate: &Gate, op: &str) -> bool {
     gate.read_only && !READS.contains(&op)
 }
 
+/// How long a subscriber's connection may refuse a line before the hub lets it go; COCKPIT_HUB_WRITE_SECS shortens it
+/// for tests.
+fn write_limit() -> Duration {
+    Duration::from_secs(std::env::var("COCKPIT_HUB_WRITE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(60))
+}
+
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -64,8 +114,12 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
     let Ok(mut writer) = stream.dup() else {
         return;
     };
-    for line in BufReader::new(stream).lines() {
-        let Ok(line) = line else { return };
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut line = String::new();
+        if !matches!(reader.read_line(&mut line), Ok(n) if n > 0) {
+            return;
+        }
         if line.trim().is_empty() {
             continue;
         }
@@ -78,7 +132,7 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
             Ok(request) if refused(&gate, request["op"].as_str().unwrap_or_default()) => {
                 json!({"error": "this cockpit hub serves reads only off loopback: start it without COCKPIT_HUB_LISTEN to write from this machine"})
             }
-            Ok(request) if request["op"] == "subscribe" => return subscribe(writer, &request),
+            Ok(request) if request["op"] == "subscribe" => return subscribe(writer, reader, &request),
             Ok(request) => {
                 let asked = request["frontend"].as_str().and_then(Frontend::parse).or(gate.frontend);
                 frontend::with(asked, || handle(&request))
@@ -93,26 +147,52 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
 }
 
 /// Writes the documents and views asked for, then each new version, until the other end goes; an empty line every half
-/// minute finds out when it did.
-fn subscribe<C: Conn>(mut writer: C, request: &Value) {
+/// minute finds out when it did. A connection whose write blocks past write_limit, or that falls a budget behind (see
+/// outbox), is ended, and so is one that promised a line every `keepalive` seconds and sent none for three of them (a
+/// Herdr mod whose copy was reloaded away keeps its socket open without reading or writing). The app reconnects and
+/// starts again from the current versions.
+fn subscribe<C: Conn>(mut writer: C, mut reader: BufReader<C>, request: &Value) {
+    let quiet = request["keepalive"].as_u64().map(|secs| Duration::from_secs(secs.clamp(1, 300) * 3));
+    if writer.write_timeout(Some(write_limit())).and_then(|_| reader.get_ref().read_timeout(quiet)).is_err() {
+        return;
+    }
     let names: Vec<String> =
         request["docs"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|n| store::is_doc(n)).map(str::to_string).collect();
-    let (tx, rx) = channel();
+    let (tx, rx) = outbox::channel();
     if !names.is_empty() {
         store::global().subscribe(names, tx.clone());
     }
-    views::subscribe(request, tx);
+    views::subscribe(request, tx.clone());
+    // What the other end sends is only a sign of life; the read ends when it closes, falls quiet or the writer is done.
+    let gone = Arc::new(AtomicBool::new(false));
+    std::thread::spawn({
+        let gone = gone.clone();
+        move || {
+            let mut buf = [0; 512];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Err(e) if e.kind() != std::io::ErrorKind::Interrupted => break,
+                    _ => {}
+                }
+            }
+            gone.store(true, Ordering::Release);
+            reader.get_ref().abort();
+            let _ = tx.send(String::new());
+        }
+    });
     loop {
         let line = match rx.recv_timeout(Duration::from_secs(30)) {
             Ok(line) => line,
             Err(RecvTimeoutError::Timeout) => String::new(),
-            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Disconnected) => break,
         };
-        if writeln!(writer, "{line}").and_then(|_| writer.flush()).is_err() {
-            views::prune();
-            return;
+        if gone.load(Ordering::Acquire) || writeln!(writer, "{line}").and_then(|_| writer.flush()).is_err() {
+            break;
         }
     }
+    writer.abort();
+    views::prune();
 }
 
 /// Claude Code's answer to an MCP call from a session that has none bound yet (still starting, or a background job):
