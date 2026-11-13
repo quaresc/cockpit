@@ -7,29 +7,39 @@ use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 use cockpit_core::files;
 use cockpit_core::frontend::{self, Frontend};
 use serde_json::{Value, json};
 
-use crate::{act, feed, fetch, fetcher, go, history, names, search, store, views};
+use crate::{act, feed, fetch, fetcher, go, history, names, outbox, search, store, views};
 
 /// A connection the hub answers on: its unix socket, or TCP on 127.0.0.1 for the Herdr app's mod.
 pub trait Conn: Read + Write + Send + Sized + 'static {
     fn dup(&self) -> std::io::Result<Self>;
+    /// How long a write may block before it fails; None waits forever.
+    fn write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
 }
 
 impl Conn for UnixStream {
     fn dup(&self) -> std::io::Result<Self> {
         self.try_clone()
     }
+
+    fn write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.set_write_timeout(timeout)
+    }
 }
 
 impl Conn for TcpStream {
     fn dup(&self) -> std::io::Result<Self> {
         self.try_clone()
+    }
+
+    fn write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.set_write_timeout(timeout)
     }
 }
 
@@ -49,6 +59,12 @@ pub struct Gate {
 /// Whether this gate turns the op away: off loopback, everything that is not a read.
 fn refused(gate: &Gate, op: &str) -> bool {
     gate.read_only && !READS.contains(&op)
+}
+
+/// How long a subscriber's connection may refuse a line before the hub lets it go; COCKPIT_HUB_WRITE_SECS shortens it
+/// for tests.
+fn write_limit() -> Duration {
+    Duration::from_secs(std::env::var("COCKPIT_HUB_WRITE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(60))
 }
 
 pub fn now_secs() -> u64 {
@@ -93,11 +109,15 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
 }
 
 /// Writes the documents and views asked for, then each new version, until the other end goes; an empty line every half
-/// minute finds out when it did.
+/// minute finds out when it did. A connection whose write blocks past write_limit, or that falls a budget behind (see
+/// outbox), is closed: the app reconnects and starts again from the current versions.
 fn subscribe<C: Conn>(mut writer: C, request: &Value) {
+    if writer.write_timeout(Some(write_limit())).is_err() {
+        return;
+    }
     let names: Vec<String> =
         request["docs"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|n| store::is_doc(n)).map(str::to_string).collect();
-    let (tx, rx) = channel();
+    let (tx, rx) = outbox::channel();
     if !names.is_empty() {
         store::global().subscribe(names, tx.clone());
     }
@@ -106,7 +126,10 @@ fn subscribe<C: Conn>(mut writer: C, request: &Value) {
         let line = match rx.recv_timeout(Duration::from_secs(30)) {
             Ok(line) => line,
             Err(RecvTimeoutError::Timeout) => String::new(),
-            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Disconnected) => {
+                views::prune();
+                return;
+            }
         };
         if writeln!(writer, "{line}").and_then(|_| writer.flush()).is_err() {
             views::prune();

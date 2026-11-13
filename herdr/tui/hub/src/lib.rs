@@ -12,6 +12,7 @@ mod go;
 mod herdr;
 mod history;
 mod names;
+pub mod outbox;
 mod proc;
 mod routines;
 mod search;
