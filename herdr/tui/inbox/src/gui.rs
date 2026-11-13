@@ -97,8 +97,9 @@ pub fn model_of(inputs: &Inputs, config: &Config, by_status: bool, local: &mut L
         "worktrees": worktrees.len(),
         "cleanup": worktrees.iter().filter(|w| w["merged"] == true && w["changes"] == 0).count(),
     });
+    // When it was fetched goes out by the minute the app shows it in, not the millisecond: each refresh would move the
+    // whole view otherwise.
     json!({
-        "at": data["at"],
         "updated": if data["at"].is_null() { String::new() } else { facts::clock(&data["at"]) },
         "state": state,
         "message": message,
@@ -329,6 +330,20 @@ mod tests {
         let empty = model_of(&Inputs::default(), &Config::from(json!({})), true, &mut local, json!({}));
         assert_eq!((empty["state"].as_str(), empty["group"].as_str()), (Some("empty"), Some("status")));
         assert!(empty["message"].as_str().unwrap().starts_with("No data yet"));
+    }
+
+    #[test]
+    fn a_refresh_within_the_minute_leaves_the_view_as_it_was() {
+        facts::freeze("2026-10-28T10:00:00Z");
+        let mut local = Local::fixed(HashMap::new(), Vec::new());
+        let mut view_at = |ms: u64| {
+            let mut data = fixture("inbox.json");
+            data["at"] = json!(ms);
+            let inputs = Inputs { data: Some(data), ci: fixture("ci.json"), ..Inputs::default() };
+            model_of(&inputs, &Config::from(json!({})), false, &mut local, json!({}))
+        };
+        let minute = 1_761_645_540_000;
+        assert_eq!(view_at(minute + 10_000), view_at(minute + 40_000), "the app shows when it was updated by the minute");
     }
 
     /// Every act label in the model, however deep its row.
