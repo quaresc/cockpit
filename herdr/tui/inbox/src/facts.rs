@@ -61,11 +61,18 @@ pub fn age_days(iso: &str) -> Option<f64> {
 }
 
 pub fn ago(iso: &str) -> String {
-    match age_days(iso) {
-        None => String::new(),
-        Some(days) if days < 1.0 / 24.0 => format!("{}m", (days * 1440.0) as i64),
-        Some(days) if days < 2.0 => format!("{}h", (days * 24.0) as i64),
-        Some(days) => format!("{}d", days as i64),
+    ago_at(iso, now().timestamp_millis())
+}
+
+/// How long before `now_ms` the ISO date was, as "5m", "3h" or "2d"; empty when it is unreadable. It counts from the
+/// start of that minute, so every row's age moves at once and a view of many moves once a minute.
+fn ago_at(iso: &str, now_ms: i64) -> String {
+    let Ok(at) = DateTime::parse_from_rfc3339(iso) else { return String::new() };
+    let minute = now_ms - now_ms.rem_euclid(60_000);
+    match (minute - at.timestamp_millis()).max(0) as f64 / 86_400_000.0 {
+        days if days < 1.0 / 24.0 => format!("{}m", (days * 1440.0) as i64),
+        days if days < 2.0 => format!("{}h", (days * 24.0) as i64),
+        days => format!("{}d", days as i64),
     }
 }
 
@@ -265,6 +272,15 @@ mod tests {
         assert!(!has_ticket("me/xeng-4-login", "ENG-4"));
         assert!(!has_ticket("", "ENG-4"));
         assert!(!has_ticket("eng-4", ""));
+    }
+
+    #[test]
+    fn every_row_s_age_moves_at_the_same_minute() {
+        let at = |t: &str| DateTime::parse_from_rfc3339(t).unwrap().timestamp_millis();
+        let ages = |now: &str| (ago_at("2026-10-28T09:55:10Z", at(now)), ago_at("2026-10-28T09:55:40Z", at(now)));
+        assert_eq!(ages("2026-10-28T10:00:20Z"), ages("2026-10-28T10:00:50Z"), "no row moves within the minute");
+        assert_ne!(ages("2026-10-28T10:00:50Z"), ages("2026-10-28T10:01:00Z"), "each moves when it turns");
+        assert_eq!(ago_at("2026-10-28T08:00:00Z", at("2026-10-28T10:00:30Z")), "2h");
     }
 
     #[test]
