@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { artifactRefusal, freshTurn, openedPage, pageRefusal } from '../hooks/drawing'
+import { artifactRefusal, freshTurn, openedPage, pageRefusal, subagentTurn } from '../hooks/drawing'
 import { pageHtml } from '../hooks/page'
 import { viewError } from '../hooks/show'
 
@@ -28,6 +28,13 @@ test('an artifact is published only when asked for or after show', async () => {
   expect(artifactRefusal({ action: 'list' }, turn)).toBe(undefined)
   expect(artifactRefusal({ file_path: `${S}/signups.html` }, freshTurn('Make it an artifact I can share with the team'))).toBe(undefined)
   expect(artifactRefusal({ file_path: `${S}/signups.html` }, { ...turn, shown: true })).toBe(undefined)
+})
+
+test('a subagent whose brief asks for an artifact may publish one, any other still waits for show', async () => {
+  const parent = freshTurn('Run the CI report')
+  const input = { file_path: `${S}/report.html` }
+  expect(artifactRefusal(input, subagentTurn(parent, 'Collect the numbers and publish the report artifact'))).toBe(undefined)
+  expect(artifactRefusal(input, subagentTurn(parent, 'Collect the numbers and summarise them'))).toContain('mcp__cockpit__show')
 })
 
 test('charts take their new kinds and options, figures their items', async () => {
