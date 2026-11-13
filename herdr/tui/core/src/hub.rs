@@ -11,8 +11,9 @@
 //! - `store.get`, `store.put` {value}, `store.patch` {fields}, `store.past` {since} on a shared document by `name`
 //!   (inbox, ci, meetings, brief, monitor, routines), each answered {value} or {versions}; `store.lease` {name, holder, ttl,
 //!   renew} answered {granted}, and `store.release` {name, holder}.
-//! - `subscribe` {docs}: the connection then carries {doc, value} lines, one per document at once and per new version
-//!   after, and an empty line every half minute.
+//! - `subscribe` {docs, keepalive}: the connection then carries {doc, value} lines, one per document at once and per new
+//!   version after, and an empty line every half minute. With `keepalive` (seconds) the client promises a line at least
+//!   that often, and the hub ends a subscription quiet for three of them. A subscriber that stops reading is ended too.
 //! - `events` {since, app, limit}: {events: [{at, doc, app, key, title}]}, newest first: what changed in the shared
 //!   documents over the last week, each with the app and row key it touched.
 //! - `ping`: {ok: true}.

@@ -356,6 +356,13 @@ fn ci_of(ci: &Value, repo: &str, branch: Option<&str>, pr: &Value) -> Value {
 }
 
 /// Claude's rate limits with how far through its window each is (the pace tick) and whether use runs ahead of it.
+/// An agent's time today and its ticket's today and this week, in seconds to the nearest minute: the panel shows
+/// minutes, and the view moves no more often than they do.
+fn time(agent_today: u64, (ticket_today, ticket_week): (u64, u64)) -> Value {
+    let minute = |secs: u64| (secs + 30) / 60 * 60;
+    json!({"agent_today": minute(agent_today), "ticket_today": minute(ticket_today), "ticket_week": minute(ticket_week)})
+}
+
 pub fn quota(limits: &Value, now: u64) -> Value {
     let fresh = limits["at"].as_u64().is_some_and(|at| now.saturating_sub(at) < 6 * 3_600_000);
     if !fresh {
@@ -377,8 +384,9 @@ pub fn quota(limits: &Value, now: u64) -> Value {
                 Value::String(s) => chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.timestamp_millis() as u64),
                 _ => None,
             };
+            // To the percent the bar draws, so the view moves with it rather than every second.
             let elapsed = match (window, resets) {
-                (Some(w), Some(r)) => Some((1.0 - r.saturating_sub(now) as f64 / w as f64).clamp(0.0, 1.0)),
+                (Some(w), Some(r)) => Some(((1.0 - r.saturating_sub(now) as f64 / w as f64).clamp(0.0, 1.0) * 100.0).round() / 100.0),
                 _ => None,
             };
             let percent = l["percent"].as_f64().unwrap_or(0.0);
@@ -508,7 +516,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "repo": repo, "branch": branch, "cwd": l.cwd, "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
             "context": f["context"].as_f64().or(l.context), "cost": f["cost"].as_f64().or(mock["cost"].as_f64()),
             "page": f["page"].as_str().or(mock["page"].as_str()),
-            "time": {"agent_today": totals.agents.get(&l.handle).copied().unwrap_or(0), "ticket_today": ticket_secs.0, "ticket_week": ticket_secs.1},
+            "time": time(totals.agents.get(&l.handle).copied().unwrap_or(0), ticket_secs),
             "snoozed": snoozed, "seen": seen, "unread": unread, "session": session,
             "load": crate::load::of(l, session.as_deref()),
             "links": links, "documents": crate::links::documents(&[&l.handle, &l.address]),
@@ -759,6 +767,20 @@ mod tests {
         assert_eq!(stage("idle", false, false, &json!({"state": "merged"}), &Value::Null, &json!({"files": 2})), "idle");
         assert_eq!(stage("done", false, false, &open, &Value::Null, &Value::Null), "done");
         assert_eq!(stage("done", false, true, &open, &Value::Null, &Value::Null), "review", "opened, it leaves the queue");
+    }
+
+    #[test]
+    fn a_quota_bar_moves_with_whole_percents_of_its_window_not_each_second() {
+        let now = 10 * 3_600_000;
+        let limits = json!({"at": now, "limits": [{"name": "5h", "percent": 40, "resetsAt": (now + 3_600_000) / 1000}]});
+        assert_eq!(quota(&limits, now), quota(&limits, now + 1_000), "a second is 0.006% of five hours");
+        assert_eq!(quota(&limits, now + 180_000)[0]["elapsed"], json!(0.81));
+    }
+
+    #[test]
+    fn agent_times_move_by_the_minute_they_are_shown_in() {
+        assert_eq!(time(125, (61, 3_599)), json!({"agent_today": 120, "ticket_today": 60, "ticket_week": 3_600}));
+        assert_eq!(time(125, (61, 3_599)), time(140, (75, 3_610)));
     }
 
     #[test]
