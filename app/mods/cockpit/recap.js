@@ -163,7 +163,7 @@ export default class Recap {
       .when(Boolean(recap?.text), (e) => e.child(Button(`${id}-again`, { label: "Recap again", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", onClick: (_e, cx) => this.agents.act(cx, "recap", { terminal: r.terminal, force: true }, "recapping") })))
       .child(Button(`${id}-snooze`, { label: r.snoozed ? "Wake" : "Snooze", icon: "alarm-clock", variant: "ghost", size: "sm", kbd: "s", onClick: (_e, cx) => (r.snoozed ? this.agents.act(cx, "snooze", { terminal: r.terminal, until: null }) : this.agents.menu(r)) }))
       .child(Button(`${id}-fork`, { label: "Fork", icon: "git-fork", variant: "ghost", size: "sm", kbd: "f", onClick: (_e, cx) => this.agents.act(cx, "fork", { terminal: r.terminal, place: "tab" }) }))
-      .when(Boolean(r.unread), (e) => e.child(Button(`${id}-seen`, { label: "Seen", icon: "check", variant: "ghost", size: "sm", kbd: "e", onClick: (_e, cx) => this.agents.act(cx, "seen", { terminal: r.terminal }) })));
+      .when(Boolean(r.unread) && !r.remote, (e) => e.child(Button(`${id}-seen`, { label: "Seen", icon: "check", variant: "ghost", size: "sm", kbd: "e", onClick: (_e, cx) => this.agents.act(cx, "seen", { terminal: r.terminal }) })));
     return h_flex()
       .id(id)
       .w_full()

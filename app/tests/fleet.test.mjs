@@ -10,6 +10,7 @@ async function fixture() {
     herdr: {
       agents: () => [{ address: "t7", tab: "tab7", space: "s1", status: "working", title: "Local agent" }],
       spaces: () => [{ id: "s1", tabs: [{ id: "tab7" }] }],
+      panes: () => [{ terminal: "runner/t7", tab: "rtab", status: "done" }, { terminal: "runner/t8", tab: "rtab", status: "idle" }],
       run: (...args) => calls.push(args),
       setShared: (...args) => calls.push(["shared", ...args]),
       notify: notice => notices.push(notice),
@@ -60,6 +61,22 @@ test("a runner's t7 stays separate from local t7 and Go focuses the runner's ter
   assert.equal(f.calls[0][0], "agent.focus");
   assert.equal(f.calls[0][1].terminal, "runner/t7");
   assert.equal(f.notices.length, 0);
+});
+
+test("a runner's agent stays done and unread only while this desktop's Herdr still shows it done", async () => {
+  const f = await fixture();
+  const model = {
+    remote: "runner",
+    counts: { unread: 3 },
+    agents: [
+      { address: "t7", terminal: "app:t7", stage: "done", unread: true },
+      { address: "t8", terminal: "app:t8", stage: "done", unread: true },
+      { address: "t9", terminal: "app:t9", stage: "done", unread: true },
+    ],
+  };
+  assert.deepEqual(JSON.parse(JSON.stringify(f.fleet.rowsOf(model).map((r) => `${r.address} ${r.stage} ${r.unread}`))), ["runner/t7 done true", "runner/t8 idle false", "runner/t9 done false"]);
+  assert.equal(f.fleet.countsOf(model).unread, 1);
+  assert.equal(f.fleet.countsOf({ counts: { unread: 3 }, agents: model.agents }).unread, 3);
 });
 
 test("local agents retain their metadata join and navigation", async () => {

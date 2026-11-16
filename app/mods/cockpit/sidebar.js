@@ -10,7 +10,7 @@ import * as hub from "./hub.js";
 import { togglePalette } from "./palette.js";
 import { openCode } from "./code.js";
 import { deliver, follow } from "./notify.js";
-import { rowsOf } from "./fleet.js";
+import { rowsOf, countsOf } from "./fleet.js";
 import { openUpdate, pending as pendingUpdate } from "./update.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
@@ -227,7 +227,7 @@ export default class Sidebar {
     const apps = this.spaces.filter((s) => APPS[s]).map((s) => ({ ...APPS[s], child: APPS[s].child ?? s }));
     const badge = (child) => this.counts[child] ?? shared(`badge.${child}`) ?? null;
     const tone = (child) => { const t = badge(child)?.tone; return t ? k[t] ?? t : null; };
-    const counts = model.value?.counts ?? {};
+    const counts = countsOf(model.value);
 
     return v_flex()
       .id("cockpit-sidebar")
