@@ -4,10 +4,24 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, notify, openOverlay, agents } from "herdr";
+import { run, notify, openOverlay, agents, shared, setShared } from "herdr";
 import * as hub from "./hub.js";
 import { rowsOf } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, Kbd, Button, Checkbox, Chip, Mono, TextField, dur, openMenu } from "./ui.js";
+
+// Pinned agents, one list for the sidebar and the Home board: kept in the app's shared state so a pin made in one
+// redraws the other at once; shared() is persisted, so pins survive a restart. Each is an agent's `app:<address>`.
+const PINS_KEY = "cockpit.pins";
+export function pinsNow() {
+  const live = shared(PINS_KEY);
+  return Array.isArray(live) ? live : [];
+}
+export function togglePinOf(terminal) {
+  const now = pinsNow();
+  const next = now.includes(terminal) ? now.filter((p) => p !== terminal) : [...now, terminal];
+  setShared(PINS_KEY, next);
+  return next;
+}
 
 /** Each stage: its label, color token and mark. Whose move it is, yours first. */
 export const STAGES = {
@@ -159,7 +173,11 @@ export class AgentsModel {
     // The free-text reply being typed: {terminal, choice}.
     this.replying = null;
     this.reply = InputState.new({ placeholder: "Your answer… ⏎ sends" });
-    this.pins = [];
+  }
+
+  /** The pinned agents, as the shared list holds them now. */
+  get pins() {
+    return pinsNow();
   }
 
   /** Subscribes; `onChange(value, before, cx)` after each new model. */
@@ -326,18 +344,16 @@ export class AgentsModel {
   }
 
   togglePin(terminal) {
-    this.pins = this.pins.includes(terminal) ? this.pins.filter((p) => p !== terminal) : [...this.pins, terminal];
-    try {
-      localStorage.setItem("agents.pins", JSON.stringify(this.pins));
-    } catch {}
+    togglePinOf(terminal);
   }
 
+  /** Moves pins this copy kept in its own localStorage (per mod copy) into the shared list, once. */
   loadPins() {
+    if (Array.isArray(shared(PINS_KEY))) return;
     try {
-      this.pins = JSON.parse(localStorage.getItem("agents.pins") ?? "[]");
-    } catch {
-      this.pins = [];
-    }
+      const old = JSON.parse(localStorage.getItem("agents.pins") ?? "[]");
+      if (Array.isArray(old) && old.length) setShared(PINS_KEY, old);
+    } catch {}
   }
 }
 
