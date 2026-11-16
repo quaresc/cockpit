@@ -5,7 +5,7 @@ import { activityOf, logActivity } from './activity'
 import { maybeBrief } from './brief'
 import { processRequests, refreshCi } from './ci'
 import { recordCost, startCosts } from './costs'
-import { DRAWING_SECTION, artifactRefusal, freshTurn, pageRefusal } from './drawing'
+import { DRAWING_SECTION, type Turn, artifactRefusal, freshTurn, pageRefusal, subagentTurn } from './drawing'
 import { forgetFacts, reportFacts } from './facts'
 import { cacheDir, home } from './config'
 import { refreshMail } from './mail'
@@ -31,9 +31,13 @@ const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 
 // What this turn's prompt asked for and whether show ran since: a hand-made page or an artifact is the fallback.
 let turn = freshTurn()
+// The turn of each running subagent, by agent id, from its own brief.
+const agentTurns = new Map<string, Turn>()
 
 // The session's timers: a /clear starts a new session in the same process, and the old one's must not tick on beside it.
 let timers: { cancel: () => void }[] = []
+
+const agentTurn = (agentId?: string): Turn => (agentId && agentTurns.get(agentId)) || turn
 
 const stopTimers = () => {
   for (const timer of timers) timer.cancel()
@@ -160,12 +164,17 @@ export const register: Register = on => {
 
   // Results are drawn with show: opening a hand-made HTML page beside the session, or publishing an artifact, is held back.
   on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
-    const reason = pageRefusal(String((e.input as { command?: unknown } | undefined)?.command ?? ''), turn)
+    const reason = pageRefusal(String((e.input as { command?: unknown } | undefined)?.command ?? ''), agentTurn(e.agentId))
     return reason ? { decision: 'deny', reason } : next(e)
   })
   on('tool.check', { tool: 'Artifact' }, async ($, e, next) => {
-    const reason = artifactRefusal((e.input ?? {}) as Record<string, unknown>, turn)
+    const reason = artifactRefusal((e.input ?? {}) as Record<string, unknown>, agentTurn(e.agentId))
     return reason ? { decision: 'deny', reason } : next(e)
+  })
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+    if (started.agentId) agentTurns.set(started.agentId, subagentTurn(turn, e.prompt))
+    return started
   })
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
