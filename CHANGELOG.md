@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.40.4 (2026-11-17)
+
+- Agents: a runner without a Herdr window lists the agents herdr-core knows (#46)
+- Home: pinned agents in their own row, shared with the sidebar's pins (#50)
+- A subagent's own brief counts when it asks for an artifact (#52)
+- agents: a weekday pace for the 7d quota tick (#55)
+- Remote desk: runbook edits and runs go through the runner (#58)
+
 ## 0.40.3 (2026-11-11)
 
 - Remote desk: the review panel sends comments and runs walkthroughs on the runner (#44)
