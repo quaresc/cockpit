@@ -228,7 +228,7 @@ fn hub_act_fails_with_the_hubs_error() {
 fn hub_act_refuses_every_other_action_and_malformed_arguments() {
     let sandbox = Sandbox::new();
     let seen = fake_hub(&sandbox, Some(json!({"note": "done", "pending": {}, "refreshing": {}, "error": null})));
-    let cases: [&[&str]; 12] = [
+    let cases: [&[&str]; 22] = [
         &["hub", "act", "review", "send", r#"["other/t7", {"comments": []}]"#],
         &["hub", "act", "review", "send", r#"["app:t7", {"comments": []}]"#],
         &["hub", "act", "review", "send", r#"["w1-p2", {"comments": []}]"#],
@@ -241,6 +241,16 @@ fn hub_act_refuses_every_other_action_and_malformed_arguments() {
         &["hub", "act", "review", "stop_walkthrough", r#"["/src/acme/api", "branch", "extra"]"#],
         &["hub", "act", "review", "send", r#"["", {"comments": []}]"#],
         &["hub", "act", "review", "send", r#"["t7", "use the constant"]"#],
+        &["hub", "act", "runbook", "delete", r#"[{"$book": "eng-412"}]"#],
+        &["hub", "act", "runbook", "focus_session", r#"[{"$handoff": "eng-412-2"}]"#],
+        &["hub", "act", "runbook", "done", r#"[["eng-412", "2"]]"#],
+        &["hub", "act", "runbook", "done", r#"[[["eng-412"]]]"#],
+        &["hub", "act", "runbook", "set", r#"["eng-412", "2", "command"]"#],
+        &["hub", "act", "runbook", "undo", r#"["x"]"#],
+        &["hub", "act", "runbook", "run_step", r#"[{"$book": "eng-412"}, {"n": "2", "step": "Deploy"}]"#],
+        &["hub", "act", "runbook", "run_step", r#"[{"$book": "eng-412"}, {"n": "2", "step": "s", "where": "w", "status": "t", "command": "c"}]"#, "delete-x"],
+        &["hub", "act", "runbook", "run_step", r#"[{"slug": "eng-412"}, {"n": "2", "step": "s", "where": "w", "status": "t", "command": "c"}]"#],
+        &["hub", "act", "runbook", "add", r#"["eng-412", 3, "s", "w", "c"]"#],
     ];
     for args in cases {
         let out = sandbox.cockpit(args, &[]);
@@ -248,6 +258,32 @@ fn hub_act_refuses_every_other_action_and_malformed_arguments() {
         assert!(!stderr(&out).trim().is_empty());
     }
     assert!(seen.lock().unwrap().is_empty(), "a refused action reached the hub");
+}
+
+#[test]
+fn hub_act_hands_a_runbook_action_to_the_hub_with_its_armed_key() {
+    let sandbox = Sandbox::new();
+    let seen = fake_hub(&sandbox, Some(json!({"note": "ok", "pending": {}, "refreshing": {}, "error": null})));
+    let step = json!({"n": "2", "step": "Deploy", "where": "prod", "status": "open", "command": "make deploy"});
+    let cases = [
+        ("done", json!([[["eng-412", "2"]]]), None),
+        ("set", json!(["eng-412", "2", "command", "make ship"]), None),
+        ("add", json!(["eng-412", null, "Smoke", "prod", "make smoke"]), None),
+        ("undo", json!([]), None),
+        ("run_step", json!([{"$book": "eng-412"}, step]), Some("run-eng-412-2")),
+    ];
+    for (action, args, armed) in &cases {
+        let list = args.to_string();
+        let mut command = vec!["hub", "act", "runbook", action, list.as_str()];
+        command.extend(armed);
+        let out = sandbox.cockpit(&command, &[]);
+        assert_eq!(out.status.code(), Some(0), "{action}: {}", stderr(&out));
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), cases.len());
+    for ((action, args, armed), request) in cases.iter().zip(seen.iter()) {
+        assert_eq!((&request["app"], &request["action"], &request["args"], &request["armed"]), (&json!("runbook"), &json!(action), args, &json!(armed)));
+    }
 }
 
 #[test]

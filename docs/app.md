@@ -96,8 +96,12 @@ The review panel works on a runner agent: focus it (Go from the agents list) and
 path, over TCP. Its three actions, `review send`, `review walkthrough` and `review stop_walkthrough`, travel as
 `cockpit hub act review <action> <JSON args>` run on the runner through Herdr's machine connection, the way `hub start`
 does; that command checks the arguments and hands the action to the runner's hub on its unix socket. Comments go only to
-an agent of the runner (`runner/t7` reaches the runner as `t7`). Every other action and Archive stay unavailable in this
-preview.
+an agent of the runner (`runner/t7` reaches the runner as `t7`).
+
+The runbook's step actions travel the same way, as `cockpit hub act runbook <action> <JSON args> [armed]`: `done`, `set`
+(edit a cell or the status), `add`, `undo` and `run_step`. Run still asks first, and its confirm key goes along as
+`armed`. Copy writes the desk's clipboard and never calls the hub. Every other action (refresh, talk, delete, open the
+session or the PR) and Archive stay unavailable in this preview.
 
 TCP has no TLS: use an encrypted private network such as Tailscale, and keep `hub.json` private. A hub listening
 off loopback answers reads only, whoever holds the token; the mod keeps the same list so a remote desk says so

@@ -67,7 +67,7 @@ async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
     for (const [key, value] of Object.entries(imports[name])) this.setExport(key, value);
   }, { context }));
   await module.evaluate();
-  return { hub: module.namespace, calls, info, install, messages, clients, behavior, server, host };
+  return { hub: module.namespace, calls, info, install, messages, clients, behavior, server, host, context, imports };
 }
 
 test("a desktop reads the runner's discovery file and authenticates before requesting its inbox", async t => {
@@ -115,6 +115,55 @@ test("remote review actions run as a cockpit command on the runner, through its 
     [["/runner/cockpit", "hub", "act", "review", "send", JSON.stringify(["t7", review])], "runner"],
   ]);
   assert.equal(f.messages.length, 0, "no write travels over TCP");
+});
+
+test("remote runbook edits and runs go to the runner with their armed key, and nothing else of the runbook does", async t => {
+  const f = await fixture(t);
+  const step = { n: "2", step: "Deploy", where: "prod", status: "to do", command: "make deploy" };
+  await f.hub.act("runbook", "done", [[["eng-412", "2"]]]);
+  await f.hub.act("runbook", "set", ["eng-412", "2", "command", "make ship"]);
+  await f.hub.act("runbook", "add", ["eng-412", null, "Smoke", "prod", "make smoke"]);
+  await f.hub.act("runbook", "undo", []);
+  await f.hub.request("act", { app: "runbook", action: "run_step", args: [{ $book: "eng-412" }, step], armed: "run-eng-412-2" });
+  const runs = f.calls.filter(call => call[0] === "exec").map(([, , args]) => JSON.parse(JSON.stringify(args.slice(args.indexOf("/runner/cockpit") + 1))));
+  assert.deepEqual(runs, [
+    ["hub", "act", "runbook", "done", '[[["eng-412","2"]]]'],
+    ["hub", "act", "runbook", "set", '["eng-412","2","command","make ship"]'],
+    ["hub", "act", "runbook", "add", '["eng-412",null,"Smoke","prod","make smoke"]'],
+    ["hub", "act", "runbook", "undo", "[]"],
+    ["hub", "act", "runbook", "run_step", JSON.stringify([{ $book: "eng-412" }, step]), "run-eng-412-2"],
+  ]);
+  assert.equal(f.messages.length, 0, "no write travels over TCP");
+  for (const action of ["delete", "update", "talk", "focus_session", "open_pr"]) await assert.rejects(f.hub.act("runbook", action, [{ $book: "eng-412" }]), /read-only/);
+  await assert.rejects(f.hub.cockpit(["hub", "act", "runbook", "delete", "[]"]), /read-only/);
+  assert.equal(f.calls.filter(call => call[0] === "exec").length, runs.length);
+});
+
+test("Copy on a remote desk writes the clipboard and never calls the hub", async t => {
+  const f = await fixture(t);
+  const source = (await readFile(new URL("../mods/cockpit/runbook.js", import.meta.url), "utf8"));
+  const stubs = new Proxy({}, { get: () => () => new Proxy(function () {}, { get: () => () => ({}) }) });
+  const toasts = [];
+  const modules = {
+    "./hub.js": f.hub,
+    "./ui.js": { ...Object.fromEntries([...source.matchAll(/import \{([^}]*)\} from "\.\/ui\.js"/g)].flatMap(m => m[1].split(",")).map(n => n.trim()).filter(Boolean).map(n => [n, stubs[n]])), Toaster: class { push(_cx, text) { toasts.push(text); } } },
+    "gpui-kit": { div: stubs.div },
+    "gpui-base": { h_flex: stubs.h_flex, v_flex: stubs.v_flex, InputState: stubs.InputState },
+    herdr: { props: () => ({}), focused: () => null, panes: () => [], shared: () => ({}), settings: () => ({}) },
+  };
+  const module = new SourceTextModule(source, { context: f.context });
+  await module.link(name => new SyntheticModule(Object.keys(modules[name]), function () {
+    for (const [key, value] of Object.entries(modules[name])) this.setExport(key, value);
+  }, { context: f.context }));
+  await module.evaluate();
+  const runbook = Object.create(module.namespace.default.prototype);
+  runbook.toasts = new modules["./ui.js"].Toaster();
+  const written = [];
+  runbook.copy({ write_to_clipboard: text => written.push(text) }, ["make deploy", "", "make smoke"]);
+  assert.deepEqual(written, ["make deploy\nmake smoke"]);
+  assert.deepEqual(toasts, ["Copied 2 commands"]);
+  assert.equal(f.messages.length, 0);
+  assert.equal(f.calls.filter(call => call[0] === "exec").length, 0);
 });
 
 test("a remote review goes only to one of the runner's agents", async t => {
