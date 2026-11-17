@@ -142,7 +142,8 @@ pub fn list(only: Option<&str>) -> Vec<Live> {
     if let Some(world) = demo() {
         return demo_lives(&world);
     }
-    let app = only != Some("tui") && frontend::app_home().join("herdr-app.sock").exists();
+    // A socket file a closed Herdr window left behind refuses connections: herdr-core lists the agents then.
+    let app = only != Some("tui") && std::os::unix::net::UnixStream::connect(frontend::app_home().join("herdr-app.sock")).is_ok();
     let tui = only != Some("app") && tui_running();
     let mut out = Vec::new();
     if app {
