@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.0.0 (2026-11-18)
 
 - New: Cockpit Chat, a second layout that reads one agent as a conversation: its repo, branch, PR and CI on top, each
   turn folded to "Worked for…", a box with several lines, files, commands, images, model and effort, and optional next
@@ -25,7 +25,8 @@ must be here first.
   the branch; the TUI gets a review space.
 - New: routines get a precheck, a wake gate, time zones and templates; every source says how fresh its data is.
 - Fix: Needs you shows only real questions, and a card can be dismissed until the agent asks again.
-- Fix: a window keeps its hub on a quiet connection, and says why when it cannot reach it.
+- Fix: a window keeps its hub on a quiet connection, goes live as soon as any hub answers (#65), and says why when it
+  cannot reach it.
 - Fix: the agents view is built once per change (50 agents: 654 ms to 12 ms).
 - Fix: the chat, documents and links follow the session in view, and keys that did nothing now work.
 - Security: an answer names the question it answers, nothing is allowed by default, Full access asks first, and
