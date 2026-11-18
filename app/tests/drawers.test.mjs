@@ -56,7 +56,7 @@ async function fixture({ layoutName = "cockpit-chat", shared: given = {} } = {})
       window: () => ({ platform: "macos", titlebar: "none", fullscreen: false }),
       theme: () => ({ foreground: "#ededed", background: "#1e1e1e", hover: "#2a2a2a", muted: "#a0a0a0", dim: "#707070", border: "#333333" }),
     },
-    "gpui-kit": { div: element },
+    "gpui-kit": { div: element, svg: element },
     "gpui-base": { h_flex: element, v_flex: element },
     "./hub.js": { subscribe: () => ({ stop() {}, park() {} }), sleep: async () => {}, act: async () => ({}), view: async () => null, remoteMachine: () => null },
     // The drawer's own `show`, standing for the real view: only whether it is held matters here.
@@ -215,4 +215,27 @@ test("⌘⌥B opens a closed panel at the first press, even when the other layou
   assert.equal(f.node("panel").hidden, false);
   f.commands.togglePanel("files");
   assert.equal(f.node("panel").hidden, true);
+});
+
+test("the agent drawer lists working agents before a long idle list, after agents that need attention", async () => {
+  const f = await fixture();
+  f.node("sidebar").hidden = true;
+  const drawer = Object.create(f.SidePeek.prototype);
+  const row = (id, stage, status = stage) => ({ terminal: `app:${id}`, address: id, title: id, stage, status });
+  drawer.rows = { agents: [
+    ...Array.from({ length: 10 }, (_, i) => row(`idle-${i}`, "idle")),
+    row("done-1", "done"), row("working-1", "working"), row("waiting-1", "needs_you", "blocked"),
+  ] };
+  drawer.update = null;
+  const ids = [];
+  const visit = (element) => {
+    for (const [method, ...args] of element?.made ?? []) {
+      if (method === "id") ids.push(args[0]);
+      for (const child of args.flat()) if (child?.made) visit(child);
+    }
+  };
+  visit(drawer.render());
+  const groups = ids.filter((id) => id.startsWith("peek-stage-"));
+  assert.deepEqual(groups, ["peek-stage-needs_you", "peek-stage-working", "peek-stage-done", "peek-stage-idle"]);
+  for (const agent of drawer.rows.agents) assert.ok(ids.includes(`peek-${agent.terminal}`), `${agent.address} stays listed`);
 });

@@ -35,10 +35,10 @@ export function togglePinOf(terminal) {
 export const STAGES = {
   needs_you: { label: "Needs you", tone: "blocked" },
   failed: { label: "Stopped with an error", tone: "destructive" },
+  working: { label: "Working", tone: "working" },
   done: { label: "Done", tone: "done" },
   fixing: { label: "Needs fixing", tone: "destructive" },
   idle: { label: "Idle", tone: "idle" },
-  working: { label: "Working", tone: "working" },
   review: { label: "In review", tone: "success" },
   merged: { label: "Merged", tone: "merged" },
   snoozed: { label: "Snoozed", tone: "info" },
