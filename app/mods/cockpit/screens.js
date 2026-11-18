@@ -124,7 +124,23 @@ export function agentInView(list, f = focused(), tree = layout()) {
  * on a tab no agent runs in.
  */
 export function frontAgent(f = focused(), more = []) {
-  return agentInView([...agents(), ...more], f)?.address ?? null;
+  return agentInView(chatAgents(more), f)?.address ?? null;
+}
+
+/** The hub's current terminals, shared between copies of the chat in this window. */
+export function setChatAgents(rows) {
+  globalThis.cockpitChatAgents = rows;
+}
+
+/** Live hub identities take precedence over status labels left on a terminal after its agent exits. */
+export function chatAgents(more = []) {
+  const native = agents();
+  const rows = globalThis.cockpitChatAgents;
+  if (!rows) return [...native, ...more];
+  return rows.filter((row) => !row.driven).map((row) => {
+    const address = row.address ?? String(row.terminal ?? "").replace(/^app:/, "");
+    return { ...native.find((agent) => agent.address === address), ...row, address, tab: row.tab?.id ?? row.tab };
+  });
 }
 
 /** Whether the reading layout's sidebar is open; it remembers across restarts. */
@@ -220,7 +236,7 @@ export function showTab(id) {
   run("tab.select", { id });
   const s = screens();
   if (!s.inner) return show(s.work);
-  const here = agents().filter((a) => a.tab === id);
+  const here = chatAgents().filter((a) => a.tab === id);
   const agent = here.find((a) => a.focused) ?? here[0];
   // Herdr's agent blocks name a first agent when the pane in front runs none: the chat is told which one this tab runs.
   if (agent) run("agent.focus", { terminal: agent.address });

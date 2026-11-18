@@ -14,7 +14,7 @@ import { openUrl } from "./hub.js";
 import { openPanel } from "./status.js";
 import { AgentsModel, QuestionCard, UndoRow, oneTimeKey } from "./agentsui.js";
 import { inFront } from "./front.js";
-import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent } from "./screens.js";
+import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent, chatAgents } from "./screens.js";
 import { followInReview } from "./review.js";
 import { windowsWords } from "./usage.js";
 import { Started } from "./doctor.js";
@@ -455,7 +455,14 @@ export default class Chat {
   /** The agent in view (`frontAgent`), Herdr's agents and the ones the agents view lists alike. */
   inView() {
     const rows = (this.model?.rows ?? []).map((r) => ({ address: String(r.address ?? r.terminal ?? "").replace(/^app:/, ""), tab: r.tab?.id ?? r.tab ?? null }));
-    return frontAgent(focused(), rows);
+    const focus = focused();
+    const here = frontAgent(focus, rows);
+    const agent = chatAgents(rows).find((agent) => agent.address === here);
+    // A floating terminal can take the keyboard while another model tab stays selected underneath it.
+    if (agent?.tab && focus?.tab && agent.tab !== focus.tab && (focus.shown === here || focus.terminal === here)) {
+      run("tab.select", { id: agent.tab });
+    }
+    return here;
   }
 
   /**

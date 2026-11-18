@@ -926,6 +926,16 @@ impl ClaudeFold {
                         t.usage.context = Some(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens);
                     }
                 }
+                if role == Role::Assistant
+                    && !m.content.is_empty()
+                    && self.prompt.is_none()
+                    && let Some(command) = self.opening.clone()
+                {
+                    self.prompt = Some(command.clone());
+                    if self.detail != Detail::Names {
+                        t.messages.push(message(Role::User, &format!("/{command}"), &at));
+                    }
+                }
                 for chunk in m.content {
                     match chunk {
                         Chunk::Text(text) => {
@@ -2045,6 +2055,24 @@ mod tests {
         let mut kept = HashMap::from([("a1".into(), json!({"toolCalls": [{"id": "c1", "result": "old"}]}))]);
         gemini_patch(&mut kept, &json!({"id": "a1", "toolCalls": [{"id": "c1", "result": [{"text": "new"}]}]}));
         assert_eq!(kept["a1"]["toolCalls"][0]["result"], json!([{"text": "new"}]));
+    }
+
+    #[test]
+    fn a_claude_slash_command_with_an_answer_is_a_conversation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "-r-api/c-command.jsonl",
+            &[
+                json!({"type": "user", "sessionId": "c-command", "message": {"content": "<command-name>/review</command-name><command-args>412</command-args>"}}),
+                json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "The quota check looks correct."}]}}),
+            ],
+        );
+        let transcript = read(Transcripts::Claude, &path).unwrap();
+        assert_eq!(transcript.messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["/review 412", "The quota check looks correct."]);
+        assert_eq!(read_detail(Transcripts::Claude, &path, Detail::Names).unwrap().title, "review 412");
+        std::fs::write(&path, format!("{}\n", std::fs::read_to_string(&path).unwrap())).unwrap();
+        assert_eq!(Follow::new(Transcripts::Claude, &path, Detail::Tools).read().unwrap().messages.len(), 2);
     }
 
     #[test]

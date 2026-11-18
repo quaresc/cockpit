@@ -176,8 +176,9 @@ const APPS: [(&str, &str); 11] = [
 
 /// Terminals and multiplexers outside a bundle: one counts where it is installed (`installed`), so a copy under that
 /// name elsewhere does not, whatever PATH the hub runs on.
-const PROGRAMS: [&str; 16] = [
+const PROGRAMS: [&str; 17] = [
     "herdr",
+    "herdr-app",
     "herdr-core",
     "tmux",
     "mosh-server",
@@ -221,7 +222,9 @@ fn installed(exe: &Path, home: Option<&Path>) -> bool {
     let managed = ["/opt/local/bin/", "/opt/local/sbin/", "/nix/store/", "/run/current-system/sw/", "/snap/"].iter().any(|d| exe.starts_with(d));
     let cellar =
         CELLARS.iter().any(|c| exe.strip_prefix(c).is_ok_and(|rest| matches!(rest.iter().collect::<Vec<_>>().as_slice(), [_, _, bin, _] if *bin == "bin")));
-    let own = home.is_some_and(|h| [".local/bin", ".cargo/bin"].iter().any(|d| exe.parent() == Some(h.join(d).as_path())));
+    let own = home.is_some_and(|h| {
+        [".local/bin", ".cargo/bin"].iter().any(|d| exe.parent() == Some(h.join(d).as_path())) || exe == h.join(".local/share/herdr-app/herdr-app")
+    });
     system || managed || cellar || own
 }
 
@@ -407,6 +410,12 @@ mod tests {
             ("/nix/store/abc-tmux-3.5/bin/tmux", Walk::Front),
             ("/Users/me/.local/bin/herdr", Walk::Front),
             ("/Users/me/.cargo/bin/herdr", Walk::Front),
+            ("/Users/me/.local/share/herdr-app/herdr-app", Walk::Front),
+            ("/Users/me/.local/bin/herdr-app", Walk::Front),
+            ("/usr/bin/herdr-app", Walk::Front),
+            ("/tmp/x/herdr-app", Walk::Detached),
+            ("/Users/other/.local/share/herdr-app/herdr-app", Walk::Detached),
+            ("/Users/me/.local/share/other/herdr-app", Walk::Detached),
         ] {
             look.exes.insert(10, exe);
             assert_eq!(walk(13, &t, &[], &programs(), 999, &look), placed, "{exe}");
@@ -414,6 +423,15 @@ mod tests {
         // VS Code and Cursor run their own agents in their terminals: not fronts.
         look.exes.insert(10, "/Applications/Visual Studio Code.app/Contents/MacOS/Code");
         assert_eq!(walk(13, &t, &[], &programs(), 999, &look), Walk::Detached);
+    }
+
+    #[test]
+    fn linux_desktop_is_a_front_but_its_agents_are_not() {
+        let t = table(&[(10, 1, "herdr-app"), (11, 10, "claude"), (12, 11, "cockpit")]);
+        let mut look = Fake { home: Some("/home/me"), ..Fake::default() };
+        look.exes.insert(10, "/home/me/.local/share/herdr-app/herdr-app");
+        assert_eq!(walk(10, &t, &[], &programs(), 999, &look), Walk::Front);
+        assert_eq!(walk(12, &t, &[], &programs(), 999, &look), Walk::Unwatched("claude".into()));
     }
 
     #[test]

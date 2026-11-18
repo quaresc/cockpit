@@ -666,3 +666,11 @@ test("no more than a window of rows is drawn, and it slides over the rest as the
   f.chat.toEnd(cx);
   assert.equal(f.chat.windowTop, null);
 });
+
+test("focusing a floating terminal selects the tab that owns its conversation", async () => {
+  const f = await subjectFixture();
+  f.focus.tab = "tab-t42";
+  f.focus.terminal = "t41";
+  assert.equal(f.chat.inView(), "t41");
+  assert.deepEqual(JSON.parse(JSON.stringify(f.calls.at(-1))), ["tab.select", { id: "tab-t41" }]);
+});

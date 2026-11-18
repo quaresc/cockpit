@@ -5,7 +5,7 @@
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { run, spaces, shared, notify, agents, focused, window as win, layout } from "herdr";
-import { DOCKED, showSidebar, settleSidebar, sidebarShown, showTab, frontAgent, CHAT_SUBJECT, CHAT_PIN, pinChat } from "./screens.js";
+import { DOCKED, showSidebar, settleSidebar, sidebarShown, showTab, frontAgent, chatAgents, setChatAgents, CHAT_SUBJECT, CHAT_PIN, pinChat } from "./screens.js";
 import * as hub from "./hub.js";
 import { keyed, take } from "./person.js";
 import { sharing } from "./feed.js";
@@ -129,12 +129,14 @@ export default class ChatTop {
       (m, cx) => {
         if (m.view === "agents") {
           this.rows = m.value?.agents ?? [];
+          setChatAgents(this.rows);
           this.sessions = this.rows.filter((r) => r.driven === true);
         }
         cx.notify();
       },
       (state, cx) => {
         this.hub = state;
+        if (state.startsWith("error")) setChatAgents(null);
         cx.notify();
       },
     );
@@ -156,7 +158,7 @@ export default class ChatTop {
   /** The agent a tab runs, as the hub's row (its `icon` and name) or else Herdr's own agent; null for a tab of shells. */
   tabAgent(t) {
     const live = this.nativeAgents ?? agents();
-    return (this.rows ?? []).find((r) => !r.driven && r.tab?.id === t.id) ?? live.find((a) => a.tab === t.id) ?? null;
+    return (this.rows ?? []).find((r) => !r.driven && r.tab?.id === t.id) ?? (this.hub === "live" ? null : live.find((a) => a.tab === t.id)) ?? null;
   }
 
   /**
@@ -301,10 +303,12 @@ export default class ChatTop {
     const open = tabs.filter((t) => !t.settled);
     const archived = tabs.filter((t) => t.settled);
     // The chat on a session it was opened on: no tab is the one it reads, even the active one.
-    const pinned = Boolean(shared(CHAT_PIN)?.key);
+    const subject = shared(CHAT_SUBJECT);
+    const subjectTab = chatAgents().find((agent) => agent.address === String(subject ?? "").replace(/^app:/, ""))?.tab;
+    const pinned = Boolean(shared(CHAT_PIN)?.key) && !subjectTab;
     const pills = [
       ...open.map((t) => {
-        const on = t.active && !pinned;
+        const on = !pinned && (subjectTab ? t.id === subjectTab : t.active);
         return { key: `t:${t.id}`, tab: t, on, width: this.sizes.get(`pill:t:${t.id}`) ?? guessWidth(tabName(t, this.rows), on, Boolean(this.tabAgent(t))) };
       }),
       ...this.sessions.map((s) => {
@@ -478,6 +482,9 @@ export function terminalWords(a) {
 /** What a tab's pill says: its label, or, while that is still Herdr's number, the name of the agent in it. */
 export function tabName(t, rows = []) {
   const label = String(t?.name ?? "");
+  const row = rows.find((r) => (r.tab?.id ?? r.tab) === t?.id && !r.driven);
+  const generic = /^(Claude Code|Codex|GitHub Copilot CLI|Pi|Gemini CLI)$/i.test(label.trim());
+  if (generic) return row?.agent_name || row?.program?.name || (typeof row?.program === "string" ? row.program : "Terminals");
   if (label.trim() && !/^\d+$/.test(label.trim())) return label;
   return rows.find((r) => r.tab?.id && r.tab.id === t?.id && r.title)?.title || label;
 }
