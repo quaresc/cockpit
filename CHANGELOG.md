@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.0.1 (2026-11-18)
+
+- Hub client: a newer evaluation of the mod takes nothing from a load that still runs (#67)
+- Spaces: the Herdr app alone makes no herdr space and fails no space check (#66)
+- Browse: the side browser works in the Herdr app and shows in Cockpit Chat (#68)
+
 ## 1.0.0 (2026-11-18)
 
 - New: Cockpit Chat, a second layout that reads one agent as a conversation: its repo, branch, PR and CI on top, each
