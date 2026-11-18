@@ -231,6 +231,17 @@
                               "panel": true
                             }
                           }
+                        },
+                        {
+                          "id": "browser",
+                          "type": "block",
+                          "content": {
+                            "tab": "active",
+                            "pane": {
+                              "gap": 0,
+                              "background": "background"
+                            }
+                          }
                         }
                       ]
                     },

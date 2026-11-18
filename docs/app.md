@@ -345,7 +345,11 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
 showing the terminal: a `screen` stack over a 56px `chat-top` bar, beside the cockpit layout's own sidebar (the same
 `workspace-chrome` brand row, `sidebar` view and footer), which ⌘B opens and closes. Its agent screen is a row of the
 `view` stack (`chat` and `tab`) beside the same `panel` the cockpit layout has, so `show`'s charts, the review screen,
-files and changes are ⌘⌥B away in both. Its own theme pair,
+files and changes are ⌘⌥B away in both. Its panel also has `browser`, a block of the tab in front: a terminal-browser
+split beside the agent opens the panel there, at least 600px wide, with its tab zoomed on the browser (`browser.js`,
+on the top bar's clock), and the chat's box keeps the keyboard. The panel put on another child or closed, the Tab
+screen, or another layout gives the tab back unzoomed; the Tab screen hands the browser back to the panel on the way
+back to the chat, and a browser closing closes its panel. Its own theme pair,
 `themes/cockpit-chat.json` and `cockpit-chat-light.json`: near-monochrome greys with colour kept for what an agent is
 doing, and for the providers' own logos.
 
@@ -1104,6 +1108,7 @@ Herdr app. In the app it writes no herdr tokens: what the TUI's sidebar rows sho
   (`HERDR_PANE_ID`, from `herdr-app ls`: the terminal `HC_TERMINAL_ID` names, else the one the caller descends from) and
   the app's socket (`HERDR_SOCKET_PATH`); `cockpit browse --env` prints them as exports, and the plugin sets them for a
   Claude Code session at its start. A session the window shows nowhere gets the reason and the default browser.
+  Cockpit Chat shows that browser in its side panel (below).
 - **Open in editor** (`editor.js`, `openInEditor(folder, machine)`) and **fork a session** (`agents fork`) are in the
   palette and on the pane header (`{app: "pane"}`, hover: editor, fork to a tab, split, zoom, close).
 
