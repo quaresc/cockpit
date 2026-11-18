@@ -265,7 +265,8 @@ fn real_path(path: &Path) -> PathBuf {
 
 fn same_page(a: &str, b: &str) -> bool {
     let norm = |url: &str| {
-        let url = if url.starts_with('/') { format!("file://{}", real_path(Path::new(url)).display()) } else { url.to_string() };
+        let path = if url.starts_with('/') { Some(url) } else { url.strip_prefix("file://") };
+        let url = path.map_or_else(|| url.to_string(), |p| format!("file://{}", real_path(Path::new(p)).display()));
         url.trim_end_matches('/').to_string()
     };
     norm(a) == norm(b)
@@ -361,6 +362,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let real = std::fs::canonicalize(dir.path()).unwrap();
         assert!(same_page(&format!("{}/page.html", dir.path().display()), &format!("file://{}/page.html", real.display())));
+        assert!(
+            same_page(&format!("file://{}/page.html", dir.path().display()), &format!("{}/page.html", dir.path().display())),
+            "the browser's URL keeps the link"
+        );
     }
 
     #[test]
