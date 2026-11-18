@@ -85,9 +85,10 @@ impl Sandbox {
         executable(&self.root.join("bin/herdr"), &fake("herdr", &self.log(), &refs));
     }
 
-    /// terminal-browser answering these prefixes with raw sh, each call logged with the pane it was asked from.
+    /// terminal-browser answering these prefixes with raw sh, each call logged with the pane it was asked from (and the
+    /// socket, when one is given).
     pub fn terminal_browser(&self, answers: &[(&str, &str)]) {
-        let script = fake("tb", &self.log(), answers).replacen("\"tb $*\"", "\"tb [$HERDR_PANE_ID] $*\"", 1);
+        let script = fake("tb", &self.log(), answers).replacen("\"tb $*\"", "\"tb [$HERDR_PANE_ID${HERDR_SOCKET_PATH:+ $HERDR_SOCKET_PATH}] $*\"", 1);
         executable(&self.root.join("bin/terminal-browser"), &script);
     }
 

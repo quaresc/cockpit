@@ -119,6 +119,17 @@ async function appHere($: $): Promise<Here | undefined> {
   return found && { pane: `app:${terminal}`, tab: found.tab.id, space: found.space.id, frontend: 'app', terminal, paneId: found.terminal.pane }
 }
 
+// terminal-browser tells where it runs from herdr's variables, which the Herdr app does not give its terminals: without
+// them it takes an app terminal for Ghostty's and fails. In the app, this session's commands get its pane and socket.
+export async function exportAppPane($: $) {
+  if (!(await isInApp($))) return
+  const here = await appHere($)
+  if (!here?.paneId) return
+  const appHome = (await $.env.get('HERDR_APP_HOME')) || `${(await $.env.get('HOME')) ?? ''}/.config/herdr-app`
+  if ((await $.env.get('HERDR_PANE_ID')) !== here.paneId) await $.env.set('HERDR_PANE_ID', here.paneId)
+  await $.env.set('HERDR_SOCKET_PATH', `${appHome}/herdr-app.sock`)
+}
+
 // herdrHere for every tool call would be one herdr call each: the answer is kept a minute.
 let hereCache: { at: number; value: Here | undefined } | undefined
 export async function hereSoon($: $) {

@@ -10,6 +10,7 @@ import * as hub from "./hub.js";
 import { keyed, take } from "./person.js";
 import { sharing } from "./feed.js";
 import { runCommand, openNew, hint, settle, settlePanel } from "./commands.js";
+import { syncBrowser, releaseBrowser } from "./browser.js";
 import { tokens, TEXT, Icon, Spinner, dur, openMenu, viewport, AgentLogo } from "./ui.js";
 import { agentStatus } from "./fleet.js";
 
@@ -113,7 +114,7 @@ export default class ChatTop {
     cx.spawn(async (cx) => {
       for (;;) {
         await hub.sleep(cx, 400);
-        if (settlePanel() | Boolean(settleSidebar())) cx.notify();
+        if (settlePanel() | Boolean(settleSidebar()) | syncBrowser()) cx.notify();
       }
     });
     this.sizes = new Map();
@@ -141,6 +142,8 @@ export default class ChatTop {
 
   close() {
     this.sub?.stop();
+    // The cockpit layout shows the tab's panes as they are, not zoomed on the browser.
+    releaseBrowser();
   }
 
   /** Keeps a measured width; only a pill's, the bar's or its right capsule's changes what fits and redraws. */

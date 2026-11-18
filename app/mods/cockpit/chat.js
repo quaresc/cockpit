@@ -23,6 +23,7 @@ import { modelName, pickChips } from "./picks.js";
 import { statusMark } from "./chat-top.js";
 import { hint, keyText } from "./commands.js";
 import { pasteImage } from "./paste.js";
+import { TOOK, boxTakesBack } from "./browser.js";
 import { tokens, TEXT, RADIUS, Icon, Spinner, Chip, Empty, Card, Button, HubDown, openMenu, AgentLogo } from "./ui.js";
 import { NEXT_KEYS, NextSteps, nextKey, nextShown } from "./next-steps.js";
 
@@ -400,12 +401,21 @@ export default class Chat {
         else if (this.driven(want) !== this.watchedDriven) this.watch(want, cx, true);
         this.inFrontNow(cx);
         this.asked(cx);
+        this.keepBox();
         // With no agent to read, the box is Start work: what it holds is planned on this clock.
         if (this.value && !this.row() && !this.session()) this.starter.sync(this.input.value(), cx);
         await hub.sleep(cx, 400);
       }
     });
     this.watch(this.wanted(), cx);
+  }
+
+  /** The box takes the keyboard back from the browser the side panel shows beside the agent: the chat keeps it. */
+  keepBox() {
+    const took = shared(TOOK);
+    if (!boxTakesBack({ took, answered: this.tookAnswered, now: Date.now() })) return;
+    this.tookAnswered = took;
+    this.input.focus();
   }
 
   /** The subject in front's last send. */

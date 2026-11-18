@@ -12,7 +12,7 @@ import { refreshMail } from './mail'
 import { CHANGES_SPEC, CHANGES_TOOL_FULL, HEALTH_SPEC, HEALTH_TOOL_FULL, READ_SPEC, READ_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, healthArgs, readArgs, searchArgs } from './find'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
 import { REPORT_SPEC, REPORT_TOOL_FULL, bindHandoff, recordRunbookOwner, reportStep, settleTurn } from './handoffs'
-import { herdrHere, hereSoon, isBackgroundJob, pageContext, setBackground } from './herdr'
+import { exportAppPane, herdrHere, hereSoon, isBackgroundJob, pageContext, setBackground } from './herdr'
 import { refresh } from './inbox'
 import { refreshMeetings } from './meetings'
 import { refreshMonitor } from './monitor'
@@ -56,6 +56,7 @@ export const register: Register = on => {
     await $.tool.register(CHANGES_SPEC).catch(() => undefined)
     await $.tool.register(READ_SPEC).catch(() => undefined)
     await $.tool.register(HEALTH_SPEC).catch(() => undefined)
+    await exportAppPane($).catch(() => undefined)
     // A background session only needs the tools: the session at the prompt refreshes and reports for it.
     if (await setBackground($, e.isInteractive)) return next(e)
     const fetches = !isBackgroundJob()

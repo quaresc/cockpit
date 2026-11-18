@@ -1,13 +1,14 @@
-// The side panel's activity bar: one icon per panel (Documents, Review, Runbook, Files, Changes, and the file the reading
-// layout opened there), the shown one marked by an accent edge, each with the badge its view publishes as shared
+// The side panel's activity bar: one icon per panel (Documents, Review, Runbook, Files, Changes, and in the reading
+// layout the file it opened there and the browser beside the agent), the shown one marked by an accent edge, each with the badge its view publishes as shared
 // `badge.<name>` = {count, tone}; a click switches the panel, the last button closes it.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { run, layout, shared, setShared } from "herdr";
+import { run, layout, shared, setShared, panes, focused } from "herdr";
 import { tokens, RADIUS, Icon, CornerCount } from "./ui.js";
 import { findNode, PANELS, closePanel } from "./status.js";
 import { CODE_PANEL } from "./code.js";
+import { BROWSER, browserIn } from "./browser.js";
 
 const ITEMS = [
   { name: "show", icon: "layers", label: "Documents", key: "⌃⌘1" },
@@ -16,7 +17,15 @@ const ITEMS = [
   { name: "files", icon: "folder", label: "Files", key: "⌃⌘4" },
   { name: "changes", icon: "git-commit", label: "Changes", key: "⌃⌘5" },
   { name: "code", icon: "file-text", label: "The file opened last" },
+  { name: BROWSER, icon: "globe", label: "The browser beside the agent" },
 ];
+
+/** Whether an item has something to show here: the file once one was opened, the browser while the tab has one. */
+function present(item, tree) {
+  if (item.name === "code") return Boolean(findNode(tree, "code") && shared(CODE_PANEL)?.file);
+  if (item.name === BROWSER) return Boolean(findNode(tree, BROWSER) && browserIn(panes(), focused()?.tab));
+  return true;
+}
 
 export default class Activity {
   init() {
@@ -66,8 +75,7 @@ export default class Activity {
       .border_l_1()
       .border_color(k.border)
       .bg(k.chrome)
-      // A file shows only where the layout has room for one, once one was opened there.
-      .children(ITEMS.filter((i) => i.name !== "code" || (findNode(layout(), "code") && shared(CODE_PANEL)?.file)).map(button))
+      .children(ITEMS.filter((i) => present(i, layout())).map(button))
       .child(div().flex_1())
       .child(
         h_flex()
