@@ -7,9 +7,9 @@ must be here first.
 
 ## 1.0.1 (2026-11-18)
 
-- Hub client: a newer evaluation of the mod takes nothing from a load that still runs (#67)
-- Spaces: the Herdr app alone makes no herdr space and fails no space check (#66)
-- Browse: the side browser works in the Herdr app and shows in Cockpit Chat (#68)
+- Fix: on Herdr 0.1.12 the window no longer says "Hub not running" while the hub runs (#67).
+- Fix: the side browser opens beside a session in the Herdr app, and in Cockpit Chat it shows in the side panel (#68).
+- Fix: with only the Herdr app open, herdr's pinned spaces are no longer reported as failing (#66).
 
 ## 1.0.0 (2026-11-18)
 
