@@ -1,0 +1,14 @@
+⏺ The backfill touches 48,210 accounts. One decision before I run it.
+
+ ☐ Backfill
+
+Do you want to proceed with the backfill tonight?
+
+❯ 1. Yes
+     Run it at 02:00 UTC, when traffic is lowest
+  2. No
+     Wait for Maya's go
+  3. Type something.
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

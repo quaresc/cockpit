@@ -86,7 +86,7 @@ impl App {
         if self.timeline {
             spans.push(Span::styled("   releases, newest first", fg(ORANGE)));
         }
-        let mut lines = vec![Line::from(spans)];
+        let mut lines = cockpit_core::header::lines(Line::from(spans), &doc.sources, cells);
         let since = |ms: u64| chrono::DateTime::from_timestamp_millis(ms as i64).map(|at| self.clock.hm(at)).unwrap_or_default();
         lines.extend(self.looked.head(cells, since));
         // One line for what failed to fetch, however much did: the first, and how many more.

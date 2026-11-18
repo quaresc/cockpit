@@ -1,0 +1,24 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 100, 20)"
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR
+
+ 2 files  +7 −1   unified · s side by side                                                        █
+   ▸ README.md  +4 −0                                                                             █
+     src/quotas.py╭──────────────────────────────────────────────────────────────╮                █
+                  │                                                              │                █
+  ▼ README.md   +4│  Whose worktree to review? Comments go to that agent.        │                █
+  @@ -1,3 +1,7 @@ │                                                              │                █
+    1   1   # acme│   › api · Daily quotas: enforce limits · working · me…       │                █
+    2   2         │     web · Quota banner · done · me/eng-413-quota-ui          │                █
+    3   3   The ac│  j/k move · enter picks · esc cancels                        │                ▕
+        4 +       │                                                              │                ▕
+        5 + ## Quo╰──────────────────────────────────────────────────────────────╯                ▕
+        6 +                                                                                       ▕
+        7 + Each plan has a daily limit (`src/quotas.py`); a call past it gets a 429.             ▕
+                                                                                                  ▕
+  ▼ src/quotas.py   +3 −1                                                                         ▕
+  @@ -1,6 +1,8 @@                                                                                 ▕
+ q quit  j/k line  n/p hunk  c comment  S send  T to  1-3 scope  w walkthrough          ▏^p palette

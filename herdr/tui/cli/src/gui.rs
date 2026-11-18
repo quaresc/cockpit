@@ -20,7 +20,49 @@ pub fn register() {
         build: cockpit_agents::gui::view,
         act: cockpit_agents::gui::act,
     });
-    cockpit_agents::gui::start(|| views::touch("agents"));
+    views::register(Def {
+        name: "session",
+        docs: &[],
+        dirs: cockpit_agents::session::dirs,
+        build: cockpit_agents::session::view,
+        act: cockpit_agents::session::act,
+    });
+    // Who sent a request is placed by the agents' process trees: what only a person may do is refused to the rest.
+    cockpit_core::peer::on_place(cockpit_agents::gui::place);
+    // Words for an agent go through one door: a session cockpit drives takes them, and none goes into a question.
+    cockpit_core::deliver::on_driven(cockpit_agents::session::deliver_to);
+    cockpit_core::deliver::on_waiting(cockpit_agents::gui::waiting);
+    // A session that moves can change what the agents view and the chat show: a new ask, an answered one.
+    cockpit_agents::session::on_change(
+        || views::touch("session"),
+        || {
+            views::touch("agents");
+            views::touch("chat");
+        },
+    );
+    // The hub stays, and an update waits, while a session it drives is in a turn; one at rest comes back paused in the
+    // hub that starts next.
+    cockpit_hub::keep_alive(cockpit_agents::session::driving);
+    cockpit_hub::on_start(cockpit_agents::session::restore);
+    cockpit_agents::session::on_hand_over(cockpit_hub::store::handed_over);
+    // A session goes to a terminal only with nothing left in its queue.
+    cockpit_agents::session::on_queued(crate::queue::waiting);
+    views::register(Def {
+        name: "chat",
+        docs: &["inbox", "ci", "agents"],
+        dirs: cockpit_agents::chat::dirs,
+        build: cockpit_agents::chat::view,
+        act: cockpit_agents::chat::act,
+    });
+    // A long turn writes its transcript without its status moving: the chat is built again as the transcript grows.
+    cockpit_agents::chat::on_growth(|| views::touch("chat"));
+    cockpit_agents::gui::start(|| {
+        views::touch("agents");
+        views::touch("chat");
+    });
+    // A failed or stopped turn holds the agent's queue; an agent at rest gets its next prompt.
+    cockpit_agents::gui::on_turn_end(crate::queue::turn_ended);
+    cockpit_agents::gui::on_rest(crate::queue::rested);
     views::register(Def {
         name: "inbox",
         docs: &["inbox", "ci", "brief"],
@@ -30,6 +72,8 @@ pub fn register() {
     });
     views::register(Def { name: "todo", docs: &["inbox"], dirs: cockpit_todo::gui::dirs, build: cockpit_todo::gui::view, act: cockpit_todo::gui::act });
     views::register(Def { name: "palette", docs: &[], dirs: cockpit_palette::gui::dirs, build: cockpit_palette::gui::view, act: cockpit_palette::gui::act });
+    // Start work's runs, step by step; their actions are the hub's own (`act start work|cancel|retry|dismiss`).
+    views::register(Def { name: "start", docs: &[], dirs: Vec::new, build: cockpit_hub::start_view, act: |_, _| None });
     views::register(Def {
         name: "runbook",
         docs: &["inbox"],
@@ -66,6 +110,24 @@ pub fn register() {
     views::register(Def { name: "review", docs: &[], dirs: Vec::new, build: cockpit_show::review::view, act: cockpit_show::review::act });
     views::register(Def { name: "home", docs: &["inbox", "ci"], dirs: crate::home::dirs, build: crate::home::view, act: crate::home::act });
     views::register(Def { name: "queue", docs: &["queue"], dirs: crate::queue::dirs, build: crate::queue::view, act: crate::queue::act });
+    views::register(Def { name: "options", docs: &[], dirs: Vec::new, build: crate::options::view, act: crate::options::act });
+    views::register(Def {
+        name: "usage",
+        docs: &[],
+        dirs: cockpit_agents::gui::dirs,
+        build: |_, _| cockpit_core::usage::view(cockpit_core::seen::now_ms()),
+        act: |_, _| None,
+    });
+    cockpit_core::usage::stream_from(|| cockpit_agents::session::keys().iter().filter_map(|k| cockpit_agents::session::summary(k)).collect());
+}
+
+/// `cockpit hub`: the hub on the person's environment, serving every app's view.
+pub fn hub() {
+    crate::hub_env::settle();
+    // Before its first look at what is published, which rewrites the version update.json was written by.
+    cockpit_core::options::note_run(env!("CARGO_PKG_VERSION"));
+    register();
+    cockpit_hub::run()
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -74,18 +136,23 @@ pub fn register() {
 /// Starts the hub when none answers, waits for its TCP side and prints hub.json: {port, token, pid}. A hub holding the
 /// socket without a TCP side (an older one) is stopped and replaced once.
 pub fn hub_start() {
+    // A person starts it: whatever `cockpit hub stop` said, a hub may start, and the windows may start one again.
+    let _ = std::fs::remove_file(cockpit_core::hub::stopped_file());
     let path = files::cache().join("hub.json");
     for attempt in 0..2 {
         let _ = cockpit_core::hub::request(&json!({"op": "ping"}), Duration::from_secs(3));
+        // A hub whose socket takes a connection is there, only slow to answer or to write hub.json: waited on, never
+        // stopped.
+        let there = std::os::unix::net::UnixStream::connect(cockpit_core::hub::socket()).is_ok();
         let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(3) {
+        while started.elapsed() < Duration::from_secs(if there { 15 } else { 3 }) {
             if let Some(info) = files::load(&path).filter(|i| alive(i["pid"].as_u64().unwrap_or(0))) {
                 println!("{info}");
                 return;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        if attempt == 0 {
+        if attempt == 0 && !there {
             stop(&hubs());
         }
     }
@@ -134,8 +201,10 @@ fn stop(pids: &[u64]) {
     }
 }
 
-/// Stops the running hubs of this home; the next app or mod that needs one starts it.
+/// Stops the running hubs of this home and says so to the windows, which wait for Start it or the next command that
+/// starts one rather than starting it again themselves.
 pub fn hub_stop() {
+    let _ = std::fs::write(cockpit_core::hub::stopped_file(), b"");
     stop(&hubs());
 }
 
@@ -150,11 +219,11 @@ pub fn hub_shown(view: &str) {
 
 const USAGE: &str = "The Herdr app half of cockpit.
 
-    cockpit app install [--watch] [--from <dir>]  the cockpit layout, mod and keys into the Herdr app's home
+    cockpit app install [--watch] [--from <dir>]  the cockpit layouts, mod, themes and keys into the Herdr app's home
                                                   (HERDR_APP_HOME, else ~/.config/herdr-app); --watch keeps copying
                                                   what changes in the checkout, for working on them (Herdr loads no
                                                   mod through a symlink: its icons would not show)
-    cockpit app uninstall                         takes the layout, the mod and cockpit.json out again (keys stay)";
+    cockpit app uninstall                         takes the layouts, the mod and cockpit.json out again (keys and themes stay)";
 
 pub fn main(args: &[String]) {
     match args.first().map(String::as_str) {
@@ -177,8 +246,9 @@ pub fn main(args: &[String]) {
         }
         Some("uninstall") => {
             let home = frontend::app_home();
-            let _ = std::fs::remove_file(home.join("layouts/cockpit.json"));
-            let _ = std::fs::remove_file(home.join("layouts/cockpit.svg"));
+            for name in ["cockpit.json", "cockpit.svg", "cockpit-chat.json", "cockpit-chat.svg"] {
+                let _ = std::fs::remove_file(home.join("layouts").join(name));
+            }
             let _ = remove(&home.join("mods/cockpit"));
             let _ = std::fs::remove_file(home.join("cockpit.json"));
             println!("removed the cockpit layout and mod from {}", home.display());
@@ -210,7 +280,7 @@ fn watch(from: &Path, home: &Path) {
         for path in paths {
             let Ok(rel) = path.strip_prefix(from) else { continue };
             let to = match rel.iter().next().and_then(|c| c.to_str()) {
-                Some("mods" | "layouts") => home.join(rel),
+                Some("mods" | "layouts" | "themes") => home.join(rel),
                 _ => continue,
             };
             if path.is_file() {
@@ -266,14 +336,31 @@ fn tree(dir: &Path, under: &Path, out: &mut Vec<PathBuf>) {
 
 /// Puts the layout and the mod in place (copied, or the folder linked to the checkout), writes cockpit.json for the mod
 /// and merges the keys; the lines say what it did.
+/// The COCKPIT_* variables set for the install (a sandbox's test hooks), which go to every cockpit command the mod runs.
+/// Keys from outside the window are never one: the mod reads COCKPIT_TEST_KEYS from its own process alone.
+fn install_env(vars: impl Iterator<Item = (String, String)>) -> Map<String, Value> {
+    vars.filter(|(k, _)| k.starts_with("COCKPIT_") && k != "COCKPIT_FRONTEND" && k != "COCKPIT_TEST_KEYS").map(|(k, v)| (k, Value::from(v))).collect()
+}
+
 pub fn install(from: &Path, home: &Path, link: bool) -> Result<Vec<String>, String> {
     if !from.join("mods/cockpit/main.js").exists() {
         return Err(format!("no cockpit mod in {}: pass --from <the checkout's app folder>", from.display()));
     }
     let mut lines = Vec::new();
     let err = |e: std::io::Error| e.to_string();
-    for name in ["cockpit.json", "cockpit.svg"] {
-        place(&from.join("layouts").join(name), &home.join("layouts").join(name), link).map_err(err)?;
+    let mut layouts = Vec::new();
+    tree(&from.join("layouts"), Path::new(""), &mut layouts);
+    for rel in &layouts {
+        place(&from.join("layouts").join(rel), &home.join("layouts").join(rel), link).map_err(err)?;
+    }
+    // A layout's own theme is the person's to edit afterwards, so one already there is left alone.
+    let mut themes = Vec::new();
+    tree(&from.join("themes"), Path::new(""), &mut themes);
+    for rel in &themes {
+        let to = home.join("themes").join(rel);
+        if !to.exists() {
+            place(&from.join("themes").join(rel), &to, link).map_err(err)?;
+        }
     }
     let mod_dir = home.join("mods/cockpit");
     let mut files_in = Vec::new();
@@ -295,11 +382,15 @@ pub fn install(from: &Path, home: &Path, link: bool) -> Result<Vec<String>, Stri
         std::fs::rename(&new, &mod_dir).map_err(err)?;
         let _ = remove(&old);
     }
-    lines.push(format!("{} the cockpit layout and mod ({} files) in {}", if link { "linked" } else { "copied" }, files_in.len(), home.display()));
+    lines.push(format!(
+        "{} {} cockpit layouts and the mod ({} files) in {}",
+        if link { "linked" } else { "copied" },
+        layouts.iter().filter(|r| r.extension().is_some_and(|e| e == "json")).count(),
+        files_in.len(),
+        home.display()
+    ));
     let exe = std::env::current_exe().map_err(err)?;
-    // COCKPIT_* variables set for the install (a sandbox's test hooks) go to every cockpit command the mod runs.
-    let env: Map<String, Value> =
-        std::env::vars().filter(|(k, _)| k.starts_with("COCKPIT_") && k != "COCKPIT_FRONTEND").map(|(k, v)| (k, Value::from(v))).collect();
+    let env = install_env(std::env::vars());
     let info = json!({"bin": exe, "cache": files::cache(), "home": files::home(), "version": env!("CARGO_PKG_VERSION"), "env": env});
     files::write(&home.join("cockpit.json"), &info).map_err(err)?;
     let (keys, skipped) = merge_keys(&files::load(&home.join("keys.json")).unwrap_or(json!({})), &files::load(&from.join("keys.json")).unwrap_or(json!({})));
@@ -310,14 +401,19 @@ pub fn install(from: &Path, home: &Path, link: bool) -> Result<Vec<String>, Stri
     Ok(lines)
 }
 
+/// Bindings cockpit replaced, as (section, key, command): an install takes out exactly these, so their key takes what
+/// cockpit binds there now, and a key the person bound themselves stays theirs.
+const RETIRED: &[(&str, &str, &str)] = &[("layout:cockpit-chat", "escape", "cockpit.stop"), ("layout:cockpit-chat", "shift-tab", "cockpit.mode")];
+
 /// The person's keys with cockpit's added; a key they already bind to something else stays theirs: (section, key,
-/// their action) for each.
+/// their action) for each. A binding cockpit replaced (`RETIRED`) goes first.
 pub fn merge_keys(theirs: &Value, ours: &Value) -> (Value, Vec<(String, String, String)>) {
     let mut merged = theirs.as_object().cloned().unwrap_or_default();
     let mut skipped = Vec::new();
     for (section, keys) in ours.as_object().into_iter().flatten() {
         let into = merged.entry(section.clone()).or_insert_with(|| Value::Object(Map::new()));
         let Some(into) = into.as_object_mut() else { continue };
+        into.retain(|key, action| !RETIRED.iter().any(|(s, k, retired)| s == section && k == key && action.as_str() == Some(retired)));
         for (key, action) in keys.as_object().into_iter().flatten() {
             match into.get(key) {
                 Some(existing) if existing != action => skipped.push((section.clone(), key.clone(), existing.as_str().unwrap_or_default().to_string())),
@@ -346,6 +442,29 @@ mod tests {
     }
 
     #[test]
+    fn the_bindings_cockpit_replaced_go_and_the_persons_own_stay() {
+        let theirs = json!({"layout:cockpit-chat": {
+            "escape": "cockpit.stop", "shift-tab": "cockpit.mode", "ctrl-.": "cockpit.stop",
+            "cmd-u": "cockpit.go:mail", "ctrl-x": "app.palette", "cmd-shift-p": "cockpit.palette"},
+            "layout:cockpit": {"escape": "cockpit.stop"}});
+        let ours = json!({"layout:cockpit-chat": {"escape": "cockpit.chat:stop", "shift-tab": "cockpit.chat:mode", "cmd-shift-p": "cockpit.palette"}});
+        let (merged, skipped) = merge_keys(&theirs, &ours);
+        let chat = &merged["layout:cockpit-chat"];
+        assert_eq!((chat["escape"].as_str(), chat["shift-tab"].as_str()), (Some("cockpit.chat:stop"), Some("cockpit.chat:mode")));
+        assert_eq!(chat["ctrl-."], "cockpit.stop", "a key the person bound themselves stays, whatever it runs");
+        assert_eq!((chat["cmd-u"].as_str(), chat["ctrl-x"].as_str()), (Some("cockpit.go:mail"), Some("app.palette")), "the person's own stay");
+        assert_eq!(merged["layout:cockpit"]["escape"], "cockpit.stop", "another section is left as it is");
+        assert!(skipped.is_empty(), "{skipped:?}");
+    }
+
+    #[test]
+    fn the_install_never_turns_on_keys_from_outside_the_window() {
+        let vars = [("COCKPIT_HUB_FEED", "off"), ("COCKPIT_TEST_KEYS", "1"), ("COCKPIT_FRONTEND", "app"), ("HOME", "/h")];
+        let env = install_env(vars.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        assert_eq!(Value::Object(env), json!({"COCKPIT_HUB_FEED": "off"}));
+    }
+
+    #[test]
     fn installs_the_layout_and_mod_and_says_where_cockpit_is() {
         let from = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
@@ -354,18 +473,26 @@ mod tests {
             ("mods/cockpit/ui.js", "y"),
             ("layouts/cockpit.json", "{}"),
             ("layouts/cockpit.svg", "<svg/>"),
+            ("layouts/cockpit-chat.json", "{}"),
+            ("themes/cockpit-chat.json", "{}"),
             ("keys.json", "{\"global\": {\"cmd-k\": \"cockpit.palette\"}}"),
         ] {
             let p = from.path().join(path);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, text).unwrap();
         }
+        std::fs::write(home.path().join("themes-kept.json"), "mine").unwrap();
         let lines = install(from.path(), home.path(), true).unwrap();
-        assert!(lines[0].starts_with("linked the cockpit layout and mod (2 files)"));
+        assert!(lines[0].starts_with("linked 2 cockpit layouts and the mod (2 files)"), "{}", lines[0]);
+        assert!(home.path().join("layouts/cockpit-chat.json").exists());
+        assert!(home.path().join("themes/cockpit-chat.json").exists());
         assert!(std::fs::symlink_metadata(home.path().join("mods/cockpit")).unwrap().file_type().is_symlink());
         assert!(files::load(&home.path().join("cockpit.json")).unwrap()["bin"].is_string());
         assert_eq!(files::load(&home.path().join("keys.json")).unwrap()["global"]["cmd-k"], "cockpit.palette");
+        // A theme the person edited is theirs: the next install leaves it alone.
+        std::fs::write(home.path().join("themes/cockpit-chat.json"), "mine").unwrap();
         install(from.path(), home.path(), false).unwrap();
         assert!(!std::fs::symlink_metadata(home.path().join("mods/cockpit/ui.js")).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(home.path().join("themes/cockpit-chat.json")).unwrap(), "mine");
     }
 }

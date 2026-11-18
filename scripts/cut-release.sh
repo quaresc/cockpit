@@ -24,9 +24,13 @@ sed -i.bak "s/^version = \"$current\"$/version = \"$next\"/" herdr/herdr-plugin.
 sed -i.bak "/^\[workspace.package\]/,/^\[/s/^version = \"$current\"$/version = \"$next\"/" herdr/tui/Cargo.toml && rm herdr/tui/Cargo.toml.bak
 (cd herdr/tui && cargo update --workspace --quiet)
 
-# The new section goes above the newest one.
-section=$(printf '## %s (%s)\n\n%s\n' "$next" "$(date -u +%Y-%m-%d)" "$notes")
-SECTION=$section awk '!done && /^## / { print ENVIRON["SECTION"]; print ""; done = 1 } { print }' CHANGELOG.md >CHANGELOG.md.tmp
-mv CHANGELOG.md.tmp CHANGELOG.md
+# Notes written by hand under `## Unreleased` become the release's section; else one goes above the newest, from the commits.
+if grep -q '^## Unreleased$' CHANGELOG.md; then
+  sed -i.bak "s/^## Unreleased$/## $next ($(date -u +%Y-%m-%d))/" CHANGELOG.md && rm CHANGELOG.md.bak
+else
+  section=$(printf '## %s (%s)\n\n%s\n' "$next" "$(date -u +%Y-%m-%d)" "$notes")
+  SECTION=$section awk '!done && /^## / { print ENVIRON["SECTION"]; print ""; done = 1 } { print }' CHANGELOG.md >CHANGELOG.md.tmp
+  mv CHANGELOG.md.tmp CHANGELOG.md
+fi
 
 echo "$next"

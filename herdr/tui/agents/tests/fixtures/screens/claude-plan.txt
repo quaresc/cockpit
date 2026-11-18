@@ -1,0 +1,19 @@
+⏺ I have a plan for the per-plan quota.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Ready to code?
+
+ Here is Claude's plan:
+╭──────────────────────────────────────────────────────────╮
+│ Make the daily quota configurable per plan               │
+│                                                          │
+│ 1. Add a daily_limit column to plans                     │
+│ 2. Read it in Api.Quota.limit/2, 100 when it is unset    │
+│ 3. Cover both in test/api/quota_test.exs                 │
+╰──────────────────────────────────────────────────────────╯
+
+ Would you like to proceed?
+
+ ❯ 1. Yes, and auto-accept edits
+   2. Yes, and manually approve edits
+   3. No, keep planning

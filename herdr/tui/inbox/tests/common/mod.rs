@@ -48,6 +48,8 @@ pub fn typed(app: &mut App, keys: &str) {
     }
 }
 
+/// That row selected, as the person moving to it does: a focus request alone leaves its keys waiting.
 pub fn focus(app: &mut App, key: &str) {
     app.focus(&json!({"app": "inbox", "key": key}));
+    app.pointed.clear();
 }

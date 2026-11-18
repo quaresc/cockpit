@@ -1,6 +1,6 @@
 {
   "calls": [],
-  "error": "plan: 'url'",
+  "error": "missing 'url'",
   "files": {},
   "note": "",
   "pending": {},

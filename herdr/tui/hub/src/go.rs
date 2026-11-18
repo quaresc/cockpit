@@ -30,11 +30,18 @@ pub fn go(target: &Value) -> Value {
     if app == "session" {
         return session(target);
     }
-    focus::request(app, target);
-    crate::views::focus(app, target);
+    // The app comes into view first, so the view that brings the item into view is there to hear it.
     if let Some(space) = space_of(app) {
         frontend::show_app(if app == "to-do" { "todo" } else { app }, space);
     }
+    focus::request(app, target);
+    crate::views::focus(app, target);
+    // A view the show just made subscribes a moment later: it hears the target again then.
+    let (app, target) = (app.to_string(), target.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        crate::views::focus(&app, &target);
+    });
     json!({"ok": true})
 }
 

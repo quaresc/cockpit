@@ -54,9 +54,22 @@
       "changes": {"files": 0, "add": 0, "del": 0, "ahead": 0, "behind": 0},
       "recap": "The quota model shipped in v2026.10.22.",
       "screen": "⏺ Merged api#2190."
-    }
+    },
+    {"terminal": "app:t48", "space": {"id": "sp-api", "name": "api"}, "tab": {"id": "tb-417", "name": "export retries"}, "title": "Retry failed CSV exports", "program": "codex", "status": "failed", "error": "stream disconnected before completion", "since_min": 4, "cwd": "/Users/me/code/api", "repo": "api", "branch": "me/eng-417-export-retries", "ticket": "ENG-417", "screen": "• Retrying the export job with backoff.\n\n■ stream disconnected before completion: the model provider returned an error"},
+    {"terminal": "app:t49", "space": {"id": "sp-billing", "name": "billing"}, "tab": {"id": "tb-419", "name": "proration"}, "title": "Prorate mid-cycle plan changes", "program": "claude", "status": "done", "session": "demo-419", "since_min": 12, "cwd": "/Users/me/code/billing", "repo": "billing", "branch": "me/eng-419-proration", "ticket": "ENG-419", "screen": "⏺ Updating the proration tests for mid-cycle upgrades.\n  ⎿  Interrupted · What should Claude do instead?"},
+    {"//": "parity:y2 — agents of other providers, so each logo shows: Gemini working, OpenCode at rest.",
+     "terminal": "app:t50", "space": {"id": "sp-web", "name": "web"}, "tab": {"id": "tb-421", "name": "search"}, "title": "Docs search ranking", "program": "gemini", "status": "working", "since_min": 7, "cwd": "/Users/me/code/web", "repo": "web", "branch": "me/eng-431-docs-search", "ticket": "ENG-431", "changes": {"files": 2, "add": 41, "del": 9, "ahead": 1, "behind": 0}, "recap": "Ranking titles above body matches in the docs search.", "screen": "✦ Reading src/search/rank.ts"},
+    {"terminal": "app:t51", "space": {"id": "sp-web", "name": "web"}, "tab": {"id": "tb-422", "name": "deps"}, "title": "Dependency upgrades", "program": "opencode", "status": "idle", "since_min": 240, "cwd": "/Users/me/code/web", "repo": "web", "branch": "me/deps-november", "recap": "Upgraded the test runner; two packages wait on a major release.", "screen": "Done: 14 packages upgraded."},
+    {"//": "parity:z3 — an agent stopped at its usage limit: blocked with nothing asked, its status line and mode line at the bottom of its screen.", "terminal": "app:t52", "space": {"id": "sp-api", "name": "api"}, "tab": {"id": "tb-433", "name": "search"}, "title": "Exact match for quoted keywords", "program": "claude", "status": "blocked", "since_min": 5, "cwd": "/Users/me/code/api-search", "repo": "api", "branch": "me/eng-433-quoted-keywords", "ticket": "ENG-433", "session": "demo-433", "context": 71, "cost": 3.12, "changes": {"files": 3, "add": 58, "del": 14, "ahead": 1, "behind": 0}, "recap": "Quoted keywords match as one phrase; two search edge cases were left when it reached its usage limit.", "screen": "⏺ Quoted keywords match as one phrase now; the two search edge cases are next.\n\n⏺ Bash(mix test test/api/search_test.exs)\n  ⎿  You've hit your limit · resets 8am (Europe/Paris)\n\n⏺ Usage limit reached · continuing automatically at 8am · esc to cancel\n\n  7d 100%\n  ⏵⏵ auto mode on (shift+tab to cycle)\n"}
   ],
-  "limits": {"limits": [{"name": "5h", "percent": 64, "resets_in_min": 95}, {"name": "7d", "percent": 38, "resets_in_min": 5800}]},
+  "usage": {
+    "about": "What core::usage reads instead of the files: Claude fresh, Codex stale, OpenCode installed but reporting nothing.",
+    "statusline": {"at_min": 2, "limits": [{"name": "5h", "percent": 64, "resets_in_min": 95}, {"name": "7d", "percent": 38, "resets_in_min": 5800}]},
+    "codex": {"at_min": 190, "plan_type": "plus", "primary": {"used_percent": 12, "window_minutes": 10080, "resets_in_min": 4300},
+              "credits": {"has_credits": false, "unlimited": false, "balance": "0"}},
+    "claude_account": {"emailAddress": "me@acme.example", "organizationName": "Acme"},
+    "installed": ["claude", "codex", "opencode"]
+  },
   "ledger": [
     {"ticket": "ENG-412", "terminal": "app:t41", "start_min": 180, "end_min": 6},
     {"ticket": "ENG-413", "terminal": "app:t42", "start_min": 95, "end_min": 2},
@@ -65,5 +78,19 @@
     {"ticket": "ENG-412", "terminal": "app:t41", "start_min": 1500, "end_min": 1380},
     {"ticket": "ENG-398", "terminal": "app:t44", "start_min": 2900, "end_min": 2700},
     {"ticket": "ENG-410", "terminal": "app:t47", "start_min": 4300, "end_min": 4080}
+  ],
+  "//driven": "Sessions cockpit drives itself, answered in memory: one waits on a permission, so its card shows without an account.",
+  "driven": [
+    {"key": "claude:demo-421", "agent": "claude", "session": "demo-421", "cwd": "/Users/me/code/api", "mode": "default", "model": "claude-opus-4-5", "cost": 0.38, "started_min": 9,
+     "messages": [
+       {"role": "user", "min": 9, "text": "Make the daily quota configurable per plan, and run the quota tests when it builds."},
+       {"role": "assistant", "min": 8, "tool": {"name": "Read", "summary": "lib/api/quota.ex", "ok": true}},
+       {"role": "assistant", "min": 8, "tool": {"name": "Grep", "summary": "daily_limit", "ok": true}},
+       {"role": "assistant", "min": 6, "text": "The limit is a constant today. I moved it to each plan's settings, with the current value as the default."},
+       {"role": "assistant", "min": 5, "tool": {"name": "Edit", "summary": "lib/api/quota.ex", "ok": true}},
+       {"role": "assistant", "min": 4, "tool": {"name": "Edit", "summary": "priv/repo/migrations/20261111_plan_daily_limit.exs", "ok": true}},
+       {"role": "assistant", "min": 1, "tool": {"name": "Bash", "summary": "mix test test/api/quota_test.exs", "ok": null}}
+     ],
+     "ask": {"tool_name": "Bash", "tool_use_id": "toolu_demo_421", "min": 1, "input": {"command": "mix test test/api/quota_test.exs", "description": "Run the quota tests"}}}
   ]
 }

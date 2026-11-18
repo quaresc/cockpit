@@ -129,12 +129,13 @@ impl App {
                     }
                 }
                 acts.push((Act::new(if r.paused { "resume" } else { "pause" }, 'p', "pause"), Cmd::Pause(slug.clone(), !r.paused)));
-                if r.run != "shell" {
-                    let models = cockpit_core::routines::MODELS;
+                // The models its agent takes, as the hub lists them; none to step through, no key.
+                let models = r.models.clone();
+                if r.run != "shell" && models.len() > 1 {
                     let at = models.iter().position(|m| m.eq_ignore_ascii_case(&r.model)).unwrap_or(0);
-                    let next = models[(at + 1) % models.len()];
+                    let next = models[(at + 1) % models.len()].clone();
                     let label = format!("model {}", if r.model.is_empty() { "default" } else { &r.model });
-                    acts.push((Act { label, key: Some('m'), id: "model".into(), ..Default::default() }, Cmd::Model(slug.clone(), next.into())));
+                    acts.push((Act { label, key: Some('m'), id: "model".into(), ..Default::default() }, Cmd::Model(slug.clone(), next)));
                 }
                 acts.push((Act::new("delete", 'D', "delete").confirm(&format!("delete-routine-{slug}")), Cmd::Delete(slug)));
             }
@@ -146,6 +147,8 @@ impl App {
                 }
                 if run.worktree.as_ref().is_some_and(|w| w.kept()) {
                     acts.push((Act::new("worktree", 'b', "worktree"), Cmd::Worktree(slug.clone(), id.clone())));
+                    let remove = Act::new("remove worktree", 'D', "remove_worktree").confirm(&format!("remove-run-{slug}-{id}"));
+                    acts.push((remove, Cmd::RemoveWorktree(slug.clone(), id.clone())));
                 }
                 acts.push((Act::new("run", 'r', "run"), Cmd::Run(slug)));
             }

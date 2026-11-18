@@ -1,12 +1,15 @@
 //! Routines: an agent's prompt or a shell script in ~/.config/cockpit/routines/<slug>.md that the hub runs on its own,
 //! on a schedule, every so often or when something happens. A file is a front matter of `key: value` lines, then the
-//! prompt (or the script); `when` says when it runs, in words or as cron.
+//! prompt (or the script); `when` says when it runs, in words or as cron, on the machine's clock or in `tz`.
 
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{Datelike, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
+use chrono_tz::Tz;
 use serde_json::Value;
 
+use crate::agent::Agent;
 use crate::files;
 
 pub fn dir() -> PathBuf {
@@ -314,6 +317,54 @@ fn plural(n: u64, unit: &str) -> String {
     if n == 1 { format!("every {unit}") } else { format!("every {n} {unit}s") }
 }
 
+/// The clock a routine's times are read on: the machine's, a named time zone, or a fixed offset (tests).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Zone {
+    Local,
+    Named(Tz),
+    Fixed(FixedOffset),
+}
+
+impl Zone {
+    /// `Europe/Paris`, `UTC`; empty or `local` is the machine's own.
+    pub fn parse(text: &str) -> Result<Zone, String> {
+        match text.trim() {
+            "" => Ok(Zone::Local),
+            t if t.eq_ignore_ascii_case("local") => Ok(Zone::Local),
+            t => Tz::from_str(t).map(Zone::Named).map_err(|_| format!("{t:?} is not a time zone: a name like Europe/Paris, or local")),
+        }
+    }
+
+    /// Its name as `tz` takes it, empty for the machine's own.
+    pub fn name(&self) -> String {
+        match self {
+            Zone::Named(tz) => tz.name().to_string(),
+            Zone::Local | Zone::Fixed(_) => String::new(),
+        }
+    }
+
+    /// What the clock reads at this instant.
+    pub fn local(&self, ms: u64) -> NaiveDateTime {
+        let at = chrono::DateTime::from_timestamp_millis(ms as i64).unwrap_or_default();
+        match self {
+            Zone::Local => at.with_timezone(&Local).naive_local(),
+            Zone::Named(tz) => at.with_timezone(tz).naive_local(),
+            Zone::Fixed(offset) => at.with_timezone(offset).naive_local(),
+        }
+    }
+
+    /// The instant the clock reads this: the first one when it reads it twice (the hour summer time ends), and the
+    /// end of the gap when it never does (the hour it starts).
+    pub fn epoch_ms(&self, at: NaiveDateTime) -> Option<u64> {
+        let instant = |at: NaiveDateTime| match self {
+            Zone::Local => Local.from_local_datetime(&at).earliest().map(|t| t.timestamp_millis()),
+            Zone::Named(tz) => tz.from_local_datetime(&at).earliest().map(|t| t.timestamp_millis()),
+            Zone::Fixed(offset) => offset.from_local_datetime(&at).earliest().map(|t| t.timestamp_millis()),
+        };
+        (0..=180).find_map(|m| instant(at + Duration::minutes(m))).map(|ms| ms as u64)
+    }
+}
+
 /// What a routine runs: a prompt for a coding agent, or a script.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Run {
@@ -328,10 +379,6 @@ pub enum Notify {
     Failed,
     Never,
 }
-
-/// The models a Claude Code routine picks from, cheapest first after its default: `lightest` is haiku at low effort
-/// with nothing loaded but the tools the routine lists.
-pub const MODELS: [&str; 5] = ["", "lightest", "haiku", "sonnet", "opus"];
 
 /// One routine as its file says.
 #[derive(Clone, Debug, PartialEq)]
@@ -362,6 +409,11 @@ pub struct Routine {
     pub worktree: bool,
     /// Minutes a scheduled run missed while the hub was down may still start late; 0 runs only on time.
     pub catch_up: u64,
+    /// A shell command run first: a non-zero exit skips the run, so it spends nothing when there is nothing to do.
+    pub precheck: String,
+    /// `tz` as written, and the clock its times are read on or why it is no time zone.
+    pub tz: String,
+    pub zone: Result<Zone, String>,
 }
 
 /// The `key: value` lines between two `---` lines at the top, and what follows.
@@ -443,6 +495,7 @@ impl Routine {
         let (fields, body) = front_matter(text);
         let get = |key: &str| fields.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone()).unwrap_or_default();
         let when_text = get("when");
+        let tz = get("tz");
         let truthy = |key: &str| ["true", "yes", "on", "1"].contains(&get(key).to_lowercase().as_str());
         Routine {
             slug: slug.into(),
@@ -467,6 +520,9 @@ impl Routine {
             paused: truthy("paused"),
             worktree: truthy("worktree"),
             catch_up: catch_up(&get("catch-up")),
+            precheck: get("precheck"),
+            zone: Zone::parse(&tz),
+            tz,
         }
     }
 
@@ -475,12 +531,27 @@ impl Routine {
         matches!(self.model.to_lowercase().as_str(), "lightest" | "light")
     }
 
-    /// How its `when` reads, or why it does not parse.
+    /// How its `when` reads, with the time zone its times are in when it names one, or why it does not parse.
     pub fn when_shown(&self) -> String {
-        match &self.when {
-            Ok(when) => when.describe(&self.when_text),
-            Err(err) => err.clone(),
+        match (&self.when, &self.zone) {
+            (Ok(when @ When::Cron(_)), Ok(zone @ Zone::Named(_))) => format!("{} in {}", when.describe(&self.when_text), zone.name()),
+            (Ok(when), _) => when.describe(&self.when_text),
+            (Err(err), _) => err.clone(),
         }
+    }
+
+    /// Why it cannot run on its own: its `when` does not parse, or its `tz` is no time zone.
+    pub fn broken(&self) -> Option<String> {
+        match (&self.when, &self.zone) {
+            (Err(err), _) => Some(err.clone()),
+            (_, Err(err)) => Some(format!("tz: {err}")),
+            _ => None,
+        }
+    }
+
+    /// The clock its times are read on; the machine's when its `tz` is broken, which keeps it from running anyway.
+    pub fn clock(&self) -> Zone {
+        self.zone.clone().unwrap_or(Zone::Local)
     }
 }
 
@@ -521,6 +592,147 @@ pub fn new_file(name: &str, when: &str, cwd: &str, body: &str) -> String {
     }
     head.push("---".into());
     format!("{}\n\n{}\n", head.join("\n"), body.trim())
+}
+
+/// A routine to start from: what fills the form, and nothing is saved until the form is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Template {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// What it does, in a line.
+    pub about: &'static str,
+    pub when: &'static str,
+    /// A script run with `sh -c` rather than a prompt for the agent.
+    pub shell: bool,
+    pub model: &'static str,
+    pub tools: &'static str,
+    pub mode: &'static str,
+    pub precheck: &'static str,
+    pub worktree: bool,
+    pub notify: &'static str,
+    pub body: &'static str,
+}
+
+impl Template {
+    /// The template as this agent takes it: a model only when the agent's table names it its own, tools and a permission
+    /// mode only on Claude Code, the one agent a routine passes them to.
+    pub fn on(&self, agent: &Agent) -> Template {
+        let own = agent.models.iter().any(|m| self.model == m || (m.ends_with(['-', '/']) && self.model.starts_with(m.as_str())));
+        let claude = agent.id == "claude";
+        Template { model: if own { self.model } else { "" }, tools: if claude { self.tools } else { "" }, mode: if claude { self.mode } else { "" }, ..*self }
+    }
+
+    /// The template as the built-in agent of this id takes it; one the table lacks gets no model, tools or mode.
+    pub fn for_agent(&self, id: &str) -> Template {
+        match crate::agent::builtin().iter().find(|a| a.id == id) {
+            Some(agent) => self.on(agent),
+            None => Template { model: "", tools: "", mode: "", ..*self },
+        }
+    }
+}
+
+/// The routines most people start with; their prechecks skip a run when there is nothing for it to do.
+pub const TEMPLATES: [Template; 4] = [
+    Template {
+        id: "morning-sweep",
+        name: "Morning sweep",
+        about: "Your open PRs each weekday morning: what waits for review, fails CI or can merge.",
+        when: "weekdays 09:00",
+        shell: false,
+        model: "sonnet",
+        tools: "Bash(gh search prs:*), Bash(gh pr view:*), Bash(gh pr checks:*)",
+        mode: "",
+        precheck: "gh search prs --author=@me --state=open --json number --jq length | grep -qv '^0$'",
+        worktree: false,
+        notify: "always",
+        body: "Sum up my open PRs: which wait for review, which fail CI, which can merge. Start with one line for the whole \
+               picture, then one line per PR.",
+    },
+    Template {
+        id: "ci-watcher",
+        name: "CI watcher",
+        about: "When CI fails on a PR of yours and is still red, what broke and the likely fix, in a few lines.",
+        when: "on ci-failed",
+        shell: false,
+        model: "sonnet",
+        tools: "Bash(gh run view:*), Bash(gh pr view:*), Bash(gh pr checks:*)",
+        mode: "",
+        precheck: "case \"$COCKPIT_EVENT_KEY\" in https://*/pull/*) gh pr checks \"$COCKPIT_EVENT_KEY\" --json bucket --jq \
+                   '[.[] | select(.bucket == \"fail\")] | length' | grep -qv '^0$' ;; *) true ;; esac",
+        worktree: false,
+        notify: "always",
+        body: "CI failed on a PR of mine; what set it off is below. Read the failing job's log with gh run view \
+               --log-failed and tell me in a few lines what broke and the likely fix. Change nothing.",
+    },
+    Template {
+        id: "worktree-cleanup",
+        name: "Weekly worktree cleanup",
+        about: "Every Friday, the worktrees of your repos whose branch merged, idle for 3 days and holding no work, removed.",
+        when: "fri 17:00",
+        shell: true,
+        model: "",
+        tools: "",
+        mode: "",
+        precheck: "",
+        worktree: false,
+        notify: "failed",
+        body: include_str!("routine-cleanup.sh"),
+    },
+    Template {
+        id: "release-check",
+        name: "Release check",
+        about: "Each weekday afternoon, which of your PRs merged since the last weekday are released and which still wait.",
+        when: "weekdays 16:00",
+        shell: false,
+        model: "haiku",
+        tools: "Bash(gh search prs:*), Bash(gh release list:*), Bash(gh release view:*)",
+        mode: "",
+        precheck: "days=1; [ \"$(date +%u)\" = 1 ] && days=3; since=$(date -d \"$days days ago\" +%F 2>/dev/null || date -v-\"$days\"d +%F); \
+                   gh search prs --author=@me --merged --merged-at=\">=$since\" --json number --jq length | grep -qv '^0$'",
+        worktree: false,
+        notify: "always",
+        body: "List my PRs merged since the last weekday with gh search prs, and for each one's repo whether its latest \
+               release (gh release list --limit 1) came after the merge. One line per PR: released, or still waiting.",
+    },
+];
+
+/// What needs a look among the hub's `routines` document, newest first: each routine whose latest run failed or was
+/// missed and is not read yet (a skip after it changes nothing), and each routine whose file is broken.
+pub fn needing_look(doc: &Value) -> Vec<Value> {
+    if doc["version"] != 1 {
+        return Vec::new();
+    }
+    let inbox_from = doc["inboxFrom"].as_u64().unwrap_or(u64::MAX);
+    let mut found = Vec::new();
+    for r in doc["routines"].as_array().into_iter().flatten() {
+        let slug = r["slug"].as_str().unwrap_or_default();
+        let name = r["name"].as_str().unwrap_or(slug);
+        if let Some(error) = r["error"].as_str().filter(|e| !e.is_empty()) {
+            found.push(serde_json::json!({"key": slug, "slug": slug, "id": null, "name": name, "word": "broken", "reason": error, "summary": error, "at": 0}));
+            continue;
+        }
+        let runs = doc["runs"][slug].as_array().map(Vec::as_slice).unwrap_or_default();
+        let Some(run) = runs.iter().find(|run| run["skipped"].is_null()) else { continue };
+        let word = if run["missed"] == true {
+            "missed"
+        } else if run["ok"] == false && run["stopped"] != true {
+            "failed"
+        } else {
+            continue;
+        };
+        let ended = run["ended"].as_u64().unwrap_or(0);
+        if run["read"] == true || ended <= inbox_from {
+            continue;
+        }
+        let id = run["id"].as_str().unwrap_or_default();
+        let summary = run["summary"].as_str().unwrap_or_default();
+        let reason = run["reason"].as_str().filter(|r| !r.is_empty()).unwrap_or(summary);
+        found.push(serde_json::json!({
+            "key": format!("{slug}/run/{id}"), "slug": slug, "id": id, "name": name, "word": word, "reason": reason, "summary": summary, "at": ended,
+        }));
+    }
+    found.sort_by_key(|item| std::cmp::Reverse(item["at"].as_u64().unwrap_or(0)));
+    found
 }
 
 #[cfg(test)]
@@ -610,6 +822,35 @@ mod tests {
     }
 
     #[test]
+    fn a_precheck_and_a_time_zone_read_from_the_file() {
+        let text = "---\nname: Reviews\nwhen: weekdays 09:00\ntz: Europe/Paris\nprecheck: gh pr list --search review-requested:@me | grep -q .\n---\nSum up.";
+        let r = Routine::parse("reviews", Path::new("/r/reviews.md"), text);
+        assert_eq!(r.precheck, "gh pr list --search review-requested:@me | grep -q .");
+        assert_eq!((r.tz.as_str(), r.zone.clone().map(|z| z.name())), ("Europe/Paris", Ok("Europe/Paris".to_string())));
+        assert_eq!((r.when_shown(), r.broken()), ("weekdays at 09:00 in Europe/Paris".to_string(), None));
+        let plain = Routine::parse("p", Path::new("/r/p.md"), "---\nwhen: every 30m\ntz: Asia/Tokyo\n---\nGo.");
+        assert_eq!(plain.when_shown(), "every 30 min", "an interval reads the same in every zone");
+        let bad = Routine::parse("b", Path::new("/r/b.md"), "---\nwhen: daily 09:00\ntz: Paris\n---\nGo.");
+        assert_eq!(bad.broken(), Some("tz: \"Paris\" is not a time zone: a name like Europe/Paris, or local".to_string()));
+        assert_eq!((bad.clock(), Zone::parse("local"), Zone::parse("")), (Zone::Local, Ok(Zone::Local), Ok(Zone::Local)));
+    }
+
+    #[test]
+    fn a_time_skipped_or_read_twice_by_summer_time_lands_once() {
+        let paris = Zone::parse("Europe/Paris").unwrap();
+        let utc = |text: &str| chrono::DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis() as u64;
+        // 2026-03-29 02:00 jumps to 03:00 in Paris: 02:30 never shows on its clocks, so it lands at 03:00.
+        assert_eq!(paris.epoch_ms(at("2026-03-29 02:30")), Some(utc("2026-03-29T01:00:00Z")));
+        assert_eq!(paris.epoch_ms(at("2026-03-29 09:00")), Some(utc("2026-03-29T07:00:00Z")));
+        assert_eq!(paris.epoch_ms(at("2026-03-28 09:00")), Some(utc("2026-03-28T08:00:00Z")));
+        // 2026-10-25 03:00 goes back to 02:00: 02:30 shows twice, the first one counts.
+        assert_eq!(paris.epoch_ms(at("2026-10-25 02:30")), Some(utc("2026-10-25T00:30:00Z")));
+        assert_eq!(paris.local(utc("2026-10-25T01:30:00Z")), at("2026-10-25 02:30"), "the second time it reads 02:30");
+        let fixed = Zone::Fixed(FixedOffset::east_opt(3600).unwrap());
+        assert_eq!(fixed.epoch_ms(at("2026-03-29 02:30")), Some(utc("2026-03-29T01:30:00Z")));
+    }
+
+    #[test]
     fn a_field_set_keeps_the_rest_of_the_file() {
         let text = "---\nname: x\nwhen: hourly\n---\n\nDo it.\n";
         let paused = set_field(text, "paused", "true");
@@ -626,5 +867,54 @@ mod tests {
         assert_eq!(slug_for(dir.path(), "sum up my PRs"), "sum-up-my-prs-2");
         let all = read_all(dir.path());
         assert_eq!((all.len(), all[0].name.as_str(), all[0].body.as_str()), (1, "Sum up my PRs!", "List them."));
+    }
+    #[test]
+    fn templates_read_as_routines_that_need_no_more_than_their_tools() {
+        let claude = crate::agent::builtin().into_iter().find(|a| a.id == "claude").unwrap();
+        let models = crate::models::for_routine(&claude, || {});
+        for t in TEMPLATES {
+            assert!(When::parse(t.when).is_ok(), "{}", t.id);
+            assert!(!t.body.is_empty() && !t.about.is_empty() && t.about.ends_with('.'), "{}", t.id);
+            assert!(t.shell || !t.tools.is_empty(), "an agent template lists its tools: {}", t.id);
+            assert!(models.iter().any(|m| m == t.model), "{}", t.id);
+            for script in [t.precheck].into_iter().chain(t.shell.then_some(t.body)).filter(|s| !s.is_empty()) {
+                let read = std::process::Command::new("sh").args(["-n", "-c", script]).output().unwrap();
+                assert!(read.status.success(), "{}: {}", t.id, String::from_utf8_lossy(&read.stderr));
+            }
+        }
+        let ids: Vec<&str> = TEMPLATES.iter().map(|t| t.id).collect();
+        assert_eq!(ids, ["morning-sweep", "ci-watcher", "worktree-cleanup", "release-check"]);
+        let agents = crate::agent::builtin();
+        let on = |id: &str| TEMPLATES[0].on(agents.iter().find(|a| a.id == id).unwrap());
+        assert_eq!((on("claude").model, on("claude").tools.is_empty()), ("sonnet", false));
+        assert_eq!((on("codex").model, on("codex").tools, on("codex").precheck), ("", "", TEMPLATES[0].precheck), "Codex takes neither");
+    }
+
+    #[test]
+    fn what_needs_a_look_is_each_routines_unread_failure_or_miss_and_each_broken_file() {
+        let doc = serde_json::json!({"version": 1, "inboxFrom": 100, "routines": [
+            {"slug": "a", "name": "A"}, {"slug": "b", "name": "B"}, {"slug": "c", "name": "C"}, {"slug": "d", "name": "D", "error": "when?"},
+            {"slug": "e", "name": "E"}, {"slug": "f", "name": "F"}, {"slug": "g", "name": "G"}],
+            "runs": {
+                "a": [{"id": "3", "ok": true, "skipped": "precheck", "ended": 900}, {"id": "2", "ok": false, "ended": 800, "summary": "exit 3", "reason": "Ended with exit 3."}],
+                "b": [{"id": "5", "ok": true, "ended": 700}, {"id": "4", "ok": false, "ended": 600}],
+                "c": [{"id": "6", "ok": false, "missed": true, "ended": 500, "summary": "Missed Sun 09:00: cockpit was not running then."}],
+                "e": [{"id": "7", "ok": false, "ended": 400, "read": true}],
+                "f": [{"id": "8", "ok": false, "stopped": true, "ended": 300}],
+                "g": [{"id": "9", "ok": false, "ended": 50}]}});
+        let look: Vec<(String, String, String)> = needing_look(&doc)
+            .iter()
+            .map(|x| (x["key"].as_str().unwrap().into(), x["word"].as_str().unwrap().into(), x["reason"].as_str().unwrap().into()))
+            .collect();
+        assert_eq!(
+            look,
+            [
+                ("a/run/2".into(), "failed".into(), "Ended with exit 3.".into()),
+                ("c/run/6".into(), "missed".into(), "Missed Sun 09:00: cockpit was not running then.".into()),
+                ("d".into(), "broken".into(), "when?".into()),
+            ],
+            "b ran fine since, e is read, f was stopped by hand, g ended before the inbox began"
+        );
+        assert!(needing_look(&serde_json::json!({"version": 2})).is_empty());
     }
 }

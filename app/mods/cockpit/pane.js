@@ -8,6 +8,7 @@ import { panes, props, run, spaces, home, notify } from "herdr";
 import { tokens, alpha, Button, Spinner, RADIUS, TEXT } from "./ui.js";
 import { openInEditor, editorLabel } from "./editor.js";
 import * as hub from "./hub.js";
+import { agentStatus } from "./fleet.js";
 
 function programIcon(p, size, color) {
   if (!p?.icon) return null;
@@ -45,7 +46,10 @@ export default class PaneHeader {
     if (done?.error) notify({ title: "Could not fork the session", body: done.error, level: "error" });
   }
 
-  status(k, st) {
+  status(k, raw) {
+    const st = agentStatus(raw);
+    if (st === "failed")
+      return div().flex_none().px(6).h(18).flex().items_center().rounded(RADIUS.sm).bg(alpha(k.destructive, 0.15)).text_size(TEXT.xs).font_semibold().text_color(k.destructive).child("Stopped with an error");
     if (st === "working") return Spinner({ size: 12, color: k.working });
     if (st === "blocked")
       return div().flex_none().px(6).h(18).flex().items_center().rounded(RADIUS.sm).bg(alpha(k.blocked, 0.15)).text_size(TEXT.xs).font_semibold().text_color(k.blocked).child("Needs you");

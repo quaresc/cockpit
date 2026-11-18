@@ -22,6 +22,8 @@ rrule.workspace = true
 notify.workspace = true
 nucleo-matcher.workspace = true
 libc = "0.2"
+# A stop by signal ends the hub as its idle exit does, the sidebar's limits token cleared.
+signal-hook = "0.3.18"
 # The feed's HTTPS calls to GitHub, Linear and CircleCI.
 ureq = { version = "3.5.0", default-features = false, features = ["rustls", "gzip"] }
 # The index of past agent sessions the palette searches.
@@ -37,3 +39,5 @@ sha2 = "0.10.9"
 
 [dev-dependencies]
 tempfile = "3"
+# The placement of real processes, for the tests of who may ask what.
+cockpit-agents = { path = "../agents" }

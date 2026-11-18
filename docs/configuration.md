@@ -16,7 +16,10 @@ tools are not mapped.
 | --- | --- | --- |
 | `reposDir` | `~` | The folder holding your git checkouts. |
 | `worktrees` | `false` | The inbox starts work on a branch checked out nowhere in a new herdr worktree. |
-| `spaces` | inbox, terminal, actions, to-do, runbook, meetings | The pinned herdr spaces, in order. A string, or `{name, cwd, icon, key}` for one of your own. |
+| `start.branch` | `{prefix}/{key}-{slug}` | The branch Start work makes for a ticket or a prompt: `{key}` is the ticket's key, `{slug}` a few words of its title or the prompt, and an empty part drops out. A branch name the tracker gives wins over it. |
+| `start.prefix` | `""` | What `{prefix}` stands for, such as `me`. |
+| `start.setup` | `{}` | A command per repo, by its folder name (`{"api": "npm ci"}`), that Start work runs in a new worktree before the agent. A new or changed command is asked about once, and a fork's PR runs it only when asked. |
+| `spaces` | inbox, terminal, actions, to-do, runbook, meetings | The pinned herdr spaces, in order. A string, or `{name, cwd, icon, key}` for one of your own. `monitor`, `routines`, `review` and `mail` are the other built-in ones. |
 | `editor` | `code` | The command the palette's "open in your editor" runs. |
 | `density` | `comfortable` | `compact` puts a row's buttons on the row itself and fits more rows. |
 | `herdrPluginRoot` | `""` | The herdr plugin folder; empty lets the mod find it in herdr's registry. |
@@ -49,6 +52,12 @@ itself and need no `tools`.
 | `agents.default` | the first installed | The agent cockpit starts, by id (`claude`, `codex`, `opencode`…). |
 | `agents.commands.<id>` | — | Overrides an agent's command line, field by field; a new id adds an agent. |
 | `agents.recap` | `auto` | `manual` stops the recap written a minute after a turn ends. |
+| `usage.commands` | none | Limits of a provider cockpit has no source for: `{"<agent id>": "<command>"}`, each command printing a JSON list of `{name, percent, resets_at}` (run at most every 10 minutes); its windows show under that agent's logo. |
+| `queue.drain` | `true` | Each prompt queued for an agent goes when its turn ends; `false` sends them only by hand. |
+| `chat.nextSteps` | `false` | After a finished answer, up to three suggested prompts appear above the box; 1, 2, 3 or a click fill it, never send. Works for any agent's conversation: Claude Code answers, with no tools, billed to your own Claude account; `chat.nextStepsAgent` names another agent that runs with no tools once one exists. |
+| `chat.nextStepsModel` | the session's model | The model next steps run on: a name, or one per agent id (`{"claude": "haiku"}`). |
+| `ci.tellAgents` | `true` | A CI run that ends red is told to the agent working on its PR, and green after it; `false` tells no agent. |
+| `github.reviewBots` | `false` | `address review` hands bots' review threads over too, after people's. |
 | `agents.pace` | `week` | `weekdays` moves the 7d quota bar's pace tick 20% per weekday and holds it over the weekend. |
 | `recap` | `{enabled: true, awayMinutes: 10}` | The recap shown when you come back to a space. |
 | `brief` | `{enabled, at: "08:30", weekends: false}` | The morning brief. |
@@ -56,11 +65,17 @@ itself and need no `tools`.
 | `deployWatch` | `{enabled, afterMinutes, tools}` | Checks errors after a deploy, through an observability connector. |
 | `monitor` | Datadog APM queries, `env: production` | The release monitor: `queries` ({service}, {env}), `moved` thresholds, `notify` (`mine`/`all`/`none`), `serviceReplace` when Datadog names a service differently from the platform. |
 | `runbookTools` | `[]` | Extra tools a runbook's background refresh may use. |
-| `names` | `true` | Short names given to agents; `false` turns them off. |
+| `names` | `true` | Agents, tabs and spaces named after their work: the name you gave, else the agent's own title, else its first prompt in a few words, never over a tab name you or another tool typed; `false` turns it off. |
 | `fetcher` | `true` | The Claude session the hub keeps for sources it cannot reach itself; `false` turns it off. |
 | `notifications` | `true` | Notifications at all. |
 | `e2eBrowser` | `terminal-browser` | Where an agent runs E2E tests: beside it, or Claude in Chrome. |
 | `browserIdleMinutes` | `60` | A browser whose space stayed out of view this long closes; `0` keeps it. |
 | `footer.links` | on in Claude Code | The links under the prompt; off in the Herdr app, whose status bar shows them. |
 
-`/cockpit` in Claude Code flips the eight settings worth changing day to day without editing the file.
+`/cockpit` in Claude Code flips the eight settings worth changing day to day without editing the file. In the Herdr
+app, **Cockpit settings** (at the foot of the sidebar, or ⌘⇧P then "Cockpit settings") shows every option that takes a
+switch, a choice or a short field, section by section, each with its default; under them it lists what only this file
+holds and opens it in your editor. `cockpit options` prints the same list in a terminal, and
+`cockpit options set <key> <value>` sets one there: `on` or `off`, one of a choice's values, a field's text or a
+number, checked before anything is written (a script or an agent's tools are told to ask you). The options an update
+brings (`queue.drain`, `ci.tellAgents`, `chat.nextSteps`) are asked about once after that update.

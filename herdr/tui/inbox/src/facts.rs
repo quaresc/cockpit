@@ -80,6 +80,21 @@ pub fn clock(ms: &Value) -> String {
     shown.unwrap_or_default()
 }
 
+/// A cache's millisecond timestamp as "09:00" today, "Tue 09:00" another day, on the clock `clock` reads.
+pub fn day_clock(ms: &Value) -> String {
+    let ms = ms.as_i64().unwrap_or(0);
+    let shown = if FROZEN.get().is_some() {
+        Utc.timestamp_millis_opt(ms).single().map(|t| (t.format("%Y-%m-%d").to_string(), t.format("%a %H:%M").to_string()))
+    } else {
+        Local.timestamp_millis_opt(ms).single().map(|t| (t.format("%Y-%m-%d").to_string(), t.format("%a %H:%M").to_string()))
+    };
+    match shown {
+        Some((day, _)) if day == today() => clock(&Value::from(ms)),
+        Some((_, at)) => at,
+        None => String::new(),
+    }
+}
+
 pub fn today() -> String {
     match FROZEN.get() {
         Some(at) => at.format("%Y-%m-%d").to_string(),

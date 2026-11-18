@@ -1,0 +1,36 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app, 90, 32)"
+---
+   Routines   7 routines · 1 running · 3 runs today · ~$0.76 this week
+
+ ▶ ⣾ Pull my notes       every 30 min                           running 40 s
+ ▶  Fix CI on checkout  on CI failing · checkout  ~$0.41 last  over its weekly budget
+    Standup notes       when?                                  never ran
+ ▶  Mo╭──────────────────────────────────────────────────────────────────────────╮
+    Pi│                                                                          │
+ ▶  Re│  New routine                                                             │
+    We│                                                                          │
+       │  name      from the prompt                                               │
+       │  when      weekdays 09:00                                                │
+       │  tz        Europe/London                                                 │
+       │            → weekdays at 09:00 in Europe/London · next Fri 10:00, Mon    │
+       │              10:00, Tue 10:00                                            │
+       │  prompt                                                                  │
+       │  folder    a folder of its own                                           │
+       │  precheck                                                                │
+       │            a shell command run first: exit 0 runs it, 1–125 skip it      │
+       │            quietly; other exits, and over 60 s, fail and notify          │
+       │  runs       Claude Code   Codex   shell                                  │
+       │  model      default   lightest   opus   sonnet   haiku   fable           │
+       │  worktree   no   one per run                                             │
+       │                                                                          │
+       │  the prompt is empty                                                     │
+───────│                                                                          │───────
+ Pull m╰──────────────────────────────────────────────────────────────────────────╯
+ shell · in /home/me/notes · notifies on failure
+ git pull --rebase --autostash
+ running for 40 s · every 30 min
+
+ ▸ stop  s     edit  e     open  o     pause  p     delete  D
+ q quit  enter main  a add  space runs  R refresh                             ▏^p palette

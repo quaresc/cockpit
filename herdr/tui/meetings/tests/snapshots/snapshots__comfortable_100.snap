@@ -37,4 +37,4 @@ expression: "render(&mut app, 100, 36)"
  bob
 
  ▸ join  m     open  o     prepare  p
- q quit  o open  m join  b brief  p prepare  w week                                     ▏^p palette
+ q quit  o open  m join  b brief  p prepare  w week  R refresh                          ▏^p palette

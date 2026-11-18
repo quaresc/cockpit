@@ -75,7 +75,8 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
                 let _ = writeln!(writer, "{}", json!({"error": "a request on TCP needs hub.json's token"}));
                 return;
             }
-            Ok(request) if refused(&gate, request["op"].as_str().unwrap_or_default()) => {
+            // Start work's plan reads the checkouts and asks the tracker: it stays on this machine.
+            Ok(request) if refused(&gate, request["op"].as_str().unwrap_or_default()) || (gate.read_only && request["kind"] == "start_work") => {
                 json!({"error": "this cockpit hub serves reads only off loopback: start it without COCKPIT_HUB_LISTEN to write from this machine"})
             }
             Ok(request) if request["op"] == "subscribe" => return subscribe(writer, &request),
@@ -92,8 +93,12 @@ pub fn serve<C: Conn>(stream: C, last: Arc<AtomicU64>, gate: Gate) {
     }
 }
 
-/// Writes the documents and views asked for, then each new version, until the other end goes; an empty line every half
-/// minute finds out when it did.
+/// How long a subscription stays silent before an empty line: well under the 30 s Herdr's socket reads wait before they
+/// give up, so an idle subscription is never read as a broken one.
+pub const HEARTBEAT: Duration = Duration::from_secs(10);
+
+/// Writes the documents and views asked for, then each new version, until the other end goes; an empty line every
+/// HEARTBEAT finds out when it did.
 fn subscribe<C: Conn>(mut writer: C, request: &Value) {
     let names: Vec<String> =
         request["docs"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|n| store::is_doc(n)).map(str::to_string).collect();
@@ -103,7 +108,7 @@ fn subscribe<C: Conn>(mut writer: C, request: &Value) {
     }
     views::subscribe(request, tx);
     loop {
-        let line = match rx.recv_timeout(Duration::from_secs(30)) {
+        let line = match rx.recv_timeout(HEARTBEAT) {
             Ok(line) => line,
             Err(RecvTimeoutError::Timeout) => String::new(),
             Err(RecvTimeoutError::Disconnected) => return,
@@ -120,6 +125,9 @@ fn subscribe<C: Conn>(mut writer: C, request: &Value) {
 fn not_ready(error: &Value) -> bool {
     error.as_str().is_some_and(|e| e.contains("is not available in this mode"))
 }
+
+/// The documents no client writes as a whole or by fields.
+const HUB_WRITES: [&str; 1] = ["queue"];
 
 pub fn handle(request: &Value) -> Value {
     let field = |name: &str| request[name].as_str().unwrap_or_default();
@@ -174,6 +182,11 @@ fn store_op(op: &str, request: &Value) -> Value {
         _ if !store::is_doc(name) => {
             json!({"error": format!("no document {name:?}: one of {}", store::DOCS.join(", "))})
         }
+        // The hub hands the queue's items to agents as prompts: they come in through the queue's own actions alone,
+        // which check who asks and whether the agent waits on a question.
+        "store.put" | "store.patch" if HUB_WRITES.contains(&name) => {
+            json!({"error": format!("{name} is written by the hub alone: use its actions (act queue add, edit, remove)")})
+        }
         "store.get" => json!({"value": store::global().get(name)}),
         "store.past" => {
             json!({"versions": store::global().past(name, request["since"].as_u64().unwrap_or(0))})
@@ -183,7 +196,8 @@ fn store_op(op: &str, request: &Value) -> Value {
             if not_ready(&request["value"]["error"]) {
                 return json!({"value": store::global().get(name)});
             }
-            json!({"value": store::global().update(name, |_| request["value"].clone()).1})
+            // A whole document from another writer keeps the hub's record of how fresh its sources are.
+            json!({"value": store::global().client_update(name, |before| feed::fresh::keep_record(before, request["value"].clone())).1})
         }
         "store.patch" => {
             let Some(fields) = request["fields"].as_object() else {
@@ -200,7 +214,7 @@ fn store_op(op: &str, request: &Value) -> Value {
             let merge = |doc: &Value| {
                 if name == "inbox" { feed::merge::mod_inbox(doc, fields) } else { store::patch(doc, fields) }
             };
-            json!({"value": store::global().update(name, merge).1})
+            json!({"value": store::global().client_update(name, merge).1})
         }
         other => json!({"error": format!("unknown op {other:?}")}),
     }
@@ -222,6 +236,14 @@ mod tests {
         for op in ["act", "go", "notify", "store.put", "store.patch", "store.lease", "store.release", "dance", ""] {
             assert!(refused(&gate(true), op), "{op} must not reach a hub read off loopback");
             assert!(!refused(&gate(false), op), "{op} belongs to a hub on this machine");
+        }
+    }
+
+    #[test]
+    fn no_client_writes_the_queue_the_hub_delivers_from() {
+        for op in ["store.put", "store.patch"] {
+            let asked = store_op(op, &json!({"op": op, "name": "queue", "value": {"items": [{"text": "rm -rf"}]}, "fields": {"items": []}}));
+            assert!(asked["error"].as_str().unwrap().contains("written by the hub alone"), "{asked}");
         }
     }
 }

@@ -99,3 +99,24 @@ fn keeps_what_another_process_added_while_typing() {
     let text = std::fs::read_to_string(&app.path).unwrap();
     assert!(text.starts_with("# To-do\n\n- [ ] from /todo\n- [ ] typed here\n"), "{text}");
 }
+
+/// A focus request (`cockpit focus todo:<text>`) from any process selects an item; its keys wait for the person's move.
+#[test]
+fn an_item_a_focus_request_selected_takes_no_key_that_acts_until_a_move() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app("pointed", Density::Comfortable);
+    let press = |app: &mut App, code: KeyCode| app.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+    let done = |app: &App| app.items().iter().find(|i| i.text.starts_with("ADR Noor")).map(|i| i.done);
+    app.focus("ADR Noor");
+    assert_eq!(app.sel, Sel::Item("ADR Noor".into()));
+    for code in [KeyCode::Char('x'), KeyCode::Char(' '), KeyCode::Char('D'), KeyCode::Enter, KeyCode::Char('e')] {
+        press(&mut app, code);
+    }
+    assert_eq!(done(&app), Some(false), "neither x nor space toggled it");
+    assert!(app.dialog.is_none() && app.editing.is_none(), "nor did D ask to delete it, nor ⏎ edit it");
+    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('k'));
+    assert_eq!(app.sel, Sel::Item("ADR Noor".into()));
+    press(&mut app, KeyCode::Char('x'));
+    assert_eq!(done(&app), Some(true), "moved to, it is the person's");
+}

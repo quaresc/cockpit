@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+cockpit-agents = { path = "../agents" }
 cockpit-core.workspace = true
 chrono.workspace = true
 crossterm.workspace = true

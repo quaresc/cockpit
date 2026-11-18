@@ -274,3 +274,19 @@ fn w_switches_to_the_releases_newest_first() {
     press(&mut app, 'w');
     assert_eq!(app.rows().len(), 9);
 }
+
+#[test]
+fn a_row_a_focus_request_selected_runs_nothing_until_a_move() {
+    let mut app = app(Density::Comfortable);
+    app.focus("api");
+    key(&mut app, KeyCode::Enter);
+    for c in ['o', 'A', 'p', 'r', 'u'] {
+        press(&mut app, c);
+    }
+    assert!(app.sent.is_empty(), "{:?}", app.sent);
+    assert!(app.pointed.is_on());
+    press(&mut app, 'j');
+    press(&mut app, 'k');
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(last(&app).action, "investigate", "moved to, its main action runs");
+}

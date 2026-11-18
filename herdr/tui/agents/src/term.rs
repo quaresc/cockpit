@@ -36,6 +36,8 @@ pub struct Live {
     pub transcript: Option<String>,
     /// The process its agent runs under (the terminal's), when the frontend says.
     pub pid: Option<u32>,
+    /// Every process its agent's tree starts at that the frontend names: the terminal's and its foreground's.
+    pub roots: Vec<u32>,
     pub context: Option<f64>,
     /// When its status began, when the source knows (the demo).
     pub since: Option<u64>,
@@ -126,6 +128,7 @@ fn demo_lives(world: &Value) -> Vec<Live> {
                 session: a["session"].as_str().map(str::to_string),
                 transcript: None,
                 pid: None,
+                roots: Vec::new(),
                 context: a["context"].as_f64(),
                 since: a["since"].as_u64(),
             }
@@ -249,6 +252,7 @@ fn app_live(t: &Value, core: &Value, place: Place) -> Option<Live> {
         session: found.session,
         transcript: found.transcript,
         pid: found.got["pid"].as_u64().map(|p| p as u32),
+        roots: [&found.got["pid"], &found.got["foreground"]["pid"]].iter().filter_map(|p| p.as_u64()).map(|p| p as u32).collect(),
         since: None,
     })
 }
@@ -362,7 +366,7 @@ fn foreground_agent(got: &Value) -> Option<Agent> {
 
 /// A resting agent that closed its turn is done until the person looks at it; only its transcript tells the two apart.
 fn finished(agent: Option<&Agent>, transcript: Option<&str>, status: String) -> String {
-    let ended = || Some(transcripts::turn(agent?.transcripts, Path::new(transcript?))? == Turn::Done);
+    let ended = || Some(matches!(transcripts::turn(agent?.transcripts, Path::new(transcript?))?, Turn::Done | Turn::Interrupted));
     if status == "idle" && ended() == Some(true) { "done".into() } else { status }
 }
 
@@ -381,7 +385,7 @@ fn unreported(agent: Option<&Agent>, found: &Found) -> Option<String> {
     let word = match transcripts::turn(agent.transcripts, Path::new(path)) {
         Some(Turn::Working) => "working",
         Some(Turn::Blocked) => "blocked",
-        Some(Turn::Done) => "done",
+        Some(Turn::Done | Turn::Interrupted) => "done",
         None => "idle",
     };
     Some(word.to_string())
@@ -426,7 +430,7 @@ fn attached_claude(t: &Value) -> Option<(String, String)> {
 
 fn status_word(s: &str) -> String {
     match s {
-        "error" => "blocked".into(),
+        "error" | "failed" => "failed".into(),
         "working" | "blocked" | "done" | "idle" => s.into(),
         _ => "idle".into(),
     }
@@ -443,6 +447,12 @@ pub fn take_tui_listing() -> Option<(Value, Value)> {
 fn tui_list() -> Vec<Live> {
     let panes = json_of(herdr(&["pane", "list"]));
     let spaces = json_of(herdr(&["workspace", "list"]));
+    // A pane's tab label, which the person or another tool may have typed; none where it is not listed, never the
+    // terminal's title, which the agent writes and which `title` carries.
+    let tabs = json_of(herdr(&["tab", "list"]));
+    let tab_label = |id: &str| -> Option<String> {
+        tabs["result"]["tabs"].as_array()?.iter().find(|t| t["tab_id"] == id).and_then(|t| t["label"].as_str()).map(str::to_string)
+    };
     if !panes.is_null() && !spaces.is_null() {
         *TUI_LISTING.lock().unwrap_or_else(|e| e.into_inner()) = Some((spaces.clone(), panes.clone()));
     }
@@ -483,7 +493,7 @@ fn tui_list() -> Vec<Live> {
             space_name: label(p["workspace_id"].as_str().unwrap_or_default()),
             space_id: s("workspace_id"),
             tab_id: s("tab_id"),
-            tab_name: s("terminal_title_stripped"),
+            tab_name: tab_label(&s("tab_id")).unwrap_or_default(),
             title: s("terminal_title_stripped"),
             program: agent.to_string(),
             agent: found.as_ref().map(|a| a.id.clone()).unwrap_or_default(),
@@ -493,6 +503,7 @@ fn tui_list() -> Vec<Live> {
             session,
             transcript,
             pid: pid.map(|p| p as u32),
+            roots: ["pid", "foreground_pid"].iter().filter_map(|k| p[*k].as_u64()).map(|p| p as u32).collect(),
             since: None,
         });
     }
@@ -527,7 +538,8 @@ fn percent_in(text: &str) -> Option<f64> {
 /// Its screen as text, `lines` of history above it.
 pub fn screen(handle: &str, lines: u32) -> Option<String> {
     if let Some(world) = demo() {
-        return world["agents"].as_array()?.iter().find(|a| a["terminal"] == handle).map(|a| a["screen"].as_str().unwrap_or_default().to_string());
+        // A demo agent with no screen stands for one whose screen could not be read.
+        return world["agents"].as_array()?.iter().find(|a| a["terminal"] == handle).and_then(|a| a["screen"].as_str()).map(str::to_string);
     }
     let n = lines.to_string();
     match handle.strip_prefix(APP) {
@@ -561,14 +573,25 @@ pub fn keys(handle: &str, keys: &[String]) -> Result<(), String> {
     if ok { Ok(()) } else { Err(format!("could not press {} in {handle}", keys.join(" "))) }
 }
 
-/// Pastes text and presses Enter (accents and all: key names cannot type them).
-pub fn paste(handle: &str, text: &str) -> Result<(), String> {
+/// Pastes text and presses Enter (accents and all: key names cannot type them). `into_menu` types into a menu's own
+/// field; otherwise a screen showing a menu refuses it, so words never land on a highlighted choice.
+pub fn paste(handle: &str, text: &str, into_menu: bool) -> Result<(), String> {
     if let Some(mut world) = demo() {
         demo_answered(&mut world, handle, true);
         return Ok(());
     }
+    // Words never go into a menu cockpit could not read, on either frontend: Enter would pick what its cursor is on.
+    if !into_menu && screen(handle, 0).is_some_and(|s| crate::prompt::menu_shown(&s)) {
+        return Err("it shows a menu cockpit cannot read: answer it in its terminal".into());
+    }
     let ok = match handle.strip_prefix(APP) {
-        Some(t) => hc(&["send", "--force", t, text]).is_some(),
+        // hc types into a waiting agent only when forced; cockpit has just looked at what its screen asks. Its switches end
+        // at `--`, so words that start with a dash stay words.
+        Some(t) => hc(&["send", "--force", "--", t, text]).is_some(),
+        // herdr's CLI takes no `--`.
+        None if cockpit_core::frontend::switch_like(text) => {
+            return Err("herdr would read words that start with a dash as one of its options: start with another word".into());
+        }
         None => herdr(&["pane", "send-text", handle, text]).is_some() && herdr(&["pane", "send-keys", handle, "enter"]).is_some(),
     };
     if ok { Ok(()) } else { Err(format!("could not type into {handle}")) }
@@ -675,6 +698,35 @@ mod tests {
         assert_eq!(place(&lives[0]), ("sp1".into(), "acme/api".into(), "tb1".into(), "1".into()), "the space and tab the app placed it in");
         assert_eq!(place(&lives[1]), ("sp2".into(), "acme/web".into(), "tb2".into(), String::new()), "a place without a tab");
         assert_eq!((lives[0].address.as_str(), lives[0].frontend, lives[0].pid), ("t1", "app", Some(4242)));
+    }
+
+    #[test]
+    fn a_tui_tab_is_named_by_its_own_label_never_by_its_agent_s_terminal_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let pane = |id: &str, tab: &str| {
+            json!({"pane_id": id, "tab_id": tab, "workspace_id": "w1", "agent": "amp", "agent_status": "idle", "cwd": "/home/maya/acme/api",
+                   "terminal_title_stripped": "✳ Amp"})
+        };
+        let panes = json!({"result": {"panes": [pane("w1:p1", "w1:t1"), pane("w1:p2", "w1:t2")]}});
+        let spaces = json!({"result": {"workspaces": [{"workspace_id": "w1", "label": "acme/api"}]}});
+        // Herdr 0.9.5 labels a new tab with its number; the second tab is not in this listing.
+        let tabs = json!({"result": {"tabs": [{"tab_id": "w1:t1", "label": "2", "number": 2}]}});
+        let script = format!(
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"pane list\") echo '{panes}' ;;\n\"workspace list\") echo '{spaces}' ;;\n\"tab list\") echo '{tabs}' ;;\n*) exit 1 ;;\nesac\n"
+        );
+        let herdr = dir.path().join("herdr");
+        std::fs::write(&herdr, script).unwrap();
+        std::fs::set_permissions(&herdr, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        // SAFETY: the only test of this crate that reads HERDR_BIN_PATH.
+        unsafe { std::env::set_var("HERDR_BIN_PATH", &herdr) };
+        let lives = tui_list();
+        unsafe { std::env::remove_var("HERDR_BIN_PATH") };
+        let tabs: Vec<(&str, &str, &str)> = lives.iter().map(|l| (l.handle.as_str(), l.tab_name.as_str(), l.title.as_str())).collect();
+        assert_eq!(tabs, [("w1:p1", "2", "✳ Amp"), ("w1:p2", "", "✳ Amp")], "an unlisted tab has no label: the title stays the title");
+        let amp = agent::builtin().into_iter().find(|a| a.id == "amp");
+        let known = cockpit_core::names::agent_names("amp", amp.as_ref());
+        let known: Vec<&str> = known.iter().map(String::as_str).collect();
+        assert!(lives.iter().all(|l| cockpit_core::names::default_label(&l.tab_name, &known)));
     }
 
     #[test]

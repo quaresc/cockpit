@@ -7,9 +7,10 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextView } from "gpui-base";
 import { settings } from "herdr";
 import * as hub from "./hub.js";
+import { take, holds, MOVE_FIRST } from "./person.js";
 import {
-  tokens, TEXT, RADIUS, Icon, Badge, Button, ListRow, PageHeader, SearchField, KeyHints, Empty, ErrorState, Skeleton, Command,
-  Toaster, Flashes, Scroller, Hover, Progress, Section, SidePanel, Tabs, Avatar, Spinner, openMenu, alpha, StageHeading,
+  tokens, TEXT, RADIUS, Icon, Badge, Button, ListRow, PageHeader, SearchField, KeyHints, Empty, Skeleton, Command,
+  Toaster, Flashes, Scroller, Hover, Progress, Section, SidePanel, Tabs, Avatar, Spinner, openMenu, alpha, StageHeading, sourceKey, HubDownBody,
 } from "./ui.js";
 
 const mono = () => settings().font ?? "JetBrains Mono";
@@ -64,7 +65,7 @@ export default class Meetings {
       { views: ["meetings"], focus: "meetings" },
       (m, cx) => {
         if (m.view === "meetings") this.take(m.value, cx);
-        if (m.focus === "meetings") this.focusOn(m.target?.key, cx);
+        if (m.focus === "meetings") this.focusOn(m.target?.key, cx, true);
         cx.notify();
       },
       (state, cx) => {
@@ -85,19 +86,29 @@ export default class Meetings {
     });
   }
 
+  /** The header's source chips say an age: drawn again every 30 s while there are some (the copy's clock, main.js). */
+  tick(cx, now) {
+    if (!this.model?.sources?.length || now - (this.aged ?? 0) < 30_000) return;
+    this.aged = now;
+    cx.notify();
+  }
+
   close() {
     this.closed = true;
     this.sub?.stop();
   }
 
-  command(c, cx) {
+  /** A meeting's menu item (`key` its menu's); a window command prepares no brief. */
+  command(c, cx, key = null) {
     if (c === "focus" || c === "show:meetings") this.handle.focus();
     const [scope, action, ...rest] = c.split(":");
     if (scope === "meetings") {
       const m = this.meeting(rest.join(":"));
-      if (m) {
+      const person = take(c, key);
+      if (m && (action !== "prepare" || person)) {
         this.sel = m.id;
-        if (action === "golist") this.focusOn(m.id, cx);
+        this.pointed = !person;
+        if (action === "golist") this.focusOn(m.id, cx, !person);
         else this.run(cx, action, m);
       }
     }
@@ -168,7 +179,11 @@ export default class Meetings {
     if (!this.meeting(this.sel) || !this.selectable().includes(this.sel)) this.sel = this.mode === "list" ? this.defaultSel() : this.selectable()[0] ?? this.sel;
   }
 
-  focusOn(id, cx) {
+  /**
+   * A meeting brought into view with its brief open. Pointed at by a hub focus or a command (`pointed`), it takes no
+   * key that acts until the person moves to it or clicks.
+   */
+  focusOn(id, cx, pointed = false) {
     const m = this.meeting(id);
     if (!m) {
       if (id) this.toasts.push(cx, "That meeting is not in this week's calendar any more");
@@ -180,6 +195,7 @@ export default class Meetings {
     }
     this.mode = "list";
     this.sel = m.id;
+    this.pointed = pointed;
     this.open.add(m.id);
     this.showDetails = true;
     this.flashes.start(cx, m.id, tokens().ring);
@@ -341,6 +357,8 @@ export default class Meetings {
       }
       return false;
     }
+    if (sourceKey(e, this.model?.sources, cx, this, { refresh: true })) return true;
+    if (holds(this, e)) return this.toasts.push(cx, MOVE_FIRST, { kind: "info" }), cx.notify(), true;
     const m = this.selected();
     switch (k) {
       case "ctrl-p":
@@ -858,6 +876,8 @@ export default class Meetings {
         }
       })
       .on_mouse_down("left", () => {
+        // A click in the view makes the row the person's, whatever a command pointed at.
+        this.pointed = false;
         if (!this.filtering && !this.palette) this.handle.focus();
       })
       .on_key_down((e, cx) => {
@@ -868,6 +888,9 @@ export default class Meetings {
           icon: "calendar",
           title: "Meetings",
           description,
+          sources: m?.sources,
+          view: this,
+          narrow: this.width < 760,
           actions: [
             Tabs("meetings-mode", { items: VIEWS.map((v) => ({ ...v, label: this.width < 640 ? "" : v.label })), value: this.mode, onChange: (v, cx) => this.setMode(cx, v) }),
             Button("meetings-commands", { icon: "command", variant: "ghost", size: "icon", tooltip: "Commands  ctrl+p", onClick: (_e, cx) => this.openPalette(cx) }),
@@ -877,7 +900,7 @@ export default class Meetings {
       );
     if (!m) {
       const inner = this.status.startsWith("error")
-        ? ErrorState({ title: "Cannot reach the cockpit hub", message: this.status.slice(7) })
+        ? HubDownBody("meetings-hub-down", this, this.status, k)
         : v_flex().p(24).gap(12).children([0, 1, 2, 3].map((i) => h_flex().gap(10).child(Skeleton({ w: 52, h: 32 })).child(Skeleton({ w: 180 + ((i * 97) % 220), h: 32 }))));
       return this.overlays(root.child(inner), k, cx);
     }

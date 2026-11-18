@@ -21,7 +21,7 @@ const PAST: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("past");
 const EVENTS: TableDefinition<(u64, u32), &[u8]> = TableDefinition::new("events");
 const KEEP_PAST_MS: u64 = 7 * 86_400_000;
 /// Fields that change on every write without saying anything new: a version differing only by them is not kept as past.
-const VOLATILE: [&str; 3] = ["at", "modAt", "hub"];
+const VOLATILE: [&str; 4] = ["at", "modAt", "modFetched", "hub"];
 /// How long another hub may hold the database, as when a newer binary takes over, before this one runs on the mirrors.
 const OPEN_WAIT: Duration = Duration::from_secs(10);
 
@@ -40,6 +40,13 @@ static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 /// The hub's store, on ~/.cache/cockpit; opened by the first call.
 pub fn global() -> MutexGuard<'static, Store> {
     STORE.get_or_init(|| Mutex::new(Store::open(&cockpit_core::files::cache(), OPEN_WAIT))).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+static HANDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this process's store was closed for a hub taking over: told without waiting on the store's lock.
+pub fn handed_over() -> bool {
+    HANDED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 pub fn is_doc(name: &str) -> bool {
@@ -108,14 +115,25 @@ impl Store {
     }
 
     /// Writes the document `merge` makes of the current one, and returns both; nothing is written when it is the same.
+    /// Its events say the hub made them (`by: "hub"`).
     pub fn update(&mut self, name: &str, merge: impl FnOnce(&Value) -> Value) -> (Value, Value) {
+        self.write(name, "hub", merge)
+    }
+
+    /// `update` for a write a client sent (`store.put` or `store.patch`): its events say so (`by: "client"`), and
+    /// nothing that acts for the person acts on them.
+    pub fn client_update(&mut self, name: &str, merge: impl FnOnce(&Value) -> Value) -> (Value, Value) {
+        self.write(name, "client", merge)
+    }
+
+    fn write(&mut self, name: &str, by: &str, merge: impl FnOnce(&Value) -> Value) -> (Value, Value) {
         let before = self.get(name);
         if self.closed {
             return (before.clone(), before);
         }
         let after = merge(&before);
         if after != before {
-            self.persist(name, &before, &after);
+            self.persist(name, by, &before, &after);
             let _ = mirror(&self.dir.join(format!("{name}.json")), &after);
             self.docs.insert(name.to_string(), after.clone());
             self.push(name, &after);
@@ -125,7 +143,7 @@ impl Store {
     }
 
     /// Into the database, opened again first when another hub held it at the start.
-    fn persist(&mut self, name: &str, before: &Value, after: &Value) {
+    fn persist(&mut self, name: &str, by: &str, before: &Value, after: &Value) {
         if self.db.is_none() {
             self.db = create(&self.dir.join("store.redb")).ok();
         }
@@ -145,6 +163,7 @@ impl Store {
                         let mut event = event.clone();
                         event["at"] = json!(now);
                         event["doc"] = json!(name);
+                        event["by"] = json!(by);
                         table.insert((now, n as u32), pack(&event).as_slice())?;
                     }
                     table.retain_in((0, 0)..(now.saturating_sub(KEEP_PAST_MS), 0), |_, _| false)?;
@@ -160,6 +179,7 @@ impl Store {
     pub fn close(&mut self) {
         self.db = None;
         self.closed = true;
+        HANDED.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// What happened since `since_ms`, newest first, at most `limit` of them: {at, doc, app, key, title} each.
@@ -330,6 +350,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(2));
         store.update("inbox", |_| json!({"version": 1, "tickets": [{"id": "ENG-1", "status": "Done"}, {"id": "ENG-2", "status": "Todo", "title": "b"}]}));
         let events = store.events(0, 10);
+        assert!(events.iter().all(|e| e["by"] == "hub"), "{events:?}");
         let titles: Vec<&str> = events.iter().map(|e| e["title"].as_str().unwrap()).collect();
         assert_eq!(titles, ["🎫 Assigned: ENG-2 b", "🎫 ENG-1: Todo → Done"]);
         assert_eq!((&events[0]["doc"], &events[0]["key"]), (&json!("inbox"), &json!("ENG-2")));

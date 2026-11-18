@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
   const calls = [], clients = new Set(), messages = [];
-  const behavior = { token: "test-token", silent: false, bytewise: false, tickets: [{ id: "ENG-401" }] };
+  const behavior = { token: "test-token", silent: false, bytewise: false, hangs: 0, tickets: [{ id: "ENG-401" }] };
   const server = net.createServer(socket => {
     clients.add(socket);
     socket.on("close", () => clients.delete(socket));
@@ -40,12 +40,18 @@ async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
       readTextFile: async (path, options) => {
         calls.push(["read", path, options]);
         if (path === "C:/Herdr/cockpit.json") return JSON.stringify(install);
+        if (path.endsWith("/hub.stopped")) return behavior.stopped ? "" : null;
         assert.equal(options?.on, install.machine);
         return JSON.stringify(info);
       },
       exec: async (...args) => { calls.push(["exec", ...args]); return behavior.exec ?? { code: 0, stdout: JSON.stringify({ ...info, token: behavior.token }), stderr: "" }; },
     },
     net: { default: { connect: async (host, port) => {
+      if (behavior.hangs > 0) {
+        behavior.hangs -= 1;
+        calls.push(["hang", host, port]);
+        return new Promise(() => {});
+      }
       calls.push(["connect", host, port]);
       const socket = net.createConnection({ host, port });
       await once(socket, "connect");
@@ -151,6 +157,10 @@ test("Copy on a remote desk writes the clipboard and never calls the hub", async
     "gpui-base": { h_flex: stubs.h_flex, v_flex: stubs.v_flex, InputState: stubs.InputState },
     herdr: { props: () => ({}), focused: () => null, panes: () => [], shared: () => ({}), settings: () => ({}) },
   };
+  // Every other module it imports by name is stubbed whole: the copy needs none of them.
+  for (const m of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"(\.\/[^"]+)"/g)) {
+    modules[m[2]] ??= Object.fromEntries(m[1].split(",").map(n => n.trim().split(/\s+as\s+/)[0]).filter(Boolean).map(n => [n, stubs[n]]));
+  }
   const module = new SourceTextModule(source, { context: f.context });
   await module.link(name => new SyntheticModule(Object.keys(modules[name]), function () {
     for (const [key, value] of Object.entries(modules[name])) this.setExport(key, value);
@@ -385,3 +395,134 @@ test("a notification that needs the runner's own terminals says so", async t => 
   await assert.rejects(f.hub.cockpit(["focus", "herdr-app:workspace:s1"]), /read-only/);
   await assert.rejects(f.hub.cockpit(["focus", "herdr-app:resume"]), /read-only/);
 });
+
+test("a task is given up when its own timer goes quiet or its steps outlast every bound, never while it waits to retry", async t => {
+  const { hub } = await fixture(t);
+  const now = 100_000;
+  const at = (fields) => ({ connecting: true, parked: false, answered: true, moved: now - 1000, alive: now - 500, ...fields });
+  assert.equal(hub.stuck(at({}), now), false, "a step under way, its context alive");
+  assert.equal(hub.stuck(at({ alive: now - hub.SILENT_MS - 1 }), now), true, "its context went: its timer stopped");
+  assert.equal(hub.stuck(at({ moved: now - 12_000 }), now), false, "a 10 s step that is still bounded");
+  assert.equal(hub.stuck(at({ moved: now - hub.STUCK_MS - 1 }), now), true, "longer than every step together");
+  assert.equal(hub.stuck(at({ connecting: false, alive: 0 }), now), false, "a live subscription is no task to give up");
+  assert.ok(hub.STUCK_MS > 20_000, "longer than the largest bounded step, a hub start included");
+  assert.equal(hub.stuck(at({ answered: false, moved: now - 9_000 }), now), false, "a first step still within its bound");
+  assert.equal(hub.stuck(at({ answered: false, moved: now - hub.FIRST_MS - 1 }), now), true, "a first try the hub never answered");
+  assert.ok(hub.FIRST_MS > 10_000 && hub.FIRST_MS < hub.STUCK_MS, "past the 10 s bound of a step, well short of every step together");
+});
+
+test("a first connect that never answers is given up after about 10 s, not the full 40", async t => {
+  let jump = 0;
+  class Clock extends Date {
+    static now() { return Date.now() + jump; }
+  }
+  const f = await fixture(t, false, { Date: Clock });
+  f.behavior.hangs = 1;
+  const r = runtime(t), beats = [];
+  r.cx.timer.every = (_ms, callback) => (beats.push(callback), { cancel: () => beats.splice(beats.indexOf(callback), 1) });
+  const beat = () => [...beats].forEach((b) => b(r.cx));
+  const subscription = f.hub.subscribe(r.cx, { views: ["inbox"] }, r.message, r.state);
+  t.after(() => subscription.stop());
+  await until(() => f.calls.some((c) => c[0] === "hang"));
+  jump = 5_000;
+  beat();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(r.received.length, 0, "5 s in, the first try keeps its chance");
+  assert.ok(!r.states.includes("live"));
+  jump = 5_000 + f.hub.FIRST_MS;
+  beat();
+  await until(() => r.received.length === 1);
+  assert.equal(r.states.at(-1), "live", "a new task got there, long before STUCK_MS");
+});
+
+test("the watchdog parks copies that stopped beating and closes only sockets on another hub's port it knows", async t => {
+  const { hub } = await fixture(t);
+  const sub = (beat, port, socket = {}) => ({ beat, port, socket, parked: false, stopped: false });
+  const a = sub(100_000, 5001), b = sub(100_000, 5000), gone = sub(80_000, 5001);
+  const plain = (v) => JSON.parse(JSON.stringify({ park: v.park.map((s) => [a, b, gone].indexOf(s)), close: v.close.map((s) => [a, b, gone].indexOf(s)) }));
+  assert.deepEqual(plain(hub.verdict([a, b, gone], 5001)), { park: [2], close: [1] }, "the gone copy parked, b on an old hub closed");
+  assert.deepEqual(plain(hub.verdict([a, b, gone], null)), { park: [2], close: [] }, "a ping that failed closes nothing");
+  gone.parked = true;
+  assert.deepEqual(plain(hub.verdict([a, b, gone], 5001)), { park: [], close: [1] }, "a parked copy waits for its own beat");
+});
+
+test("a hub stopped on purpose is started again only by Start it, and a runner's hub never by a desk on its own", async t => {
+  const local = await fixture(t, false);
+  local.behavior.stopped = true;
+  await assert.rejects(local.hub.startHub(), (e) => local.hub.isStoppedOnPurpose(e));
+  assert.equal(local.calls.filter((c) => c[0] === "exec").length, 0, "nothing started");
+  await local.hub.startHub({ explicit: true });
+  const started = (calls) => calls.some((c) => c[0] === "exec" && JSON.stringify(c).includes('"hub","start"'));
+  assert.ok(started(local.calls), "Start it starts it");
+  const remote = await fixture(t, true);
+  remote.behavior.exec = { code: 1, stdout: "", stderr: "" };
+  await assert.rejects(remote.hub.startHub(), /runner's cockpit hub is not running/);
+  assert.ok(!started(remote.calls), "the desk only asked whether it runs");
+});
+
+test("a machine that slept takes no copy for gone: all three keep their values after a 60 s jump of the clock", async t => {
+  let jump = 0;
+  class Clock extends Date {
+    static now() { return Date.now() + jump; }
+  }
+  const f = await fixture(t, false, { Date: Clock });
+  // Three copies, each with its own context whose beat the test fires by hand.
+  const copies = [0, 1, 2].map(() => {
+    const r = runtime(t), beats = [];
+    r.cx.timer.every = (_ms, callback) => (beats.push(callback), { cancel: () => beats.splice(beats.indexOf(callback), 1) });
+    return { ...r, beats, beat: () => beats.forEach((b) => b(r.cx)) };
+  });
+  const subs = copies.map((c) => f.hub.subscribe(c.cx, { views: ["inbox"] }, c.message, c.state));
+  t.after(() => subs.forEach((s) => s.stop()));
+  await until(() => copies.every((c) => c.received.length >= 1));
+  for (const c of copies) c.beat();
+  await new Promise((r) => setTimeout(r, 20));
+  jump = 60_000;
+  // The first copy to beat after the wake runs the watchdog, the others not beaten since before the sleep.
+  copies[0].beat();
+  await new Promise((r) => setTimeout(r, 50));
+  // The other two have not beaten since: they still follow the hub, on the sockets they had.
+  for (const socket of f.clients) socket.write('{"view":"inbox","value":{"tickets":[{"id":"ENG-402"}]}}\n');
+  await until(() => copies.every((c) => c.received.some((m) => m.value?.tickets?.[0]?.id === "ENG-402")));
+  assert.ok(copies.every((c) => c.states.at(-1) === "live"), "every copy is still live");
+});
+
+test("every surface words a hub that does not answer the same way: stopped on purpose, else not running", async t => {
+  const { hub } = await fixture(t, false);
+  assert.equal(hub.downWords("error: the cockpit hub was stopped on purpose"), "The cockpit hub was stopped");
+  assert.equal(hub.downWords("error: connect ECONNREFUSED 127.0.0.1:7410"), "The cockpit hub isn't running");
+  assert.equal(hub.downWords("error: the cockpit hub was stopped on purpose", true), "Hub stopped");
+  assert.equal(hub.downWords("error: timed out", true), "Hub not running");
+});
+
+test("the window keeps why it last failed to reach the hub, in the error's own words", async t => {
+  const f = await fixture(t, false), r = runtime(t);
+  assert.equal(f.hub.lastFailure(), null);
+  assert.equal(f.hub.downReason("connecting"), "", "nothing failed yet");
+  // hub.json names a port nothing listens on, and starting a hub fails with what the binary said.
+  f.info.port = 1;
+  f.behavior.exec = { code: 1, stdout: "", stderr: "cockpit hub: address already in use (port 7410)\n" };
+  const sub = f.hub.subscribe(r.cx, { views: ["inbox"] }, r.message, r.state);
+  t.after(() => sub.stop());
+  await until(() => r.states.some((s) => s.startsWith("error")));
+  const state = r.states.find((s) => s.startsWith("error"));
+  assert.equal(state, "error: cockpit hub: address already in use (port 7410)");
+  assert.equal(f.hub.lastFailure().message, "cockpit hub: address already in use (port 7410)");
+  assert.ok(f.hub.lastFailure().at > 0);
+  assert.equal(f.hub.downReason(state), "cockpit hub: address already in use (port 7410)");
+  assert.equal(f.hub.downTip(state), "The cockpit hub isn't running: cockpit hub: address already in use (port 7410)");
+  // While it tries again, the reason of the try before is still the one to say.
+  assert.equal(f.hub.downReason("connecting"), "cockpit hub: address already in use (port 7410)");
+  assert.equal(f.hub.downTip("error: the cockpit hub was stopped on purpose"), "The cockpit hub was stopped on purpose, with cockpit hub stop");
+  sub.stop();
+  // A subscription its own copy stopped says nothing about the hub.
+  assert.equal(f.hub.lastFailure().message, "cockpit hub: address already in use (port 7410)");
+  // An old failure is no reason any more.
+  assert.equal(f.hub.lastFailure(Date.now() + 11 * 60_000), null);
+  // Reaching the hub again clears it.
+  f.info.port = f.server.address().port;
+  assert.equal((await f.hub.view("inbox")).tickets[0].id, "ENG-401");
+  assert.equal(f.hub.lastFailure(), null);
+  assert.equal(f.hub.downReason("connecting"), "");
+});
+

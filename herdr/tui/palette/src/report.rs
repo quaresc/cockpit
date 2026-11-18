@@ -48,6 +48,16 @@ impl Report {
         Report { title: "Cockpit doctor".into(), rows: vec![row("…", DIM, "checking every part of cockpit")], state: ListState::default(), running: Some(rx) }
     }
 
+    /// Every agent's limits and the week's tokens, as `cockpit usage` shows them, read in the background.
+    pub fn usage() -> Report {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(usage_rows(&cockpit_core::usage::fetch(true)));
+            term::redraw();
+        });
+        Report { title: "Usage and limits".into(), rows: vec![row("…", DIM, "Loading usage…")], state: ListState::default(), running: Some(rx) }
+    }
+
     /// The brief the mod wrote this morning; an older one says its date.
     pub fn brief(brief: &Value, today: &str) -> Report {
         let date = brief["date"].as_str().unwrap_or_default();
@@ -168,6 +178,23 @@ pub fn doctor_rows(out: &str) -> Vec<Row> {
         return vec![row("✗", RED, "cockpit doctor printed nothing")];
     }
     rows.into_iter().map(|(_, r)| r).collect()
+}
+
+/// The usage page's lines as rows, the mark saying what each is.
+fn usage_rows(view: &Value) -> Vec<Row> {
+    use cockpit_core::usage::Tone;
+    cockpit_core::usage::text(view)
+        .into_iter()
+        .filter(|(_, text)| !text.is_empty())
+        .map(|(tone, text)| match tone {
+            Tone::Head => row("▸", ORANGE, text),
+            Tone::Warn => row("!", ORANGE, text),
+            Tone::Bad => row("✗", RED, text),
+            Tone::Good => row("✓", GREEN, text),
+            Tone::Dim => row(" ", DIM, text),
+            Tone::Plain => row(" ", FG, text),
+        })
+        .collect()
 }
 
 #[cfg(test)]

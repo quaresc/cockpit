@@ -55,7 +55,7 @@
         "pane",
         "run",
         "wT:p1",
-        "claude 'Pick up ENG-403 (https://linear.app/acme/issue/ENG-403/reset): read the ticket, find the repos involved, and propose a plan before coding.'"
+        "sh <BOX>/home/.cache/cockpit/prompts/plan-eng-403-<R>.sh"
       ],
       "cmd": "herdr",
       "stdin": null
@@ -68,7 +68,9 @@
       "plan eng-403": "wT:p1",
       "review web#9": "w9:p1",
       "talk eng-403": "w9:p4"
-    }
+    },
+    "home/.cache/cockpit/prompts/plan-eng-403-<R>.prompt": "Pick up ENG-403 (https://linear.app/acme/issue/ENG-403/reset): read the ticket, find the repos involved, and propose a plan before coding.",
+    "home/.cache/cockpit/prompts/plan-eng-403-<R>.sh": "# An agent on a prompt read from a file: nothing of it is typed into a shell.\nP=<BOX>/home/.cache/cockpit/prompts/plan-eng-403-<R>.prompt\nexec claude ''\"$(cat \"$P\")\"''\n"
   },
   "note": "started \"plan eng-403\" in the actions space",
   "pending": {},

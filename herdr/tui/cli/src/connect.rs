@@ -4,10 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use cockpit_core::{agent, files};
+use cockpit_core::{agent, files, jsonedit};
 use serde_json::{Value, json};
 
-use crate::jsonedit;
 use crate::proc::{self, fail};
 
 const USAGE: &str = "cockpit agents connect [<agent>...]      cockpit's tools (show, search, changes, report_step) in each agent's MCP config

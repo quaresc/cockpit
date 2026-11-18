@@ -11,6 +11,7 @@ use cockpit_core::dialog::Dialog;
 use cockpit_core::files::{self, Density};
 use cockpit_core::input::Input;
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
 use ratatui::style::Color;
@@ -90,6 +91,8 @@ pub struct App {
     pub palette: Palette,
     pub cmds: Vec<Cmd>,
     pub dialog: Option<(Dialog, Cmd)>,
+    /// The item a focus request selected waits for the person's move before a key acts on it.
+    pub pointed: Pointed,
     _watcher: Option<notify::RecommendedWatcher>,
     changes: Receiver<()>,
     polled: Instant,
@@ -145,6 +148,7 @@ impl App {
             palette,
             cmds: Vec::new(),
             dialog: None,
+            pointed: Pointed::default(),
             _watcher: None,
             changes: std::sync::mpsc::channel().1,
             polled: Instant::now(),
@@ -275,11 +279,17 @@ impl App {
     fn take_focus(&mut self) -> bool {
         let Some(target) = cockpit_core::focus::take("todo", &mut self.focus_seen) else { return false };
         let Some(key) = target["key"].as_str() else { return false };
+        self.focus(key);
+        true
+    }
+
+    /// The item with that text selected and in view, pointed at: any process can ask, so its keys wait for a move.
+    pub fn focus(&mut self, key: &str) {
         let items = self.items();
         let found = items.iter().find(|i| i.text == key).or_else(|| items.iter().find(|i| doc::undated(&i.text) == doc::undated(key)));
         let Some(item) = found.cloned() else {
             self.toasts.push(format!("not on the list any more: {key}"), Toast::Note);
-            return true;
+            return;
         };
         if !self.matches(&item) {
             self.filter = Input::default();
@@ -289,7 +299,7 @@ impl App {
         }
         self.sel = Sel::Item(item.text);
         self.follow = true;
-        true
+        self.pointed.point();
     }
 
     pub fn is_animating(&self) -> bool {

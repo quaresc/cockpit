@@ -1,0 +1,28 @@
+---
+source: palette/tests/screens.rs
+expression: "render(&mut app, 80, 24)"
+---
+╭──────────────────────────────────────────────────────────────────────────────╮
+│❯ ▏                                                                           │
+│                                                                              │
+│Enforce daily quotas                                                          │
+│  needs you · 7m · api › quotas                                               │
+│Quota banner and disabled state                                               │
+│  needs you · 3m · api › banner                                               │
+│Settings page copy                                                            │
+│  done · 10m · api › copy                                                     │
+│Invoice CSV export                                                            │
+│  working · 4m · api › csv                                                    │
+│Flaky checkout e2e test                                                       │
+│  idle · 15m · api › e2e                                                      │
+│go to the inbox space                                                         │
+│  prefix+i                                                                    │
+│refresh the inbox                                                             │
+│  PRs, reviews, tickets and CI fetched again now                              │
+│check cockpit                                                                 │
+│  the doctor's report: every part of cockpit, ok, warn or fail                │
+│today's brief                                                                 │
+│  the morning brief: meetings, reviews, CI, tickets                           │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ enter go  esc close

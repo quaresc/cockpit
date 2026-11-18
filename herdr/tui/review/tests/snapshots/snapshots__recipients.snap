@@ -1,0 +1,34 @@
+---
+source: review/tests/snapshots.rs
+expression: screen
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR
+
+ 2 files  +7 −1   unified · s side by side                                                        █
+   ▸ README.md  +4 −0                                                                             █
+     src/quotas.py  +3 −1                                                                         █
+                                                                                                  █
+  ▼ README.md   +4 −0                                                                             █
+  @@ -1,3 +1,7 @@                                                                                 █
+    1   1   # acme/api                                                                            █
+    2   2         ╭──────────────────────────────────────────────────────────────╮                █
+    3   3   The ac│                                                              │                █
+        4 +       │  Who gets the comments on this worktree?                     │                █
+        5 + ## Quo│                                                              │                █
+        6 +       │   › Daily quotas: enforce limits · Claude Code, worki…       │                █
+        7 + Each p│     Per-plan limits · in chat, idle                          │29.             █
+                  │     A new agent, started on the review                       │                █
+  ▼ src/quotas.py │  j/k move · enter picks · esc cancels                        │                █
+  @@ -1,6 +1,8 @@ │                                                              │                █
+    1   1   """Dai╰──────────────────────────────────────────────────────────────╯day."""         █
+    2   2                                                                                         █
+    3   3   PLANS = {"free": 100, "team": 5_000, "enterprise": 50_000}                            █
+        4 + # Calls past the limit still allowed, so a burst at midnight does not fail.           █
+        5 + GRACE = 10                                                                            █
+    4   6                                                                                         ▕
+    5   7                                                                                         ▕
+    6   8   class QuotaExceeded(Exception):                                                       ▕
+  @@ -18,5 +20,5 @@ def remaining(plan: str, used: int) -> int:                                   ▕
+   18  20                                                                                         ▕
+ q quit  j/k line  n/p hunk  c comment  S send  T to  1-3 scope  w walkthrough          ▏^p palette

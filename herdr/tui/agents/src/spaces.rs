@@ -4,15 +4,13 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use cockpit_core::agent;
 use cockpit_core::frontend::{self, status_mark};
 use cockpit_core::text::fit;
+use cockpit_core::{agent, names};
 use serde_json::Value;
 
 /// Lines under a space; when more terminals run, the last one counts the rest.
 const SLOTS: usize = 4;
-/// Pinned spaces whose first pane runs cockpit's own app, left out of their list.
-const APP_SPACES: [&str; 7] = ["inbox", "to-do", "runbook", "meetings", "monitor", "routines", "mail"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
@@ -28,7 +26,8 @@ fn short_title(title: &str) -> &str {
     }
 }
 
-/// A pane's line: its agent's name and state mark, else its title after a prompt sign.
+/// A pane's line: its agent's name and state mark with its task as its title says it (cleaned of spinners, never the
+/// agent's own name or its folder), else its title after a prompt sign.
 fn line(pane: &Value) -> Line {
     let title = short_title(pane["terminal_title_stripped"].as_str().unwrap_or_default()).trim();
     let Some(program) = pane["agent"].as_str().filter(|a| !a.is_empty()) else {
@@ -37,8 +36,13 @@ fn line(pane: &Value) -> Line {
     let name = agent::of_program(program).map(|a| a.name).unwrap_or_else(|| program.to_string());
     let status = pane["agent_status"].as_str().unwrap_or("idle");
     let mark = status_mark(status).unwrap_or("○");
-    let text = if title.is_empty() || title == name { format!("{mark} {name}") } else { format!("{mark} {name} · {title}") };
-    Line { text, waiting: status == "blocked" }
+    let folder = pane["foreground_cwd"].as_str().or(pane["cwd"].as_str()).unwrap_or_default();
+    let text = match names::task(title, &[program, &name], folder) {
+        Some(task) => format!("{mark} {name} · {}", names::cap(&task, names::MAX)),
+        None => format!("{mark} {name}"),
+    };
+    // Stopped with an error needs the person as much as a question does.
+    Line { text, waiting: matches!(status, "blocked" | "error" | "failed") }
 }
 
 /// Each pinned space's lines by workspace id, waiting ones first; the actions space lists its sessions itself.
@@ -48,7 +52,8 @@ pub fn lines(spaces: &Value, panes: &Value, pinned: &[String]) -> Vec<(String, V
         let label = w["label"].as_str().unwrap_or_default();
         let Some(name) = pinned.iter().find(|n| *n != "actions" && label.ends_with(&format!("  {n}"))) else { continue };
         let Some(id) = w["workspace_id"].as_str() else { continue };
-        let skip = usize::from(APP_SPACES.contains(&name.as_str()));
+        // A pinned space whose first pane runs cockpit's own app leaves that pane out of its list.
+        let skip = usize::from(cockpit_core::SPACE_APPS.iter().any(|app| cockpit_core::space_of(app) == name));
         let mut found: Vec<Line> = panes["result"]["panes"].as_array().into_iter().flatten().filter(|p| p["workspace_id"] == id).skip(skip).map(line).collect();
         found.sort_by_key(|l| !l.waiting);
         out.push((id.to_string(), found));
@@ -140,6 +145,15 @@ mod tests {
         assert_eq!(text("w3"), None);
         assert_eq!(text("w4"), None);
         assert!(got.iter().find(|(id, _)| id == "w2").unwrap().1[0].waiting);
+    }
+
+    #[test]
+    fn an_agent_line_shows_its_task_without_spinners_and_never_its_own_name() {
+        let pane = |title: &str| json!({"agent": "claude", "agent_status": "working", "terminal_title_stripped": title, "cwd": "/r/api"});
+        assert_eq!(line(&pane("⠂ Fixing the CSV export")).text, "◐ Claude Code · Fixing the CSV export");
+        assert_eq!(line(&pane("✳ Claude Code")).text, "◐ Claude Code");
+        assert_eq!(line(&pane("api")).text, "◐ Claude Code", "the folder says nothing of the work");
+        assert_eq!(line(&pane("Preview environments: shorter default lifetime")).text, "◐ Claude Code · Preview environments…");
     }
 
     #[test]

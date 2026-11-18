@@ -57,6 +57,7 @@ Your work fills the spaces within a minute.
 | `prefix+m` | Meetings |
 | `prefix+o` | Monitor — what each release did to production |
 | `prefix+y` | Routines |
+| `prefix+shift+c` | Review — an agent's changes, commented line by line and sent back to it (pinned if you ask for it) |
 | `prefix+space` | The palette: everything, searchable |
 
 In every space: `j`/`k` move, `Enter` does the main action, `/` filters, `q` leaves. The row you are on shows its
@@ -69,6 +70,9 @@ In the Herdr app the same spaces are `⌘⌥1` to `⌘⌥7`, and Home shows whic
 - `cockpit doctor` checks every part and names the fix for anything wrong.
 - `/cockpit` in Claude Code flips the settings worth changing often; everything else is in
   [configuration.md](configuration.md).
+- In the Herdr app, **Cockpit settings** at the foot of the sidebar has every option with a switch, a choice or a
+  field, the same checks as `cockpit doctor` under Health, and the version you run beside the published one, with a
+  button that checks for a new one.
 - cockpit tells you when a new version is out; `cockpit update` updates every part, then restarts the apps. In
   Claude Code alone, `/plugin update cockpit@cockpit` updates the plugin.
 - Something not working? [troubleshooting.md](troubleshooting.md).

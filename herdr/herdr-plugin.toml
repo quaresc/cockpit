@@ -58,6 +58,9 @@ command = ["sh", "ensure-spaces.sh"]
 command = ["sh", "prune-browsers.sh"]
 
 [[startup]]
+command = ["sh", "whats-new.sh"]
+
+[[startup]]
 command = ["sh", "cockpit.sh", "actions", "sidebar"]
 
 [[events]]
@@ -121,9 +124,25 @@ height = "50%"
 command = ["sh", "cockpit.sh", "queue", "pick"]
 
 [[panes]]
+id = "start-work"
+title = "Start work"
+placement = "popup"
+width = "70%"
+height = "80%"
+command = ["sh", "cockpit.sh", "start-work"]
+
+[[panes]]
 id = "palette"
 title = "Cockpit"
 placement = "popup"
 width = "70%"
 height = "60%"
 command = ["sh", "cockpit.sh", "palette"]
+
+[[panes]]
+id = "whats-new"
+title = "What's new"
+placement = "popup"
+width = "70%"
+height = "75%"
+command = ["sh", "cockpit.sh", "options", "ask"]

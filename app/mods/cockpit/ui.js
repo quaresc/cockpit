@@ -4,9 +4,16 @@
 // Rhythm: a 4px grid, 13px body, 12px secondary, 11px captions; radius 8 (cards), 6 (controls), 4 (checkbox, kbd);
 // 1px borders; muted-foreground for what is secondary; color only for state.
 
-import { div, svg, PathBuilder, Background } from "gpui-kit";
+import { div, svg, image, PathBuilder, Background } from "gpui-kit";
 import { h_flex, v_flex, Input, HoverCard as BaseHoverCard } from "gpui-base";
-import { theme, settings, openOverlay } from "herdr";
+import { theme, settings, openOverlay, shared, setShared, knownAgents, notify as notice } from "herdr";
+import * as hub from "./hub.js";
+import * as fresh from "./fresh.js";
+import { keyedItems } from "./person.js";
+import { layoutName } from "./screens.js";
+
+/** When this desk first drew each list of sources, to word ages by the hub's clock. */
+const SEEN = new WeakMap();
 
 export const RADIUS = { sm: 4, md: 6, lg: 8, xl: 12 };
 export const TEXT = { xs: 11, sm: 12, base: 13, lg: 15, xl: 18 };
@@ -59,6 +66,62 @@ export function Icon(name, { size = 16, color } = {}) {
   return color ? el.text_color(color) : el;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Agent logos
+
+/** The reading layout's logo style: "tinted" or "brand". */
+export const CHAT_LOGO_STYLE = "brand";
+const PROGRAMS = "cockpit.agent.programs";
+const MONO_LOGOS = new Set(["claude", "codex", "amp", "antigravity", "kimi", "kiro"]);
+
+const iconName = (name) => typeof name === "string" && /^[a-z0-9][a-z0-9-]*$/.test(name) ? name : null;
+const programIcon = (program) => typeof program?.icon === "string" ? iconName(program.icon.replace(/^.*\//, "").replace(/\.svg$/, "")) : null;
+
+/** The hub's useful icon, else Herdr's program icon, else its neutral agent mark. */
+export function iconOf(x) {
+  if (typeof x === "string") return iconName(x) ?? "agent";
+  const own = iconName(x?.icon);
+  return own && own !== "agent" ? own : programIcon(x?.program) ?? "agent";
+}
+
+/** Loads Herdr's program metadata once per window, retrying a failed read after a minute. */
+function loadPrograms() {
+  const kept = shared(PROGRAMS);
+  if (kept?.rows || Date.now() - (kept?.at ?? 0) < 60_000) return;
+  try {
+    setShared(PROGRAMS, { at: Date.now() });
+    Promise.resolve(knownAgents()).then((rows) => setShared(PROGRAMS, { rows }), () => {});
+  } catch {}
+}
+
+/** The logo's path and drawing kind, using Herdr's program table for brand colours. */
+export function agentLogoSpec(x, { mono = layoutName() === "cockpit-chat" && CHAT_LOGO_STYLE === "tinted", programs = shared(PROGRAMS)?.rows ?? [] } = {}) {
+  const name = iconOf(x);
+  const own = x?.program;
+  const program = programIcon(own) === name ? own : programs.find((p) => programIcon(p) === name);
+  return { name, path: mono && MONO_LOGOS.has(name) ? `mods/cockpit/icons/agents/${name}.svg` : `icons/${name}.svg`, picture: !mono && program?.tint === false };
+}
+
+/** The providers among these agents, each once in their order, with Herdr's drawing metadata. */
+export function providersOf(rows) {
+  const seen = new Map();
+  for (const r of rows ?? []) {
+    const icon = iconOf(r);
+    const key = r?.agent || r?.program?.key || icon;
+    if (!seen.has(key)) seen.set(key, { icon, program: r?.program, name: r?.agent_name ?? r?.program?.name ?? null });
+  }
+  return [...seen.values()];
+}
+
+/** Herdr's agent logo in brand colours in Cockpit, tinted in Cockpit Chat. */
+export function AgentLogo(x, { size = 14, color, tooltip, id } = {}) {
+  loadPrograms();
+  const { name, path, picture } = agentLogoSpec(x);
+  const el = picture ? image(path).w(size).h(size).flex_none() : svg(path).size(size).flex_none();
+  const drawn = color && !picture ? el.text_color(color) : el;
+  return tooltip ? div().id(id ?? `logo-${name}-${tooltip}`).flex_none().flex().items_center().tooltip(tooltip).child(drawn) : drawn;
+}
+
 /** A turning ring: loading. */
 export function Spinner({ size = 14, color } = {}) {
   return Icon("loader", { size, color }).spin(900);
@@ -80,8 +143,9 @@ export function keyLabel(key) {
   return parts.map((p) => MODIFIER[p.toLowerCase()] ?? p).join("") + (last.length === 1 ? last.toUpperCase() : last);
 }
 
-/** Keys as shadcn's <Kbd>: "⌘K", ["⌘", "K"], or "ctrl-p" (written ⌃P). */
+/** Keys as shadcn's <Kbd>: "⌘K", ["⌘", "K"], or "ctrl-p" (written ⌃P); nothing in Cockpit Chat, which keeps keys to tooltips. */
 export function Kbd(keys) {
+  if (layoutName() === "cockpit-chat") return div();
   const k = tokens();
   const list = (Array.isArray(keys) ? keys : [keys]).map(keyLabel);
   return h_flex()
@@ -105,6 +169,12 @@ export function Kbd(keys) {
           .child(String(key)),
       ),
     );
+}
+
+/** A choice's number: its Kbd chip in Cockpit, the number as quiet text in Cockpit Chat, whose tooltips say the key. */
+export function ChoiceKey(n) {
+  if (layoutName() !== "cockpit-chat") return Kbd(String(n));
+  return div().w(20).flex_none().text_size(TEXT.xs).text_color(tokens().dim).child(String(n));
 }
 
 const BADGE = {
@@ -146,10 +216,16 @@ const SIZE = { default: [32, 12, TEXT.base, 16], sm: [28, 10, TEXT.sm, 14], lg: 
 
 /**
  * A button: variant default | secondary | outline | ghost | destructive | link, size default | sm | lg | icon |
- * icon-sm; `kbd` shows its key; `tooltip` on hover. `onClick(event, cx)`.
+ * icon-sm; `kbd` shows its key, in its tooltip in Cockpit Chat; `tooltip` on hover. `onClick(event, cx)`.
  */
 export function Button(id, { label, icon, iconRight, variant = "default", size = "default", kbd, disabled = false, tooltip, onClick, grow = false } = {}) {
   const k = tokens();
+  // Cockpit Chat keeps key hints to tooltips: the key goes after two spaces, unless the tooltip says it already.
+  if (kbd && layoutName() === "cockpit-chat") {
+    const words = tooltip ?? (typeof label === "string" ? label : "");
+    tooltip = words.includes(kbd) ? words : words ? `${words}  ${kbd}` : kbd;
+    kbd = undefined;
+  }
   const v = (BUTTON[variant] ?? BUTTON.default)(k);
   const [h, px, text, iconSize] = SIZE[size] ?? SIZE.default;
   const square = size === "icon" || size === "icon-sm";
@@ -459,8 +535,9 @@ export function ActionBar(actions, { id = "actions" } = {}) {
 }
 
 /** An app's header: icon tile, title and description, actions on the right. */
-export function PageHeader({ icon, title, description, aside, actions = [] } = {}) {
+export function PageHeader({ icon, title, description, aside, actions = [], sources, view, narrow = false } = {}) {
   const k = tokens();
+  const chips = sources?.length ? SourceChips(sources, { view, narrow }) : null;
   return h_flex()
     .h(64)
     .px(24)
@@ -475,15 +552,107 @@ export function PageHeader({ icon, title, description, aside, actions = [] } = {
         .flex_1()
         .min_w(0)
         .gap(2)
-        .child(div().text_size(TEXT.lg).font_semibold().text_color(k.foreground).child(title ?? ""))
-        .when(Boolean(description), (e) => e.child(div().truncate().text_size(TEXT.sm).text_color(k.mutedFg).child(description))),
+        .child(
+          h_flex()
+            .gap(10)
+            .min_w(0)
+            .items_center()
+            .child(div().flex_none().text_size(TEXT.lg).font_semibold().text_color(k.foreground).child(title ?? ""))
+            .when(Boolean(chips) && !narrow, (e) => e.child(chips)),
+        )
+        // Narrow, the chips take the description's line, where the title leaves them the width; their ages say what it said.
+        .when(Boolean(chips) && narrow, (e) => e.child(chips))
+        .when(Boolean(description) && !(chips && narrow), (e) => e.child(div().truncate().text_size(TEXT.sm).text_color(k.mutedFg).child(description))),
     )
     .when(Boolean(aside), (e) => e.child(aside))
     .child(h_flex().gap(8).items_center().children(actions));
 }
 
+const SOURCE_ICON = { auth: "key-round", rate: "hourglass", network: "triangle-alert", not_found: "circle-help", server: "server", other: "triangle-alert" };
+
+/**
+ * A chip per source a view reads ("GitHub · 2 min ago", "Linear · sign in again"): a click runs its fix, the tooltip has
+ * the exact error, and only Cockpit colours a failing one (Cockpit Chat keeps colour for agents). `view` owns the toasts.
+ */
+export function SourceChips(sources, { view, narrow = false } = {}) {
+  const k = tokens();
+  const chat = shared("layout") === "cockpit-chat";
+  if (!SEEN.has(sources)) SEEN.set(sources, Date.now());
+  const now = fresh.nowOf(sources, SEEN.get(sources), Date.now());
+  const all = fresh.chips(sources, now, { readOnly: Boolean(hub.remoteMachine()) });
+  // Narrow, the loudest chip alone (it shortens with the header) and how many more; nothing when all is well.
+  if (narrow && all.every((c) => c.tone === "quiet")) return null;
+  const shown = narrow ? fresh.narrow(all).slice(0, 1) : all;
+  const hidden = all.filter((c) => !shown.includes(c));
+  const color = (c) => (chat ? undefined : c.tone === "bad" ? k.destructive : c.tone === "warn" ? k.warning : undefined);
+  const icon = (c) => (c.state === "failing" ? SOURCE_ICON[sources.find((s) => s.source === c.id)?.error?.kind] ?? "triangle-alert" : c.state === "stale" ? "clock" : undefined);
+  const key = (c) => `shift ${c.action.key}`;
+  const tip = (c) => (c.action ? `${c.tooltip}\n${c.action.label}  ${keyLabel(key(c))}` : c.tooltip);
+  const chip = (c) => {
+    const tint = color(c);
+    let el = h_flex()
+      .id(`source-${c.id}`)
+      .h(22)
+      .px(8)
+      .gap(5)
+      .min_w(0)
+      // A quiet chip gives up its room first.
+      .when(c.tone === "quiet", (e) => e.flex_shrink_1())
+      .when(c.tone !== "quiet", (e) => e.flex_shrink_0())
+      .items_center()
+      .rounded(RADIUS.md)
+      .bg(tint ? alpha(tint, 0.12) : k.muted)
+      .text_size(11.5)
+      .font_medium()
+      .text_color(tint ?? k.mutedFg)
+      .tooltip(tip(c));
+    if (icon(c)) el = el.child(Icon(icon(c), { size: 12 }));
+    el = el.child(div().min_w(0).max_w(260).truncate().child(c.text));
+    // Cockpit's visible buttons carry their key; Cockpit Chat puts it in the tooltip alone.
+    if (c.action && c.state === "failing" && !chat) el = el.child(Kbd(key(c)));
+    if (c.action) el = el.cursor_pointer().hover((s) => s.bg(tint ? alpha(tint, 0.22) : k.selected)).on_click((_e, cx) => (cx.stop_propagation(), runSource(c, cx, view)));
+    return el;
+  };
+  return h_flex()
+    .gap(6)
+    .min_w(0)
+    .items_center()
+    .overflow_hidden()
+    .children(shown.map(chip))
+    .when(hidden.length > 0, (e) => e.child(Chip(`+${hidden.length}`, { id: "source-more", tooltip: hidden.map((c) => c.text).join("\n") })));
+}
+
+/** Runs a source chip's fix through the hub (`sources sign_in | refresh`), its outcome as a toast of `view`'s. */
+export function runSource(c, cx, view) {
+  cx.spawn(async (cx) => {
+    try {
+      const r = await hub.act("sources", c.action.kind, [c.id]);
+      view?.toasts?.push(cx, r.error || r.note || c.action.label, { kind: r.error ? "error" : "info" });
+    } catch (e) {
+      view?.toasts?.push(cx, String(e?.message ?? e), { kind: "error" });
+    }
+  });
+}
+
+/**
+ * The header's keys in a view's own `key(e, cx)`, as in the TUI: shift+L signs in again; shift+R reads the sources again
+ * in a view with no refresh of its own (`refresh: true`). True when it used the key.
+ */
+export function sourceKey(e, sources, cx, view, { refresh = false } = {}) {
+  // A remote desk's chips say, they do not act: nor do its keys.
+  if (hub.remoteMachine()) return false;
+  const c =
+    e.keystroke === "shift-l" ? fresh.signIn(sources, Date.now())
+    : e.keystroke === "shift-r" && refresh && sources?.length ? { id: sources[0].source, action: { kind: "refresh", label: "Reading it again" } }
+    : null;
+  if (!c) return false;
+  runSource(c, cx, view);
+  return true;
+}
+
 /** A footer line of key hints: [["⏎", "edit"], ["x", "done"], ...]. */
 export function KeyHints(hints) {
+  if (layoutName() === "cockpit-chat") return div();
   const k = tokens();
   return h_flex()
     .h(36)
@@ -563,9 +732,9 @@ export function Command(id, { state, groups, selected, empty = "No results.", ma
 
 /**
  * A confirm over the view (shadcn's <AlertDialog>): a dimmed backdrop and a card with Cancel and the action. Esc and
- * Enter are the caller's to map onto onCancel and onConfirm.
+ * Enter are the caller's to map onto onCancel and onConfirm; `confirmKbd: null` draws no key on one a click alone answers.
  */
-export function AlertDialog(id, { title, description, confirmLabel = "Continue", destructive = false, onConfirm, onCancel } = {}) {
+export function AlertDialog(id, { title, description, confirmLabel = "Continue", destructive = false, onConfirm, onCancel, confirmKbd = "⏎" } = {}) {
   const k = tokens();
   return div()
     .id(id)
@@ -589,7 +758,7 @@ export function AlertDialog(id, { title, description, confirmLabel = "Continue",
               .justify_end()
               .gap(8)
               .child(Button(`${id}-cancel`, { label: "Cancel", variant: "outline", kbd: "esc", onClick: onCancel }))
-              .child(Button(`${id}-ok`, { label: confirmLabel, variant: destructive ? "destructive" : "default", kbd: "⏎", onClick: onConfirm })),
+              .child(Button(`${id}-ok`, { label: confirmLabel, variant: destructive ? "destructive" : "default", kbd: confirmKbd ?? undefined, onClick: onConfirm })),
           })
             .w(420)
             .bg(k.popover)
@@ -662,6 +831,8 @@ export class Toaster {
         this.items.map((t) =>
           h_flex()
             .id(`toast-${t.id}`)
+            // A press on a toast is the toast's: the row or switch beneath it hears nothing.
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .p(14)
             .gap(10)
             .items_start()
@@ -688,6 +859,7 @@ export class Toaster {
                   variant: "outline",
                   size: "sm",
                   onClick: (ev, cx) => {
+                    cx.stop_propagation?.();
                     this.items = this.items.filter((x) => x.id !== t.id);
                     t.action.onClick(ev, cx);
                     cx.notify();
@@ -800,13 +972,48 @@ export function HoverCard(id, trigger, content, { width = 320, openDelay = 500 }
 }
 
 /**
- * A right-click menu at the pointer: items [{ label, icon, kbd, command, destructive } | "separator"]. Choosing one
- * runs `cockpit.<command>`, which reaches the view's `command()` (give commands a prefix of the view's own).
+ * A menu: items [{ label, icon, kbd, command, destructive } | "separator"], at the pointer, or at `at` ({x, y} in the
+ * window, under the control a key opened it from). Choosing one runs `cockpit.<command>` with a key minted for this
+ * opening (person.js), which reaches the view's `command()`.
  */
-export function openMenu(items, { width = 220 } = {}) {
-  const rows = items.filter(Boolean);
+export function openMenu(items, { width = 220, at = null, clickOnly = false, byKey = false } = {}) {
+  const rows = keyedItems(items.filter(Boolean));
   const height = rows.reduce((h, i) => h + (i === "separator" ? 9 : 32), 10);
-  openOverlay({ mod: "cockpit", props: { app: "menu", items: rows }, kind: "popup", at: "pointer", width, height, frame: "none" });
+  // Opened from a key (`byKey`), the first item is already picked, so ↓ and ⏎ start from it; a click picks nothing.
+  openOverlay({ mod: "cockpit", props: { app: "menu", items: rows, ...(byKey ? { picked: 0 } : {}), ...(clickOnly ? { clickOnly: true } : {}) }, kind: "popup", at: menuAt(at, width, height), width, height, frame: "none" });
+}
+
+/** The window's drawable size in px, or null outside a host call (tests, a closed window). */
+export function viewport() {
+  try {
+    return globalThis.window.viewport_size();
+  } catch {
+    return null;
+  }
+}
+
+/** The window's size and the pointer in it, or null outside a host call. */
+function windowNow() {
+  try {
+    return { size: globalThis.window.viewport_size(), pointer: globalThis.window.mouse_position() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a menu of that size opens: the point given, kept inside the window; else the pointer, or the window's top
+ * middle when the pointer is outside it (a key opened it with the mouse elsewhere).
+ */
+export function menuAt(at, width, height, now = windowNow()) {
+  const size = now?.size;
+  if (at) {
+    if (!size) return { x: Math.round(at.x), y: Math.round(at.y) };
+    return { x: Math.round(Math.max(8, Math.min(at.x, size.width - width - 8))), y: Math.round(Math.max(8, Math.min(at.y, size.height - height - 8))) };
+  }
+  const p = now?.pointer;
+  if (!size || !p || (p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height)) return "pointer";
+  return { x: Math.round(Math.max(8, (size.width - width) / 2)), y: 64 };
 }
 
 /** A section that folds (shadcn's <Collapsible>): a header with a chevron, count and action, then its children. */
@@ -1114,7 +1321,7 @@ export function dur(ms) {
 }
 
 /** A fact as a chip: a faint tint of its state color behind it (12%, 22% on hover), mono for what you would type. */
-export function Chip(text, { id, color, mono = false, icon, tooltip, onClick } = {}) {
+export function Chip(text, { id, color, mono = false, icon, logo, tooltip, onClick } = {}) {
   const k = tokens();
   let el = h_flex()
     .h(22)
@@ -1129,6 +1336,7 @@ export function Chip(text, { id, color, mono = false, icon, tooltip, onClick } =
     .when(mono, (e) => e.font_family("JetBrains Mono"))
     .when(!mono, (e) => e.font_medium());
   if (icon) el = el.child(Icon(icon, { size: 12 }));
+  if (logo) el = el.child(AgentLogo(logo, { size: 12, color: color ?? k.mutedFg }));
   el = el.child(div().max_w(220).truncate().child(String(text ?? "")));
   if (id) el = el.id(id);
   if (id && onClick)
@@ -1459,4 +1667,49 @@ export function Overline(text) {
 /** Dashboard tiles side by side, wrapping onto the next row once their minimum widths no longer fit; nulls are skipped. */
 export function Tiles(tiles) {
   return h_flex().w_full().gap(12).flex_wrap().items_stretch().children(tiles.filter(Boolean));
+}
+
+/**
+ * The hub does not answer: a line saying so where a view's content goes, with Start it on this machine's install.
+ * `owner.starting` is set while a start is under way; every view comes back by itself once the hub answers.
+ */
+export function HubDown(id, owner, why = "", k = tokens(), { maxW = 760, onStarted = null } = {}) {
+  const start = (cx) => {
+    owner.starting = true;
+    cx.spawn(async (cx) => {
+      try {
+        await hub.startHub({ explicit: true, cx });
+        onStarted?.(cx);
+      } catch (err) {
+        notice({ title: "The hub did not start", body: String(err?.message ?? err), level: "warning" });
+      }
+      owner.starting = false;
+      cx.notify();
+    });
+    cx.notify();
+  };
+  // Not installed is a setup to finish, not a hub to start; a runner's hub is started on the runner.
+  const missing = hub.isNotInstalled(why);
+  const startable = !missing && !hub.remoteMachine();
+  const words = missing ? "Cockpit isn't set up in this Herdr: run cockpit app install" : owner.starting ? "Starting the cockpit hub…" : hub.downWords(why);
+  return h_flex()
+    .id(id)
+    .w_full()
+    .max_w(maxW)
+    .px(14)
+    .py(10)
+    .gap(10)
+    .items_center()
+    .rounded(16)
+    .bg(k.muted)
+    .text_size(TEXT.sm)
+    .text_color(k.mutedFg)
+    .child(Icon(missing ? "wrench" : "triangle-alert", { size: 14 }))
+    .child(div().flex_1().min_w(0).child(words))
+    .when(!owner.starting && startable, (e) => e.child(Button(`${id}-start`, { label: "Start it", size: "sm", tooltip: why || "Start the cockpit hub", onClick: (_e, cx) => start(cx) })));
+}
+
+/** An app's body while the hub does not answer and nothing was loaded yet: the `HubDown` card, centred. */
+export function HubDownBody(id, owner, status, k = tokens()) {
+  return v_flex().flex_1().p(24).items_center().justify_center().child(HubDown(id, owner, String(status ?? "").replace(/^error: /, ""), k, { maxW: 560 }));
 }

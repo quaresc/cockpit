@@ -22,7 +22,7 @@ const SIZES: [(&str, &[&str]); 3] =
 const POLL: Duration = Duration::from_millis(500);
 const POLLS: usize = 40;
 
-fn run_action(tb: &str, key: &str, tab: &str, command: &[&str], timeout: Duration) -> Option<crate::proc::Out> {
+fn run_action(tb: &str, key: &str, tab: &str, command: &[&str], timeout: Duration) -> Result<crate::proc::Out, String> {
     let mut argv = vec![tb, "action", "--browser", key, "--tab", tab, "--"];
     argv.extend_from_slice(command);
     browse::run(&argv, timeout)
@@ -31,14 +31,14 @@ fn run_action(tb: &str, key: &str, tab: &str, command: &[&str], timeout: Duratio
 /// One browser action that must succeed; its error names the command and what the browser said.
 fn action(tb: &str, key: &str, tab: &str, command: &[&str], timeout: Duration) -> Result<(), String> {
     match run_action(tb, key, tab, command, timeout) {
-        Some(out) if out.ok() => Ok(()),
+        Ok(out) if out.ok() => Ok(()),
         done => {
             let said = match done {
-                Some(out) => {
+                Ok(out) => {
                     let text = if out.stderr.is_empty() { out.stdout } else { out.stderr };
                     text.trim().chars().take(200).collect()
                 }
-                None => "timed out".to_string(),
+                Err(why) => why,
             };
             Err(format!("{}: {said}", command.iter().take(2).copied().collect::<Vec<_>>().join(" ")))
         }
@@ -63,16 +63,18 @@ pub fn main(args: &[String]) {
     let [url, out] = rest.as_slice() else { fail(USAGE) };
     let out = std::path::absolute(out).unwrap_or_else(|_| PathBuf::from(out));
     let session = session.as_deref();
-    let Some(tb) = terminal_browser().filter(|_| has_place(session)) else {
+    let placed = |_: &String| has_place(session).unwrap_or_else(|why| fail(&why));
+    let Some(tb) = terminal_browser().filter(placed) else {
         eprintln!("terminal-browser is not beside a pane in herdr or the Herdr app: take these screenshots in Chrome instead");
         std::process::exit(2);
     };
-    if browsers_of(&tb, session).is_empty() && !open_for(&tb, session, url, DEFAULT_SIZE, false) {
+    let beside = browsers_of(&tb, session).unwrap_or_else(|why| fail(&why));
+    if beside.is_empty() && !open_for(&tb, session, url, DEFAULT_SIZE, false).unwrap_or_else(|why| fail(&why)) {
         fail("could not open terminal-browser beside the pane");
     }
-    // A browser just split in takes a moment to start.
+    // A browser just split in takes a moment to start, and lists nothing meanwhile.
     let browsers =
-        wait_for(|| Some(browsers_of(&tb, session)).filter(|b| !b.is_empty())).unwrap_or_else(|| fail("terminal-browser did not start beside the pane"));
+        wait_for(|| browsers_of(&tb, session).ok().filter(|b| !b.is_empty())).unwrap_or_else(|| fail("terminal-browser did not start beside the pane"));
     let key = match &browsers[0]["key"] {
         Value::String(s) => s.clone(),
         other => other.to_string(),
@@ -82,7 +84,7 @@ pub fn main(args: &[String]) {
     }
     let mut shots = Vec::new();
     for size in sizes {
-        let opened = browse::run(&[&tb, "new-tab", "--browser", &key, url], Duration::from_secs(10)).filter(|o| o.ok());
+        let opened = browse::run(&[&tb, "new-tab", "--browser", &key, url], Duration::from_secs(10)).ok().filter(|o| o.ok());
         let tab =
             opened.and_then(|o| serde_json::from_str::<Value>(&o.stdout).ok()).map(|v| v["openedTab"].clone()).filter(|t| !t.is_null() && t != "" && t != 0);
         let Some(tab) = tab else { fail(&format!("could not open a tab for {size}")) };
@@ -92,20 +94,20 @@ pub fn main(args: &[String]) {
         };
         let path = out.join(format!("{size}.png"));
         let taken = shoot(&tb, &key, &tab, size, &path, full);
-        run_action(&tb, &key, &tab, &["tab", "close"], Duration::from_secs(10));
+        let _ = run_action(&tb, &key, &tab, &["tab", "close"], Duration::from_secs(10));
         if let Err(err) = taken {
             fail(&err);
         }
         shots.push((size, Value::from(path.to_string_lossy().into_owned())));
     }
-    browse::run(&[&tb, "action", "--browser", &key, "done"], Duration::from_secs(10));
+    let _ = browse::run(&[&tb, "action", "--browser", &key, "done"], Duration::from_secs(10));
     println!("{}", dumps(&shots));
 }
 
 /// Sizes the tab, reloads it at that size and takes its screenshot.
 fn shoot(tb: &str, key: &str, tab: &str, size: &str, path: &std::path::Path, full: bool) -> Result<(), String> {
     // A new tab only answers once its page has a target.
-    wait_for(|| run_action(tb, key, tab, &["get", "url"], Duration::from_secs(10)).filter(|o| o.ok()));
+    wait_for(|| run_action(tb, key, tab, &["get", "url"], Duration::from_secs(10)).ok().filter(|o| o.ok()));
     let device = SIZES.iter().find(|(name, _)| *name == size).map(|(_, command)| *command).unwrap_or_default();
     action(tb, key, tab, device, Duration::from_secs(30))?;
     action(tb, key, tab, &["reload"], Duration::from_secs(30))?;

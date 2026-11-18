@@ -1,0 +1,20 @@
+---
+source: inbox/tests/snapshots.rs
+expression: "render(&mut app, 100, 16)"
+---
+   Inbox   updated 10:00
+ Previews: the preview connector is not connected
+ ▼   Today   morning brief, 09:00
+ ├─     3 meetings, first at 09:45: Daily
+ ├─     2 reviews for you: billing#381, accounts#742
+ ├─     1 PR of yours failing CI: web#1866
+ ├─     5 PRs ready to merge
+ ├─     Pull my notes · failed 08:00 · Ended with exit 128.
+ └─     Morning sweep · Missed Wed 07:00: cockpit was not running then.
+ ▼   Alerts   4
+ ├─      preview preview-quota expires in 1.5 h
+────────────────────────────────────────────────────────────────────────────────────────────────────
+   Today   morning brief, 09:00
+
+ ▸ dismiss  x
+ q quit  / filter  v pick  w group by  R refresh  space fold  enter main                 ^p palette

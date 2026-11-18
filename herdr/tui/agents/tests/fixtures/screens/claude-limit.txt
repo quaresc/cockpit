@@ -1,0 +1,16 @@
+⏺ The quota middleware is in; the last two edge-case tests are next.
+
+✻ Worked for 8s
+
+⏺ Bash(mix test test/api/quota_test.exs)
+  ⎿  You've hit your limit · resets 8am (Europe/Paris)
+
+⏺ Usage limit reached · continuing automatically at 8am · esc to cancel
+
+✻ Crunched for 21m 49s
+
+──────────────────────────────────────────────────────────────────────────────── daily-quotas ─
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────
+  7d 100%
+  ⏵⏵ auto mode on (shift+tab to cycle)

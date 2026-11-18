@@ -1,16 +1,19 @@
 // The recap popup (cmd-r): every agent as a card, grouped by whose move it is (after herdr-recap's design, MIT): its
 // recap, its question answered in place, its facts as chips; stage tabs along the top, and a Time tab with the week's
-// agent time per ticket (the ledger). Keys: ↑/↓ move, ⏎ go to it, ⇥ reply, r recap, s snooze, f fork, ←/→ stage.
+// agent time per ticket (the ledger). Keys: ↑/↓ move, ⏎ go to it, ⇥ reply, r recap, s snooze, x dismiss or bring back,
+// f fork, ←/→ stage.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { props, closeOverlay } from "herdr";
-import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, Chip, CountPill, StageHeading, SearchField, KeyHints, Table, Empty, Spinner, dur } from "./ui.js";
-import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { props, closeOverlay, notify } from "herdr";
+import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, Chip, CountPill, StageHeading, SearchField, KeyHints, Table, Empty, Spinner, Toaster, dur, AgentLogo } from "./ui.js";
+import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours, dismissable } from "./agentsui.js";
 
 export default class Recap {
   init(_props, cx) {
-    this.agents = new AgentsModel();
+    this.agents = new AgentsModel("recap");
+    // A dismissal's Undo shows on the dialog's own toast.
+    this.toasts = this.agents.toasts = new Toaster();
     this.agents.loadPins();
     this.agents.follow(cx, () => this.keepSelection());
     this.tab = props()?.tab ?? "all";
@@ -63,7 +66,7 @@ export default class Recap {
     const rows = this.shown();
     const at = rows.findIndex((r) => r.terminal === this.selected);
     const next = rows[Math.max(0, Math.min(rows.length - 1, at + d))];
-    if (next) this.selected = next.terminal;
+    if (next) this.selected = this.picked = next.terminal;
     cx.notify();
   }
 
@@ -116,15 +119,25 @@ export default class Recap {
         return true;
     }
     if (!row) return false;
+    // The popup may open from a window command and take the keyboard: what acts on an agent waits for the row the person
+    // moved to or clicked, never the one the list opened on.
+    const sets = e.key === "x" && (dismissable(row) || Boolean(row.dismissed));
+    const acts = (e.key === "tab" && row.stage === "needs_you") || e.key === "r" || e.key === "f" || e.key === "e" || sets || (/^[1-9]$/.test(e.keystroke) && Boolean(row.question?.choices?.length));
     if (e.key === "enter") {
       m.go(cx, row);
       this.dismiss();
-    } else if (e.key === "tab" && row.stage === "needs_you") m.startReply(cx, row, row.question?.choices?.find((c) => c.free)?.n ?? null);
+    } else if (e.key === "s") m.menu(row);
+    // A digit held down answers nothing: its repeats are not picks.
+    else if (/^[1-9]$/.test(e.keystroke) && e.is_held) return true;
+    // Setting an agent aside is the person's own key: one sent from outside the window, or held down, does nothing.
+    else if (sets && (e.injected || e.is_held)) return true;
+    else if (acts && this.picked !== row.terminal) notify({ title: "Move to it first (j/k), then press the key again", level: "info", timeout: 3000 });
+    else if (sets) m.dismiss(cx, row);
+    else if (e.key === "tab" && row.stage === "needs_you") m.startReply(cx, row, row.question?.choices?.find((c) => c.free)?.n ?? null);
     else if (e.key === "r") m.act(cx, "recap", { terminal: row.terminal, force: true }, "recapping");
-    else if (e.key === "s") m.menu(row);
     else if (e.key === "f") m.act(cx, "fork", { terminal: row.terminal, place: "tab" });
     else if (e.key === "e") m.act(cx, "seen", { terminal: row.terminal });
-    else if (/^[1-9]$/.test(e.key) && row.question?.choices?.length) m.answer(cx, row, Number(e.key));
+    else if (/^[1-9]$/.test(e.keystroke) && row.question?.choices?.length) m.answer(cx, row, Number(e.keystroke), "key");
     else return false;
     return true;
   }
@@ -149,7 +162,8 @@ export default class Recap {
     const head = h_flex()
       .gap(10)
       .items_center()
-      .child(h_flex().w(16).flex_none().justify_center().child(StageMark(id, r.stage, { size: 9 })))
+      .child(h_flex().w(16).flex_none().justify_center().child(StageMark(id, r.stage, { size: 9, status: r.status })))
+      .child(AgentLogo(r, { size: 16, tooltip: r.agent_name, id: `${id}-logo` }))
       .child(div().flex_shrink_1().min_w(0).truncate().text_size(TEXT.lg).font_semibold().text_color(k.foreground).child(r.title || r.tab?.name || r.address))
       .child(Chip(`${r.space?.name ?? ""} · ${r.tab?.name ?? ""}`, { mono: true, icon: "terminal" }))
       .when(Boolean(r.repo), (e) => e.child(div().flex_none().text_size(TEXT.sm).text_color(k.dim).child(r.repo)))
@@ -162,6 +176,8 @@ export default class Recap {
       .child(Button(`${id}-go`, { label: "Go to it", icon: "corner-down-left", size: "sm", kbd: "⏎", onClick: (_e, cx) => (this.agents.go(cx, r), this.dismiss()) }))
       .when(Boolean(recap?.text), (e) => e.child(Button(`${id}-again`, { label: "Recap again", icon: "sparkles", variant: "ghost", size: "sm", kbd: "r", onClick: (_e, cx) => this.agents.act(cx, "recap", { terminal: r.terminal, force: true }, "recapping") })))
       .child(Button(`${id}-snooze`, { label: r.snoozed ? "Wake" : "Snooze", icon: "alarm-clock", variant: "ghost", size: "sm", kbd: "s", onClick: (_e, cx) => (r.snoozed ? this.agents.act(cx, "snooze", { terminal: r.terminal, until: null }) : this.agents.menu(r)) }))
+      .when(dismissable(r), (e) => e.child(Button(`${id}-dismiss`, { label: "Dismiss", icon: "x", variant: "ghost", size: "sm", kbd: "x", tooltip: "Dismiss until it asks something new", onClick: (_e, cx) => this.agents.dismiss(cx, r) })))
+      .when(Boolean(r.dismissed) && !r.remote, (e) => e.child(Button(`${id}-restore`, { label: "Bring back", icon: "undo", variant: "ghost", size: "sm", kbd: "x", tooltip: "Back to Needs you", onClick: (_e, cx) => this.agents.dismiss(cx, r) })))
       .child(Button(`${id}-fork`, { label: "Fork", icon: "git-fork", variant: "ghost", size: "sm", kbd: "f", onClick: (_e, cx) => this.agents.act(cx, "fork", { terminal: r.terminal, place: "tab" }) }))
       .when(Boolean(r.unread) && !r.remote, (e) => e.child(Button(`${id}-seen`, { label: "Seen", icon: "check", variant: "ghost", size: "sm", kbd: "e", onClick: (_e, cx) => this.agents.act(cx, "seen", { terminal: r.terminal }) })));
     return h_flex()
@@ -176,7 +192,7 @@ export default class Recap {
       .overflow_hidden()
       .cursor_pointer()
       .on_click((_e, cx) => {
-        this.selected = r.terminal;
+        this.selected = this.picked = r.terminal;
         this.handle.focus();
         cx.notify();
       })
@@ -260,9 +276,11 @@ export default class Recap {
       }
     }
     const tabs = this.tabs();
+    const toasts = this.toasts.render();
     return v_flex()
       .id("recap")
       .track_focus(this.handle)
+      .relative()
       .size_full()
       .bg(k.popover)
       .text_color(k.foreground)
@@ -291,7 +309,7 @@ export default class Recap {
               })
               .child(SearchField(this.filter, { active: this.filtering, kbd: "/" })),
           )
-          .when(Boolean(this.agents.value?.quota?.length), (e) => e.child(div().w(220).flex_none().child(QuotaBars(this.agents.value.quota, { id: "recap-quota" }))))
+          .when(Boolean(this.agents.value?.quota?.length || this.agents.rows.length), (e) => e.child(div().w(220).flex_none().child(QuotaBars(this.agents.value?.quota, { id: "recap-quota", compact: true, tightest: true, rows: this.agents.rows }))))
           .child(Button("recap-close", { icon: "x", variant: "ghost", size: "icon-sm", tooltip: "Close  esc", onClick: () => this.dismiss() })),
       )
       .child(
@@ -340,11 +358,13 @@ export default class Recap {
           ["1–9", "answer"],
           ["r", "recap"],
           ["s", "snooze"],
+          ["x", "dismiss"],
           ["f", "fork"],
           ["←→", "stage"],
           ["/", "filter"],
           ["esc", "close"],
         ]),
-      );
+      )
+      .when(Boolean(toasts), (e) => e.child(toasts));
   }
 }

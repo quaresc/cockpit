@@ -446,6 +446,7 @@ version = "0.40.5"
 dependencies = [
  "chrono",
  "cockpit-core",
+ "libc",
  "regex",
  "serde_json",
  "tempfile",
@@ -465,6 +466,7 @@ dependencies = [
  "cockpit-meetings",
  "cockpit-monitor",
  "cockpit-palette",
+ "cockpit-review",
  "cockpit-routines",
  "cockpit-runbook",
  "cockpit-show",
@@ -500,7 +502,9 @@ name = "cockpit-core"
 version = "0.40.5"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "crossterm",
+ "libc",
  "notify",
  "nucleo-matcher",
  "ratatui",
@@ -518,6 +522,7 @@ version = "0.40.5"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "cockpit-agents",
  "cockpit-connectors",
  "cockpit-core",
  "cockpit-update",
@@ -532,6 +537,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "signal-hook",
  "tantivy",
  "tempfile",
  "tokenizers",
@@ -607,6 +613,7 @@ name = "cockpit-palette"
 version = "0.40.5"
 dependencies = [
  "chrono",
+ "cockpit-agents",
  "cockpit-core",
  "crossterm",
  "insta",
@@ -615,6 +622,19 @@ dependencies = [
  "tempfile",
  "textwrap",
  "unicode-width",
+]
+
+[[package]]
+name = "cockpit-review"
+version = "0.40.5"
+dependencies = [
+ "chrono",
+ "cockpit-core",
+ "cockpit-show",
+ "crossterm",
+ "insta",
+ "ratatui",
+ "serde_json",
 ]
 
 [[package]]

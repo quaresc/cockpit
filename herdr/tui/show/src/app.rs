@@ -550,9 +550,16 @@ impl ShowApp {
         match self.focus.as_ref().map(|(_, t)| t) {
             _ if typing => keys.extend([("enter", "add the comment"), ("esc", "cancel")]),
             Some(Target::Table) => keys.extend([("←→", "scroll"), ("↑↓", "rows"), ("1-9", "sort"), ("esc", "leave")]),
-            Some(Target::Diff) => {
-                keys.extend([("j/k", "line"), ("[ ]", "file"), ("c", "comment"), ("S", "send comments"), ("s", "split"), ("enter", "fold"), ("esc", "leave")])
-            }
+            Some(Target::Diff) => keys.extend([
+                ("j/k", "line"),
+                ("n/p", "hunk"),
+                ("[ ]", "file"),
+                ("c", "comment"),
+                ("S", "send comments"),
+                ("s", "split"),
+                ("enter", "fold"),
+                ("esc", "leave"),
+            ]),
             Some(Target::Log) => keys.extend([("j/k", "scroll"), ("g/G", "top/follow"), ("esc", "leave")]),
             Some(Target::Chart) => keys.extend([("←→", "point"), ("+/-", "zoom"), ("0", "all"), ("esc", "leave")]),
             Some(Target::Compare) => keys.extend([("h/l", "split"), ("s", "side by side"), ("esc", "leave")]),

@@ -24,6 +24,7 @@ B=$(printf '\033[1m') D=$(printf '\033[2m') O=$(printf '\033[38;2;255;199;153m')
   ' "$log" 2>/dev/null
   case "$status" in
     blocked) printf '\n%sit is waiting for you%s\n' "$O" "$R" ;;
+    error | failed) printf '\n%sit stopped with an error%s\n' "$O" "$R" ;;
     working) printf '\n%sstill working%s\n' "$D" "$R" ;;
   esac
 } | less -R -K -P "q to close"

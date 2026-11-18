@@ -211,8 +211,12 @@ impl Fetched {
                 }
             }
             "ci_log" => {
+                // The hub's jobs hold the lines with their job, step and times taken out.
+                let jobs: Vec<String> =
+                    items(answer, &["jobs"]).iter().flat_map(|j| items(j, &["lines"])).filter_map(|l| l.as_str().map(str::to_string)).collect();
                 let lines: Vec<String> = match answer["log"].as_str() {
                     Some(log) => log.lines().map(str::to_string).collect(),
+                    None if !jobs.is_empty() => jobs,
                     None => items(answer, &["lines"]).iter().filter_map(|l| l.as_str().map(str::to_string)).collect(),
                 };
                 let kept: Vec<String> = lines.into_iter().map(|l| l.trim_end().to_string()).filter(|l| !l.trim().is_empty()).collect();
@@ -248,6 +252,12 @@ mod tests {
         );
         assert_eq!(fetched.tests, vec!["test_login", "test_logout"]);
         assert_eq!(fetched.log, vec!["two", "three", "four", "five"]);
+        let mut clean = Fetched::default();
+        clean.absorb(
+            "ci_log",
+            &json!({"lines": ["test\tRun mix test\t2026-11-12T10:01:02Z   1) test resets"], "jobs": [{"job": "test", "lines": ["  1) test resets"]}]}),
+        );
+        assert_eq!(clean.log, vec!["  1) test resets"], "the jobs' lines, without their prefix");
     }
 
     #[test]

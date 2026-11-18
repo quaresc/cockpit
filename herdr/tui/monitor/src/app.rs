@@ -10,6 +10,7 @@ use cockpit_core::dialog::Dialog;
 use cockpit_core::files::{self, Density};
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::seen::Seen;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
@@ -84,6 +85,8 @@ pub struct App {
     pub sent: Vec<Sent>,
     pub hits: Hits,
     focus_seen: SystemTime,
+    /// The row a focus request selected: its keys wait for the person's move.
+    pub pointed: Pointed,
     notified_seen: SystemTime,
     pinned: bool,
     reported: Option<String>,
@@ -132,6 +135,7 @@ impl App {
             sent: Vec::new(),
             hits: Hits::default(),
             focus_seen: SystemTime::now(),
+            pointed: Pointed::default(),
             notified_seen: SystemTime::now(),
             pinned,
             reported: None,
@@ -207,6 +211,7 @@ impl App {
         self.opened.insert(id.clone());
         self.selected = Some(release.map_or(id, str::to_string));
         self.follow = true;
+        self.pointed.point();
     }
 
     pub fn is_busy(&self) -> bool {

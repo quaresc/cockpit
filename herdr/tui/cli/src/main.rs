@@ -12,18 +12,23 @@ mod focus;
 mod gui;
 mod herdr_config;
 mod home;
-mod jsonedit;
+mod hub_env;
+#[cfg(test)]
+mod hub_restart;
 mod launch;
 mod mapper;
 mod mcp;
+mod options;
 mod proc;
 mod queue;
 mod routine;
+mod session;
 mod setup;
 mod shots;
 mod space;
 mod store;
 mod update;
+mod usage;
 
 /// mimalloc hands freed pages back to the system soon after: the system allocator kept the tens of megabytes a show
 /// picture's draw frees, so an idle pane held them.
@@ -36,15 +41,19 @@ use std::time::Duration;
 
 const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agents' tools.
 
-    cockpit inbox|runbook|todo|meetings|monitor|routines|mail
+    cockpit inbox|runbook|todo|meetings|monitor|routines|review|mail
                                                a space's app (cockpit space adds cockpit-space, which update.sh looks for)
     cockpit space <app>                        keeps that app running in its space; ctrl+c twice in a row leaves it
     cockpit show <name>                        the view an agent session shows beside itself
     cockpit palette                            the launcher herdr opens as a popup (prefix+space); PALETTE_PANE is the pane below
-    cockpit agents [answer|recap|snooze|seen|fork|week]  every agent terminal: who needs you, answered from here
+    cockpit start-work [source]                the Start work form herdr opens as a popup (prefix+shift+s): a prompt, a
+                                               ticket's key or a PR's URL becomes a worktree, a space and an agent
+    cockpit agents [answer|recap|snooze|seen|stop|fork|week]  every agent terminal: who needs you, answered from here
     cockpit agents connect|disconnect [<agent>...]
                                                cockpit's tools (cockpit mcp) in each installed agent's MCP config
     cockpit agents connected                   which agents have them, as JSON
+    cockpit usage [--json]                     every agent's limits with their reset, source and freshness, its account,
+                                               and the last 7 days' tokens and estimated spend (a popup on a terminal)
     cockpit agent id|argv ...                  an agent's id, or its command line to start, run, resume or fork (cockpit agent for more)
     cockpit search <query>                     what the palette finds, as the hub's JSON: items, the week's events, past sessions
     cockpit mcp                                cockpit's agent tools (show, search, changes, report_step) as a stdio MCP server
@@ -53,7 +62,7 @@ const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agent
     cockpit hub                                the background process the apps share; the first app that needs it starts it
     cockpit hub ping                           exits 0 when the hub answers within 2 seconds
     cockpit hub start                          starts the hub when none runs, prints {port, token, pid} for the Herdr app
-    cockpit hub stop                           stops the hub; the next app that needs it starts a new one
+    cockpit hub stop                           stops the hub; nothing starts it again until cockpit hub start
     cockpit hub shown <view>                   the args of every drawn copy of a Herdr app view, as JSON
     cockpit hub act review send|walkthrough|stop_walkthrough <JSON args>
                                                a remote desk's review action, handed to this machine's hub
@@ -68,9 +77,20 @@ const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agent
                                                a notification (the Herdr app's toast when it follows the hub, else
                                                the system's; --system: the system's); a click or a button does its action
     cockpit focus <target>                     what a notification's click does (cockpit focus for more)
+    cockpit setup-run <command> [args...]      start work's setup command, run as cockpit's own work: the hub takes
+                                               nothing only a person does from it or what it starts
     cockpit setup                              picks the frontends, the default agent and the features, writes the config,
                                                wires herdr, the Herdr app and the other agents (/cockpit:setup in Claude Code)
+    cockpit options [--json]                   every option section by section: its value, its default, what it takes
+    cockpit options set <key> <value>          sets one in ~/.config/cockpit/config.json: on|off, one of a choice's
+                                               values, a field's text or a number, checked first (a person at a terminal)
+    cockpit options seen [<key>...]            marks options as seen (every one without a key), and the last update shown
+    cockpit options new|ask                    what the last update brought, its new options with how to set them (ask:
+                                               each one asked in turn, as herdr's popup after an update does)
+    cockpit options pending                    exits 0 while the last update, with something to say, was not shown
     cockpit doctor [--all]                     checks every part of cockpit: what is wrong, or with --all every check
+    cockpit doctor --json [--cached]           the same checks as data, with getting started and the agents (--cached:
+                                               the last report when under ten minutes old)
     cockpit browse ...                         a page in terminal-browser beside a pane (cockpit browse for more)
     cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)
     cockpit store ...                          the documents the hub keeps and its leases, for the mod (cockpit store for more)
@@ -96,16 +116,19 @@ fn main() {
     }
     match command.as_str() {
         "inbox" => app(cockpit_inbox::run()),
+        "start-work" => app(cockpit_inbox::start_work(&rest.join(" "))),
         "runbook" => app(cockpit_runbook::run()),
         "todo" => app(cockpit_todo::run()),
         "meetings" => app(cockpit_meetings::run()),
         "monitor" => app(cockpit_monitor::run()),
         "routines" => app(cockpit_routines::run()),
+        "review" => app(cockpit_review::run()),
         "mail" => app(cockpit_mail::run()),
         "show" => app(cockpit_show::run(rest.first().map_or("show", String::as_str))),
         "palette" => app(cockpit_palette::run()),
         "agents" if rest.first().is_some_and(|c| ["connect", "disconnect", "connected"].contains(&c.as_str())) => connect::main(rest),
         "agents" => cockpit_agents::cli::main(rest),
+        "session" => session::main(rest),
         "agent" => match launch::run(rest) {
             Ok(line) => println!("{line}"),
             Err(why) => proc::fail(&why),
@@ -114,10 +137,7 @@ fn main() {
         "mcp" => mcp::main(rest),
         "connector" => connector::main(rest),
         "events" => find::events(rest),
-        "hub" if rest.is_empty() => {
-            gui::register();
-            cockpit_hub::run()
-        }
+        "hub" if rest.is_empty() => gui::hub(),
         "hub" if rest == ["start"] => gui::hub_start(),
         "hub" if rest == ["stop"] => gui::hub_stop(),
         "hub" if rest.len() == 2 && rest[0] == "shown" => gui::hub_shown(&rest[1]),
@@ -134,8 +154,10 @@ fn main() {
         "act" => act::main(rest),
         "notify" => notify(rest),
         "focus" => focus::main(rest),
+        "setup-run" => setup_run(rest),
         "doctor" => doctor::main(rest),
         "setup" => setup::main(rest),
+        "options" => options::main(rest),
         "space" => space::main(rest),
         "browse" => browse::main(rest),
         "shots" => shots::main(rest),
@@ -143,6 +165,7 @@ fn main() {
         "routine" => routine::main(rest),
         "resume" => resume(rest),
         "queue" => queue::main(rest),
+        "usage" => usage::main(rest),
         _ => proc::fail(USAGE),
     }
 }
@@ -199,14 +222,38 @@ fn resume(args: &[String]) {
     }
 }
 
-/// A system notification with the cockpit icon: a click does the action, each `<label>=<action>` button its own.
+/// A system notification with the cockpit icon: a click does the action, each `<label>=<action>` button its own. Any
+/// process may run this, so a button's act becomes the row it is about, where the person acts themselves.
 fn notify(args: &[String]) {
     let system = args.first().is_some_and(|a| a == "--system");
     let args = if system { &args[1..] } else { args };
     let [title, body, rest @ ..] = args else { proc::fail("cockpit notify [--system] <title> <body> [action] [<label>=<action> ...]") };
-    let action = rest.first().map_or("", String::as_str);
-    let buttons = rest.get(1..).unwrap_or_default();
-    if system { cockpit_core::notify::post_system(title, body, action, buttons) } else { cockpit_core::notify::post(title, body, action, buttons) }
+    let action = no_act(rest.first().map_or("", String::as_str));
+    let buttons: Vec<String> = rest
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|b| b.split_once('=').map(|(label, target)| (label, no_act(target))).filter(|(_, t)| !t.is_empty()).map(|(l, t)| format!("{l}={t}")))
+        .collect();
+    if system { cockpit_core::notify::post_system(title, body, &action, &buttons) } else { cockpit_core::notify::post(title, body, &action, &buttons) }
+}
+
+/// A target with its act, if any, turned into the row it is about: the hub runs an act only from a person's own click.
+fn no_act(target: &str) -> String {
+    let bare = target.strip_prefix(cockpit_core::notify::IN_APP).unwrap_or(target);
+    if bare.starts_with("act:") { cockpit_core::notify::to_view(target) } else { target.to_string() }
+}
+
+/// Runs a start's setup command under this process and exits as it did: the hub reads the line of parents, so nothing
+/// the command or its children ask for passes for the person's.
+fn setup_run(args: &[String]) {
+    let [program, rest @ ..] = args else { proc::fail("cockpit setup-run <command> [args...]") };
+    let status = std::process::Command::new(program).args(rest).status();
+    let code = match status {
+        Ok(s) => s.code().unwrap_or_else(|| 128 + std::os::unix::process::ExitStatusExt::signal(&s).unwrap_or(1)),
+        Err(e) => proc::fail(&format!("cockpit setup-run: {program}: {e}")),
+    };
+    std::process::exit(code);
 }
 
 /// An app's end: an error that stopped it is printed, and `cockpit space` starts it again.

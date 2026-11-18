@@ -2,7 +2,7 @@
 //! against its base, its pull request) drawn like a show diff, the comments made on it sent to the agent working there
 //! as one message, and the guided walkthrough of those changes (`crate::walkthrough`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{LazyLock, Mutex};
@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::gui::diff_model;
-use crate::patch::git_diff;
+use crate::gui::diff_model_with;
+use crate::patch::{File, git_diff};
 use crate::walkthrough;
 
 /// How long a pull request's facts and diff are kept before `gh` is asked again.
@@ -29,8 +29,41 @@ fn git(repo: &str, args: &[&str]) -> Option<String> {
 }
 
 /// The repository a folder is in, as git names it (symlinks resolved), so the view and the actions agree on it.
-fn toplevel(folder: &str) -> Option<String> {
+pub fn toplevel(folder: &str) -> Option<String> {
     git(folder, &["rev-parse", "--show-toplevel"])
+}
+
+/// How many of the agents a client lists are looked at, and how many folders git is asked about per request.
+const AGENTS_AT_MOST: usize = 64;
+const LOOKS_AT_MOST: usize = 16;
+
+/// The handles of `agents` (`[{handle, cwd}]`) whose folder git puts in `repo`: a worktree nested inside it is a
+/// repository of its own. Each folder's toplevel is kept a little while, since the panel asks every few seconds; a
+/// client's list is read so far and git asked so often per request, at most.
+pub fn working_in(repo: &str, agents: &Value) -> Vec<String> {
+    type Seen = HashMap<String, (Option<String>, Instant)>;
+    static SEEN: LazyLock<Mutex<Seen>> = LazyLock::new(Default::default);
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    seen.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
+    let mut looks = 0;
+    agents
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(AGENTS_AT_MOST)
+        .filter_map(|a| {
+            let (handle, cwd) = (a["handle"].as_str()?, a["cwd"].as_str().filter(|c| c.starts_with('/'))?);
+            if !seen.contains_key(cwd) {
+                if looks >= LOOKS_AT_MOST || seen.len() >= AGENTS_AT_MOST * 4 {
+                    return None;
+                }
+                looks += 1;
+                seen.insert(cwd.to_string(), (toplevel(cwd), Instant::now()));
+            }
+            let top = seen.get(cwd).and_then(|(top, _)| top.clone());
+            (top.as_deref() == Some(repo)).then(|| handle.to_string())
+        })
+        .collect()
 }
 
 /// The branch a branch's changes are counted from: the remote's default, else main or master.
@@ -90,9 +123,76 @@ pub fn patch_of(repo: &str, scope: &str) -> Result<(String, Value), String> {
     }
 }
 
-/// `{repo, scope, since}`: the changes (`{same: true}` with the walkthrough when the patch hashes to `since`), where
-/// they come from, and the walkthrough of that scope as it stands over them.
+/// A scope's changes read for the TUI's review space: the files painted (None when the patch hashes to the `since`
+/// asked with), where they come from, the walkthrough over them, or why they could not be read.
+pub struct Read {
+    pub repo: String,
+    pub scope: String,
+    pub hash: u64,
+    pub files: Option<Vec<File>>,
+    pub about: Value,
+    pub walkthrough: Value,
+    pub error: Option<String>,
+}
+
+/// Reads a folder's repository in one scope, as `view` does for the Herdr app.
+pub fn read(folder: &str, scope: &str, since: Option<u64>) -> Read {
+    let mut out = Read {
+        repo: folder.to_string(),
+        scope: scope.to_string(),
+        hash: 0,
+        files: None,
+        about: Value::Null,
+        walkthrough: json!({"status": "none"}),
+        error: None,
+    };
+    let Some(repo) = toplevel(folder) else {
+        out.error = Some(format!("{folder} is not in a git repository"));
+        return out;
+    };
+    out.repo = repo;
+    match patch_of(&out.repo, scope) {
+        Ok((patch, about)) => {
+            out.hash = crate::diff::hash(&patch);
+            let files = || crate::patch::prepare(&patch);
+            out.files = (since != Some(out.hash)).then(|| if scope == "pr" { files() } else { crate::patch::with_sizes(files(), &out.repo) });
+            out.walkthrough = walkthrough::peek(&out.repo, scope, &patch).unwrap_or_else(|| taken_in(&out.repo, scope, &patch));
+            out.about = about;
+        }
+        Err(error) => {
+            out.about = json!({"branch": git(&out.repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default()});
+            out.error = Some(error);
+        }
+    }
+    out
+}
+
+/// A walkthrough that finished, taken in by the hub (its review view does it) and read back from it.
+fn taken_in(repo: &str, scope: &str, patch: &str) -> Value {
+    let since = format!("{:016x}", crate::gui::fnv(patch));
+    let request = json!({"op": "view", "name": "review", "args": {"repo": repo, "scope": scope, "since": since}});
+    cockpit_core::hub::request(&request, Duration::from_secs(10))
+        .ok()
+        .map(|answer| answer["value"]["walkthrough"].clone())
+        .filter(|w| w.is_object())
+        .unwrap_or_else(|| json!({"status": "running"}))
+}
+
+/// Forgets what `gh` said about a repo's pull requests, so the next read asks it again.
+pub fn forget(repo: &str) {
+    PRS.lock().unwrap_or_else(|e| e.into_inner()).retain(|(r, _), _| r != repo);
+}
+
+/// `{repo, scope, since, load}`: the changes (`{same: true}` with the walkthrough when the patch hashes to `since`), a
+/// large file's lines only once `load` names it, where they come from, and the walkthrough of that scope over them.
+/// `{prompt: {scope, comments}}` is the review as an agent reads it, for a new agent started on it.
 pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
+    if args["prompt"].is_object() {
+        return match message(&args["prompt"]) {
+            Ok(prompt) => json!({"prompt": prompt}),
+            Err(error) => json!({"error": error}),
+        };
+    }
     let Some(asked) = args["repo"].as_str().filter(|r| r.starts_with('/')) else { return json!({"error": "no repository: focus an agent working in one"}) };
     let Some(repo) = toplevel(asked) else { return json!({"error": format!("{asked} is not in a git repository")}) };
     let scope = args["scope"].as_str().filter(|s| matches!(*s, "branch" | "pr")).unwrap_or("uncommitted");
@@ -100,7 +200,11 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
         Ok(found) => found,
         Err(error) => return json!({"repo": repo, "scope": scope, "error": error}),
     };
-    let mut out = diff_model(&patch, args["since"].as_str());
+    let load: HashSet<String> = args["load"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_string)).collect();
+    // A PR's binary files are not the working tree's: their size is left out rather than guessed.
+    let sizes = (scope != "pr").then_some(repo.as_str());
+    let mut out = diff_model_with(&patch, args["since"].as_str(), Some(&load), sizes);
+    out["here"] = json!(working_in(&repo, &args["agents"]));
     let name = Path::new(&repo).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     out["repo"] = json!(repo);
     out["name"] = json!(name);
@@ -110,10 +214,17 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     out
 }
 
-/// `send [terminal, {scope, repo, comments: [{path, line, old, code, text}]}]` types the review into the agent as one
-/// line; `walkthrough [repo, scope, model]` starts one; `stop_walkthrough [repo, scope]` stops it.
+/// `send [handle, {scope, repo, comments: [{path, line, old, code, text}], to}]` hands the review to the agent as one
+/// message through `deliver` (a terminal's or a driven session's), the note naming `to`; `walkthrough [repo, scope,
+/// model]` starts one; `stop_walkthrough [repo, scope]` stops it.
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let first = args.first().and_then(Value::as_str).unwrap_or_default();
+    // A walkthrough starts an agent and stops one: the person's to do.
+    if matches!(action, "walkthrough" | "stop_walkthrough")
+        && let Err(why) = cockpit_core::peer::person("a walkthrough is started and stopped by a person, not by an agent's tools")
+    {
+        return Some(Err(why));
+    }
     Some(match action {
         "send" => send(first, args.get(1).unwrap_or(&Value::Null)),
         "walkthrough" => {
@@ -175,12 +286,17 @@ fn send(terminal: &str, review: &Value) -> Result<String, String> {
     }
     // An app terminal comes as its address (t3); a herdr pane id or a handle (app:t3) as it is.
     let handle = if terminal.contains(':') || terminal.contains('-') { terminal.to_string() } else { format!("{}{terminal}", cockpit_core::frontend::APP) };
-    if cockpit_core::frontend::run_in(&handle, &line) {
-        let n = review["comments"].as_array().map_or(0, Vec::len);
-        Ok(format!("review sent to the agent ({n} comment{})", if n == 1 { "" } else { "s" }))
-    } else {
-        Err("the agent's terminal did not take it".into())
-    }
+    // The person's review, or an agent's own tools reviewing for their own agent: never words for another agent.
+    cockpit_core::peer::may_touch(&handle)?;
+    cockpit_core::deliver::deliver(&handle, &line)?;
+    Ok(sent_note(review))
+}
+
+/// What a send that went through says: who took the review, and how many comments it held.
+fn sent_note(review: &Value) -> String {
+    let n = review["comments"].as_array().map_or(0, Vec::len);
+    let to = review["to"].as_str().filter(|t| !t.trim().is_empty()).unwrap_or("the agent");
+    format!("review sent to {to} ({n} comment{})", if n == 1 { "" } else { "s" })
 }
 
 #[cfg(test)]
@@ -200,6 +316,8 @@ mod tests {
         );
         assert!(!line.contains('\n'));
         assert!(message(&json!({"comments": []})).is_err());
+        assert_eq!(sent_note(&json!({"comments": [{}, {}], "to": "Daily quotas"})), "review sent to Daily quotas (2 comments)");
+        assert_eq!(view(&json!({"prompt": review}), &|_| Value::Null)["prompt"], json!(line), "the prompt a new agent starts on");
     }
 
     #[test]
@@ -216,5 +334,30 @@ mod tests {
         let again = view(&json!({"repo": repo, "since": v["hash"]}), &|_| Value::Null);
         assert_eq!(again["same"], true);
         assert!(view(&json!({"repo": "/nonexistent-dir"}), &|_| Value::Null)["error"].is_string());
+    }
+
+    #[test]
+    fn the_agents_of_a_repo_are_the_ones_git_puts_in_it_not_a_nested_worktree() {
+        let root = tempfile::tempdir().unwrap();
+        let api = root.path().join("api");
+        let nested = api.join("e2e-worktree");
+        for dir in [&api, &nested] {
+            std::fs::create_dir_all(dir).unwrap();
+            assert!(Command::new("git").args(["init", "-q"]).current_dir(dir).output().unwrap().status.success());
+        }
+        std::fs::create_dir_all(api.join("lib")).unwrap();
+        let commit = ["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "start"];
+        assert!(Command::new("git").args(commit).current_dir(&api).output().unwrap().status.success());
+        let repo = toplevel(&api.to_string_lossy()).unwrap();
+        let path = |p: &Path| p.to_string_lossy().into_owned();
+        let agents = json!([
+            {"handle": "app:t41", "cwd": path(&api)},
+            {"handle": "app:t45", "cwd": path(&api.join("lib"))},
+            {"handle": "app:t48", "cwd": path(&nested)},
+            {"handle": "app:t42", "cwd": path(root.path())},
+        ]);
+        assert_eq!(working_in(&repo, &agents), ["app:t41", "app:t45"]);
+        let v = view(&json!({"repo": path(&api), "agents": agents}), &|_| Value::Null);
+        assert_eq!(v["here"], json!(["app:t41", "app:t45"]), "the view answers with them");
     }
 }

@@ -20,6 +20,9 @@ pub struct Entry {
     pub id: usize,
 }
 
+/// The id `Chosen` carries for the fallback row: what was typed, offered when nothing matches it.
+pub const FALLBACK: usize = usize::MAX;
+
 pub enum Outcome {
     Open,
     Closed,
@@ -33,6 +36,8 @@ pub struct Palette {
     pub is_open: bool,
     /// The app's own name: what the hub finds in it is left out, the app's entries already cover it.
     pub app: String,
+    /// The words of a row offered when nothing matches what was typed (`start work`), chosen as `FALLBACK`.
+    pub fallback: Option<&'static str>,
     query: String,
     entries: Vec<Entry>,
     shown: Vec<usize>,
@@ -53,6 +58,16 @@ impl Palette {
     pub fn replace(&mut self, entries: Vec<Entry>) {
         self.entries = entries;
         self.filter();
+    }
+
+    /// What was typed.
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    /// Whether the fallback row shows: something typed, and nothing of the app's or the hub's matches it.
+    fn falls_back(&self) -> bool {
+        self.fallback.is_some() && !self.query.trim().is_empty() && self.shown.is_empty() && self.elsewhere.is_empty()
     }
 
     /// Asks the hub in the background, so typing never waits on it; the answer shows when it lands (see `arrived`).
@@ -104,7 +119,7 @@ impl Palette {
             scored.sort_by_key(|s| std::cmp::Reverse(s.1));
             self.shown = scored.into_iter().map(|(i, _)| i).collect();
         }
-        self.state.select(if self.shown.is_empty() && self.elsewhere.is_empty() { None } else { Some(0) });
+        self.state.select(if self.shown.is_empty() && self.elsewhere.is_empty() && !self.falls_back() { None } else { Some(0) });
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Outcome {
@@ -120,6 +135,7 @@ impl Palette {
                     Some(&n) => Outcome::Chosen(self.entries[n].id),
                     None => match self.elsewhere.get(selected.wrapping_sub(self.shown.len())) {
                         Some(found) => Outcome::Elsewhere(found.target.clone()),
+                        None if selected == 0 && self.falls_back() => Outcome::Chosen(FALLBACK),
                         None => Outcome::Closed,
                     },
                 };
@@ -147,6 +163,23 @@ impl Palette {
         Outcome::Open
     }
 
+    /// Where the selection is in the list, None with nothing to select.
+    pub fn selection(&self) -> Option<usize> {
+        self.state.selected()
+    }
+
+    /// The id of the app's own entry under the selection; None on a found item or with nothing selected.
+    pub fn selected_entry(&self) -> Option<usize> {
+        self.state.selected().and_then(|i| self.shown.get(i)).map(|&n| self.entries[n].id)
+    }
+
+    /// Selects the shown entry with this id; false when it is not shown.
+    pub fn select_entry(&mut self, id: usize) -> bool {
+        let Some(at) = self.shown.iter().position(|&n| self.entries[n].id == id) else { return false };
+        self.state.select(Some(at));
+        true
+    }
+
     /// The found item under the selection; None on one of the app's own entries.
     pub fn selected_found(&self) -> Option<&crate::hub::Found> {
         self.state.selected()?.checked_sub(self.shown.len()).and_then(|i| self.elsewhere.get(i))
@@ -157,7 +190,8 @@ impl Palette {
         self.arrived();
         let width = area.width.saturating_sub(4).min(90);
         // Each entry takes two lines: its text and its help.
-        let height = ((self.shown.len() + self.elsewhere.len()) as u16 * 2 + 4).min(area.height.saturating_sub(2)).max(6);
+        let rows = self.shown.len() + self.elsewhere.len() + usize::from(self.falls_back());
+        let height = (rows as u16 * 2 + 4).min(area.height.saturating_sub(2)).max(6);
         self.render_in(frame, Rect { x: area.x + (area.width - width) / 2, y: area.y + 1, width, height });
     }
 
@@ -195,6 +229,12 @@ impl Palette {
                 Line::from(Span::styled(format!("  {help}"), Style::new().fg(DIM))),
             ])
         }));
+        if let Some(words) = self.fallback.filter(|_| self.falls_back()) {
+            items.push(ListItem::new(vec![
+                Line::from(vec![Span::styled(format!("{words}: "), Style::new().fg(ORANGE)), Span::styled(self.query.clone(), Style::new().fg(FG))]),
+                Line::from(Span::styled("  nothing matches: a worktree, a space and an agent for what you typed", Style::new().fg(DIM))),
+            ]));
+        }
         let list_widget = List::new(items).highlight_style(Style::new().bg(PANEL).add_modifier(Modifier::BOLD)).style(Style::new().bg(SURFACE));
         frame.render_stateful_widget(list_widget, list, &mut self.state);
     }

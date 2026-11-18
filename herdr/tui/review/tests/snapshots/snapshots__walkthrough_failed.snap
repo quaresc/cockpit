@@ -1,0 +1,20 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 100, 16)"
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR   walkthrough
+
+ Walk through these changes
+ An agent groups the hunks into steps in the order they make sense, explains what each changes,
+ and lists what no step covers. It explains, it does not judge. One background call, no tools,
+ cached by the exact changes.
+
+ Model  ▸ Haiku    Sonnet    Opus   fast and cheap · m picks another
+
+ ✗ Stopped after 900 seconds without an answer.
+
+ ▸ try again  r
+
+
+ q quit  r write it  m model  w diff  W worktree  ? keys                                ▏^p palette

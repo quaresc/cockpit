@@ -1,28 +1,31 @@
 // The cockpit sidebar, in place of Herdr's Spaces and Agents lists: the work area and the pinned apps (the config's
-// `spaces`) with their counts, then the spaces with their tabs' agents. It is the one copy always shown, so it also
-// carries the window-wide plumbing: `cockpit.go:<app>`, `cockpit.palette`, `cockpit.target:<target>` (a notification's
-// click) and the hub's notifications, posted as Herdr toasts while the window is in front, as system ones otherwise.
+// `spaces`) with their counts, then the spaces with their tabs' agents. It also posts the hub's notifications, as Herdr
+// toasts while the window is in front and system ones otherwise; the window's commands run in commands.js.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { run, shared, setShared, focused, spaces, machines, hc, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
+import { run, shared, setShared, focused, spaces, agents, machines, hc, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
 import * as hub from "./hub.js";
-import { togglePalette } from "./palette.js";
-import { openCode } from "./code.js";
-import { deliver, follow } from "./notify.js";
-import { rowsOf, countsOf } from "./fleet.js";
-import { openUpdate, pending as pendingUpdate } from "./update.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, dur } from "./ui.js";
-import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours } from "./agentsui.js";
+import { deliver } from "./notify.js";
+import { rowsOf, countsOf, agentStatus, needing } from "./fleet.js";
+import { show, showWork, showPanes, screens, layoutName } from "./screens.js";
+import { togglePalette, openRecap, hint, keyFor, keyText, lend } from "./commands.js";
+import { inFront } from "./front.js";
+import { UpdateTag, pending as pendingUpdate } from "./update.js";
+import { SettingsLink } from "./doctor.js";
+import { openUsage } from "./usage.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, HubDown, dur, AgentLogo, providersOf } from "./ui.js";
+import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours, statusColor, UndoRow } from "./agentsui.js";
 
-const APPS = {
-  inbox: { label: "Inbox", icon: "inbox", key: "⌘⌥1" },
-  runbook: { label: "Runbook", icon: "book", key: "⌘⌥2" },
-  "to-do": { child: "todo", label: "To-do", icon: "list-todo", key: "⌘⌥3" },
-  meetings: { label: "Meetings", icon: "calendar", key: "⌘⌥4" },
-  monitor: { label: "Monitor", icon: "activity", key: "⌘⌥5" },
-  routines: { label: "Routines", icon: "clock", key: "⌘⌥6" },
-  mail: { label: "Mail", icon: "mail", key: "⌘⌥7" },
+/** The config's pinned spaces that are apps here, by their space name; their key comes from the shown layout's keys. */
+export const APPS = {
+  inbox: { label: "Inbox", icon: "inbox" },
+  runbook: { label: "Runbook", icon: "book" },
+  "to-do": { child: "todo", label: "To-do", icon: "list-todo" },
+  meetings: { label: "Meetings", icon: "calendar" },
+  monitor: { label: "Monitor", icon: "activity" },
+  routines: { label: "Routines", icon: "clock" },
+  mail: { label: "Mail", icon: "mail" },
 };
 const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
 
@@ -46,11 +49,18 @@ function appBadge(app, v) {
   return null;
 }
 
-/** Shows a block of the cockpit layout, `work` or an app's, and gives that app the keyboard. */
-export function show(child) {
-  run("layout.select", { stack: "center", child });
-  setShared("cockpit.app", child);
-  if (child !== "work") run(`cockpit.show:${child}`);
+export { show } from "./screens.js";
+
+/** The screens whose own view runs the agents menu's commands while it is in front. */
+const AGENT_SCREENS = ["needs"];
+
+/** Whether the sidebar runs `cockpit.agents|…`: only when no screen in front runs them itself, so each runs once. */
+export const takesAgentCommands = () => !AGENT_SCREENS.some((screen) => inFront(screen));
+
+/** Brings up a space's work: its chat when an agent runs there, else its panes as they are. */
+function showSpace(id) {
+  if (agents().some((a) => a.space === id)) showWork();
+  else showPanes();
 }
 
 /** The palette over the window, on Herdr's palette geometry; again: closes it. */
@@ -76,6 +86,7 @@ export default class Sidebar {
     this.agents = new AgentsModel();
     this.agents.loadPins();
     this.agents.follow(cx, (value, before, cx) => this.agentsChanged(value, before, cx));
+    this.unlend = lend(() => (this.agents.state === "live" ? this.agents.value : null));
     cx.spawn(async (cx) => {
       try {
         this.install = await hub.install();
@@ -106,6 +117,7 @@ export default class Sidebar {
   }
 
   close() {
+    this.unlend?.();
     this.sub?.stop();
     this.agents.stop();
   }
@@ -115,20 +127,10 @@ export default class Sidebar {
     deliver(n, this.install, cx);
   }
 
-  /** A notification's click: the row it is about, through `cockpit focus`; a URL opens. */
-  target(t, cx) {
-    follow(t, cx);
-  }
-
-  command(c, cx) {
-    if (c.startsWith("go:")) show(c.slice(3));
-    else if (c === "palette") openPalette(cx);
-    else if (c === "recap" || c.startsWith("recap:")) this.openRecap(c.split(":")[1]);
-    else if (this.agents.command(c, cx)) return;
-    else if (c === "kit" || c.startsWith("kit:")) openOverlay({ mod: "cockpit", props: { app: "kit", tab: c.split(":")[1] }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 });
-    else if (c.startsWith("target:")) this.target(c.slice(7), cx);
-    else if (c === "update") openUpdate();
-    else if (c.startsWith("code:open:")) openCode(c.slice(10));
+  /** The agents menu's `cockpit.agents|…`, unless a screen in front runs them; the window's are the runner's. */
+  command(c, cx, key = null) {
+    if (c.startsWith("agents|") && !takesAgentCommands()) return;
+    if (this.agents.command(c, cx, key)) return;
     cx.notify();
   }
 
@@ -170,19 +172,19 @@ export default class Sidebar {
     // A space or tab picked anywhere brings the work area back (Home keeps its own focused agent).
     const f = focused();
     const place = f ? `${f.space}/${f.tab}` : null;
-    if (this.place !== null && place !== this.place && active !== "work" && active !== "home") cx.timer.after(1, () => show("work"));
+    if (this.place !== null && place !== this.place && active !== screens().work && active !== "home" && active !== "tab") cx.timer.after(1, () => showWork());
     this.place = place;
     const rail = this.width < 160;
     const model = this.agents;
     const rows = model.rows;
     const waiting = rows.filter((r) => r.stage === "needs_you");
     const order = [...waiting, ...rows.filter((r) => r.stage !== "needs_you")];
-    // Home answers them in its NEXT MOVE and cards: there the waiting agents stay in the list below. Without the hub
+    // Home and Needs answer them on their own cards: there the waiting agents stay in the list below. Without the hub
     // nothing answers in place, so they stay in the list too.
-    const band = active === "home" || model.down ? [] : waiting;
+    const band = active === "home" || active === "needs" || model.down ? [] : waiting;
     setAgentOrder(order.filter(r => !r.remote).map((r) => r.address));
 
-    const navItem = (child, label, icon, count, key, tone) => {
+    const navItem = (child, label, icon, count, command, tone) => {
       const on = active === child;
       return h_flex()
         .id(`nav-${child}`)
@@ -203,7 +205,7 @@ export default class Sidebar {
           show(child);
           cx.notify();
         })
-        .tooltip(key ? `${label}  ${key}` : label)
+        .tooltip(hint(label, command))
         .child(Icon(icon, { size: 16 }))
         .when(!rail, (e) => e.child(div().flex_1().truncate().child(label)))
         .when(Boolean(count) && !rail, (e) =>
@@ -224,10 +226,18 @@ export default class Sidebar {
         )
         .when(Boolean(count) && rail, (e) => e.child(div().absolute().top(4).right(6).size(7).rounded(4).bg(tone ?? k.ring)));
     };
-    const apps = this.spaces.filter((s) => APPS[s]).map((s) => ({ ...APPS[s], child: APPS[s].child ?? s }));
+    const apps = this.spaces.filter((s) => APPS[s]).map((s) => ({ ...APPS[s], child: APPS[s].child ?? s, command: `cockpit.go:${APPS[s].child ?? s}` }));
     const badge = (child) => this.counts[child] ?? shared(`badge.${child}`) ?? null;
     const tone = (child) => { const t = badge(child)?.tone; return t ? k[t] ?? t : null; };
     const counts = countsOf(model.value);
+    // Cockpit Chat has a Needs screen of its own: the waiting count is its, and its keys stay in the tooltips.
+    const chat = layoutName() === "cockpit-chat";
+    const home = screens().list.find((x) => x.child === "home");
+    const lead = [
+      { child: "home", label: "Home", icon: "layout-dashboard", command: home.command, count: chat ? null : counts.unread || null, tone: counts.needs_you ? k.blocked : null },
+      ...(chat ? [{ child: "needs", label: "Needs you", icon: "hand", command: "cockpit.go:needs", count: needing(model.rows ?? []).length || null, tone: k.blocked }] : []),
+    ];
+    const paletteKey = keyFor("cockpit.palette");
 
     return v_flex()
       .id("cockpit-sidebar")
@@ -262,25 +272,23 @@ export default class Sidebar {
             .cursor_pointer()
             .hover((s) => s.border_color(k.ring))
             .on_click(() => openPalette())
+            .when(chat, (e) => e.tooltip(hint("Search or run a command", "cockpit.palette")))
             .child(Icon("search", { size: 14, color: k.mutedFg }))
             .child(div().flex_1().text_size(TEXT.sm).text_color(k.mutedFg).child("Search or run…"))
-            .child(Kbd("⌘⇧P")),
+            .when(!chat && Boolean(paletteKey), (e) => e.child(Kbd(keyText(paletteKey ?? "")))),
         ),
       )
-      .when(!rail && Boolean(model.value?.quota?.length), (e) =>
-        e.child(div().id("quota-box").mb(8).px(4).cursor_pointer().on_click(() => this.openRecap("time")).child(QuotaBars(model.value.quota, { compact: true }))),
+      .when(!rail && Boolean(model.value?.quota?.length || rows.length), (e) =>
+        e.child(div().id("quota-box").mb(8).px(4).child(QuotaBars(model.value?.quota, { compact: true, rows }))),
       )
       .when(rail, (e) =>
         e
-          .child(navItem("home", "Home", "layout-dashboard", counts.unread || null, "⌘⌥0", counts.needs_you ? k.blocked : null))
-          .children(apps.map((a) => navItem(a.child, a.label, a.icon, badge(a.child)?.count || null, a.key, tone(a.child)))),
+          .children(lead.map((a) => navItem(a.child, a.label, a.icon, a.count, a.command, a.tone)))
+          .children(apps.map((a) => navItem(a.child, a.label, a.icon, badge(a.child)?.count || null, a.command, tone(a.child)))),
       )
       .when(!rail, (e) =>
         e.child(
-          this.appStrip(k, active, [
-            { child: "home", label: "Home", icon: "layout-dashboard", key: "⌘⌥0", count: counts.unread || null, tone: counts.needs_you ? k.blocked : null },
-            ...apps.map((a) => ({ ...a, count: badge(a.child)?.count || null, tone: tone(a.child) })),
-          ]),
+          this.appStrip(k, active, [...lead, ...apps.map((a) => ({ ...a, count: badge(a.child)?.count || null, tone: tone(a.child) }))]),
         ),
       )
       .child(div().h(1).my(8).bg(k.border))
@@ -292,33 +300,10 @@ export default class Sidebar {
           .gap(2)
           .overflow_y_scrollbar()
           .when(rail, (e) => e.children(this.railRows(k, rows)))
-          .when(!rail, (e) => e.children([...this.bandRows(k, band), ...this.agentRows(k, rows, band, cx), ...this.spaceRows(k, cx)])),
+          .when(!rail, (e) => e.children([UndoRow("band-undo", model), ...this.bandRows(k, band), ...this.agentRows(k, rows, band, cx), ...this.spaceRows(k, cx)].filter(Boolean))),
       )
-      .when(Boolean(this.update), (e) => e.child(this.updateTag(k, rail)));
-  }
-
-  /** The published cockpit, as a tag under the lists and over Herdr's footer: a click opens what it changes. */
-  updateTag(k, rail) {
-    const u = this.update;
-    const row = h_flex()
-      .id("update-tag")
-      .mt(6)
-      .flex_none()
-      .items_center()
-      .rounded(RADIUS.md)
-      .bg(alpha(k.done, 0.14))
-      .cursor_pointer()
-      .hover((s) => s.bg(alpha(k.done, 0.24)))
-      .on_click(() => openUpdate())
-      .child(Icon("arrow-up", { size: 14, color: k.done }));
-    if (rail) return row.h(28).justify_center().tooltip(`Cockpit ${u.latest} is out \u2014 you run ${u.current}`);
-    return row
-      .h(30)
-      .px(8)
-      .gap(8)
-      .tooltip(`You run ${u.current}`)
-      .child(div().flex_1().truncate().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(`Update cockpit to ${u.latest}`))
-      .child(Icon("chevron-right", { size: 14, color: k.mutedFg }));
+      .when(Boolean(this.update), (e) => e.child(UpdateTag("update-tag", this.update, { rail, mono: layoutName() === "cockpit-chat" })))
+      .child(div().mt(4).child(SettingsLink("sidebar-settings", { rail })));
   }
 
   /** The pinned apps as a row of tiles (label and key in the tooltip, count as a badge): the list below keeps the room. */
@@ -332,8 +317,8 @@ export default class Sidebar {
       .children(
         items.map((a) => {
           const on = active === a.child;
-          // Home stays first; the pinned apps move by drag and drop, the config's order following.
-          const movable = a.child !== "home";
+          // Home (and Needs) stay first; the pinned apps move by drag and drop, the config's order following.
+          const movable = a.child !== "home" && a.child !== "needs";
           const d = this.appDrag;
           const dragging = d && d.from === a.child && d.over !== a.child;
           const over = d && d.over === a.child && d.from !== a.child;
@@ -376,7 +361,7 @@ export default class Sidebar {
               show(a.child);
               cx.notify();
             })
-            .tooltip(a.key ? `${a.label}  ${a.key}` : a.label)
+            .tooltip(hint(a.label, a.command))
             .child(Icon(a.icon, { size: 16 }))
             .when(Boolean(a.count), (e) => e.child(CornerCount(a.count, { tone: a.tone ?? k.primary, top: -3, right: -2 })));
         }),
@@ -398,10 +383,6 @@ export default class Sidebar {
     hub.act("home", "pin_order", [order]).catch(() => undefined);
   }
 
-  openRecap(tab) {
-    openOverlay({ mod: "cockpit", props: { app: "recap", ...(tab ? { tab } : {}) }, kind: "dialog", width: 0.8, height: 0.8 });
-  }
-
   /** The Needs you band: each waiting agent's question, answered in place. */
   bandRows(k, band) {
     if (!band.length) return [];
@@ -414,6 +395,7 @@ export default class Sidebar {
           header: h_flex()
             .gap(6)
             .items_center()
+            .child(AgentLogo(r, { size: 13, tooltip: r.agent_name, id: `band-${r.terminal}-logo` }))
             .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).font_semibold().text_color(k.foreground).child(r.title || r.tab?.name || r.address))
             .child(div().flex_none().text_size(TEXT.xs).text_color(k.blocked).child(dur(now - (r.since ?? now)))),
         }),
@@ -429,8 +411,11 @@ export default class Sidebar {
             .text_size(TEXT.xs)
             .text_color(k.mutedFg)
             .hover((s) => s.bg(k.accent))
-            .on_click(() => this.openRecap())
-            .child(`${band.length - shown.length} more waiting · open the recap ⌘R`)
+            .on_click(() => openRecap())
+            .tooltip(hint("Recap of every agent", "cockpit.recap"))
+            .child(`${band.length - shown.length} more waiting · open the recap`)
+            // Cockpit shows its keys on what they act on; Cockpit Chat keeps them in the tooltip.
+            .when(layoutName() !== "cockpit-chat" && Boolean(keyFor("cockpit.recap")), (e) => e.gap(6).child(Kbd(keyText(keyFor("cockpit.recap") ?? ""))))
         : null,
       div().h(6),
     ].filter(Boolean);
@@ -448,6 +433,9 @@ export default class Sidebar {
     if (r.pr) parts.push(div().child(`#${r.pr.number}${r.pr.review === "APPROVED" ? " approved" : r.pr.review === "CHANGES_REQUESTED" ? " changes asked" : ""}`));
     if (r.changes?.files) parts.push(h_flex().gap(3).child(div().text_color(k.success).child(`+${r.changes.add}`)).child(div().text_color(k.destructive).child(`−${r.changes.del}`)));
     if (!parts.length && r.said) parts.push(div().min_w(0).truncate().italic().child(r.said));
+    // A session cockpit drives has no terminal: the Cockpit layout says a click reads it in Cockpit Chat.
+    const reads = r.paused ? "Paused · picks up when you write" : layoutName() === "cockpit" ? "Reads in Cockpit Chat" : null;
+    if (r.driven && reads) parts.unshift(h_flex().min_w(0).gap(4).items_center().child(Icon("message-square", { size: 11 })).child(div().min_w(0).truncate().child(reads)));
     const flash = this.flashes.of(r.terminal);
     const row = h_flex()
       .id(id)
@@ -467,7 +455,8 @@ export default class Sidebar {
       )
       .on_click((_e, cx) => this.agents.go(cx, r))
       .on_mouse_down("right", () => this.agents.menu(r))
-      .child(h_flex().w(14).flex_none().justify_center().child(StageMark(id, r.stage)))
+      .child(h_flex().w(14).flex_none().justify_center().child(StageMark(id, r.stage, { status: r.status })))
+      .child(AgentLogo(r, { size: 14, tooltip: r.agent_name, id: `${id}-logo` }))
       .child(
         v_flex()
           .flex_1()
@@ -481,23 +470,25 @@ export default class Sidebar {
           h_flex()
             .gap(2)
             .flex_none()
+            // A dismissed agent comes back from its own row.
+            .when(Boolean(r.dismissed) && !r.remote, (h) => h.child(Button(`${id}-restore`, { icon: "undo", variant: "ghost", size: "icon-sm", tooltip: "Bring back to Needs you", onClick: (_e, cx) => (cx.stop_propagation(), this.agents.dismiss(cx, r)) })))
             .child(Button(`${id}-pin`, { icon: pinned ? "pin-off" : "pin", variant: "ghost", size: "icon-sm", tooltip: pinned ? "Unpin" : "Pin to the top", onClick: (_e, cx) => (cx.stop_propagation(), this.agents.togglePin(r.terminal), cx.notify()) }))
-            .child(Button(`${id}-more`, { icon: "more", variant: "ghost", size: "icon-sm", tooltip: "Snooze, recap, fork…", onClick: (_e, cx) => (cx.stop_propagation(), this.agents.menu(r)) })),
+            .child(Button(`${id}-more`, { icon: "more", variant: "ghost", size: "icon-sm", tooltip: r.driven ? "Read, open in a terminal, recap…" : "Snooze, recap, fork…", onClick: (_e, cx) => (cx.stop_propagation(), this.agents.menu(r)) })),
         ),
       )
       .when(!hovered, (e) =>
         e
           .when(Boolean(r.unread), (el) => el.child(div().size(6).flex_none().rounded(3).bg(stageColor(r.stage))))
-          .child(div().flex_none().text_size(TEXT.xs).text_color(r.stage === "snoozed" ? k.info : k.dim).child(r.stage === "snoozed" ? r.snoozed?.label?.replace("until ", "") ?? "" : dur(now - (r.since ?? now)))),
+          .child(div().flex_none().text_size(TEXT.xs).text_color(r.stage === "snoozed" ? k.info : k.dim).child(r.stage === "snoozed" ? r.snoozed?.label?.replace("until ", "") ?? "" : r.stage === "dismissed" ? "dismissed" : dur(now - (r.since ?? now)))),
       );
     const tracked = this.hover.track(row, id);
     const recap = r.recap?.text;
     const card = v_flex()
       .gap(8)
-      .child(h_flex().gap(8).items_center().child(StageMark(`${id}-hc`, r.stage)).child(div().flex_1().font_semibold().child(r.title || r.address)).child(div().text_size(TEXT.xs).text_color(stageColor(r.stage)).child(stageAge(r, now))))
+      .child(h_flex().gap(8).items_center().child(StageMark(`${id}-hc`, r.stage, { status: r.status })).child(AgentLogo(r, { size: 14 })).child(div().flex_1().font_semibold().child(r.title || r.address)).child(div().text_size(TEXT.xs).text_color(stageColor(r.stage)).child(stageAge(r, now))))
       .child(div().text_size(TEXT.sm).text_color(recap ? k.foreground : k.mutedFg).child(recap || (r.recap?.running ? "Recapping…" : r.said || "No recap yet: right-click › Recap.")))
       .child(h_flex().flex_wrap().gap(4).children(Chips(r, { id: `${id}-hc` })))
-      .child(div().text_size(TEXT.xs).text_color(k.dim).child(`${r.space?.name ?? ""} · ${r.tab?.name ?? ""}${r.cost ? ` · $${r.cost.toFixed(2)}` : ""}${r.context ? ` · context ${Math.round(r.context)}%` : ""}`));
+      .child(div().text_size(TEXT.xs).text_color(k.dim).child(`${r.agent_name ? `${r.agent_name} · ` : ""}${r.driven ? `A session cockpit drives · ${String(r.cwd ?? "").split("/").pop()}` : `${r.space?.name ?? ""} · ${r.tab?.name ?? ""}`}${r.cost ? ` · ~$${r.cost.toFixed(2)} estimated` : ""}${r.context ? ` · context ${Math.round(r.context)}%` : ""}`));
     return HoverCard(`${id}-hover`, tracked, card, { width: 340, openDelay: 650 });
   }
 
@@ -519,7 +510,7 @@ export default class Sidebar {
         .on_click(() => run("terminal.peek", { terminal: t.address }))
         .child(div().text_size(TEXT.xs).text_color(k.dim).child(i === kids.length - 1 ? "└" : "├"))
         .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(k.mutedFg).child(t.name || t.template || t.program?.name || t.address))
-        .child(StageMark(`sub-${t.address}`, t.status === "working" ? "working" : t.status === "blocked" ? "needs_you" : "idle", { size: 6 })),
+        .child(StageMark(`sub-${t.address}`, { working: "working", blocked: "needs_you", failed: "failed" }[agentStatus(t.status)] ?? "idle", { size: 6 })),
     );
   }
 
@@ -534,14 +525,17 @@ export default class Sidebar {
       count: rows.length || undefined,
       action: h_flex()
         .gap(2)
-        .child(Button("agents-recap", { icon: "sparkles", variant: "ghost", size: "icon-sm", tooltip: "Recap of every agent  ⌘R", onClick: () => this.openRecap() }))
+        .child(Button("agents-recap", { icon: "sparkles", variant: "ghost", size: "icon-sm", tooltip: hint("Recap of every agent", "cockpit.recap"), onClick: () => openRecap() }))
         .child(Button("agents-group", { icon: MODES[mode][0], variant: "ghost", size: "icon-sm", tooltip: `${MODES[mode][1]} · click for ${MODES[next][1].toLowerCase()}`, onClick: () => setShared("cockpit.agents.group", next) })),
     });
     if (!rows.length) {
       const state = this.agents.state;
+      // A hub that stopped, on purpose or not, can be started from here on this machine.
+      const why = String(this.agents.lastError ?? "");
+      if (this.agents.down && !hub.isNotInstalled(why) && !hub.remoteMachine()) return [head, div().px(8).pb(8).child(HubDown("sidebar-hub-down", this, why.replace(/^error: /, ""), k))];
       const hint = state === "live" || hub.isNotInstalled(state)
         ? "No agent yet. Agents show here once they report their status."
-        : state === "connecting" ? "Connecting to the cockpit hub…" : "The cockpit hub is not answering. Not installed yet? See github.com/quaresc/cockpit#install";
+        : state === "connecting" ? "Connecting to the cockpit hub…" : "The runner's cockpit hub is not answering.";
       return [head, div().px(8).pb(8).text_size(TEXT.xs).text_color(k.dim).child(hint)];
     }
     const pinned = rest.filter((r) => this.agents.pins.includes(r.terminal));
@@ -586,6 +580,7 @@ export default class Sidebar {
           .when(Boolean(g.stage), (e) => e.child(StageMark(`grp-${g.id}`, g.stage, { size: 6 })))
           .when(Boolean(g.ticket), (e) => e.child(Icon("ticket", { size: 12, color: k.info })))
           .child(div().flex_none().font_semibold().text_color(g.stage ? stageColor(g.stage) : k.mutedFg).child(g.label))
+          .children(providersOf(g.members).map((p) => AgentLogo(p, { size: 11, tooltip: p.name, id: `grp-${g.id}-${p.icon}` })))
           .when(Boolean(g.title), (e) => e.child(div().flex_1().min_w(0).truncate().text_color(k.dim).child(g.title)))
           .when(!g.title, (e) => e.child(div().flex_1()))
           .when(Boolean(time), (e) => e.child(div().flex_none().text_color(k.dim).tooltip(`Agents worked ${hours(time)} on it today`).child(hours(time))))
@@ -627,7 +622,7 @@ export default class Sidebar {
       const fill = colors[s.id] ?? k.ring;
       const dragging = this.drag && this.drag.from === i;
       const over = this.drag && this.drag.over === i && this.drag.from !== i;
-      const urgent = s.status === "blocked" || s.status === "done";
+      const urgent = ["blocked", "failed", "done"].includes(agentStatus(s.status));
       return h_flex()
         .id(`space-${s.id}`)
         .relative()
@@ -661,7 +656,7 @@ export default class Sidebar {
           else if (e.click_count > 1) run("space.rename", { id: s.id });
           else {
             run("space.select", { id: s.id });
-            show("work");
+            showSpace(s.id);
           }
           cx.notify();
         })
@@ -674,7 +669,7 @@ export default class Sidebar {
         .child(div().flex_shrink_1().min_w(0).truncate().font_medium().child(s.name))
         .child(div().flex_1())
         .when(Boolean(s.branch) && !["main", "master"].includes(s.branch) && s.branch !== s.name, (e) => e.child(div().max_w(96).truncate().text_size(TEXT.xs).text_color(k.dim).child(s.branch)))
-        .when(urgent, (e) => e.child(div().size(7).flex_none().rounded(4).bg(k[s.status])))
+        .when(urgent, (e) => e.child(div().size(7).flex_none().rounded(4).bg(statusColor(k, agentStatus(s.status)))))
         .when(hasTerms(s), (e) => e.child(this.foldButton(k, s, folded)));
     };
     // Each space's terminal lines fold away, one space with its chevron or all of them from the header.
@@ -697,7 +692,7 @@ export default class Sidebar {
             }),
           ),
         )
-        .child(Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: "New space  ⌘N", onClick: () => run("space.new") })),
+        .child(Button("space-new", { icon: "plus", variant: "ghost", size: "icon-sm", tooltip: hint("New space", "space.new"), onClick: () => run("space.new") })),
     });
     const withTerms = (r) => [row(r), ...(folded.has(r.s.id) ? [] : this.termRows(k, r.s, ps, byAddress, r.tree))];
     if (!machineNames.length) return [head, ...ordered.flatMap(withTerms)];
@@ -763,14 +758,15 @@ export default class Sidebar {
    * four lines at most, the last one then counting the rest. */
   termRows(k, s, ps, byAddress, tree) {
     const tabs = new Set((s.tabs ?? []).map((t) => t.id));
-    const STATUS = { blocked: "needs_you", working: "working", done: "done", idle: "idle" };
+    const STATUS = { blocked: "needs_you", failed: "failed", working: "working", done: "done", idle: "idle" };
+    const FIRST = { needs_you: 0, failed: 1 };
     const terms = ps
       .filter((p) => tabs.has(p.tab) && p.terminal)
       .map((p) => {
         const r = byAddress.get(p.terminal);
-        return { p, r, stage: r?.stage ?? STATUS[p.status] ?? null };
+        return { p, r, stage: r?.stage ?? STATUS[agentStatus(p.status)] ?? null };
       })
-      .sort((a, b) => (b.stage === "needs_you") - (a.stage === "needs_you"));
+      .sort((a, b) => (FIRST[a.stage] ?? 2) - (FIRST[b.stage] ?? 2));
     const MAX = 4;
     const shown = terms.length > MAX ? terms.slice(0, MAX - 1) : terms;
     const pad = tree ? 38 : 34;
@@ -794,9 +790,10 @@ export default class Sidebar {
           if (r) return this.agents.go(cx, r);
           run("tab.select", { id: p.tab });
           run("pane.focus", { pane: p.pane });
-          show("work");
+          showPanes();
         })
-        .child(h_flex().w(12).flex_none().justify_center().child(stage ? StageMark(`term-${p.terminal}`, stage, { size: 6 }) : Icon("terminal", { size: 11, color: k.dim })))
+        .child(h_flex().w(12).flex_none().justify_center().child(stage ? StageMark(`term-${p.terminal}`, stage, { size: 6, status: r?.status }) : Icon("terminal", { size: 11, color: k.dim })))
+        .when(Boolean(r) || p.program?.agent, (e) => e.child(AgentLogo(r ? { ...r, program: p.program } : { program: p.program }, { size: 12, color: k.mutedFg })))
         .child(div().flex_none().text_size(TEXT.sm).text_color(stage === "needs_you" ? k.blocked : k.mutedFg).child(name))
         .when(Boolean(title) && title !== name && title !== p.terminal, (e) => e.child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(title)));
     };
@@ -837,7 +834,7 @@ export default class Sidebar {
           .rounded(RADIUS.md)
           .cursor_pointer()
           .hover((s) => s.bg(k.accent))
-          .tooltip(`${r.title}: ${r.question?.text ?? "needs you"}`)
+          .tooltip(`${r.title}: ${r.question?.text ?? r.waits?.text ?? "needs you"}`)
           .on_click((_e, cx) => this.agents.go(cx, r))
           .child(StageMark(`rail-${r.terminal}`, "needs_you", { size: 9 })),
       ),
@@ -855,10 +852,10 @@ export default class Sidebar {
           .tooltip(s.name)
           .on_click(() => {
             run("space.select", { id: s.id });
-            show("work");
+            showSpace(s.id);
           })
           .child(h_flex().size(20).rounded(5).bg(colors[s.id] ?? k.ring).items_center().justify_center().text_size(11).font_bold().text_color("#ffffff").child([...s.name][0]?.toUpperCase() ?? "?"))
-          .when(s.status === "blocked" || s.status === "done", (e) => e.child(div().absolute().top(3).right(8).size(7).rounded(4).bg(k[s.status]))),
+          .when(["blocked", "failed", "done"].includes(agentStatus(s.status)), (e) => e.child(div().absolute().top(3).right(8).size(7).rounded(4).bg(statusColor(k, agentStatus(s.status))))),
       ),
     ];
   }

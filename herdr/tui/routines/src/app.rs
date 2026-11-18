@@ -11,13 +11,14 @@ use cockpit_core::dialog::Dialog;
 use cockpit_core::files::{self, Density};
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::seen::Seen;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
 use serde_json::Value;
 
 use crate::data::{Clock, Doc};
-use crate::form::Form;
+use crate::form::{Form, Picker};
 use crate::pinned;
 
 /// What a palette entry, a key or a button runs; a routine by its slug, a run by its id.
@@ -38,6 +39,8 @@ pub enum Cmd {
     GoTo(String),
     /// A run's worktree, opened in a tab.
     Worktree(String, String),
+    /// A run's worktree removed as git allows, never forced.
+    RemoveWorktree(String, String),
     ReadAll,
     /// The run worktrees whose work landed, removed.
     Cleanup,
@@ -80,12 +83,16 @@ pub struct App {
     /// A question asked before a call: the call and the confirmation it carries once answered yes.
     pub dialog: Option<(Dialog, Cmd, String)>,
     pub form: Option<Form>,
+    /// The templates offered before a new routine's form.
+    pub picker: Option<Picker>,
     bridge: Bridge,
     calls: usize,
     /// Every call sent, newest last: what tests read.
     pub sent: Vec<Sent>,
     pub hits: Hits,
     focus_seen: SystemTime,
+    /// The routine or run a focus request selected: its keys wait for the person's move.
+    pub pointed: Pointed,
     pinned: bool,
     reported: Option<String>,
     live: bool,
@@ -93,7 +100,7 @@ pub struct App {
     pub looked: Seen,
     /// Where the runs' outputs are, and the ones read so far.
     pub runs_dir: PathBuf,
-    outputs: HashMap<(String, String), Vec<String>>,
+    outputs: HashMap<(String, String, u64), Vec<String>>,
 }
 
 impl App {
@@ -129,11 +136,13 @@ impl App {
             cmds: Vec::new(),
             dialog: None,
             form: None,
+            picker: None,
             bridge: Bridge::default(),
             calls: 0,
             sent: Vec::new(),
             hits: Hits::default(),
             focus_seen: SystemTime::now(),
+            pointed: Pointed::default(),
             pinned,
             reported: None,
             live: false,
@@ -151,6 +160,7 @@ impl App {
     /// A document given whole: what tests draw.
     pub fn set_doc(&mut self, value: &Value) {
         self.doc = Doc::parse(value);
+        self.refresh_form();
         self.select_default();
     }
 
@@ -172,6 +182,7 @@ impl App {
         }
         self.seen = Some(docs.revision);
         self.doc = docs.get("routines").and_then(Doc::parse);
+        self.refresh_form();
         self.select_default();
         self.looked.fetch();
         true
@@ -205,6 +216,7 @@ impl App {
         }
         self.selected = Some(key.to_string());
         self.follow = true;
+        self.pointed.point();
     }
 
     /// Whether anything moves on screen: a run's time, a call on its way, a toast.
@@ -235,9 +247,9 @@ impl App {
         changed
     }
 
-    /// A run's output, as lines, once it is written.
-    pub fn output(&mut self, slug: &str, id: &str) -> Vec<String> {
-        let key = (slug.to_string(), id.to_string());
+    /// A run's output, as lines, once it is written; a stretch of skips keeps its id, so its end is part of the key.
+    pub fn output(&mut self, slug: &str, id: &str, ended: u64) -> Vec<String> {
+        let key = (slug.to_string(), id.to_string(), ended);
         if let Some(lines) = self.outputs.get(&key) {
             return lines.clone();
         }
@@ -275,7 +287,7 @@ impl App {
     pub fn run(&mut self, cmd: Cmd, armed: Option<String>) {
         let id = |id: Option<String>| id.map_or(Value::Null, Value::from);
         match cmd {
-            Cmd::Add => self.form = Some(Form::new(self.doc.as_ref().map(|d| d.agents.default_agent()).unwrap_or_else(|| ("Claude Code".into(), true)))),
+            Cmd::Add => self.picker = Some(Picker::default()),
             Cmd::Run(slug) => self.call("run", vec![slug.into()], None),
             Cmd::Stop(slug) => self.call("stop", vec![slug.into()], None),
             Cmd::Pause(slug, paused) => self.call("pause", vec![slug.into(), paused.into()], None),
@@ -288,8 +300,34 @@ impl App {
             Cmd::Fold(slug) => self.toggle(&slug),
             Cmd::GoTo(key) => self.focus(&key),
             Cmd::Worktree(slug, run) => self.call("open_worktree", vec![slug.into(), run.into()], None),
+            Cmd::RemoveWorktree(slug, run) => self.call("cleanup", vec![slug.into(), run.into()], armed),
             Cmd::ReadAll => self.call("read_all", vec![], None),
-            Cmd::Cleanup => self.call("cleanup", vec![], None),
+            Cmd::Cleanup => self.call("cleanup", vec![], armed),
+        }
+    }
+
+    /// The default agent's name and whether it is Claude Code, for a new routine's form.
+    fn default_agent(&self) -> (String, bool) {
+        self.doc.as_ref().map(|d| d.agents.default_agent()).unwrap_or_else(|| ("Claude Code".into(), true))
+    }
+
+    /// The form for a new routine, blank or filled from the template picked as the default agent takes it.
+    pub fn open_form(&mut self, template: Option<&cockpit_core::routines::Template>) {
+        self.picker = None;
+        let id = self.doc.as_ref().map(|d| d.agents.default.clone()).filter(|id| !id.is_empty()).unwrap_or_else(|| "claude".into());
+        let fitted = template.map(|t| t.for_agent(&id));
+        let agent = self.default_agent();
+        let form = match fitted {
+            Some(t) => Form::from_template(agent, &t),
+            None => Form::new(agent),
+        };
+        self.form = Some(form);
+        self.refresh_form();
+    }
+
+    fn refresh_form(&mut self) {
+        if let (Some(form), Some(doc)) = (&mut self.form, &self.doc) {
+            form.refresh_agents(&doc.agents);
         }
     }
 

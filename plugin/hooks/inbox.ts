@@ -45,7 +45,7 @@ const query = (org: string) => {
   direct: search(query: "is:pr is:open archived:false user-review-requested:@me", type: ISSUE, first: 50) { nodes { ... on PullRequest { url } } }
   mine: search(query: "is:pr is:open archived:false author:@me${scope}", type: ISSUE, first: 30) { nodes { ${MY_PR_FIELDS} } }
   merged: search(query: "is:pr is:merged author:@me${scope} merged:>=${mergedSince()}", type: ISSUE, first: 50) {
-    nodes { ... on PullRequest { number url headRefName mergedAt repository { name nameWithOwner } mergeCommit { oid } } } }
+    nodes { ... on PullRequest { number url headRefName headRefOid mergedAt repository { name nameWithOwner } mergeCommit { oid } } } }
 }`
 }
 
@@ -99,7 +99,7 @@ async function fetchGithub($: $) {
     direct: { nodes: { url?: string }[] }
     mine: { nodes: GqlPr[] }
     merged: {
-      nodes: { number?: number; url?: string; headRefName?: string; mergedAt?: string; repository?: { name: string; nameWithOwner: string }; mergeCommit?: { oid: string } | null }[]
+      nodes: { number?: number; url?: string; headRefName?: string; headRefOid?: string; mergedAt?: string; repository?: { name: string; nameWithOwner: string }; mergeCommit?: { oid: string } | null }[]
     }
   }
   const directUrls = new Set(data.direct.nodes.map(n => n.url ?? ''))
@@ -120,6 +120,7 @@ async function fetchGithub($: $) {
         number: n.number ?? 0,
         branch: n.headRefName ?? '',
         mergeSha: n.mergeCommit?.oid ?? '',
+        headSha: n.headRefOid ?? '',
         mergedAt: n.mergedAt ?? '',
       })),
   }
@@ -194,7 +195,7 @@ async function fetchInbox($: $, cached: Inbox | null) {
   const latest = await readInbox($)
   const kept = latest?.version === INBOX_VERSION ? latest : cached
   // A failed source is retried on the next minute tick instead of waiting out the cache.
-  const part: Partial<Inbox> = { ...modPart(gh, tickets, errors.length > 0 || isNotReady, STALE_MS), version: INBOX_VERSION }
+  const part: Partial<Inbox> = { ...modPart(gh, tickets, errors.length > 0 || isNotReady, STALE_MS, Date.now(), kept?.modFetched), version: INBOX_VERSION }
   const seen = { direct: [], team: [], botRepos: [], mine: [], tickets: [], merged: [], errors: [], ...kept, ...part } as Inbox
   // The hub keeps deploys and previews while it reaches the platform itself.
   const isPlatformHubs = hubOwns(latest, 'platform')

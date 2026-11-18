@@ -161,6 +161,12 @@ impl CircleCi {
         if let Some((job, _)) = jobs.iter().find(|(j, _)| job_outcome(s(j, "status")) == "failed") {
             run["failed"] = failure(get, job, logs);
         }
+        // Every failing job by name and id, for their logs.
+        let failing: Vec<Value> =
+            jobs.iter().filter(|(j, _)| job_outcome(s(j, "status")) == "failed").map(|(j, _)| json!({"job": s(j, "name"), "jobId": s(j, "id")})).collect();
+        if failing.len() > 1 {
+            run["failedJobs"] = json!(failing);
+        }
         if let Some(image) = jobs.iter().find(|(j, _)| is_image_job(s(j, "name"), image_job)) {
             run["dockerTag"] = json!(if job_ended(image) { job_outcome(s(&image.0, "status")) } else { "running".into() });
         }

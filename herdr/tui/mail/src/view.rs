@@ -31,7 +31,7 @@ impl App {
         let area = frame.area();
         frame.render_widget(Block::new().style(base()), area);
         self.hits = Default::default();
-        let head = self.head_lines();
+        let head = self.head_lines(area.width.saturating_sub(2) as usize);
         let [head_area, main, foot] = Layout::vertical([Constraint::Length(head.len() as u16 + 1), Constraint::Min(3), Constraint::Length(1)]).areas(area);
         frame.render_widget(Paragraph::new(head), head_area.inner(ratatui::layout::Margin::new(1, 0)));
         let [list, preview] = if area.width >= SIDE_BY_SIDE {
@@ -48,7 +48,7 @@ impl App {
         }
     }
 
-    fn head_lines(&self) -> Vec<Line<'static>> {
+    fn head_lines(&self, cells: usize) -> Vec<Line<'static>> {
         let updated = self.mail.at.and_then(DateTime::from_timestamp_millis).map(|at| format!("updated {}", at.with_timezone(&Local).format("%H:%M")));
         let count = match self.mail.unread() {
             0 => "nothing unread".to_string(),
@@ -58,7 +58,7 @@ impl App {
         if let Some(updated) = updated {
             line.push(Span::styled(format!(" · {updated}"), dim()));
         }
-        let mut lines = vec![Line::from(line)];
+        let mut lines = cockpit_core::header::lines(Line::from(line), &self.mail.sources, cells);
         if let Some(error) = &self.mail.error {
             lines.push(Line::styled(error.clone(), fg(RED)));
         }

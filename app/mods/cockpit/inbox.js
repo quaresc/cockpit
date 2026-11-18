@@ -1,18 +1,25 @@
 // The inbox: the `inbox` view the hub pushes (the TUI inbox's own rows, built in Rust), with every TUI key and action
 // plus the pointer's: a tree of sections with PR, review and ticket rows, details beside it (GitHub's merge readiness,
 // the merge menu, review threads, failing tests, the Linear card with its states), hover cards fetched on demand,
-// multi-select with shared actions, a right-click menu, a command list on ctrl+p, start dialogs that check first, and
+// multi-select with shared actions, a right-click menu, a command list on ctrl+p, Start work on a row (start.js), and
 // the outcomes of the requests the rows filed.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { settings } from "herdr";
+import { settings, shared } from "herdr";
 import * as hub from "./hub.js";
+import { take, holds, MOVE_FIRST } from "./person.js";
+import { sharing } from "./feed.js";
+import { openStart as openStartDialog } from "./start.js";
+import { sourceOf } from "./startform.js";
 import {
-  tokens, TEXT, RADIUS, Icon, Spinner, Badge, Button, Kbd, PageHeader, SearchField, TextField, KeyHints, Empty, ErrorState,
+  tokens, TEXT, RADIUS, Icon, Spinner, Badge, Button, PageHeader, SearchField, TextField, KeyHints, Empty,
   Skeleton, Command, Toaster, Flashes, Scroller, Hover, HoverCard, openMenu, alpha, Chip, Mono, ToneButton, Pills,
-  SegBar, Avatar, personColor, Separator, CountPill, Overline,
+  SegBar, Avatar, personColor, Separator, CountPill, Overline, HubDown, sourceKey, HubDownBody, ChoiceKey,
 } from "./ui.js";
+
+// The agents view, followed once per window whichever copies ask (feed.js).
+const following = sharing(hub.subscribe);
 
 /** The inbox by kind of thing rather than the TUI's tree: alerts, reviews, your PRs, tickets, then what is left. */
 function bySort(model) {
@@ -42,6 +49,8 @@ function bySort(model) {
 const H = { heading: 52, pr: 34, ticket: 34, group: 30, line: 26, text: 32 };
 const KIND_NAME = { pr: ["PR", "PRs"], review: ["review request", "review requests"], ticket: ["ticket", "tickets"], alert: ["alert", "alerts"], brief: ["brief line", "brief lines"], muted: ["muted repo", "muted repos"], worktree: ["worktree", "worktrees"] };
 const FRESH_MS = 120_000;
+/** The irreversible removal's label: the one action a kept worktree stays out of. */
+const REMOVE = "remove worktree";
 
 const words = (q) => q.toLowerCase().split(/\s+/).filter(Boolean);
 const spansText = (spans) => (spans ?? []).map((s) => s.text ?? "").join(" ");
@@ -127,13 +136,13 @@ export default class Inbox {
 
   subscribe(cx) {
     this.sub?.stop();
-    this.sub = hub.subscribe(
+    this.sub = following(
       cx,
       { views: [{ name: "inbox", args: { group: this.group } }, { name: "agents", args: {} }], focus: "inbox" },
       (m, cx) => {
         if (m.view === "inbox") this.take(m.value, cx);
         if (m.view === "agents") this.agents = m.value;
-        if (m.focus === "inbox") this.goTo(m.target?.key, cx);
+        if (m.focus === "inbox") this.goTo(m.target?.key, cx, true);
         cx.notify();
       },
       (state, cx) => {
@@ -141,6 +150,13 @@ export default class Inbox {
         cx.notify();
       },
     );
+  }
+
+  /** The header's source chips say an age: drawn again every 30 s while there are some (the copy's clock, main.js). */
+  tick(cx, now) {
+    if (!this.model?.sources?.length || now - (this.aged ?? 0) < 30_000) return;
+    this.aged = now;
+    cx.notify();
   }
 
   close() {
@@ -258,7 +274,11 @@ export default class Inbox {
     } else this.folds.set(row.path, !this.isOpen(row));
   }
 
-  goTo(key, cx) {
+  /**
+   * A row brought into view and flashed. Pointed at by a hub focus or a command (`pointed`), it takes no
+   * key that acts until the person moves to it or clicks.
+   */
+  goTo(key, cx, pointed = false) {
     const row = key && this.rowByKey(key);
     if (!row) {
       if (key) this.toasts.push(cx, `${key} is not in the inbox any more`);
@@ -268,6 +288,7 @@ export default class Inbox {
     const parts = row.path.split("/").filter(Boolean);
     for (let i = 1; i < parts.length; i++) this.folds.set(`/${parts.slice(0, i).join("/")}`, true);
     this.select(row);
+    this.pointed = pointed;
     this.flashes.start(cx, row.key, tokens().ring);
     this.handle.focus();
   }
@@ -319,6 +340,8 @@ export default class Inbox {
 
   async call(cx, call, { armed = null, row = null, quiet = false } = {}) {
     if (!call) return;
+    // Fix ci reads the failing logs first, which takes a while.
+    if (call.fn === "fix_ci") this.toasts.push(cx, "Fetching the CI log…", { kind: "info", ms: 4000 });
     try {
       const r = await hub.request("act", { app: "inbox", action: call.fn, args: call.args ?? [], armed });
       if (r.error) this.toasts.push(cx, r.error, { kind: "error", ms: 6000 });
@@ -327,7 +350,7 @@ export default class Inbox {
         this.toasts.push(cx, r.note.replace(/\s*https?:\/\/\S+/, ""), {
           kind: "success",
           ms: url ? 8000 : 3500,
-          action: url ? { label: "Open", onClick: (_e, cx) => cx.spawn(async (cx) => this.call(cx, { fn: "open_url", args: [url] }, { quiet: true })) } : this.cleanupAction(call),
+          action: url ? { label: "Open", onClick: (_e, cx) => cx.spawn(async (cx) => this.call(cx, { fn: "open_url", args: [url] }, { quiet: true })) } : this.cleanupAction(call, r.note),
         });
       }
       for (const [key, job] of Object.entries(r.pending ?? {})) this.pending.set(key, job);
@@ -339,13 +362,31 @@ export default class Inbox {
     }
   }
 
-  /** After a merge, the Clean up a merged branch's worktree asks for. */
-  cleanupAction(call) {
-    if (call.fn !== "merge") return undefined;
+  /**
+   * After a merge (not a place in the merge queue), its worktree's cleanup: Remove, asked first, when nothing but the
+   * merge's fetch keeps it, else what does.
+   */
+  cleanupAction(call, note = "") {
+    if (call.fn !== "merge" || !note.startsWith("merged ")) return undefined;
     const url = call.args?.[0]?.url ?? call.args?.[0];
-    const tree = (this.model?.worktrees ?? []).find((w) => w.pr === url && !w.changes);
+    const tree = (this.model?.worktrees ?? []).find((w) => w.pr === url);
     if (!tree) return undefined;
-    return { label: "Remove worktree", onClick: (_e, cx) => cx.spawn(async (cx) => this.call(cx, { fn: "remove_worktree", args: [tree.path] }, { armed: `remove-${tree.path}` })) };
+    // The merge just happened: what says it is not merged is the feed not having heard yet, which the hub checks again.
+    const blockers = (tree.blockers ?? []).filter((b) => b.id !== "not_merged" && b.id !== "unknown_base");
+    if (blockers.length) return { label: "Why kept", onClick: (_e, cx) => this.toasts.push(cx, `Worktree kept: ${blockers.map((b) => b.words).join(", ")}`, { kind: "info", ms: 6000 }) };
+    const row = { kind: "worktree", name: `${tree.repo} ${tree.branch}`, item: { ...tree, blockers } };
+    const act = { label: REMOVE, confirm: `remove-${tree.path}`, call: { fn: "remove_worktree", args: [tree.path] } };
+    return { label: "Remove worktree", onClick: (_e, cx) => this.run(cx, row, act) };
+  }
+
+  /** A cleanup's lines: each worktree that goes (its folder, its branch once merged) and each that stays, with why. */
+  cleanupLines(rows) {
+    // Cockpit Chat keeps colour for agents: a line that stays reads as words alone.
+    const tone = shared("layout") === "cockpit-chat" ? undefined : "warning";
+    return rows.map((r) => {
+      const kept = r.item?.blockers ?? [];
+      return kept.length ? { text: `Stays: ${r.name} (${kept.map((b) => b.words).join(", ")})`, tone } : { text: `Goes: ${r.name}, its folder deleted; its branch too once git counts it merged` };
+    });
   }
 
   /** Request outcomes the mod wrote: on the row a few seconds, as a toast, then forgotten. */
@@ -369,11 +410,27 @@ export default class Inbox {
   run(cx, row, act) {
     if (!act) return;
     if (act.call?.fn === "start") return this.openStart(cx, row, act);
+    if (act.call?.fn === "start_open") return openStartDialog({ run: act.call.args?.[0] });
     if (act.label === "merge" && (row.kind === "pr" || row.kind === "review")) return this.openMerge(cx, row);
     if (act.choices?.length) {
       this.dialog = { kind: "pick", title: `${act.label[0].toUpperCase()}${act.label.slice(1)}`, description: row.name, choices: act.choices.map((c) => ({ label: c.label, run: (cx) => this.call(cx, c.call, { row }) })) };
+    } else if (act.confirm && act.label === REMOVE && act.call?.fn === "close_space") {
+      // A merged session's worktree goes with its space: the session ends first.
+      this.dialog = { kind: "confirm", title: "Remove this worktree?", description: `${row.name}: ends the session in it, then deletes its folder; its branch too once git counts it merged.`, confirm: "remove", destructive: true, run: (cx) => this.call(cx, act.call, { armed: act.confirm, row }) };
+    } else if (act.confirm && row.kind === "worktree" && act.call?.fn === "remove_worktree") {
+      // Irreversible: the dialog says what goes, or what keeps it, and then offers nothing to run.
+      const kept = (row.item?.blockers ?? []).length > 0;
+      this.dialog = {
+        kind: "confirm",
+        title: kept ? "This worktree is kept" : "Remove this worktree?",
+        description: row.item?.path ?? row.name,
+        lines: this.cleanupLines([row]),
+        confirm: kept ? null : "remove",
+        destructive: true,
+        run: (cx) => this.call(cx, act.call, { armed: act.confirm, row }),
+      };
     } else if (act.confirm) {
-      this.dialog = { kind: "confirm", title: `${act.label[0].toUpperCase()}${act.label.slice(1)}?`, description: row.name, confirm: act.label, destructive: /remove|stop|close/.test(act.label), run: (cx) => this.call(cx, act.call, { armed: act.confirm, row }) };
+      this.dialog = { kind: "confirm", title: `${act.label[0].toUpperCase()}${act.label.slice(1)}?`, description: row.name, confirm: act.label, destructive: /remove|stop|close/.test(act.label) || act.call?.fn === "start_cancel", run: (cx) => this.call(cx, act.call, { armed: act.confirm, row }) };
     } else cx.spawn(async (cx) => this.call(cx, act.call, { row }));
     cx.notify();
   }
@@ -381,7 +438,23 @@ export default class Inbox {
   /** The picked rows' shared action: asked once for all of them, then run on each. */
   runShared(cx, label, key) {
     const rows = this.pickedRows();
-    const acts = rows.map((r) => [r, r.acts.find((a) => a.label === label && a.key === key)]).filter(([, a]) => a);
+    // A removal leaves the worktrees something keeps where they are, and says which and why; other actions run on all.
+    const cleanup = label === REMOVE && rows.every((r) => r.kind === "worktree");
+    const acts = rows.map((r) => [r, r.acts.find((a) => a.label === label && a.key === key)]).filter(([r, a]) => a && !(cleanup && (r.item?.blockers ?? []).length));
+    if (cleanup) {
+      const goes = acts.length;
+      this.dialog = {
+        kind: "confirm",
+        title: goes ? `Remove ${goes} worktree${goes === 1 ? "" : "s"}?` : "Nothing to remove",
+        description: goes === 1 ? "Deletes its folder; its branch too once git counts it merged." : goes ? "Deletes their folders; each branch too once git counts it merged." : "Every picked worktree is kept.",
+        lines: this.cleanupLines(rows),
+        confirm: goes ? "remove" : null,
+        destructive: true,
+        run: (cx) => (goes ? this.runActs(cx, label, acts) : null),
+      };
+      cx.notify();
+      return;
+    }
     if (!acts.length) return;
     const go = async (cx, choice) => {
       for (const [r, a] of acts) {
@@ -399,6 +472,21 @@ export default class Inbox {
     cx.notify();
   }
 
+  /** Runs these rows' actions one after another, armed, then says how many went through and what refused the rest. */
+  async runActs(cx, label, acts) {
+    const refused = [];
+    let done = 0;
+    for (const [r, a] of acts) {
+      const res = await this.call(cx, a.call, { armed: a.confirm, row: r, quiet: true });
+      if (res && !res.error) done++;
+      else refused.push(res?.error ?? `${r.name}: the hub did not answer`);
+    }
+    if (refused.length) this.toasts.push(cx, `${label}: ${done} done, ${refused.length} refused`, { kind: "error", description: refused.join("\n"), ms: 8000 });
+    else this.toasts.push(cx, `${label}: ${done} done`, { kind: "success" });
+    this.picked.clear();
+    cx.notify();
+  }
+
   pickedRows() {
     const seen = new Set();
     return this.all().filter((r) => this.picked.has(r.key) && !seen.has(r.key) && seen.add(r.key));
@@ -406,7 +494,8 @@ export default class Inbox {
 
   shared(rows) {
     if (!rows.length) return [];
-    return rows[0].acts.filter((a) => rows.every((r) => r.acts.some((b) => b.label === a.label && b.key === a.key)));
+    // A start opens the dialog on one row; it is never run for many at once.
+    return rows[0].acts.filter((a) => a.call?.fn !== "start" && rows.every((r) => r.acts.some((b) => b.label === a.label && b.key === a.key)));
   }
 
   describe(rows) {
@@ -469,19 +558,9 @@ export default class Inbox {
     cx.notify();
   }
 
-  openStart(cx, row, act) {
-    const target = row.kind === "ticket" ? { id: row.key } : row.item;
-    this.dialog = { kind: "start", row, act, plan: null };
-    cx.spawn(async (cx) => {
-      try {
-        const plan = await hub.fetchDetails("start_plan", { target });
-        if (this.dialog?.kind === "start" && this.dialog.row === row) this.dialog.plan = plan;
-      } catch (e) {
-        if (this.dialog?.kind === "start") this.dialog.plan = { ok: false, steps: [], blockers: [String(e?.message ?? e)] };
-      }
-      cx.notify();
-    });
-    cx.notify();
+  /** Start work on the row: the Start work dialog, on the ticket's key or the PR's URL. */
+  openStart(_cx, row) {
+    openStartDialog(sourceOf(row));
   }
 
   openFile(cx) {
@@ -521,7 +600,7 @@ export default class Inbox {
     openMenu(items);
   }
 
-  command(c, cx) {
+  command(c, cx, key = null) {
     if (c === "focus" || c === "show:inbox") {
       this.shown = true;
       this.handle.focus();
@@ -532,7 +611,9 @@ export default class Inbox {
       this.seenNow.clear();
     }
     const [scope, action, ...rest] = c.split(":");
-    if (scope === "inbox") {
+    // A row's actions, picks and ticket states come from the menu that offered them, by its key: a window command only
+    // folds a row, opens the issue form or refreshes.
+    if (scope === "inbox" && (["fold", "file", "refresh"].includes(action) || take(c, key))) {
       const row = this.current();
       if (action === "act" && row) this.run(cx, row, row.acts[Number(rest[0])]);
       else if (action === "pick") this.pick(row);
@@ -540,14 +621,19 @@ export default class Inbox {
       else if (action === "fold") this.toggleFold(row);
       else if (action === "state") {
         const [id, ...name] = rest;
-        cx.spawn(async (cx) => {
-          await this.call(cx, { fn: "set_state", args: [{ id }, name.join(":")] });
-          this.forget(`ticket_card ${id}`);
-        });
+        this.setState(cx, id, name.join(":"));
       } else if (action === "file") this.openFile(cx);
       else if (action === "refresh") this.refresh(cx);
     }
     cx.notify();
+  }
+
+  /** Moves a ticket to another state of its tracker. */
+  setState(cx, id, name) {
+    cx.spawn(async (cx) => {
+      await this.call(cx, { fn: "set_state", args: [{ id }, name] });
+      this.forget(`ticket_card ${id}`);
+    });
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -557,16 +643,16 @@ export default class Inbox {
     const q = words(this.query.value());
     const hit = (text) => q.every((w) => text.toLowerCase().includes(w));
     const own = [
-      { id: "p-refresh", label: "Refresh the inbox", shortcut: "R", icon: "refresh-cw", run: () => this.refresh(cx) },
-      { id: "p-group", label: `Group work by ${this.group === "feature" ? "status" : "feature"}`, shortcut: "w", icon: "layers", run: () => this.regroup(cx) },
-      { id: "p-filter", label: "Filter rows", shortcut: "/", icon: "search", run: () => this.startFilter(cx) },
-      { id: "p-file", label: "File an issue", shortcut: "I", icon: "file-plus", run: () => this.openFile(cx) },
+      { id: "p-refresh", label: "Refresh the inbox", shortcut: "R", icon: "refresh-cw", run: (cx) => this.refresh(cx) },
+      { id: "p-group", label: `Group work by ${this.group === "feature" ? "status" : "feature"}`, shortcut: "w", icon: "layers", run: (cx) => this.regroup(cx) },
+      { id: "p-filter", label: "Filter rows", shortcut: "/", icon: "search", run: (cx) => this.startFilter(cx) },
+      { id: "p-file", label: "File an issue", shortcut: "I", icon: "file-plus", run: (cx) => this.openFile(cx) },
     ];
     const acts = [];
     const gos = [];
     for (const row of this.all()) {
-      row.acts.forEach((a, i) => acts.push({ id: `p-${row.path}-${i}`, label: `${a.label}  ${row.name}`, hint: row.section, shortcut: a.key, icon: ICON[a.label] ?? ICON[a.call?.fn], main: a.main, run: () => this.run(cx, row, a) }));
-      if (row.name && row.kind !== "plain") gos.push({ id: `p-go-${row.path}`, label: `Go to  ${row.name}`, hint: row.section, icon: "chevron-right", run: () => this.goTo(row.key, cx) });
+      row.acts.forEach((a, i) => acts.push({ id: `p-${row.path}-${i}`, label: `${a.label}  ${row.name}`, hint: row.section, shortcut: a.key, icon: ICON[a.label] ?? ICON[a.call?.fn], main: a.main, run: (cx) => this.run(cx, row, a) }));
+      if (row.name && row.kind !== "plain") gos.push({ id: `p-go-${row.path}`, label: `Go to  ${row.name}`, hint: row.section, icon: "chevron-right", run: (cx) => this.goTo(row.key, cx) });
     }
     return [
       { heading: "Inbox", items: own.filter((i) => hit(i.label)) },
@@ -592,7 +678,7 @@ export default class Inbox {
     const all = this.paletteGroups(cx).flatMap((g) => g.items);
     const item = picked ?? all[this.palette?.at ?? 0];
     this.closePalette(cx);
-    if (item) item.run();
+    if (item) item.run(cx);
   }
 
   startFilter(cx) {
@@ -631,6 +717,8 @@ export default class Inbox {
       }
       return false;
     }
+    if (sourceKey(e, this.model?.sources, cx, this)) return true;
+    if (holds(this, e)) return this.toasts.push(cx, MOVE_FIRST, { kind: "info" }), cx.notify(), true;
     const row = this.current();
     const picking = this.picked.size > 0;
     switch (k) {
@@ -747,16 +835,10 @@ export default class Inbox {
       if (d.kind === "confirm") {
         this.closeDialog(cx);
         cx.spawn(async (cx) => d.run(cx));
-      } else if (d.kind === "start" && d.plan?.ok) this.startNow(cx);
+      }
       return true;
     }
     return true;
-  }
-
-  startNow(cx) {
-    const d = this.dialog;
-    this.closeDialog(cx);
-    cx.spawn(async (cx) => this.call(cx, d.act.call, { armed: d.act.confirm, row: d.row }));
   }
 
   mergeChoices(row) {
@@ -1011,7 +1093,7 @@ export default class Inbox {
       .child(div().flex_1().min_w(0).truncate().child(c.title))
       .when(Boolean(statusText), (e) => e.child(Badge(statusText, lead?.tone === "warn" ? "warning" : "outline")))
       .when(Boolean(this.timeChip(row.key, k)), (e) => e.child(this.timeChip(row.key, k)))
-      .when(Boolean(t?.cost), (e) => e.child(Mono(`$${t.cost.toFixed(2)}`)));
+      .when(Boolean(t?.cost), (e) => e.child(h_flex().id(`cost-${row.key}`).tooltip("Agent cost, estimated from the sessions' transcripts").child(Mono(`~$${t.cost.toFixed(2)} est.`))));
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -1190,13 +1272,13 @@ export default class Inbox {
           ["Priority", card?.priority && card.priority !== "No priority" ? card.priority : null],
           ["Branch", card?.branch ? Mono(card.branch, { color: k.foreground }) : null],
           ["Time", this.timeChip(row.key, k)],
-          ["Agent cost", t.cost ? Mono(`$${t.cost.toFixed(2)}`, { color: k.foreground }) : null],
+          ["Agent cost", t.cost ? Mono(`~$${t.cost.toFixed(2)} estimated`, { color: k.foreground }) : null],
           ["Labels", card?.labels?.length ? h_flex().gap(4).flex_wrap().children(card.labels.map((l) => Chip(l.name, { color: l.color }))) : null],
         ],
         k,
       ),
     );
-    if (states.length) out.push(this.section("Move to", [Pills("ticket-states", states.map((s) => [s.name, s.name]), card.state?.name, (name, cx) => this.command(`inbox:state:${row.key}:${name}`, cx))], k));
+    if (states.length) out.push(this.section("Move to", [Pills("ticket-states", states.map((s) => [s.name, s.name]), card.state?.name, (name, cx) => (this.setState(cx, row.key, name), cx.notify()))], k));
     if (got.error || got.value?.error) out.push(div().text_size(TEXT.xs).text_color(k.dim).child(got.error ?? got.value.error));
     if (card?.description) out.push(this.section("Description", [div().text_size(TEXT.sm).text_color(k.mutedFg).child(card.description.slice(0, 700))], k));
     const prs = (row.children ?? []).filter((r) => r.kind === "pr");
@@ -1213,7 +1295,9 @@ export default class Inbox {
     let title = d.title;
     let description = d.description;
     let body = null;
-    let actions = [Button("dlg-cancel", { label: "Cancel", variant: "outline", kbd: "esc", onClick: (_e, cx) => this.closeDialog(cx) })];
+    // Cockpit Chat's dialogs draw no keys.
+    const kbd = (key) => (shared("layout") === "cockpit-chat" ? undefined : key);
+    let actions = [Button("dlg-cancel", { label: d.kind === "confirm" && !d.confirm && d.lines ? "Close" : "Cancel", variant: "outline", kbd: kbd("esc"), onClick: (_e, cx) => this.closeDialog(cx) })];
     const choiceList = (choices, onPick) =>
       v_flex().gap(4).children(
         choices.map((c, i) =>
@@ -1229,12 +1313,17 @@ export default class Inbox {
             .cursor_pointer()
             .hover((s) => s.bg(k.accent))
             .on_click((_e, cx) => onPick(c, cx))
-            .child(Kbd(String(i + 1)))
+            .child(ChoiceKey(i + 1))
             .child(div().flex_1().text_size(TEXT.base).child(c.label)),
         ),
       );
-    if (d.kind === "confirm") {
-      actions.push(Button("dlg-ok", { label: d.confirm ? d.confirm[0].toUpperCase() + d.confirm.slice(1) : "Continue", variant: d.destructive ? "destructive" : "default", kbd: "⏎", onClick: (_e, cx) => (this.closeDialog(cx), cx.spawn(async (cx) => d.run(cx))) }));
+    if (d.kind === "confirm" && d.lines?.length) {
+      body = v_flex().gap(4).children(d.lines.map((l, i) => div().id(`dlg-line-${i}`).text_size(TEXT.sm).text_color(l.tone ? k[l.tone] : k.foreground).child(l.text)));
+    }
+    if (d.kind === "confirm" && !d.confirm && d.lines) {
+      // Nothing to run: the lines say why.
+    } else if (d.kind === "confirm") {
+      actions.push(Button("dlg-ok", { label: d.confirm ? d.confirm[0].toUpperCase() + d.confirm.slice(1) : "Continue", variant: d.destructive ? "destructive" : "default", kbd: kbd("⏎"), onClick: (_e, cx) => (this.closeDialog(cx), cx.spawn(async (cx) => d.run(cx))) }));
     } else if (d.kind === "pick") {
       body = choiceList(d.choices, (c, cx) => (this.closeDialog(cx), cx.spawn(async (cx) => c.run(cx))));
     } else if (d.kind === "merge") {
@@ -1248,17 +1337,6 @@ export default class Inbox {
         .child(got?.value?.ready ? this.readyLine(got.value.ready, k) : got?.loading ? h_flex().gap(8).items_center().child(Spinner({ size: 12 })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Asking GitHub whether it can merge…")) : div().text_size(TEXT.sm).text_color(k.mutedFg).child(got?.error ? `GitHub did not say (${got.error}): these are the usual methods` : ""))
         .when(choices.length > 0, (e) => e.child(choiceList(choices, (c, cx) => this.mergeChoice(cx, d.row, c))))
         .when(!choices.length && Boolean(got?.value?.why), (e) => e.child(div().text_size(TEXT.sm).text_color(k.mutedFg).child(got.value.why)));
-    } else if (d.kind === "start") {
-      const p = d.plan;
-      title = d.row.kind === "ticket" ? `Start ${d.row.key}` : `Work on ${d.row.cells?.ref ?? d.row.name}`;
-      description = d.row.cells?.title ?? d.row.name;
-      body = !p
-        ? h_flex().gap(8).items_center().child(Spinner({ size: 12 })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Checking the ticket, the PR and your checkouts…"))
-        : v_flex()
-            .gap(8)
-            .children((p.blockers ?? []).map((b) => h_flex().gap(8).items_start().child(Icon("circle-x", { size: 14, color: k.destructive })).child(div().flex_1().text_size(TEXT.sm).text_color(k.destructive).child(b))))
-            .children((p.steps ?? []).map((s, i) => h_flex().gap(8).items_start().child(h_flex().size(18).flex_none().rounded(9).bg(k.muted).text_size(TEXT.xs).text_color(k.mutedFg).items_center().justify_center().child(String(i + 1))).child(div().flex_1().text_size(TEXT.sm).child(s))));
-      actions.push(Button("dlg-start", { label: p?.ok ? "Start" : "Can't start", icon: "play", kbd: "⏎", disabled: !p?.ok, onClick: (_e, cx) => p?.ok && this.startNow(cx) }));
     } else if (d.kind === "file") {
       title = "File an issue";
       description = "A new issue, assigned to you";
@@ -1310,10 +1388,17 @@ export default class Inbox {
   list(k, cx) {
     const m = this.model;
     if (!m) {
-      if (this.status.startsWith("error")) return ErrorState({ title: "Cannot reach the cockpit hub", message: this.status.slice(7) });
+      if (this.status.startsWith("error")) return HubDownBody("inbox-hub-down-body", this, this.status, k);
       return v_flex().p(16).gap(12).children([0, 1, 2, 3, 4, 5].map((i) => h_flex().gap(10).items_center().child(Skeleton({ w: 16, h: 16, radius: RADIUS.sm })).child(Skeleton({ w: 200 + ((i * 89) % 240) }))));
     }
-    if (m.state !== "ok") return Empty({ icon: "inbox", title: m.state === "empty" ? "No inbox yet" : "Refreshing", description: m.message, action: Button("empty-refresh", { label: "Refresh", icon: "refresh-cw", kbd: "R", onClick: (_e, cx) => this.refresh(cx) }) });
+    if (m.state !== "ok") {
+      // Another version's cache is read once this version's own hub writes it again.
+      const other = m.state === "other_version";
+      const title = m.state === "empty" ? "No inbox yet" : other ? "Written by another version of cockpit" : "Not readable yet";
+      const description = other ? "This version reads it once its own hub writes it: after an update, or once the running hub restarts." : m.message;
+      const refresh = Button("empty-refresh", { label: "Refresh", icon: "refresh-cw", kbd: "R", onClick: (_e, cx) => this.refresh(cx) });
+      return Empty({ icon: other ? "circle-help" : "inbox", title, description, action: other ? undefined : refresh });
+    }
     const vis = this.visible();
     if (this.filter.trim() && !vis.length) return Empty({ icon: "search", title: "No row matches", description: `Nothing has every word of “${this.filter}”.` });
     const at = vis.findIndex((v) => v.row.path === this.sel);
@@ -1348,6 +1433,8 @@ export default class Inbox {
         }
       })
       .on_mouse_down("left", () => {
+        // A click in the view makes the row the person's, whatever a command pointed at.
+        this.pointed = false;
         if (!this.filtering && !this.palette && !this.dialog) this.handle.focus();
       })
       .on_key_down((e, cx) => {
@@ -1358,6 +1445,9 @@ export default class Inbox {
           icon: "inbox",
           title: "Inbox",
           description: m ? parts.join(" · ") || "Nothing waiting" : "Loading…",
+          sources: m?.sources,
+          view: this,
+          narrow,
           actions: [
             Button("details", { icon: "panel-right", variant: this.showDetails ? "secondary" : "ghost", size: "icon", tooltip: "Details beside the list  tab", onClick: (_e, cx) => ((this.showDetails = !this.showDetails), cx.notify()) }),
             Button("file-issue", { label: "File issue", icon: "file-plus", variant: "ghost", size: "sm", kbd: "I", onClick: (_e, cx) => this.openFile(cx) }),
@@ -1366,6 +1456,7 @@ export default class Inbox {
           ],
         }),
       )
+      .when(this.status.startsWith("error") && Boolean(m), (e) => e.child(div().px(24).pb(8).child(HubDown("inbox-hub-down", this, this.status.replace(/^error: /, ""), k, { maxW: 100_000 }))))
       .when(Boolean(m?.errors?.length), (e) => e.child(this.errorsEl(m.errors, k)))
       .child(
         h_flex()
@@ -1377,7 +1468,7 @@ export default class Inbox {
           .child(h_flex().id("filter").flex_1().on_mouse_down("left", (_e, cx) => this.startFilter(cx)).child(SearchField(this.search, { active: this.filtering, kbd: "/" })))
           .when(this.picked.size > 0, (e) => e.child(Badge(`${this.picked.size} picked`, "info", { id: "picked-badge", onClick: (_e, cx) => (this.picked.clear(), cx.notify()), tooltip: "Drop the picks  esc" })))
           .when(changed > 0, (e) => e.child(Badge(`${changed} changed`, "secondary", { dot: k.ring })))
-          .when(this.status !== "live", (e) => e.child(Badge(this.status.startsWith("error") ? "offline" : "connecting", this.status.startsWith("error") ? "destructive" : "secondary", { dot: this.status.startsWith("error") ? k.destructive : k.warning }))),
+          .when(this.status === "connecting", (e) => e.child(Badge("connecting", "secondary", { dot: k.warning }))),
       )
       .child(
         (narrow ? v_flex() : h_flex())
@@ -1429,6 +1520,7 @@ const ICON = {
   "mute repo": "volume-x",
   unmute: "volume-x",
   "fix ci": "wrench",
+  "address review": "message-square",
   rerun: "refresh-cw",
   redeploy: "rocket",
   preview: "globe",

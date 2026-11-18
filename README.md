@@ -35,7 +35,9 @@ cockpit setup
 > In the Herdr app, the gallery installs the layout in [`app/`](app/). It shows cockpit's data, so install cockpit
 > as above too.
 
-`cockpit update` updates every part later; cockpit also tells you when a new version is out.
+`cockpit update` updates every part later; cockpit also tells you when a new version is out, and after an update asks
+once about the options it brought (`cockpit options` lists them all). In the Herdr app, **Cockpit settings** at the
+foot of the sidebar has every option, the version you run and the published one, and a button that checks for a new one.
 
 <details>
 <summary><b>Questions</b></summary>

@@ -158,6 +158,12 @@ impl<'a> Build<'a> {
             let new = call("fix_ci", vec![pr.clone(), run_arg.clone(), json!("new")]);
             acts.push(RowAct::pick("fix ci", 'f', vec![("on this PR's branch", here), ("on a new PR off main", new)]).main());
         }
+        // Its open review threads, handed to the agent on its branch (or, asked first, a new one there): never the main
+        // action, which stays merge once the PR is ready.
+        if pr["threads"].as_u64().is_some_and(|n| n > 0) || s(pr, "review") == "CHANGES_REQUESTED" {
+            acts.push(RowAct::new("address review", 'F', call("address_review", vec![pr.clone()])));
+        }
+        let no_main = |acts: &[RowAct]| !acts.iter().any(|a| a.act.main);
         // GitHub Actions runs (they carry the repo's slug) rerun through gh; other CI through a Claude Code session.
         if let Some(r) = run
             && s(r, "outcome") == "failed"
@@ -172,11 +178,11 @@ impl<'a> Build<'a> {
             && self.config.claude()
         {
             let redeploy = call("redeploy", vec![bx.clone(), json!(s(pr, "url"))]);
-            acts.push(RowAct::new("redeploy", 'd', redeploy).main_if(acts.is_empty()).confirm(format!("redeploy-{}-{}", s(bx, "id"), s(bx, "app"))));
+            acts.push(RowAct::new("redeploy", 'd', redeploy).main_if(no_main(&acts)).confirm(format!("redeploy-{}-{}", s(bx, "id"), s(bx, "app"))));
         }
         if bx.is_none() && image_ready && self.config.can_preview() && self.config.claude() {
             let preview = call("create_preview", vec![pr.clone()]);
-            acts.push(RowAct::new("preview", 's', preview).main_if(acts.is_empty()).confirm(format!("preview-{}-{}", s(pr, "repo"), s(pr, "branch"))));
+            acts.push(RowAct::new("preview", 's', preview).main_if(no_main(&acts)).confirm(format!("preview-{}-{}", s(pr, "repo"), s(pr, "branch"))));
         }
         let links = self.links(s(pr, "repo"));
         let dashboard = bx.and_then(|b| self.config.dashboard_url(s(b, "id"))).or_else(|| links["dashboard"].as_str().map(str::to_string));
@@ -187,8 +193,8 @@ impl<'a> Build<'a> {
             acts.push(RowAct::new("deploy", 'W', open(url)));
         }
         let (ready, ready_text, ready_tone) = facts::readiness(pr, run);
-        let merge_first = ready == "ready" && acts.is_empty();
-        acts.push(RowAct::new("open", 'o', open(s(pr, "url"))).main_if(acts.is_empty() && !merge_first));
+        let merge_first = ready == "ready" && no_main(&acts);
+        acts.push(RowAct::new("open", 'o', open(s(pr, "url"))).main_if(no_main(&acts) && !merge_first));
         if !flag(pr, "isDraft") {
             let method = |label: &'static str, how: &str| (label, call("merge", vec![pr.clone(), json!(how)]));
             let merge = RowAct::pick(
@@ -348,7 +354,7 @@ impl<'a> Build<'a> {
         acts.push(RowAct::pick("status", 'i', vec![state("Todo"), state("In Progress"), state("In Review"), state("Done")]));
         acts.push(RowAct::new("open", 'o', open(s(ticket, "url"))));
         let project = if s(ticket, "project").is_empty() { "no project" } else { s(ticket, "project") };
-        let mut spent = usd.map(|u| format!(" · ${u:.2} in Claude Code usage")).unwrap_or_default();
+        let mut spent = usd.map(|u| format!(" · ~${u:.2} of agent use, estimated")).unwrap_or_default();
         if let Some(secs) = self.secs.get(&id.to_uppercase()) {
             spent += &format!(" · {} by agents this week", facts::duration(*secs));
         }
@@ -395,7 +401,7 @@ impl<'a> Build<'a> {
 
     /// A ticket's notes: its cost, after the sparkline of how it grew once there are enough points.
     fn notes(&self, id: &str, usd: Option<f64>) -> String {
-        let cost = usd.map(|u| format!("${u:.2}")).unwrap_or_default();
+        let cost = usd.map(|u| format!("~${u:.2}")).unwrap_or_default();
         match self.series.get(id).filter(|v| v.len() >= SPARK_MIN) {
             Some(values) => format!("{} {cost}", sparkline(values, SPARK)),
             None => cost,
@@ -513,4 +519,50 @@ pub fn rows(data: &Value, ci: &Value, ctx: &Ctx, costs: &HashMap<String, f64>, s
     let build = Build::new(data, ci, ctx.config, costs, ctx.series, secs);
     let claimed = build.claimed();
     (build.work(ctx.by_status, claimed.len()), build.other(&claimed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// My PR's row actions in the Work tree, by its URL: (label, key, main, function, its PR's URL).
+    fn acts_of(pr: Value) -> Vec<(String, Option<char>, bool, &'static str, Value)> {
+        let config = Config::from(json!({}));
+        let (series, costs, secs) = (HashMap::new(), HashMap::new(), HashMap::new());
+        let ctx = Ctx { config: &config, by_status: false, compact: false, series: &series };
+        let url = pr["url"].clone();
+        let (work, other) = rows(&json!({"version": 1, "mine": [pr], "tickets": []}), &Value::Null, &ctx, &costs, &secs);
+        fn find<'r>(row: &'r Row, url: &Value) -> Option<&'r Row> {
+            if row.item.as_ref().is_some_and(|i| i["url"] == *url) {
+                return Some(row);
+            }
+            row.children.iter().find_map(|r| find(r, url))
+        }
+        let row = find(&work, &url).or_else(|| find(&other, &url)).expect("the PR's row");
+        row.acts
+            .iter()
+            .map(|a| {
+                let call = a.call.as_ref();
+                (a.act.label.clone(), a.act.key, a.act.main, call.map_or("", |c| c.function), call.map_or(Value::Null, |c| c.args[0]["url"].clone()))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_pr_with_open_threads_hands_them_to_its_agent_and_enter_still_merges_a_ready_one() {
+        let pr = json!({"repo": "api", "number": 2198, "url": "https://github.com/acme/api/pull/2198", "title": "Daily quotas", "branch": "me/eng-412-daily-quotas",
+            "base": "main", "review": "CHANGES_REQUESTED", "ci": "SUCCESS", "threads": 2, "updatedAt": "2026-11-12T08:00:00Z"});
+        let acts = acts_of(pr.clone());
+        let act = acts.iter().find(|a| a.0 == "address review").expect("an address review action");
+        assert_eq!((act.1, act.2, act.3, &act.4), (Some('F'), false, "address_review", &pr["url"]), "a secondary action");
+        assert_eq!(acts.iter().filter(|a| a.2).map(|a| a.0.as_str()).collect::<Vec<_>>(), ["open"], "Enter opens it while it is not ready");
+        let mut ready = pr.clone();
+        ready["review"] = json!("APPROVED");
+        let acts = acts_of(ready);
+        assert_eq!(acts.iter().filter(|a| a.2).map(|a| a.0.as_str()).collect::<Vec<_>>(), ["merge"], "Enter merges a ready PR, threads or not");
+        let settled = acts_of(json!({"repo": "api", "number": 7, "url": "https://github.com/acme/api/pull/7", "title": "x", "branch": "me/x", "base": "main",
+            "review": "APPROVED", "ci": "SUCCESS", "threads": 0, "updatedAt": "2026-11-12T08:00:00Z"}));
+        assert!(!settled.iter().any(|a| a.0 == "address review"), "nothing open, nothing to address");
+    }
 }

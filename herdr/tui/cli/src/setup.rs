@@ -1,16 +1,16 @@
-//! `cockpit setup`: /cockpit:setup in the terminal, for any agent: the frontends, default agent and features written
-//! to ~/.config/cockpit/config.json, then herdr, the Herdr app and the other agents wired, each step asked first.
+//! `cockpit setup`: /cockpit:setup in the terminal, for any agent: the frontends, default agent, features and the options
+//! not asked about yet written to ~/.config/cockpit/config.json, then herdr, the Herdr app and the other agents wired,
+//! each step asked first.
 
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
-use cockpit_core::{agent, files};
+use cockpit_core::{agent, files, jsonedit, options};
 use serde_json::{Value, json};
 
 use crate::connect;
 use crate::herdr_config;
-use crate::jsonedit;
 use crate::proc;
 
 const SPACES: [&str; 6] = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
@@ -76,7 +76,7 @@ impl Drop for Echo {
 }
 
 fn run(argv: &[&str]) -> Option<proc::Out> {
-    proc::run(argv, &[], Duration::from_secs(300))
+    proc::run(argv, &[], Duration::from_secs(300)).ok()
 }
 
 fn said(argv: &[&str]) -> String {
@@ -126,7 +126,7 @@ pub fn main(_: &[String]) {
 
 fn setup(io: &mut Io) {
     let home = files::home();
-    println!("cockpit setup: the frontends, your default agent and the features, then ~/.config/cockpit/config.json.\n");
+    println!("cockpit setup: the frontends, your default agent, the features and options, then ~/.config/cockpit/config.json.\n");
 
     // 1. Prerequisites
     let herdr = said(&["herdr", "--version"]);
@@ -271,22 +271,43 @@ fn setup(io: &mut Io) {
     if on('6') {
         spaces.push("routines");
     }
+    // The review space is herdr's and opt-in.
+    if tui && io.yes("\nPin a review space in herdr (prefix+shift+c): an agent's changes, commented line by line and sent back to it?", false) {
+        spaces.push("review");
+    }
     values.push(("e2eBrowser", if on('5') { "terminal-browser" } else { "chrome" }.into()));
     match files::load(&files::config_dir().join("config.json")).map(|c| c["spaces"].clone()).filter(|s| !s.is_null()) {
         None => values.push(("spaces", json!(spaces))),
-        // Spaces already chosen stay as they are; picking mail adds its space.
-        Some(Value::Array(mut chosen)) if spaces.contains(&"mail") && !chosen.iter().any(|s| s == "mail" || s["name"] == "mail") => {
-            chosen.push("mail".into());
-            values.push(("spaces", Value::Array(chosen)));
+        // Spaces already chosen stay as they are; picking mail or the review space adds its space.
+        Some(Value::Array(mut chosen)) => {
+            let before = chosen.len();
+            for n in ["mail", "review"].into_iter().filter(|n| spaces.contains(n)) {
+                if !chosen.iter().any(|s| s == n || s["name"] == n) {
+                    chosen.push(n.into());
+                }
+            }
+            if chosen.len() > before {
+                values.push(("spaces", Value::Array(chosen)));
+            }
         }
         Some(_) => {}
     }
 
+    // 4b. The options not asked about yet, each once; an answer that keeps the value writes nothing.
+    let before = files::config();
+    let picked = asked_options(io, &before, &options::note_run(env!("CARGO_PKG_VERSION")));
+
     // 5. The config
     let path = files::config_dir().join("config.json");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let next = merged(&text, &values, agent_id.as_deref(), frontend)
+    let mut next = merged(&text, &values, agent_id.as_deref(), frontend)
         .unwrap_or_else(|e| proc::fail(&format!("~/.config/cockpit/config.json does not read as JSON ({e}): fix it, then run cockpit setup again")));
+    for (key, on) in picked.iter().filter(|(key, on)| options::get(key).is_some_and(|s| options::is_on(&before, s) != *on)) {
+        match options::set_in(&next, key, &Value::Bool(*on)) {
+            Ok(done) => next = done,
+            Err(e) => println!("{e}: set it by hand"),
+        }
+    }
     if next != text {
         let _ = std::fs::create_dir_all(files::config_dir());
         if !text.is_empty() {
@@ -294,6 +315,9 @@ fn setup(io: &mut Io) {
         }
         write_private(&path, &next).unwrap_or_else(|e| proc::fail(&format!("config.json not written: {e}")));
         println!("Wrote ~/.config/cockpit/config.json{}", if text.is_empty() { "" } else { " (the old one is config.json.bak)" });
+    }
+    if !picked.is_empty() {
+        let _ = options::mark(&picked.iter().map(|(key, _)| *key).collect::<Vec<_>>(), None);
     }
     if on('5') && proc::which("terminal-browser").is_none() {
         println!("terminal-browser is not installed → brew install --cask terminal-browser, then terminal-browser config set render.transport auto");
@@ -544,7 +568,16 @@ fn herdr_keys(io: &mut Io, home: &Path, root: &str) {
     let path = home.join(".config/herdr/config.toml");
     let theirs = std::fs::read_to_string(&path).unwrap_or_default();
     let ours = std::fs::read_to_string(format!("{root}/config.example.toml")).unwrap_or_default();
-    let merged = match herdr_config::merge(&theirs, &ours) {
+    // A review space pinned now or before gets its sidebar count, which a config with rows of its own lacks.
+    let pinned = files::load(&files::config_dir().join("config.json")).map(|c| c["spaces"].clone()).unwrap_or_default();
+    let review = pinned.as_array().into_iter().flatten().any(|s| s == "review" || s["name"] == "review");
+    let merged = herdr_config::merge(&theirs, &ours).and_then(|mut m| {
+        if review {
+            m.text = herdr_config::with_token(&m.text, "$review_space", "$routines")?;
+        }
+        Ok(m)
+    });
+    let merged = match merged {
         Ok(m) if m.text == theirs => return println!("~/.config/herdr/config.toml already has cockpit's keys and sidebar."),
         Ok(m) => m,
         Err(e) => return println!("{e}: merge {root}/config.example.toml into it yourself."),
@@ -586,6 +619,18 @@ fn numbers(answer: &str, most: u32) -> Vec<char> {
     picked
 }
 
+/// Each switch a version brought and not seen yet, asked with its one line: Enter keeps its value.
+fn asked_options(io: &mut Io, config: &Value, state: &Value) -> Vec<(&'static str, bool)> {
+    let seen: Vec<&str> = state["seen"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let unseen: Vec<&options::Setting> =
+        options::ALL.iter().filter(|s| s.since.is_some() && s.kind == options::Kind::Toggle && !seen.contains(&s.key)).collect();
+    if unseen.is_empty() {
+        return Vec::new();
+    }
+    println!("\nOptions you were not asked about yet (cockpit options lists every one):");
+    unseen.into_iter().map(|s| (s.key, io.yes(&format!("{}: {}", s.title, s.description), options::is_on(config, s)))).collect()
+}
+
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let tmp = path.with_file_name(format!(".{}.tmp", path.file_name().unwrap_or_default().to_string_lossy()));
@@ -623,5 +668,16 @@ mod tests {
         assert!(read.get("frontend").is_none());
         assert!(done.starts_with("{\n  \"github\""));
         assert_eq!(jsonedit::plain(&merged("", &[], None, Some("app")).unwrap()).unwrap(), json!({"frontend": "app"}));
+    }
+
+    #[test]
+    fn setup_asks_only_the_options_not_seen_and_enter_keeps_each_value() {
+        let answers = ["n", ""].map(String::from);
+        let mut io = Io { lines: Box::new(answers.into_iter()) };
+        let picked = asked_options(&mut io, &json!({"chat": {"nextSteps": true}}), &json!({"seen": ["ci.tellAgents"]}));
+        assert_eq!(picked, [("queue.drain", false), ("chat.nextSteps", true)]);
+        let mut io = Io { lines: Box::new(std::iter::empty()) };
+        let every: Vec<Value> = options::ALL.iter().map(|s| json!(s.key)).collect();
+        assert!(asked_options(&mut io, &json!({}), &json!({"seen": every})).is_empty());
     }
 }

@@ -1,12 +1,13 @@
-// The side panel's activity bar: one icon per panel (Documents, Review, Runbook, Files, Changes), the shown one marked by
-// an accent edge, each with the badge its view publishes as shared `badge.<name>` = {count, tone}; a click switches the
-// panel, the last button closes it.
+// The side panel's activity bar: one icon per panel (Documents, Review, Runbook, Files, Changes, and the file the reading
+// layout opened there), the shown one marked by an accent edge, each with the badge its view publishes as shared
+// `badge.<name>` = {count, tone}; a click switches the panel, the last button closes it.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run, layout, shared, setShared } from "herdr";
 import { tokens, RADIUS, Icon, CornerCount } from "./ui.js";
-import { findNode, PANELS } from "./status.js";
+import { findNode, PANELS, closePanel } from "./status.js";
+import { CODE_PANEL } from "./code.js";
 
 const ITEMS = [
   { name: "show", icon: "layers", label: "Documents", key: "⌃⌘1" },
@@ -14,6 +15,7 @@ const ITEMS = [
   { name: "runbook", icon: "book", label: "Runbook", key: "⌃⌘3" },
   { name: "files", icon: "folder", label: "Files", key: "⌃⌘4" },
   { name: "changes", icon: "git-commit", label: "Changes", key: "⌃⌘5" },
+  { name: "code", icon: "file-text", label: "The file opened last" },
 ];
 
 export default class Activity {
@@ -36,7 +38,7 @@ export default class Activity {
     const k = tokens();
     const active = findNode(layout(), "panel-body")?.active;
     const button = (item) => {
-      const child = PANELS[item.name];
+      const child = PANELS[item.name] ?? item.name;
       const on = active === child;
       const badge = shared(`badge.${item.name}`);
       const tone = badge?.tone ? k[badge.tone] ?? badge.tone : k.ring;
@@ -50,7 +52,7 @@ export default class Activity {
         .cursor_pointer()
         .text_color(on ? k.foreground : k.mutedFg)
         .hover((s) => s.text_color(k.foreground))
-        .tooltip(`${item.label}  ${item.key}`)
+        .tooltip(item.key ? `${item.label}  ${item.key}` : item.label)
         .on_click(() => run("layout.select", { stack: "panel-body", child }))
         .when(on, (e) => e.child(div().absolute().left(0).top(10).bottom(10).w(2).rounded(1).bg(k.ring)))
         .child(h_flex().size(30).items_center().justify_center().rounded(RADIUS.md).when(on, (e) => e.bg(k.selected)).child(Icon(item.icon, { size: 17 })))
@@ -64,7 +66,8 @@ export default class Activity {
       .border_l_1()
       .border_color(k.border)
       .bg(k.chrome)
-      .children(ITEMS.map(button))
+      // A file shows only where the layout has room for one, once one was opened there.
+      .children(ITEMS.filter((i) => i.name !== "code" || (findNode(layout(), "code") && shared(CODE_PANEL)?.file)).map(button))
       .child(div().flex_1())
       .child(
         h_flex()
@@ -77,7 +80,7 @@ export default class Activity {
           .text_color(k.mutedFg)
           .hover((s) => s.text_color(k.foreground))
           .tooltip("Close the panel  ⌘⌥B")
-          .on_click(() => run("layout.hide", { id: "panel" }))
+          .on_click(() => closePanel())
           .child(Icon("panel-right", { size: 16 })),
       );
   }

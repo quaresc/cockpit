@@ -125,9 +125,9 @@ pub fn of(
     out
 }
 
-/// The views (documents) a terminal's session showed this week, newest first: name and title. A view names its terminal
-/// by any of `ids` (the Herdr app's address or the row's handle).
-pub fn documents(ids: &[&str]) -> Vec<Value> {
+/// The views (documents) `show` keeps, each `{name, terminal, title, at, placement}`: the folder is listed once per call,
+/// and a file is read again only once it changed.
+pub fn shown() -> Vec<Value> {
     let dir = files::cache().join("show");
     let mut cache = VIEWS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut seen = Vec::new();
@@ -143,21 +143,38 @@ pub fn documents(ids: &[&str]) -> Vec<Value> {
         seen.push(name);
     }
     cache.retain(|name, _| seen.contains(name));
+    cache.iter().map(|(n, (_, s))| json!({"name": n, "terminal": s["terminal"], "title": s["title"], "at": s["at"], "placement": s["placement"]})).collect()
+}
+
+/// The views of `shown` a terminal's session showed this week, newest first: name and title. A view names its terminal
+/// by any of `ids` (the Herdr app's address or the row's handle).
+pub fn documents(shown: &[Value], ids: &[&str]) -> Vec<Value> {
     let now = cockpit_core::seen::now_ms() as f64;
-    let mut mine: Vec<(&String, &Value)> = cache
+    let mut mine: Vec<&Value> = shown
         .iter()
-        .map(|(n, (_, s))| (n, s))
-        .filter(|(_, s)| {
-            s["terminal"].as_str().is_some_and(|t| ids.contains(&t)) && s["placement"] != "browser" && now - s["at"].as_f64().unwrap_or(0.0) <= KEEP_MS
-        })
+        .filter(|s| s["terminal"].as_str().is_some_and(|t| ids.contains(&t)) && s["placement"] != "browser" && now - s["at"].as_f64().unwrap_or(0.0) <= KEEP_MS)
         .collect();
-    mine.sort_by(|a, b| b.1["at"].as_f64().unwrap_or(0.0).total_cmp(&a.1["at"].as_f64().unwrap_or(0.0)));
-    mine.into_iter().map(|(n, s)| json!({"name": n, "title": s["title"]})).collect()
+    mine.sort_by(|a, b| b["at"].as_f64().unwrap_or(0.0).total_cmp(&a["at"].as_f64().unwrap_or(0.0)));
+    mine.into_iter().map(|s| json!({"name": s["name"], "title": s["title"]})).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_terminals_documents_are_its_own_of_the_week_newest_first_never_a_browser_page() {
+        let now = cockpit_core::seen::now_ms() as f64;
+        let shown = [
+            json!({"name": "quota-chart", "terminal": "app:t1", "title": "Quota use", "at": now - 60_000.0, "placement": "right"}),
+            json!({"name": "plan", "terminal": "w1:p1", "title": "Plan", "at": now - 1_000.0, "placement": "right"}),
+            json!({"name": "page", "terminal": "app:t1", "title": "Page", "at": now, "placement": "browser"}),
+            json!({"name": "old", "terminal": "app:t1", "title": "Old", "at": now - 8.0 * 86_400_000.0, "placement": "right"}),
+            json!({"name": "theirs", "terminal": "app:t2", "title": "Theirs", "at": now, "placement": "right"}),
+        ];
+        let mine = documents(&shown, &["w1:p1", "app:t1"]);
+        assert_eq!(mine, [json!({"name": "plan", "title": "Plan"}), json!({"name": "quota-chart", "title": "Quota use"})]);
+    }
 
     #[test]
     fn links_are_named_after_their_service() {

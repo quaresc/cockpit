@@ -32,10 +32,10 @@ fn follow_answers() {
     let Some(here) = here() else { return };
     STARTED.get_or_init(|| {
         std::thread::spawn(move || {
+            // An answer the agent cannot take yet (it waits on a question) stays on disk and is tried again.
             loop {
-                for text in show::take_answers(&show::dir(), session()) {
-                    show::prompt(here, &text);
-                }
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or_default();
+                show::hand_over(&show::dir(), session(), now, &mut |text| show::prompt(here, text));
                 std::thread::sleep(Duration::from_secs(2));
             }
         });
