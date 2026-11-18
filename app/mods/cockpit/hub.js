@@ -238,14 +238,36 @@ export function downWords(e, short = false) {
   return stopped ? "The cockpit hub was stopped" : "The cockpit hub isn't running";
 }
 
-/** hub.json's { port, token }: as written, else after `cockpit hub start` started a hub. */
-async function address(fresh, state, cx) {
+/** How often a connection waiting on a hub start reads hub.json again. */
+const APPEAR_MS = 500;
+
+/** Whether two reads of hub.json name the same hub. */
+const sameHub = (a, b) => Boolean(a && b) && a.port === b.port && a.token === b.token && a.pid === b.pid;
+
+/**
+ * hub.json's { port, token }: as written, else after `cockpit hub start` started a hub. While that start runs (one
+ * shared start can take up to Herdr's 30 s bound on a command), a hub.json naming another hub than `seen` is taken at once.
+ */
+async function address(fresh, state, cx, seen = null) {
   if (!fresh) {
     const info = await readInfo(cx);
     if (info?.port) return info;
   }
   if (state?.stopped) throw new Error("subscription stopped");
-  return startHub({ cx });
+  const starting = startHub({ cx });
+  if (!cx?.timer) return starting;
+  let done = false;
+  starting.then(() => (done = true), () => (done = true));
+  const appeared = (async () => {
+    while (!done && !state?.stopped) {
+      await sleep(cx, APPEAR_MS);
+      if (done) break;
+      const info = await readInfo(cx).catch(() => null);
+      if (info?.port && !sameHub(info, seen)) return info;
+    }
+    return starting;
+  })();
+  return Promise.race([starting, appeared]);
 }
 
 // Herdr's Windows runtime has no TextDecoder and its Buffer shim returns empty buffers, so it decodes percent-encoded bytes.
@@ -301,11 +323,13 @@ export class Lines {
   }
 }
 
-async function open(fresh, state, cx) {
+/** One connection to the hub, answering ping; `tried.info` keeps the hub.json it used, for a try after it. */
+async function open(fresh, state, cx, tried = {}) {
   const { host, machine } = await install();
   const step = () => state && (state.moved = Date.now());
   step();
-  const info = await address(fresh, state, cx);
+  const info = await address(fresh, state, cx, tried.info);
+  tried.info = info;
   step();
   if (state?.stopped) throw new Error("subscription stopped");
   const connecting = net.connect(machine ? host : (info.host ?? "127.0.0.1"), info.port).then(adopt);
@@ -336,13 +360,14 @@ async function open(fresh, state, cx) {
 }
 
 async function connect(state, cx) {
+  const tried = {};
   try {
-    return await open(false, state, cx);
+    return await open(false, state, cx, tried);
   } catch (error) {
     if (state?.stopped) throw error;
     // hub.json named a hub that is gone: start one.
     try {
-      return await open(true, state, cx);
+      return await open(true, state, cx, tried);
     } catch (again) {
       failed(again);
       throw again;

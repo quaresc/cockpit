@@ -90,7 +90,9 @@ both fail, or a followed link breaks; cleared once the window reaches the hub, a
 which go through `core::hub::request`, say "the cockpit hub was stopped: run cockpit hub start" instead of starting
 one, and the doctor warns so, `cockpit hub start` its fix. `cockpit hub start` never stops a hub whose socket takes a connection: it waits for its answer and hub.json.
 Every step of a connection is bounded (`within(cx, promise, ms, what)`): a task Herdr spawns while layouts switch can
-die with its read pending. Each copy beats once a second for all its subscriptions, and a task following the hub beats
+die with its read pending. A connection waiting on the window's shared `cockpit hub start` reads hub.json again every
+half second and takes a hub started another way at once (Start it, the CLI, another window), so a slow start (Herdr
+stops a command after 30 s) never keeps a view down once a hub answers. Each copy beats once a second for all its subscriptions, and a task following the hub beats
 on its own timer: one that went quiet (its context died) or took longer than every bounded step and the slowest hub
 start (`STUCK_MS`, 40 s) is replaced, and so is one the hub never answered (live or an error) whose step outlasts 12 s
 (`FIRST_MS`): a first task made mid-switch can hang on a read that has no bound while its timer still beats. One watchdog per window (`globalThis.cockpitHubSubscriptions`, every 12 s while
