@@ -59,7 +59,11 @@ impl Drop for Server {
 #[test]
 fn an_agent_in_a_herdr_pane_gets_a_view_beside_it_and_the_persons_answer_back() {
     let sandbox = Sandbox::new();
-    sandbox.herdr(&[("pane split", r#"{"result": {"pane": {"pane_id": "w1:p2"}}}"#)]);
+    // The agent in w1:p1 is this test's process: the server it runs is its tool, and its answers reach it alone.
+    let panes = format!(r#"{{"result": {{"panes": [{{"pane_id": "w1:p1", "agent": "claude", "agent_status": "idle", "pid": {}}}]}}}}"#, std::process::id());
+    // A delivery first checks an agent still runs in its pane.
+    let pane = r#"{"result": {"pane": {"pane_id": "w1:p1", "agent": "claude"}}}"#;
+    sandbox.herdr(&[("pane split", r#"{"result": {"pane": {"pane_id": "w1:p2"}}}"#), ("pane list", &panes), ("pane get", pane)]);
     let mut server = Server::start(&sandbox, &[("HERDR_ENV", "1"), ("HERDR_PANE_ID", "w1:p1")]);
     let hello = server.ask("initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex", "version": "0"}}));
     assert_eq!(hello["result"]["protocolVersion"], "2025-06-18");
@@ -78,7 +82,7 @@ fn an_agent_in_a_herdr_pane_gets_a_view_beside_it_and_the_persons_answer_back() 
     assert!(calls.iter().any(|c| c.starts_with("herdr pane run w1:p2 exec ") && c.ends_with(" show deploy")), "{calls:?}");
     assert!(calls.contains(&"herdr pane focus --pane w1:p2 --direction left".to_string()), "{calls:?}");
 
-    // The person picks in the pane: the answer file it writes reaches the agent as its next prompt.
+    // The person picks in the pane: the answer file it writes reaches the agent as its next prompt, through `deliver`.
     std::fs::write(sandbox.cache().join("show/deploy.0.answer"), r#"{"block": 0, "type": "choice", "value": "prod", "label": "prod"}"#).unwrap();
     let asked = "herdr agent prompt w1:p1 In the deploy pane I picked \"prod\" for: Which env.".to_string();
     let deadline = Instant::now() + Duration::from_secs(10);

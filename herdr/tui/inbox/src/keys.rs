@@ -6,17 +6,28 @@ use cockpit_core::hub;
 use cockpit_core::input::{Edit, Input};
 use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
+use cockpit_core::pointed::MOVE_FIRST;
 use cockpit_core::toast::Kind as Toast;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 use crate::app::{App, Asked, Command};
 use crate::row::Call;
 use crate::select;
+use crate::start::{self, Form};
 
 impl App {
     /// A key; true quits.
     pub(crate) fn key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if let Some(form) = &mut self.start {
+            if let start::Outcome::Close(note) = form.key(key) {
+                self.start = None;
+                if let Some(note) = note {
+                    self.toasts.push(note, Toast::Note);
+                }
+            }
+            return false;
+        }
         if let Some((dialog, _)) = &mut self.dialog {
             if let Some(answer) = dialog.key(key) {
                 self.answer(answer);
@@ -37,6 +48,11 @@ impl App {
         if keys::is_quit(&key) {
             return true;
         }
+        // A row a focus request selected takes no key that acts until the person moves to it.
+        if self.pointed.holds(&key) {
+            self.toasts.push(MOVE_FIRST, Toast::Note);
+            return false;
+        }
         match key.code {
             KeyCode::Char('p') if ctrl => self.open_palette(),
             // ctrl+o is not o: a chord must not open, mute or quit.
@@ -51,6 +67,7 @@ impl App {
                 }
             }
             KeyCode::Char(c) if self.act_key(c) => {}
+            KeyCode::Char('n') => self.open_start(&self.row_source()),
             KeyCode::Char('w') => self.regroup(),
             KeyCode::Char('R') => self.refresh(),
             KeyCode::Char(' ') => {
@@ -102,15 +119,42 @@ impl App {
         self.tree.current().is_some_and(|node| self.picked.toggle(&self.tree, node))
     }
 
-    /// Runs a row's action: a choice asks which, a change asks first, the rest runs at once.
+    /// The Start work form, on a ticket's key or a PR's URL, or empty.
+    pub(crate) fn open_start(&mut self, source: &str) {
+        self.start = Some(Form::new(source, self.live()));
+    }
+
+    /// What the highlighted row starts work on: its PR's URL or its ticket's key, else nothing.
+    fn row_source(&self) -> String {
+        let Some(node) = self.tree.current() else { return String::new() };
+        let row = &self.tree.nodes[node].row;
+        if row.kind == crate::row::Kind::Ticket {
+            return row.key.clone();
+        }
+        row.item.as_ref().and_then(|i| i["url"].as_str()).filter(|u| u.contains("/pull/")).unwrap_or_default().to_string()
+    }
+
+    /// Runs a row's action: a start opens the Start work form on the row, a choice asks which, a change asks first, the
+    /// rest runs at once.
     pub(crate) fn act(&mut self, node: usize, n: usize) {
         let row = &self.tree.nodes[node].row;
         let Some(act) = row.acts.get(n) else { return };
+        if let Some(call) = act.call.as_ref().filter(|c| c.function == "start") {
+            let target = call.args.first().cloned().unwrap_or_default();
+            let source = target["url"].as_str().filter(|u| u.contains("/pull/")).or(target["id"].as_str()).or(target.as_str()).unwrap_or_default().to_string();
+            self.open_start(&source);
+            return;
+        }
         if !act.picks.is_empty() {
             let dialog = Dialog::Pick { question: format!("{}: {}", act.act.label, row.name), options: act.act.choices.clone(), selected: 0 };
             self.dialog = Some((dialog, Asked::Picks(act.picks.clone())));
         } else if let (Some(key), Some(call)) = (&act.act.confirm, &act.call) {
-            let dialog = Dialog::Confirm { question: format!("{}: {}?", act.act.label, row.name) };
+            let question = match (act.act.label.as_str(), call.function) {
+                (select::REMOVE, "close_space") => select::ending(&row.name),
+                (select::REMOVE, _) => select::removal(&self.tree, node),
+                _ => format!("{}: {}?", act.act.label, row.name),
+            };
+            let dialog = Dialog::Confirm { question };
             self.dialog = Some((dialog, Asked::Armed(call.clone(), key.clone())));
         } else if let Some(call) = act.call.clone() {
             self.call(call, None);
@@ -122,7 +166,13 @@ impl App {
         let rows = self.picked.rows(&self.tree);
         let Some(shared) = select::shared(&self.tree, &rows).get(n).cloned() else { return };
         let same = |a: &crate::row::RowAct| a.act.label == shared.label && a.act.key == shared.key;
-        let acts: Vec<&crate::row::RowAct> = rows.iter().filter_map(|&r| self.tree.nodes[r].row.acts.iter().find(|a| same(a))).collect();
+        // A worktree something keeps stays out of a removal; the question says which and why.
+        let acts: Vec<&crate::row::RowAct> =
+            select::takes(&self.tree, &rows, &shared.label).into_iter().filter_map(|r| self.tree.nodes[r].row.acts.iter().find(|a| same(a))).collect();
+        if shared.label == select::REMOVE && acts.is_empty() {
+            self.toasts.push(format!("Nothing to remove. Every picked worktree is kept: {}.", select::stays(&self.tree, &rows)), Toast::Note);
+            return;
+        }
         if !shared.choices.is_empty() {
             let question = format!("{}: {}", shared.label, select::describe(&self.tree, &rows));
             let picks = acts.iter().map(|a| a.picks.clone()).collect();
@@ -152,12 +202,11 @@ impl App {
         }
     }
 
+    /// A batch's calls, one after the other: each sent once the one before answered, and what came of all of them said
+    /// at the end.
     fn run_batch(&mut self, label: &str, calls: Vec<(Call, Option<String>)>) {
-        let count = calls.len();
-        for (call, armed) in calls {
-            self.call(call, armed);
-        }
-        self.toasts.push(format!("{label}: {count} sent"), Toast::Note);
+        self.queue = Some(crate::app::Queue { label: label.to_string(), left: calls.into(), done: 0, refused: Vec::new() });
+        self.next_queued();
         self.picked.clear();
     }
 
@@ -205,6 +254,7 @@ impl App {
         let regroup = format!("group work by {}", if self.by_status { "feature" } else { "status" });
         push(&mut self.commands, regroup, "w".into(), true, Command::Regroup);
         push(&mut self.commands, "filter rows".into(), "/".into(), true, Command::Filter);
+        push(&mut self.commands, "start work".into(), "n".into(), true, Command::Start);
         self.palette.open(entries);
     }
 
@@ -227,6 +277,7 @@ impl App {
             Some(Command::Refresh) => self.refresh(),
             Some(Command::Regroup) => self.regroup(),
             Some(Command::Filter) => self.start_filter(),
+            Some(Command::Start) => self.open_start(""),
             None => {}
         }
     }
@@ -255,13 +306,14 @@ impl App {
     }
 
     pub(crate) fn mouse(&mut self, mouse: MouseEvent) {
-        if self.dialog.is_some() || self.palette.is_open {
+        if self.dialog.is_some() || self.palette.is_open || self.start.is_some() {
             return;
         }
         match mouse.kind {
             MouseEventKind::ScrollDown => self.tree.scroll(3),
             MouseEventKind::ScrollUp => self.tree.scroll(-3),
             MouseEventKind::Down(MouseButton::Left) => {
+                self.pointed.clear();
                 if let Some(&(_, n)) = self.buttons.iter().find(|(r, _)| r.contains((mouse.column, mouse.row).into())) {
                     self.press(n);
                     return;

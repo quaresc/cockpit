@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
 use cockpit_core::agent::{self, Agent, Headless};
 use cockpit_core::files;
@@ -192,7 +193,7 @@ pub fn start(repo: &str, scope: &str, model: &str, patch: &str, about: &Value) -
 
 pub fn start_in(root: &Path, repo: &str, scope: &str, model: &str, patch: &str, about: &Value) -> Result<String, String> {
     // Claude Code writes it when installed; another agent writes it on its own model, named after it.
-    let agent = agent::get("claude").filter(Agent::installed).unwrap_or_else(agent::default);
+    let agent = agent::get("claude").filter(Agent::installed).unwrap_or_else(agent::for_headless);
     let model = if agent.id != "claude" {
         agent.id.as_str()
     } else if MODELS.contains(&model) {
@@ -263,39 +264,68 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
-/// The scope's walkthrough over the patch: none, running, failed, or its steps laid over the current hunks.
+/// The scope's walkthrough over the patch: none, running, failed, or its steps laid over the current hunks. A job that
+/// finished is taken in here, its answer checked and kept: the hub's review view does this.
 pub fn state(repo: &str, scope: &str, patch: &str) -> Value {
     state_in(&root(), repo, scope, patch)
 }
 
+/// The same without taking a finished job in: None when one waits for the hub to do it, so two processes never finish
+/// the same job.
+pub fn peek(repo: &str, scope: &str, patch: &str) -> Option<Value> {
+    peek_in(&root(), repo, scope, patch)
+}
+
 pub fn state_in(root: &Path, repo: &str, scope: &str, patch: &str) -> Value {
-    let Some(pointer) = files::load(&root.join("pointers").join(format!("{}.json", place(repo, scope)))) else { return json!({"status": "none"}) };
+    look(root, repo, scope, patch, true).unwrap_or_else(|| json!({"status": "none"}))
+}
+
+pub fn peek_in(root: &Path, repo: &str, scope: &str, patch: &str) -> Option<Value> {
+    look(root, repo, scope, patch, false)
+}
+
+/// The last state worked out for each walkthrough place, and what it was worked out from.
+type Seen = HashMap<String, (String, Value)>;
+static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
+
+/// The state, worked out again only when the patch, the pointer or the job's files changed since the last time.
+fn look(root: &Path, repo: &str, scope: &str, patch: &str, take: bool) -> Option<Value> {
+    let pointer_path = root.join("pointers").join(format!("{}.json", place(repo, scope)));
+    let Ok(pointer_text) = std::fs::read_to_string(&pointer_path) else { return Some(json!({"status": "none"})) };
+    let pointer: Value = serde_json::from_str(&pointer_text).unwrap_or_default();
     let key = pointer["key"].as_str().unwrap_or_default();
-    let model = pointer["model"].as_str().unwrap_or("haiku");
-    let fresh = key_of(&digest(patch), model) == key;
+    let job = root.join("jobs").join(key);
     let entry_path = root.join("entries").join(format!("{key}.json"));
+    let stamp = format!("{take}|{:016x}|{pointer_text}|{}|{}|{}", fnv(patch), entry_path.exists(), job.exists(), job.join("code").exists());
+    let place = format!("{}\n{repo}\n{scope}", root.display());
+    if let Some((seen, value)) = SEEN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_default().get(&place)
+        && *seen == stamp
+    {
+        return Some(value.clone());
+    }
+    let model = pointer["model"].as_str().unwrap_or("haiku");
     let entry = match files::load(&entry_path) {
         Some(entry) => entry,
-        None => {
-            let job = root.join("jobs").join(key);
-            if !job.join("code").exists() {
-                return if job.exists() { json!({"status": "running", "model": model, "since": pointer["at"]}) } else { json!({"status": "none"}) };
-            }
-            match finish(&job) {
-                Ok(entry) => {
-                    let _ = files::write(&entry_path, &entry);
-                    let _ = std::fs::remove_dir_all(&job);
-                    entry
-                }
-                Err(error) => return json!({"status": "failed", "error": error, "model": model}),
-            }
+        None if !job.join("code").exists() => {
+            return Some(if job.exists() { json!({"status": "running", "model": model, "since": pointer["at"]}) } else { json!({"status": "none"}) });
         }
+        None => match finish(&job) {
+            Ok(_) if !take => return None,
+            Ok(entry) => {
+                let _ = files::write(&entry_path, &entry);
+                let _ = std::fs::remove_dir_all(&job);
+                entry
+            }
+            Err(error) => return Some(json!({"status": "failed", "error": error, "model": model})),
+        },
     };
     let mut out = overlay(&entry, patch);
     out["status"] = json!("done");
-    out["fresh"] = json!(fresh);
+    out["fresh"] = json!(key_of(&digest(patch), model) == key);
     out["model"] = json!(model);
-    out
+    // Once taken in, the stamp changed: the next look works it out again over the entry.
+    SEEN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_default().insert(place, (stamp, out.clone()));
+    Some(out)
 }
 
 /// A finished job's answer, checked: every step pointing at hunks that were in the digest.
@@ -513,5 +543,27 @@ mod tests {
         assert!(r.join("entries").join(format!("{key}.json")).exists());
         assert!(!job.exists());
         assert_eq!(state_in(r, "/elsewhere", "uncommitted", PATCH)["status"], "none");
+    }
+
+    /// Times the state of a done walkthrough over a 1 MB diff, read again with nothing changed. Run with
+    /// `cargo test -p cockpit-show --lib large_walkthrough -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn large_walkthrough_costs() {
+        let patch = crate::patch::large_patch();
+        let root = tempfile::tempdir().unwrap();
+        let r = root.path();
+        let d = digest(&patch);
+        let key = key_of(&d, "haiku");
+        std::fs::create_dir_all(r.join("pointers")).unwrap();
+        files::write(&r.join("pointers").join(format!("{}.json", place("/repo", "branch"))), &json!({"key": key, "model": "haiku", "at": 1})).unwrap();
+        let ids: Vec<String> = d.aliases.values().take(40).cloned().collect();
+        let entry = json!({"title": "T", "summary": "S", "skipped": [], "parts": [{"title": "P", "blurb": "", "steps": [{"title": "A", "hunks": ids, "weight": "key", "text": "t", "notes": []}]}]});
+        files::write(&r.join("entries").join(format!("{key}.json")), &entry).unwrap();
+        for what in ["walkthrough state, done", "walkthrough state, again"] {
+            let t = std::time::Instant::now();
+            assert_eq!(state_in(r, "/repo", "branch", &patch)["status"], "done");
+            println!("{what:<34} {:>8.1} ms", t.elapsed().as_secs_f64() * 1000.0);
+        }
     }
 }

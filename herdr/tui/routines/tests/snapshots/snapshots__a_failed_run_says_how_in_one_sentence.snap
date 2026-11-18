@@ -1,0 +1,34 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app, 110, 30)"
+---
+   Routines   7 routines · 1 running · 3 runs today · ~$0.76 this week
+
+ ▶ ⣾ Pull my notes       every 30 min                           running 40 s            next in 30 min
+ ▼  Fix CI on checkout  on CI failing · checkout  ~$0.41 last  over its weekly budget  on its event
+   └  08:12       4 min   ~$0.41   The failure is a flaky OpenSearch test, not lint: left it alone · 🔴  CI …
+    Standup notes       when?                                  never ran
+ ▶  Morning sweep       weekdays at 09:00         ~$0.18 last  ran 1 h ago             next Fri 09:00
+    Ping the team       daily at 10:00                         never ran               next Fri 09:00
+ ▶  Review digest       cron */15 8-18 * * 1-5 i…              skipped 14 min ago      next in 15 min
+    Weekly digest       Fri at 16:00                           never ran               paused
+
+
+
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ failed 1 h ago · took 4 min · ~$0.41 · 🔴  CI failed: checkout me/eng-4120-quotas · test
+ Ended with exit 1.
+ The failure is a flaky OpenSearch test, not lint: left it alone
+ `test/search/index_test.exs:42` timed out waiting for the index refresh; it passed on rerun locally.
+ No change pushed.
+
+ ▸ open  o     talk  t     run  r
+ q quit  enter main  a add  space runs  R refresh                                                 ▏^p palette

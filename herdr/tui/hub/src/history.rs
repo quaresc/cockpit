@@ -1,6 +1,6 @@
-//! History for the apps' sparklines, one JSON line per point in ~/.cache/cockpit/history/<kind>.jsonl: `ticket_cost`
-//! (what each ticket has cost so far, a point whenever it changes) and `ci_duration` (seconds from a CI run's start to
-//! when the hub first saw it finished, a point per run), 60 points per key at most.
+//! History for the apps' sparklines, one JSON line per point in ~/.cache/cockpit/history/<kind>.jsonl:
+//! `ticket_estimate` (what each ticket has cost so far as `usage` estimates it, a point whenever it changes) and
+//! `ci_duration` (seconds from a CI run's start to when the hub first saw it finished, a point per run), 60 per key.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -56,36 +56,30 @@ fn append(cache: &Path, kind: &str, new: Vec<Value>) {
     }
 }
 
-/// What each ticket cost, summed over the sessions' cost files, like inbox.ticket_costs.
-fn ticket_costs(cache: &Path) -> HashMap<String, f64> {
-    let mut total = HashMap::new();
-    for entry in std::fs::read_dir(cache.join("costs")).into_iter().flatten().flatten() {
-        if !entry.file_name().to_string_lossy().ends_with(".json") {
-            continue;
-        }
-        let costs = cockpit_core::files::load(&entry.path()).unwrap_or(Value::Null);
-        for (ticket, usd) in costs.as_object().into_iter().flatten() {
-            *total.entry(ticket.clone()).or_insert(0.0) += usd.as_f64().unwrap_or(0.0);
-        }
-    }
-    total
-}
+/// The series of ticket costs as the hub's count estimates them, named apart from `ticket_cost` so no sparkline mixes the
+/// two.
+pub const TICKET_ESTIMATE: &str = "ticket_estimate";
 
 fn record_costs(cache: &Path, at: f64) {
+    record_costs_of(cache, at, cockpit_core::usage::ticket_estimates());
+}
+
+/// A point for each ticket whose cost moved since its last one.
+fn record_costs_of(cache: &Path, at: f64, costs: HashMap<String, f64>) {
     let mut last: HashMap<String, f64> = HashMap::new();
-    for p in points(cache, "ticket_cost") {
+    for p in points(cache, TICKET_ESTIMATE) {
         if let Some(value) = p["value"].as_f64() {
             last.insert(text(&p["key"]), value);
         }
     }
-    let mut costs: Vec<(String, f64)> = ticket_costs(cache).into_iter().collect();
+    let mut costs: Vec<(String, f64)> = costs.into_iter().collect();
     costs.sort_by(|a, b| a.0.cmp(&b.0));
     let new = costs
         .into_iter()
         .filter(|(ticket, usd)| last.get(ticket).is_none_or(|was| (was - usd).abs() > 1e-9))
         .map(|(ticket, usd)| json!({"key": ticket, "value": usd, "at": at}))
         .collect();
-    append(cache, "ticket_cost", new);
+    append(cache, TICKET_ESTIMATE, new);
 }
 
 fn record_ci(cache: &Path, at: f64) {
@@ -136,15 +130,14 @@ mod tests {
     fn ticket_costs_change_points_only() {
         let cache = tempfile::tempdir().unwrap();
         let cache = cache.path();
-        write(&cache.join("costs/s1.json"), &json!({"ENG-401": 1.5})).unwrap();
-        write(&cache.join("costs/s2.json"), &json!({"ENG-401": 0.5, "ENG-402": 3})).unwrap();
-        record(cache);
-        record(cache);
-        assert_eq!(series(cache, "ticket_cost", "ENG-401"), [2.0]);
-        write(&cache.join("costs/s2.json"), &json!({"ENG-401": 1.0, "ENG-402": 3})).unwrap();
-        record(cache);
-        assert_eq!(series(cache, "ticket_cost", "ENG-401"), [2.0, 2.5]);
-        assert_eq!(series(cache, "ticket_cost", "ENG-402"), [3.0]);
+        let costs = |pairs: &[(&str, f64)]| pairs.iter().map(|(t, u)| (t.to_string(), *u)).collect::<HashMap<_, _>>();
+        record_costs_of(cache, 1.0, costs(&[("ENG-401", 2.0), ("ENG-402", 3.0)]));
+        record_costs_of(cache, 2.0, costs(&[("ENG-401", 2.0), ("ENG-402", 3.0)]));
+        assert_eq!(series(cache, TICKET_ESTIMATE, "ENG-401"), [2.0]);
+        record_costs_of(cache, 3.0, costs(&[("ENG-401", 2.5), ("ENG-402", 3.0)]));
+        assert_eq!(series(cache, TICKET_ESTIMATE, "ENG-401"), [2.0, 2.5]);
+        assert_eq!(series(cache, TICKET_ESTIMATE, "ENG-402"), [3.0]);
+        assert_eq!(series(cache, "ticket_cost", "ENG-401"), Vec::<f64>::new(), "the reported figures' series stays apart");
     }
 
     #[test]

@@ -7,9 +7,10 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
 import { settings } from "herdr";
 import * as hub from "./hub.js";
+import { take, holds, MOVE_FIRST } from "./person.js";
 import {
-  tokens, TEXT, RADIUS, Icon, Button, ListRow, PageHeader, KeyHints, Empty, ErrorState, Skeleton, Toaster, Flashes, Scroller, Hover,
-  SidePanel, Avatar, Spinner, StageHeading, openMenu, alpha, personColor,
+  tokens, TEXT, RADIUS, Icon, Button, ListRow, PageHeader, KeyHints, Empty, Skeleton, Toaster, Flashes, Scroller, Hover,
+  SidePanel, Avatar, Spinner, StageHeading, openMenu, alpha, personColor, sourceKey, HubDownBody,
 } from "./ui.js";
 
 const ICON = { see: "eye", reply: "reply", archive: "archive", read: "mail-check", page: "globe", open: "external" };
@@ -46,7 +47,7 @@ export default class Mail {
       { views: ["mail"], focus: "mail" },
       (m, cx) => {
         if (m.view === "mail") this.take(m.value, cx);
-        if (m.focus === "mail") this.focusOn(m.target?.key, cx);
+        if (m.focus === "mail") this.focusOn(m.target?.key, cx, true);
         cx.notify();
       },
       (state, cx) => {
@@ -66,19 +67,28 @@ export default class Mail {
     });
   }
 
+  /** The header's source chips say an age: drawn again every 30 s while there are some (the copy's clock, main.js). */
+  tick(cx, now) {
+    if (!this.model?.sources?.length || now - (this.aged ?? 0) < 30_000) return;
+    this.aged = now;
+    cx.notify();
+  }
+
   close() {
     this.closed = true;
     this.sub?.stop();
     this.threadSub?.stop();
   }
 
-  command(c, cx) {
+  /** A message's menu item (`key` its menu's); a window command only opens a message to read, or its page. */
+  command(c, cx, key = null) {
     if (c === "focus" || c === "show:mail") this.handle.focus();
     const [scope, action, ...rest] = c.split(":");
     if (scope === "mail") {
       const m = this.message(rest.join(":"));
-      if (m) {
-        this.sel = m.id;
+      const person = take(c, key);
+      if (m && (person || action === "see" || action === "open")) {
+        if (person) this.sel = m.id;
         this.run(cx, action, m);
       }
     }
@@ -118,13 +128,18 @@ export default class Mail {
     if (this.reading && this.message(this.reading)) this.readingMessage = this.message(this.reading);
   }
 
-  focusOn(id, cx) {
+  /**
+   * A message brought into view and opened. Pointed at by a hub focus or a command (`pointed`), it takes no
+   * key that acts until the person moves to it or clicks.
+   */
+  focusOn(id, cx, pointed = false) {
     const m = this.message(id);
     if (!m) {
       if (id) this.toasts.push(cx, "That message is not in the inbox any more");
       return;
     }
     this.sel = m.id;
+    this.pointed = pointed;
     this.flashes.start(cx, m.id, tokens().ring);
     this.openReading(cx, m);
     this.handle.focus();
@@ -227,6 +242,8 @@ export default class Mail {
 
   key(e, cx) {
     const k = e.keystroke;
+    if (sourceKey(e, this.model?.sources, cx, this)) return true;
+    if (holds(this, e)) return this.toasts.push(cx, MOVE_FIRST, { kind: "info" }), cx.notify(), true;
     const m = this.selected();
     switch (k) {
       case "j":
@@ -414,7 +431,8 @@ export default class Mail {
           cx.notify();
         }
       })
-      .on_mouse_down("left", () => this.handle.focus())
+      // A click in the view makes the row the person's, whatever a command pointed at.
+      .on_mouse_down("left", () => ((this.pointed = false), this.handle.focus()))
       .on_key_down((e, cx) => {
         if (this.key(e, cx)) cx.stop_propagation();
       })
@@ -423,13 +441,16 @@ export default class Mail {
           icon: "mail",
           title: "Mail",
           description,
+          sources: v?.sources,
+          view: this,
+          narrow: this.width < 760,
           actions: [Button("mail-refresh", { icon: "refresh", variant: "ghost", size: "icon", tooltip: "Fetch now  shift+r", onClick: (_e, cx) => cx.spawn(async (cx) => this.hubAct(cx, "request_refresh", [])) })],
         }),
       );
     const toasts = this.toasts.render();
     if (!v) {
       const inner = this.status.startsWith("error")
-        ? ErrorState({ title: "Cannot reach the cockpit hub", message: this.status.slice(7) })
+        ? HubDownBody("mail-hub-down", this, this.status, k)
         : v_flex().p(24).gap(12).children([0, 1, 2, 3].map((i) => h_flex().gap(10).child(Skeleton({ w: 140, h: 32 })).child(Skeleton({ w: 180 + ((i * 97) % 220), h: 32 }))));
       root = root.child(inner);
       return toasts ? root.child(toasts) : root;

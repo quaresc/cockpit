@@ -37,9 +37,10 @@ pub fn executable(path: &std::path::Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-/// Runs argv on `path()` with these extra variables; None when it cannot start or outlives the timeout.
-pub fn run(argv: &[&str], env: &[(&str, &str)], timeout: Duration) -> Option<Out> {
-    let (program, args) = argv.split_first()?;
+/// Runs argv on `path()` with these extra variables to its end; otherwise why not: it could not start, or it outlived
+/// the timeout.
+pub fn run(argv: &[&str], env: &[(&str, &str)], timeout: Duration) -> Result<Out, String> {
+    let (program, args) = argv.split_first().ok_or("no command")?;
     let child = Command::new(program)
         .args(args)
         .env("PATH", path())
@@ -48,23 +49,23 @@ pub fn run(argv: &[&str], env: &[(&str, &str)], timeout: Duration) -> Option<Out
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .ok()?;
+        .map_err(|e| format!("{program} did not start: {e}"))?;
     let pid = child.id();
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         let _ = tx.send(child.wait_with_output());
     });
     match rx.recv_timeout(timeout) {
-        Ok(Ok(out)) => Some(Out {
+        Ok(Ok(out)) => Ok(Out {
             code: out.status.code().unwrap_or(1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         }),
-        Ok(Err(_)) => None,
+        Ok(Err(e)) => Err(format!("{program}: {e}")),
         Err(_) => {
             // SAFETY: kill only sends a signal to the child this function started and still owns.
             unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-            None
+            Err(format!("{program} timed out after {} s", timeout.as_secs_f32()))
         }
     }
 }
@@ -141,8 +142,10 @@ mod tests {
     }
 
     #[test]
-    fn a_timeout_ends_the_run() {
-        assert!(run(&["sleep", "5"], &[], Duration::from_millis(200)).is_none());
+    fn a_run_that_does_not_end_says_why() {
+        assert_eq!(run(&["sleep", "5"], &[], Duration::from_millis(200)).err().as_deref(), Some("sleep timed out after 0.2 s"));
+        let missing = run(&["/nowhere/herdr", "pane", "list"], &[], Duration::from_secs(5)).err().unwrap_or_default();
+        assert!(missing.starts_with("/nowhere/herdr did not start: "), "{missing}");
         let out = run(&["sh", "-c", "echo hi; echo err >&2; exit 3"], &[], Duration::from_secs(5)).unwrap();
         assert_eq!((out.code, out.stdout.as_str(), out.stderr.as_str()), (3, "hi\n", "err\n"));
     }

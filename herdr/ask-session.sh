@@ -1,13 +1,12 @@
 #!/bin/sh
-# Sends a prompt to an agent's conversation: in its pane when the agent runs there, else resumed first, in that pane
-# or, when the pane is gone, in a new tab of the actions space (a new space without one). Focuses its tab so the answer
-# is in view. A pane `app:<terminal>` is a Herdr app terminal, driven with herdr-app and hc. The agent is Claude Code
-# unless given.
-#   ask-session.sh <pane or -> <session or -> <prompt> [agent]
+# Readies an agent's conversation (Claude Code unless given) for a prompt the hub then delivers: its pane, a Herdr app
+# terminal for `app:<terminal>`, else resumed in that pane or in a new tab of the actions space (a new space without
+# one). Once it rests, its tab comes into view and `pane=<handle>` is printed for the hub.
+#   ask-session.sh <pane or -> <session or -> [agent]
 . "$(dirname "$0")/lib.sh"
 PATH="$HOME/.local/bin:$PATH"
 HC=${COCKPIT_HC_BIN:-hc}
-pane=$1 session=$2 prompt=$3 agent=${4:-claude}
+pane=$1 session=$2 agent=${3:-claude}
 
 # The Herdr app: an agent's status from `herdr-app ls`, "shell" when a shell is in front, nothing once it is gone.
 app_state() {
@@ -54,11 +53,11 @@ case "$pane" in
   app:*)
     herdr-app "do" cockpit.go:work >/dev/null 2>&1
     herdr-app "do" pane.focus "{\"terminal\": \"${pane#app:}\"}" >/dev/null 2>&1
-    "$HC" send "${pane#app:}" "$prompt" >/dev/null
     ;;
   *)
     tab=$("$H" pane get "$pane" | jq -r '.result.pane.tab_id')
     "$H" tab focus "$tab" >/dev/null 2>&1
-    "$H" agent prompt "$pane" "$prompt" >/dev/null
     ;;
 esac
+# The hub delivers the prompt itself (cockpit's one way to send words to an agent), never typed from here.
+printf 'pane=%s\n' "$pane"

@@ -14,9 +14,8 @@ use cockpit_core::files;
 
 const USAGE: &str = "Keeps a space's app running in its pane; ctrl+c twice in a row leaves it.
 
-    cockpit space inbox|todo|runbook|meetings|monitor|routines|mail";
+    cockpit space inbox|todo|runbook|meetings|monitor|routines|review|mail";
 
-const APPS: [&str; 7] = ["inbox", "todo", "runbook", "meetings", "monitor", "routines", "mail"];
 /// A run at least this long resets the wait before the next one.
 const LONG_RUN: Duration = Duration::from_secs(60);
 const FIRST_WAIT: Duration = Duration::from_secs(1);
@@ -24,7 +23,7 @@ const LONGEST_WAIT: Duration = Duration::from_secs(30);
 
 pub fn main(args: &[String]) {
     let [app] = args else { crate::proc::fail(USAGE) };
-    if !APPS.contains(&app.as_str()) {
+    if !cockpit_core::SPACE_APPS.contains(&app.as_str()) {
         crate::proc::fail(USAGE);
     }
     // A ctrl+c while the app runs is the app's; one during the wait after it ends leaves.

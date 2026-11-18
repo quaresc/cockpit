@@ -2,18 +2,16 @@
   "calls": [
     {
       "args": [
-        "worktree",
-        "remove",
-        "--workspace",
-        "w7"
+        "workspace",
+        "list"
       ],
       "cmd": "herdr",
       "stdin": null
     }
   ],
-  "error": null,
+  "error": "kept api me/x: cannot tell which worktree this is",
   "files": {},
-  "note": "removed the worktree of api me/x",
+  "note": "",
   "pending": {},
   "refreshing": []
 }

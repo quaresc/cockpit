@@ -299,12 +299,12 @@ export function refreshCi($: $, isForced = false) {
           }
           if (isMcpNotReady(err)) return null
           // The runs last seen stay, and stay readable as this version's, beside the error.
-          const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}`, ...(prev ? { version: CI_VERSION } : {}) }
+          const failed: CiState = { at: prev?.at ?? 0, runs: prev?.runs ?? [], error: `${ci.name} ${shortError(err)}`, by: prev?.by, ...(prev ? { version: CI_VERSION } : {}) }
           await writeDoc($, 'ci', failed)
           return null
         })
         if (!runs) return
-        const state: CiState = { at: Date.now(), runs, version: CI_VERSION }
+        const state: CiState = { at: Date.now(), runs, version: CI_VERSION, by: 'plugin' }
         await writeDoc($, 'ci', state)
         const inbox = await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`)
         if (prev) for (const change of ciChanges(prev, state, inbox)) await notify($, `🔁 ${ci.name}`, change.text, change.action, change.buttons)

@@ -110,3 +110,16 @@ fn week_view_draws_its_picture_in_the_background() {
     let drawn = render(&mut app, 80, 30);
     assert!(drawn.matches('▀').count() > 500, "{drawn}");
 }
+
+#[test]
+fn a_meeting_a_focus_request_selected_takes_no_key_that_acts_until_a_move() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app(Density::Comfortable);
+    app.focus("evt01_20261028");
+    assert!(app.pointed.is_on());
+    for code in [KeyCode::Enter, KeyCode::Char('o'), KeyCode::Char('b')] {
+        assert!(app.pointed.holds(&KeyEvent::new(code, KeyModifiers::NONE)), "{code:?} waits");
+    }
+    assert!(!app.pointed.holds(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)));
+    assert!(!app.pointed.is_on(), "a move makes it the person's");
+}

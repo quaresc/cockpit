@@ -9,7 +9,7 @@ APPS = os.path.join(HERE, "..", "..", "herdr")
 COCKPIT = os.path.join(APPS, "tui", "target", "release", "cockpit")
 CACHE = os.path.join(HOME, ".cache", "cockpit")
 env = {**os.environ, "HOME": HOME, "COCKPIT_HERDR_DIR": APPS, "HERDR_BIN_PATH": "/usr/bin/true", "COCKPIT_HUB_FEED": "off",
-       "COCKPIT_HUB_IDLE_SECS": "120"}
+       "COCKPIT_HUB_MODELS": "off", "COCKPIT_HUB_IDLE_SECS": "120"}
 
 # The search model, shared with this machine's when it has one, else downloaded by the hub's session index.
 models = os.path.join(CACHE, "models")

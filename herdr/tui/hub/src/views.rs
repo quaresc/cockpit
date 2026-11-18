@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
+use cockpit_core::peer::Who;
 use notify::{RecursiveMode, Watcher};
 use serde_json::{Value, json};
 
@@ -64,7 +65,10 @@ pub fn act(app: &str, action: &str, args: &[Value]) -> Option<Value> {
     changed(Dirty::View(app.to_string()));
     Some(match done {
         Ok(note) => json!({"note": note, "pending": {}, "refreshing": {}, "error": null}),
-        Err(error) => json!({"note": "", "pending": {}, "refreshing": {}, "error": format!("{action}: {error}")}),
+        Err(error) => {
+            eprintln!("cockpit hub: {app} {action}: {error}");
+            json!({"note": "", "pending": {}, "refreshing": {}, "error": error})
+        }
     })
 }
 
@@ -79,6 +83,8 @@ enum Dirty {
 
 struct Sub {
     tx: Sender<String>,
+    /// Its connection was placed as the person's when it subscribed: views built for it may start work billed to them.
+    person: bool,
     /// It shows the cockpit notifications (`subscribe {notify: true}`): one copy of the mod per window asks.
     notify: bool,
     /// Each view it follows: (name, args, the value last sent).
@@ -148,18 +154,52 @@ pub fn subscribe(request: &Value, tx: Sender<String>) {
         .collect();
     let notify = request["notify"] == true;
     if !views.is_empty() || notify {
+        let person = !views.is_empty() && matches!(cockpit_core::peer::who(), cockpit_core::peer::Who::Person);
         dirty();
-        subs().push(Sub { tx, views, notify });
+        subs().push(Sub { tx, views, notify, person });
     }
 }
 
-/// Hands a notification {title, body, action, buttons} to the first window that shows them, as a {notify} line; false
-/// when none follows the hub.
+/// Hands a notification {title, body, action, row, buttons} to the first window that shows them, as a {notify} line;
+/// false when none follows the hub. One a client sent (any thread but the hub's own) comes as `from_a_client` makes it.
 pub fn notify(notification: &Value) -> bool {
+    let notification = if cockpit_core::peer::in_process() { notification.clone() } else { from_a_client(notification, &sender()) };
     let line = json!({"notify": notification}).to_string();
     let mut subs = subs();
     subs.retain(|s| s.tx.send(String::new()).is_ok());
     subs.iter().find(|s| s.notify).is_some_and(|s| s.tx.send(line).is_ok())
+}
+
+/// Who sent the request this thread serves, in a few words a notification shows.
+fn sender() -> String {
+    use cockpit_core::peer::Who;
+    match cockpit_core::peer::who() {
+        Who::Person => "a terminal".into(),
+        Who::Agent(handle) if !handle.is_empty() => format!("an agent's tools ({})", crate::fetch::untrusted(&handle)),
+        Who::Agent(_) => "an agent's tools".into(),
+        Who::Unplaced(_) => "a process cockpit cannot place".into(),
+    }
+}
+
+/// A notification a client sent, as the window shows it: its click and buttons only bring something into view (an
+/// act becomes the row it is about), and its words are plain text that names who sent them, never cockpit's own.
+fn from_a_client(n: &Value, sender: &str) -> Value {
+    let words = |v: &Value| crate::fetch::untrusted(v.as_str().unwrap_or_default());
+    let line = |v: &Value| words(v).split_whitespace().collect::<Vec<_>>().join(" ");
+    let action = cockpit_core::notify::to_view(n["action"].as_str().unwrap_or_default());
+    let row = Some(cockpit_core::notify::to_view(n["row"].as_str().unwrap_or_default())).filter(|r| !r.is_empty()).unwrap_or_else(|| action.clone());
+    let buttons: Vec<String> = n["buttons"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| {
+            let (label, target) = b.as_str()?.split_once('=')?;
+            let target = cockpit_core::notify::to_view(target);
+            let label = line(&json!(label)).replace('=', " ");
+            (!target.is_empty() && !label.is_empty()).then(|| format!("{label}={target}"))
+        })
+        .collect();
+    json!({"title": format!("From {sender}: {}", line(&n["title"])), "body": words(&n["body"]), "action": action, "row": row, "buttons": buttons, "from": sender})
 }
 
 /// Asks the subscribers of the app's view to bring this target into view.
@@ -246,7 +286,11 @@ fn keep(rx: Receiver<Dirty>) {
         let mut built: Vec<((String, Value), Value)> = Vec::new();
         for key in keys {
             if !built.iter().any(|(k, _)| *k == key) {
-                let value = build(&key.0, &key.1);
+                // Built as a person's window sees it when one follows it, else as no one's: only the person's look starts
+                // work billed to them, such as a next-steps run.
+                let person = subs().iter().any(|s| s.person && s.views.iter().any(|(n, a, _)| *n == key.0 && *a == key.1));
+                let who = if person { Who::Person } else { Who::Unplaced(cockpit_core::peer::UNNAMED.into()) };
+                let value = cockpit_core::peer::with(cockpit_core::peer::Sender::Placed(who), || build(&key.0, &key.1));
                 built.push((key, value));
             }
         }
@@ -309,6 +353,43 @@ mod tests {
         assert!(notify(&json!({"title": "hi"})));
         let lines: Vec<String> = rx.try_iter().filter(|l| !l.is_empty()).collect();
         assert_eq!(serde_json::from_str::<Value>(&lines[0]).unwrap()["notify"]["title"], "hi");
+    }
+
+    #[test]
+    fn a_client_s_notification_navigates_only_in_its_own_plain_words() {
+        let n = json!({"title": "✅ Tests\npassed", "body": "line\u{7}", "action": "update", "row": "", "level": "success",
+                       "buttons": ["Merge=act:merge:https://github.com/acme/api/pull/4", "Bad=resume", "x=y=space:inbox", "=space:inbox"]});
+        let shown = from_a_client(&n, "an agent's tools (app:t3)");
+        assert_eq!(shown["title"], "From an agent's tools (app:t3): ✅ Tests passed");
+        assert_eq!((shown["body"].as_str(), shown["action"].as_str(), shown["row"].as_str()), (Some("line"), Some(""), Some("")));
+        assert_eq!(shown["buttons"], json!(["Merge=inbox:https://github.com/acme/api/pull/4"]), "a label that holds = is not a target");
+        assert!(shown.get("level").is_none(), "only the fields it shows, as plain text");
+    }
+
+    fn placed(args: &Value, _: Doc) -> Value {
+        json!({"args": args, "person": matches!(cockpit_core::peer::who(), Who::Person)})
+    }
+
+    #[test]
+    fn a_view_is_built_as_the_person_s_only_for_a_window_placed_as_theirs() {
+        register(Def { name: "placed-view", docs: &[], dirs: Vec::new, build: placed, act: no_act });
+        let value = |rx: &std::sync::mpsc::Receiver<String>| -> Value {
+            let line = rx.iter().find(|l| !l.is_empty()).unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()["value"].clone()
+        };
+        let asked = |args: Value| json!({"views": [{"name": "placed-view", "args": args}]});
+        let (agent_tx, agent_rx) = channel();
+        cockpit_core::peer::with(cockpit_core::peer::Sender::Placed(Who::Agent("app:t9".into())), || subscribe(&asked(json!({"n": 1})), agent_tx));
+        assert_eq!(value(&agent_rx)["person"], false, "an agent's tools reading the view");
+        let (person_tx, person_rx) = channel();
+        cockpit_core::peer::with(cockpit_core::peer::Sender::InProcess, || subscribe(&asked(json!({"n": 2})), person_tx));
+        assert_eq!(value(&person_rx)["person"], true, "the person's own window");
+        // Once the person's window follows it too, it is built again as theirs: the agent reads what their look made.
+        let (shared_tx, shared_rx) = channel();
+        cockpit_core::peer::with(cockpit_core::peer::Sender::InProcess, || subscribe(&asked(json!({"n": 1})), shared_tx));
+        assert_eq!(value(&shared_rx)["person"], true);
+        touch("placed-view");
+        assert_eq!(value(&agent_rx)["person"], true);
     }
 
     #[test]

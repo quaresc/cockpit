@@ -111,6 +111,8 @@ pub struct Week {
     pub at: Option<i64>,
     pub error: Option<String>,
     pub meetings: Vec<Meeting>,
+    /// How fresh the calendar is, when the hub reads it.
+    pub sources: Vec<cockpit_core::header::Source>,
 }
 
 impl Week {
@@ -121,6 +123,7 @@ impl Week {
             at: data["at"].as_i64().or_else(|| data["at"].as_f64().map(|f| f as i64)),
             error: data["error"].as_str().filter(|e| !e.is_empty()).map(str::to_string),
             meetings,
+            sources: cockpit_core::header::sources(&[data]),
         }
     }
 

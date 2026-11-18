@@ -1,8 +1,11 @@
 """Writes a fictional cockpit state under a fake HOME, for the README screenshots."""
-import json, os, sys
+import json, os, pwd, sys
 from datetime import datetime, timedelta, timezone
 
-home = sys.argv[1]
+home = sys.argv[1] if len(sys.argv) > 1 else sys.exit("usage: demo_data.py <fake home>")
+# It overwrites cockpit's caches and config under that folder, so never in the account's own home, whatever HOME says.
+if os.path.realpath(home) == os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir):
+    sys.exit(f"demo_data.py: {home} is your real home; give it a fake one, such as docs/screenshots/home")
 now = datetime.now(timezone.utc)
 iso = lambda **d: (now - timedelta(**d)).isoformat().replace("+00:00", "Z")
 fut = lambda **d: (now + timedelta(**d)).isoformat().replace("+00:00", "Z")
@@ -155,6 +158,69 @@ session("-code-billing", "s-csv", "Invoice CSV export", 7000, [
     ("user", "Export invoices as CSV for ENG-398"),
     ("assistant", "The export streams rows by month; amounts are written in cents so spreadsheets don't round them.")])
 
+# The conversations the chat screen reads: the demo agents' own sessions, under the folders their cwd names.
+def conversation(cwd, sid, turns):
+    folder = os.path.join(home, ".claude", "projects", cwd.replace("/", "-"))
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, f"{sid}.jsonl"), "w") as f:
+        n = len(turns)
+        for i, turn in enumerate(turns):
+            role = turn["role"]
+            line = {"type": role, "cwd": cwd, "sessionId": sid, "gitBranch": turn.get("branch", "me/eng-412-quotas"),
+                    "timestamp": iso(minutes=(n - i) * 3), "message": {"role": role, "content": turn["content"]}}
+            if role == "assistant":
+                line["message"]["model"] = "claude-opus-4-5"
+                line["message"]["usage"] = {"input_tokens": 900, "output_tokens": 300, "cache_read_input_tokens": 62000, "cache_creation_input_tokens": 0}
+            f.write(json.dumps(line) + "\n")
+
+def says(text): return [{"type": "text", "text": text}]
+def calls(*pairs): return [{"type": "tool_use", "id": f"t{i}", "name": name, "input": args} for i, (name, args) in enumerate(pairs)]
+def results(*ids): return [{"type": "tool_result", "tool_use_id": i, "is_error": False, "content": "ok"} for i in ids]
+
+conversation("/Users/me/code/api", "demo-412", [
+    {"role": "user", "content": says("Exports and searches need a daily quota per account. Count them, answer 429 over the limit, and keep the payload the front needs.")},
+    {"role": "assistant", "content": says("I'll read the limiter and the export job first.")},
+    {"role": "assistant", "content": calls(("Read", {"file_path": "/Users/me/code/api/lib/quotas/daily.ex"}),
+                                           ("Grep", {"pattern": "Quotas.Daily"}))},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says("There is a counter per account already, but it is reset on deploy because it lives in the process. It has to move to Redis, keyed by account and day.")},
+    {"role": "assistant", "content": calls(("Edit", {"file_path": "/Users/me/code/api/lib/quotas/daily.ex"}),
+                                           ("Edit", {"file_path": "/Users/me/code/api/lib/quotas/plug.ex"}),
+                                           ("Edit", {"file_path": "/Users/me/code/api/test/quotas/daily_test.exs"}))},
+    {"role": "user", "content": results("t0", "t1", "t2")},
+    {"role": "assistant", "content": calls(("Bash", {"command": "mix test test/quotas"}),
+                                           ("Bash", {"command": "mix credo --strict"}))},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says(
+        "Done. The counter is a Redis key per account and day, and it expires at midnight UTC so nothing has to clean it up.\n\n"
+        "```elixir\ndef consume(account, kind) do\n  key = \"quota:#{account.id}:#{kind}:#{Date.utc_today()}\"\n  case Redix.command(:quotas, [\"INCR\", key]) do\n    {:ok, n} when n > limit(account, kind) -> {:error, :over_quota}\n    {:ok, n} -> {:ok, n}\n  end\nend\n```\n\n"
+        "Over the limit the plug answers 429 with the payload the banner reads:\n\n"
+        "| field | what it holds |\n| --- | --- |\n| `limit` | the account's daily limit |\n| `used` | what it has spent today |\n| `resets_at` | midnight UTC, as ISO 8601 |\n\n"
+        "All 34 tests pass and credo is clean.")},
+    {"role": "user", "content": says("Exports were counted twice when the CSV job retried.")},
+    {"role": "assistant", "content": calls(("Grep", {"pattern": "consume(.*:export"}), ("Edit", {"file_path": "/Users/me/code/api/lib/billing/export_job.ex"}))},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says("Fixed: the counter increments once per job id, and a retry reuses the one it already took. The test covers the retry.")},
+])
+
+conversation("/Users/me/code/web", "demo-413", [
+    {"role": "user", "content": says("Show the quota banner when the API answers 429, with what resets and when.")},
+    {"role": "assistant", "content": calls(("Read", {"file_path": "/Users/me/code/web/src/api/client.ts"}))},
+    {"role": "user", "content": results("t0")},
+    {"role": "assistant", "content": says("The client throws on 429 without keeping the body, so the banner has nothing to read. I'll keep the payload on the error.")},
+])
+
+# A turn the person stopped: Claude's transcript ends on its interrupt marker, which the chat draws as "Stopped by you".
+conversation("/Users/me/code/billing", "demo-419", [
+    {"role": "user", "content": says("Prorate plan changes made mid-cycle: charge the difference for the days left.")},
+    {"role": "assistant", "content": says("I'll read how invoices are built, then add the proration.")},
+    {"role": "assistant", "content": calls(("Read", {"file_path": "/Users/me/code/billing/lib/invoices/build.ex"}))},
+    {"role": "user", "content": results("t0")},
+    {"role": "assistant", "content": calls(("Edit", {"file_path": "/Users/me/code/billing/test/invoices/proration_test.exs"}))},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t0", "is_error": True, "content": "The user doesn't want to proceed with this tool use."}]},
+    {"role": "user", "content": says("[Request interrupted by user for tool use]")},
+])
+
 with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox, f)
 with open(os.path.join(cache, "ci.json"), "w") as f: json.dump(ci, f)
 with open(os.path.join(cache, "meetings.json"), "w") as f: json.dump(meetings, f)
@@ -176,7 +242,7 @@ with open(os.path.join(cache, "mail", "t-maya.json"), "w") as f:
         {"id": "m2", "from": "maya@example.com", "fromName": "Maya", "date": iso(minutes=18), "text": "",
          "html": "<p>Hi,</p><p>Before I merge <a href=\"https://github.com/acme/api/pull/2210\">api#2210</a>, should the <b>free tier</b> get 30/min or 60/min?</p>"
                  "<ul><li>30/min matches the docs</li><li>60/min matches what Sam promised</li></ul><p>Thanks,<br>Maya</p>"}]}, f)
-# What the sessions cost, per ticket: Home's agent spend and the tickets' cost read these books.
+# What the sessions cost, per ticket: the tickets' cost reads these books.
 os.makedirs(os.path.join(cache, "costs"), exist_ok=True)
 for session, spent in {"demo-412": {"ENG-412": 1.84}, "demo-413": {"ENG-413": 0.92}, "demo-398": {"ENG-398": 2.31}, "demo-405": {"ENG-405": 1.12}}.items():
     with open(os.path.join(cache, "costs", f"{session}.json"), "w") as f: json.dump(spent, f)
@@ -213,3 +279,144 @@ updated: %s
 - Deploy api before web: the banner reads the new quota fields.
 - Backfill before the flag, or every account starts at zero.
 """ % local.strftime("%Y-%m-%d %H:%M"))
+
+# parity:g — routines with a precheck (one that skips, one that runs), a time zone, runs that say how they went, and one
+# routine whose `when` does not read: what needs a look in Needs, on Home and in the inbox's Today.
+for slug, head, body in [
+    ("review-digest", "name: Review digest\nwhen: cron */15 8-18 * * 1-5\ntz: Europe/London\nmodel: haiku\ntools: Bash(gh pr list:*)\n"
+     "precheck: test -s ~/code/review-queue.txt || { echo nothing waits for review; exit 1; }\nnotify: failed", "List the PRs waiting for my review, oldest first."),
+    ("release-check", "name: Release check\nwhen: every 2h\nrun: shell\ncwd: ~/code\nprecheck: test -d ~/code\nnotify: failed",
+     "echo \"api and web run the same release\""),
+    ("standup", "name: Standup notes\nwhen: manual\nmodel: sonnet\ntools: Read\nnotify: failed", "Draft my standup from yesterday's merged PRs."),
+    ("weekly-report", "name: Weekly report\nwhen: every monday 9\nmodel: haiku\ntools: Bash(gh search prs:*)", "Sum up what I merged this week.")]:
+    with open(os.path.join(conf, "routines", f"{slug}.md"), "w") as f: f.write(f"---\n{head}\n---\n\n{body}\n")
+with open(os.path.join(cache, "routines.json")) as f: routines_doc = json.load(f)
+routines_doc["runs"].update({
+    "review-digest": [dict(run(14, 0, True, "scheduled for 09:30", "nothing waits for review", code=1),
+                           skipped="precheck", kind="skipped", reason="Skipped: its precheck found nothing to do (exit 1).", read=True,
+                           times=6, since=ms(minutes=90)),
+                      dict(run(1480, 31, True, "scheduled for 08:00", "2 PRs wait for you: api#412, web#413", 0.02, "s-digest-0"), checked=True)],
+    "release-check": [dict(run(35, 1, True, "every 2 h", "api and web run the same release"), checked=True)],
+    "standup": [dict(run(50, 3, False, "run by hand", "Claude Code is not logged in: sign in to it in a terminal, then run the routine again.", code=1),
+                     kind="logged_out", reason="Claude Code is not logged in: sign in to it in a terminal, then run the routine again.")]})
+for slug in ("review-digest", "release-check", "standup"):
+    os.makedirs(os.path.join(cache, "routines", slug), exist_ok=True)
+    routines_doc["marks"][slug] = {"seen": ms(days=3), "fired": ms(minutes=14 if slug == "review-digest" else 35)}
+with open(os.path.join(cache, "routines", "review-digest", routines_doc["runs"]["review-digest"][0]["id"] + ".txt"), "w") as f:
+    f.write("nothing waits for review\n")
+with open(os.path.join(cache, "routines.json"), "w") as f: json.dump(routines_doc, f)
+
+# parity:f — how fresh each source is, as the hub records it in the documents it fills (`hub.fresh`): every source read
+# a minute ago and the calendar a little stale, or with COCKPIT_DEMO_SOURCES=failing Linear refusing its token, CI
+# offline, mail rate-limited and the calendar two hours old. The intervals keep the ages steady through a session of shots.
+failing = os.environ.get("COCKPIT_DEMO_SOURCES") == "failing"
+def fresh(source, label, read_mins, every_s, error=None, next_mins=None, login=None):
+    entry = {"source": source, "label": label, "at": ms(minutes=read_mins), "every": every_s * 1000,
+             "next": ms(minutes=-(next_mins if next_mins is not None else 1)), "state": "failing" if error else "fresh", "login": login}
+    entry["error"] = {"kind": error[0], "message": error[1], "since": ms(minutes=error[2])} if error else None
+    return entry
+def stamp(name, record, errors=()):
+    path = os.path.join(cache, f"{name}.json")
+    doc = json.load(open(path))
+    doc.setdefault("hub", {})["fresh"] = record
+    if errors:
+        doc["hub"]["errors"] = list(errors)
+        doc["errors"] = list(doc.get("errors", [])) + list(errors)
+    json.dump(doc, open(path, "w"))
+if failing:
+    stamp("inbox", {
+        "github": fresh("github", "GitHub", 1, 900, login="gh auth login"),
+        "tickets": fresh("tickets", "Linear", 27, 60, ("auth", "HTTP 401: token refused", 25), login="cockpit connector login Linear"),
+        "platform": fresh("platform", "Deploys", 1, 900, login="cockpit setup"),
+    }, errors=["Linear: HTTP 401: token refused"])
+    stamp("ci", {"ci": fresh("ci", "CI", 41, 30, ("network", "unreachable: io: Connection refused (os error 61)", 40), next_mins=2, login="gh auth login")})
+    ci_doc = json.load(open(os.path.join(cache, "ci.json"))); ci_doc["error"] = "CI unreachable: io: Connection refused (os error 61)"
+    json.dump(ci_doc, open(os.path.join(cache, "ci.json"), "w"))
+    stamp("meetings", {"calendar": fresh("calendar", "Calendar", 125, 300, next_mins=-120, login="cockpit setup")})
+    stamp("mail", {"mail": fresh("mail", "Mail", 6, 60, ("rate", "rate limited: read again once the limit resets", 4), next_mins=26, login="cockpit setup")})
+    # Signing in again to Linear goes through a server of cockpit's own, on an address that answers nothing.
+    config_path = os.path.join(conf, "config.json")
+    config = json.load(open(config_path))
+    config["tickets"]["server"] = "Linear"
+    config.setdefault("servers", {})["Linear"] = {"url": "https://mcp.example.com/linear"}
+    json.dump(config, open(config_path, "w"))
+else:
+    stamp("inbox", {
+        "github": fresh("github", "GitHub", 1, 900, login="gh auth login"),
+        "tickets": fresh("tickets", "Linear", 1, 900, login="cockpit setup"),
+        "platform": fresh("platform", "Deploys", 1, 900, login="cockpit setup"),
+    })
+    stamp("ci", {"ci": fresh("ci", "CI", 1, 900, login="gh auth login")})
+    # Due 20 minutes ago and not read since: stale once two intervals have gone by.
+    stamp("meetings", {"calendar": fresh("calendar", "Calendar", 25, 300, next_mins=-20, login="cockpit setup")})
+    stamp("mail", {"mail": fresh("mail", "Mail", 1, 900, login="cockpit setup")})
+stamp("monitor", {"monitor": fresh("monitor", "Datadog", 1, 1800, login="cockpit setup")})
+# parity:d — billing#375's two open review threads, which "address review" hands to its agent.
+with open(os.path.join(cache, "inbox.json")) as f: inbox_doc = json.load(f)
+for p in inbox_doc["mine"]:
+    if p["repo"] == "billing" and p["number"] == 375: p["threads"] = 2
+with open(os.path.join(cache, "inbox.json"), "w") as f: json.dump(inbox_doc, f)
+
+# parity:d — every agent's limits and the week's tokens: Claude fresh from its status line, Codex stale from its rollout,
+# the Claude account cockpit shows (address and organization only), and token use spread over the last 7 days.
+with open(os.path.join(cache, "limits.json"), "w") as f:
+    json.dump({"at": ms(minutes=2), "limits": [{"name": "5h", "percent": 64, "resetsAt": fut(minutes=95)},
+                                               {"name": "7d", "percent": 38, "resetsAt": fut(minutes=5800)}]}, f)
+with open(os.path.join(home, ".claude.json"), "w") as f:
+    json.dump({"oauthAccount": {"emailAddress": "me@acme.example", "organizationName": "Acme"}}, f)
+# One rollout only: a run of this script on another day would leave its own beside it, counted twice.
+import shutil
+shutil.rmtree(os.path.join(home, ".codex", "sessions"), ignore_errors=True)
+rollouts = os.path.join(home, ".codex", "sessions", local.strftime("%Y"), local.strftime("%m"), local.strftime("%d"))
+os.makedirs(rollouts, exist_ok=True)
+with open(os.path.join(rollouts, "rollout-%s-demo-codex.jsonl" % local.strftime("%Y-%m-%dT%H-%M-%S")), "w") as f:
+    f.write(json.dumps({"timestamp": iso(days=5), "type": "session_meta", "payload": {"id": "demo-codex", "cwd": os.path.join(home, "code", "web")}}) + "\n")
+    f.write(json.dumps({"timestamp": iso(days=5), "type": "turn_context", "payload": {"model": "gpt-5-codex", "cwd": os.path.join(home, "code", "web")}}) + "\n")
+    total = [0, 0, 0]
+    for day, (fresh, cached, out) in zip([5, 4, 2, 0], [(180_000, 90_000, 21_000), (240_000, 150_000, 30_000), (90_000, 40_000, 12_000), (310_000, 220_000, 41_000)]):
+        total = [total[0] + fresh + cached, total[1] + cached, total[2] + out]
+        last = day == 0
+        f.write(json.dumps({"timestamp": iso(days=day, minutes=190 if last else 0), "type": "event_msg", "payload": {"type": "token_count",
+            "info": {"total_token_usage": {"input_tokens": total[0], "cached_input_tokens": total[1], "output_tokens": total[2], "total_tokens": total[0] + total[2]}},
+            "rate_limits": {"limit_id": "codex", "primary": {"used_percent": 12.0, "window_minutes": 10080, "resets_at": int((now + timedelta(minutes=4300)).timestamp())},
+                            "secondary": None, "credits": {"has_credits": False, "unlimited": False, "balance": "0"}, "plan_type": "plus"} if last else None}}) + "\n")
+helper = os.path.join(home, ".claude", "projects", "-code-api", "s-quotas", "subagents")
+os.makedirs(helper, exist_ok=True)
+with open(os.path.join(helper, "agent-usage.jsonl"), "w") as f:
+    for day, calls in enumerate([6, 9, 4, 12, 7, 3, 8]):
+        for n in range(calls):
+            f.write(json.dumps({"type": "assistant", "isSidechain": True, "requestId": f"req-{day}-{n}", "timestamp": iso(days=day, minutes=30 + n),
+                                "message": {"id": f"msg-{day}-{n}", "role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "Checked the quota tests."}],
+                                            "usage": {"input_tokens": 1200, "output_tokens": 900, "cache_read_input_tokens": 48_000, "cache_creation_input_tokens": 6_000}}}) + "\n")
+
+# parity:y5 — names: the tabs cockpit named itself (all but "flaky e2e", which the person typed), and a session Claude Code
+# titled.
+os.makedirs(os.path.join(cache, "names"), exist_ok=True)
+with open(os.path.join(cache, "names", "given.json"), "w") as f:
+    json.dump({"tb-412": "quotas", "tb-413": "banner", "tb-414": "copy", "tb-398": "csv", "tb-ttl": "preview ttl", "tb-410": "model",
+               "tb-417": "export retries", "tb-419": "proration"}, f)
+with open(os.path.join(home, ".claude", "projects", "-Users-me-code-web", "demo-413.jsonl"), "a") as f:
+    f.write(json.dumps({"type": "ai-title", "aiTitle": "Quota banner on 429", "sessionId": "demo-413"}) + "\n")
+
+# parity:y5 — next steps: the settings-copy agent's finished turn, and the suggestions the hub keeps for it.
+copy_answer = ("Done. The settings page says what the daily limit counts, that it resets at midnight UTC, and how much is left today. "
+               "Over the limit, exports and searches pause until the reset and the banner links here. Lint still fails on an unused "
+               "import in the strings file.")
+conversation("/Users/me/code/web-copy", "demo-414", [
+    {"role": "user", "content": says("Write the copy for the quota settings page: what the daily limit counts, when it resets, and what happens over it.")},
+    {"role": "assistant", "content": [{"type": "tool_use", "id": "t0", "name": "Read", "input": {"file_path": "/Users/me/code/web-copy/src/settings/quotas.tsx"}},
+                                      {"type": "tool_use", "id": "t1", "name": "Edit", "input": {"file_path": "/Users/me/code/web-copy/src/i18n/en.json"}}]},
+    {"role": "user", "content": results("t0", "t1")},
+    {"role": "assistant", "content": says(copy_answer)},
+])
+def fnv(text):
+    h = 0xcbf29ce484222325
+    for b in text.encode():
+        h = ((h ^ b) * 0x100000001b3) & 0xffffffffffffffff
+    return f"{h:016x}"
+os.makedirs(os.path.join(cache, "agents", "next"), exist_ok=True)
+with open(os.path.join(cache, "agents", "next", "demo-414.json"), "w") as f:
+    json.dump({"turn": fnv(copy_answer), "at": ms(minutes=8), "items": [
+        {"label": "Fix the lint failure", "prompt": "Fix the lint failure on the unused import in the strings file, then run lint again."},
+        {"label": "Run the settings page tests", "prompt": "Run the settings page tests and fix what the new copy broke."},
+        {"label": "Update web#1838", "prompt": "Push the branch and add the new copy to the description of web#1838."}]}, f)

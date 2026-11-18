@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::inbox::{Launch, start_action};
 use super::space;
 use super::{Ctx, arg, opt};
-use crate::routines::{self as runner, Setup, now_ms};
+use crate::routines::{self as runner, HandRun, Setup, now_ms};
 use crate::store::{self, Store};
 use crate::value::{Res, cut, quote, text, truthy};
 use cockpit_core::{agent, frontend};
@@ -31,7 +31,8 @@ fn routine(setup: &Setup, slug: &str) -> Res<routines::Routine> {
 }
 
 /// A new routine from the app's form: name, when, prompt (or script), folder, "shell" for a script else the agent's id
-/// (empty for the default), its model, whether each run gets a worktree, and when it notifies (always, failed, never).
+/// (empty for the default), its model, whether each run gets a worktree, when it notifies (always, failed, never), the
+/// precheck that runs first, the time zone its times are in, and the tools and permission mode a template gives it.
 pub fn add(ctx: &mut Ctx, args: &[Value]) -> Res {
     let note = create(&Setup::live(), args)?;
     ctx.note(note);
@@ -39,11 +40,18 @@ pub fn add(ctx: &mut Ctx, args: &[Value]) -> Res {
     Ok(())
 }
 
+/// The permission modes a routine runs in, as Claude Code's `--permission-mode` names them.
+const MODES: [&str; 6] = ["default", "acceptEdits", "plan", "bypassPermissions", "auto", "dontAsk"];
+
 fn create(setup: &Setup, args: &[Value]) -> Res<String> {
     let field = |n: usize| opt(args, n).as_str().unwrap_or_default().trim().to_string();
     let (when, body, cwd) = (field(1), field(2), field(3));
     if body.is_empty() {
         return Err("a routine needs a prompt".into());
+    }
+    let mode = field(11);
+    if !mode.is_empty() && !MODES.contains(&mode.as_str()) {
+        return Err(format!("no mode {mode:?}: one of {}", MODES.join(", ")));
     }
     When::parse(&when)?;
     let name = Some(field(0)).filter(|n| !n.is_empty()).unwrap_or_else(|| cut(&body, 40));
@@ -68,12 +76,25 @@ fn create(setup: &Setup, args: &[Value]) -> Res<String> {
     if let notify @ ("failed" | "never") = field(7).as_str() {
         file = routines::set_field(&file, "notify", notify);
     }
+    if !field(8).is_empty() {
+        file = routines::set_field(&file, "precheck", &field(8));
+    }
+    let tz = time_zone(&field(9))?;
+    if !tz.is_empty() {
+        file = routines::set_field(&file, "tz", &tz);
+    }
+    for (n, key) in [(10, "tools"), (11, "mode")] {
+        if !field(n).is_empty() && kind != "shell" {
+            file = routines::set_field(&file, key, &field(n));
+        }
+    }
     let path = setup.routines.join(format!("{slug}.md"));
     std::fs::write(&path, file).map_err(|e| e.to_string())?;
     Ok(format!("added {name}: e edits its file"))
 }
 
-/// A routine changed from the app's form: the slug, then the fields `add` takes; the file's other fields stay.
+/// A routine changed from the app's form: the slug, then the fields `add` takes; the file's other fields stay, and so do
+/// its precheck and time zone when the form sends none.
 pub fn update(ctx: &mut Ctx, args: &[Value]) -> Res {
     let note = rewrite(&Setup::live(), &slug(args)?, &args[1..])?;
     ctx.note(note);
@@ -98,15 +119,26 @@ fn rewrite(setup: &Setup, slug: &str, fields: &[Value]) -> Res<String> {
     let mut text = std::fs::read_to_string(&r.path).map_err(|e| e.to_string())?;
     let name = if name.is_empty() { r.name.clone() } else { name };
     let worktree = if truthy(opt(fields, 6)) { "true" } else { "false" };
+    let precheck = opt(fields, 8).as_str().map_or(r.precheck.clone(), |p| p.trim().to_string());
+    let tz = match opt(fields, 9).as_str() {
+        Some(tz) => time_zone(tz)?,
+        None => r.tz.clone(),
+    };
     let fields =
         [("name", name.as_str()), ("when", &when), ("cwd", &cwd), ("run", if shell { "shell" } else { "agent" }), ("agent", &agent), ("model", &model)];
-    for (key, value) in fields.into_iter().chain([("worktree", worktree), ("notify", notify.as_str())]) {
+    for (key, value) in fields.into_iter().chain([("worktree", worktree), ("notify", notify.as_str()), ("precheck", &precheck), ("tz", &tz)]) {
         text = routines::set_field(&text, key, value);
     }
     let (head, _) = routines::front_matter(&text);
-    let head: Vec<String> = head.iter().filter(|(k, v)| !(k == "agent" && v.is_empty())).map(|(k, v)| format!("{k}: {v}")).collect();
+    let unset = |k: &str, v: &str| ["agent", "precheck", "tz"].contains(&k) && v.is_empty();
+    let head: Vec<String> = head.iter().filter(|(k, v)| !unset(k, v)).map(|(k, v)| format!("{k}: {v}")).collect();
     std::fs::write(&r.path, format!("---\n{}\n---\n\n{}\n", head.join("\n"), body)).map_err(|e| e.to_string())?;
     Ok(format!("saved {name}"))
+}
+
+/// The `tz` field for the form's time zone: empty for the machine's own, else a zone's name, refused when it is none.
+fn time_zone(text: &str) -> Res<String> {
+    Ok(routines::Zone::parse(text)?.name())
 }
 
 /// The `agent` field for the form's choice: empty for the default, else a known agent's id.
@@ -118,18 +150,20 @@ fn agent_field(setup: &Setup, id: &str) -> Res<String> {
     setup.agents.iter().find(|a| a.id == id || a.aliases.contains(&id)).map(|a| a.id.clone()).ok_or_else(|| format!("no agent {id:?}"))
 }
 
-/// A model the routine's agent takes: one of lightest, haiku, sonnet and opus for Claude Code, a plain model name for
-/// another agent.
+/// A model the routine's agent takes: one of those its table names (and a routine's own, as Claude Code's lightest), or
+/// a plain model name for an agent that lists its own or none.
 fn model(setup: &Setup, agent: &str, name: &str) -> Res<String> {
-    let name = name.trim().to_lowercase();
+    let name = name.trim().to_string();
     let id = if agent.is_empty() { setup.default_agent.as_str() } else { agent };
-    if id == "claude" || routines::MODELS.contains(&name.as_str()) {
-        return if routines::MODELS.contains(&name.as_str()) { Ok(name) } else { Err(format!("no model {name:?}: one of lightest, haiku, sonnet, opus")) };
+    if let Some(named) = setup.agents.iter().find(|a| a.id == id && a.model_listing().is_none() && !a.offered.is_empty()) {
+        let (name, known) = (name.to_lowercase(), cockpit_core::models::for_routine(named, || {}));
+        return if known.contains(&name) { Ok(name) } else { Err(format!("no model {name:?}: one of {}", known[1..].join(", "))) };
     }
-    if name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:/".contains(c)) { Ok(name) } else { Err(format!("no model {name:?}")) }
+    // Typed after its switch as one word: never one an agent would read as a switch of its own.
+    if name.is_empty() || cockpit_core::agent::model_id(&name) { Ok(name) } else { Err(format!("no model {name:?}")) }
 }
 
-/// The routine's model: lightest, haiku, sonnet, opus, another agent's model name, or empty for the agent's default.
+/// The routine's model: one its agent takes (`model`), or empty for the agent's default.
 pub fn set_model(ctx: &mut Ctx, args: &[Value]) -> Res {
     let setup = Setup::live();
     let r = routine(&setup, &slug(args)?)?;
@@ -145,10 +179,23 @@ pub fn set_model(ctx: &mut Ctx, args: &[Value]) -> Res {
 pub fn run(ctx: &mut Ctx, args: &[Value]) -> Res {
     let slug = slug(args)?;
     let setup = Setup::live();
-    let name = routine(&setup, &slug)?.name;
-    let started = runner::run_now(&mut store::global(), &setup, &slug, now_ms(), &mut runner::post);
-    ctx.note(if started { format!("started {name}") } else { format!("{name} is already running") });
+    let note = run_by_hand(&mut store::global(), &setup, &slug, now_ms())?;
+    ctx.note(note);
     Ok(())
+}
+
+/// A routine run by hand, refused when its file cannot run: what happened, in words.
+fn run_by_hand(store: &mut Store, setup: &Setup, slug: &str, now: u64) -> Res<String> {
+    let r = routine(setup, slug)?;
+    if let Some(why) = r.broken() {
+        return Err(format!("{} cannot run: {why}", r.name));
+    }
+    match runner::run_now(store, setup, slug, now, &mut runner::post) {
+        HandRun::Started => Ok(format!("started {}", r.name)),
+        HandRun::Queued => Ok(format!("{} waits for a free slot", r.name)),
+        HandRun::Busy => Ok(format!("{} is already running", r.name)),
+        HandRun::OverBudget(why) | HandRun::Failed(why) => Err(format!("{}: {why}", r.name)),
+    }
 }
 
 pub fn stop(ctx: &mut Ctx, args: &[Value]) -> Res {
@@ -333,10 +380,18 @@ pub fn open_worktree(ctx: &mut Ctx, args: &[Value]) -> Res {
     Ok(())
 }
 
-/// Removes run worktrees, never by force: given a run, its own; else every one whose work landed (nothing uncommitted,
-/// its branch merged).
+/// Removes run worktrees, never by force: given a run, its own; else every one nothing keeps (`cockpit_core::cleanup`'s
+/// rules), the note naming what keeps the others.
 pub fn cleanup(ctx: &mut Ctx, args: &[Value]) -> Res {
     let (only, id) = (opt(args, 0).as_str().map(str::to_string), opt(args, 1).as_str().map(str::to_string));
+    // Irreversible: asked first, as the inbox's removal is (`remove-run-<slug>-<id>`, or `cleanup-runs` for them all).
+    let armed = match (&only, &id) {
+        (Some(slug), Some(id)) => format!("remove-run-{slug}-{id}"),
+        _ => "cleanup-runs".to_string(),
+    };
+    if !ctx.confirmed(&armed) {
+        return Ok(());
+    }
     let note = clean(&mut store::global(), only.as_deref(), id.as_deref(), now_ms())?;
     ctx.note(note);
     Ok(())
@@ -344,7 +399,8 @@ pub fn cleanup(ctx: &mut Ctx, args: &[Value]) -> Res {
 
 fn clean(store: &mut Store, only: Option<&str>, id: Option<&str>, now: u64) -> Res<String> {
     let doc = store.get(runner::DOC);
-    let (mut removed, mut kept, mut errors) = (Vec::new(), 0, Vec::new());
+    let (mut removed, mut kept, mut errors) = (Vec::new(), Vec::new(), Vec::new());
+    let facts = cockpit_core::cleanup::Facts::now();
     for (slug, runs) in doc["runs"].as_object().into_iter().flatten() {
         for run in runs.as_array().into_iter().flatten() {
             let wt = &run["worktree"];
@@ -352,8 +408,10 @@ fn clean(store: &mut Store, only: Option<&str>, id: Option<&str>, now: u64) -> R
             if wt.is_null() || wt["removed"] == true || !picked || doc["running"][slug]["id"] == run["id"] {
                 continue;
             }
-            if id.is_none() && !runner::landed(wt) {
-                kept += 1;
+            // A run picked by hand is held by the same rules as all the others.
+            let blockers = runner::kept_by(wt, &facts);
+            if !blockers.is_empty() {
+                kept.push(format!("{} ({})", text(&wt["branch"]), cockpit_core::cleanup::said(&blockers)));
                 continue;
             }
             match runner::remove_worktree(wt) {
@@ -376,13 +434,16 @@ fn clean(store: &mut Store, only: Option<&str>, id: Option<&str>, now: u64) -> R
     if id.is_some() && !errors.is_empty() {
         return Err(errors.join("; "));
     }
+    if id.is_some() && !kept.is_empty() {
+        return Err(format!("kept {}", kept.join("; ")));
+    }
     let mut note = match removed.len() {
         0 => "no run worktree to remove".to_string(),
         1 => "removed 1 run worktree".to_string(),
         n => format!("removed {n} run worktrees"),
     };
-    if kept > 0 {
-        note.push_str(&format!(" · {kept} kept: their work has not landed"));
+    if !kept.is_empty() {
+        note.push_str(&format!(" · {} kept: {}", kept.len(), kept.join("; ")));
     }
     Ok(note)
 }
@@ -395,6 +456,7 @@ pub fn request_refresh(ctx: &mut Ctx, _: &[Value]) -> Res {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
     use std::time::Duration;
 
     use super::*;
@@ -408,9 +470,22 @@ mod tests {
             default_agent: "claude".into(),
             repos: dir.path().to_string_lossy().into_owned(),
             worktrees: dir.path().join("worktrees"),
+            settling: false,
+            slept_ms: 0,
         };
         let store = Store::open(&dir.path().join("cache"), Duration::ZERO);
         (dir, store, setup)
+    }
+
+    #[test]
+    fn a_discovered_model_id_keeps_its_case_and_version() {
+        let (_dir, _store, setup) = world();
+        assert_eq!(model(&setup, "opencode", "Acme/Large@stable").unwrap(), "Acme/Large@stable");
+        assert!(model(&setup, "opencode", "acme/model;touch x").is_err());
+        for switch in ["-p", "--dangerously-skip-permissions", &"m".repeat(200)] {
+            assert!(model(&setup, "opencode", switch).is_err(), "{switch:?} is no model");
+        }
+        assert_eq!(model(&setup, "opencode", " ").unwrap(), "", "empty: the agent's default");
     }
 
     #[test]
@@ -431,6 +506,12 @@ mod tests {
         let r = routine(&setup, "on-codex").unwrap();
         assert_eq!((r.run, r.agent.as_str(), r.model.as_str()), (routines::Run::Agent, "codex", "gpt-5-mini"));
         assert_eq!(create(&setup, &[json!("x"), json!("hourly"), json!("y"), json!(""), json!("nobody")]).unwrap_err(), "no agent \"nobody\"");
+        let moded = |mode: &str| {
+            [json!("Moded"), json!("hourly"), json!("Go."), json!(""), json!(""), json!(""), json!(""), json!(""), json!(""), json!(""), json!(""), json!(mode)]
+        };
+        assert!(create(&setup, &moded("yolo --dangerously-skip-permissions")).unwrap_err().starts_with("no mode"), "only a mode the agent takes is stored");
+        create(&setup, &moded("plan")).unwrap();
+        assert_eq!(routine(&setup, "moded").unwrap().mode, "plan");
     }
 
     #[test]
@@ -468,6 +549,180 @@ mod tests {
         let fields = [json!("Sweep PRs"), json!("weekdays 09:00"), json!("Sum up my PRs."), json!("~/w"), json!("codex"), json!(""), json!(false), json!("")];
         rewrite(&setup, "sweep", &fields).unwrap();
         assert_eq!(routine(&setup, "sweep").unwrap().agent, "codex");
+    }
+
+    #[test]
+    fn a_precheck_and_a_time_zone_go_in_the_file_and_stay_when_the_form_sends_none() {
+        let (_dir, _, setup) = world();
+        let fields = |tz: &str| {
+            [
+                json!("Reviews"),
+                json!("weekdays 09:00"),
+                json!("Sum up."),
+                json!(""),
+                json!(""),
+                json!(""),
+                json!(false),
+                json!(""),
+                json!("test -s ~/q"),
+                json!(tz),
+            ]
+        };
+        create(&setup, &fields("Europe/Paris")).unwrap();
+        let r = routine(&setup, "reviews").unwrap();
+        assert_eq!((r.precheck.as_str(), r.tz.as_str()), ("test -s ~/q", "Europe/Paris"));
+        assert_eq!(create(&setup, &fields("Paris")).unwrap_err(), "\"Paris\" is not a time zone: a name like Europe/Paris, or local");
+        // An older form sends eight fields: the precheck and the time zone stay as they were.
+        rewrite(&setup, "reviews", &fields("Europe/Paris")[..8]).unwrap();
+        let r = routine(&setup, "reviews").unwrap();
+        assert_eq!((r.precheck.as_str(), r.tz.as_str()), ("test -s ~/q", "Europe/Paris"));
+        let mut cleared = fields("local").to_vec();
+        cleared[8] = json!("");
+        rewrite(&setup, "reviews", &cleared).unwrap();
+        let text = std::fs::read_to_string(setup.routines.join("reviews.md")).unwrap();
+        assert!(!text.contains("precheck:") && !text.contains("tz:"), "{text}");
+    }
+
+    #[test]
+    fn a_template_saved_from_the_form_keeps_its_tools_and_precheck() {
+        let (_dir, _, setup) = world();
+        let t = routines::TEMPLATES[0];
+        let fields = [t.name, t.when, t.body, "", "", t.model, "", t.notify, t.precheck, "", t.tools, t.mode].map(|f| json!(f));
+        create(&setup, &fields).unwrap();
+        let r = routine(&setup, "morning-sweep").unwrap();
+        assert_eq!((r.tools.len(), r.precheck.as_str(), r.model.as_str()), (3, t.precheck, "sonnet"));
+        assert_eq!(r.when_shown(), "weekdays at 09:00");
+    }
+
+    #[test]
+    fn the_cleanup_template_removes_only_merged_idle_worktrees_and_says_when_it_could_not() {
+        let (dir, _, _) = world();
+        let repos = dir.path().join("repos");
+        let repo = repos.join("api");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |at: &Path, args: &[&str]| {
+            let out = Command::new("git").arg("-C").arg(at).args(["-c", "user.email=a@b", "-c", "user.name=a"]).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        let t = routines::TEMPLATES.iter().find(|t| t.id == "worktree-cleanup").unwrap();
+        // gh answers as the test says, never with anyone's account: the commit a merged pull request had, else nothing.
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let gh = bin.join("gh");
+        let says = |oid: &str| {
+            std::fs::write(&gh, format!("#!/bin/sh\necho '{oid}'\n")).unwrap();
+            assert!(Command::new("chmod").arg("+x").arg(&gh).status().unwrap().success());
+        };
+        says("");
+        let path_var = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let clean = || {
+            let out = Command::new("sh").args(["-c", t.body]).current_dir(&repos).env("PATH", &path_var).output().unwrap();
+            (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned())
+        };
+        git(&repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join(".gitignore"), "*.env\n").unwrap();
+        git(&repo, &["add", ".gitignore"]);
+        git(&repo, &["commit", "-q", "-m", "start"]);
+        git(&repo, &["remote", "add", "origin", "https://example.com/acme/api.git"]);
+        let (ok, said) = clean();
+        assert!(!ok && said.contains("its default branch is unknown"), "nothing is known merged without it: {said}");
+        git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        git(&repo, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+        let path = |name: &str| dir.path().join(name);
+        let add = |branch: &str, name: &str, work: bool| {
+            git(&repo, &["worktree", "add", "-q", "-b", branch, &path(name).to_string_lossy()]);
+            // Each its own message: two empty commits on one parent in one second would be the same commit.
+            if work {
+                git(&path(name), &["commit", "-q", "--allow-empty", "-m", branch]);
+            }
+        };
+        add("merged", "wt merged", true);
+        git(&repo, &["merge", "-q", "--ff-only", "merged"]);
+        add("fresh", "wt-fresh", false);
+        add("open", "wt-open", true);
+        add("dirty", "wt-dirty", true);
+        git(&repo, &["merge", "-q", "--ff-only", "dirty"]);
+        std::fs::write(path("wt-dirty").join(".gitignore"), "changed\n").unwrap();
+        add("squashed", "wt-squashed", true);
+        git(&repo, &["config", "branch.squashed.remote", "origin"]);
+        git(&repo, &["config", "branch.squashed.merge", "refs/heads/squashed"]);
+        add("ignored", "wt-ignored", true);
+        git(&repo, &["merge", "-q", "--ff-only", "ignored"]);
+        std::fs::write(path("wt-ignored").join("secrets.env"), "token\n").unwrap();
+        add("recent", "wt-recent", true);
+        git(&repo, &["merge", "-q", "--ff-only", "recent"]);
+        git(&repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+        for name in ["wt merged", "wt-fresh", "wt-open", "wt-dirty", "wt-squashed", "wt-ignored"] {
+            assert!(Command::new("find").arg(path(name)).args(["-exec", "touch", "-t", "202601010000", "{}", "+"]).status().unwrap().success());
+        }
+        let (ok, said) = clean();
+        assert!(!ok, "merged work kept unsaved needs a look: {said}");
+        assert!(said.contains("wt-dirty: 1 uncommitted change"), "said as cockpit's cleanup says it: {said}");
+        assert!(!path("wt merged").exists(), "merged: {said}");
+        assert!(path("wt-squashed").exists(), "a branch merely gone is no merge: {said}");
+        for kept in ["wt-fresh", "wt-open", "wt-dirty", "wt-ignored", "wt-recent"] {
+            assert!(path(kept).exists(), "{kept} stays: {said}");
+        }
+        assert!(said.contains("wt-ignored: 1 ignored file other than builds") && said.contains("wt-recent: changed in the last 3 days"), "{said}");
+        assert!(repo.join(".git").exists(), "the checkout itself stays");
+        // GitHub says the squashed one merged at the commit it has.
+        let tip = Command::new("git").arg("-C").arg(path("wt-squashed")).args(["rev-parse", "HEAD"]).output().unwrap();
+        says(String::from_utf8_lossy(&tip.stdout).trim());
+        let (_, said) = clean();
+        assert!(!path("wt-squashed").exists(), "merged on GitHub at its own commit: {said}");
+        // The agent the hub's agents document has in a worktree is named as the agent table names it, whatever order the
+        // row's fields come in.
+        add("by-codex", "wt-codex", true);
+        git(&repo, &["merge", "-q", "--ff-only", "by-codex"]);
+        git(&repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+        assert!(Command::new("find").arg(path("wt-codex")).args(["-exec", "touch", "-t", "202601010000", "{}", "+"]).status().unwrap().success());
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".cache/cockpit")).unwrap();
+        let cwd = std::fs::canonicalize(path("wt-codex")).unwrap();
+        let row = json!({"app:t9": {"at": now_ms(), "agent": "codex", "cwd": cwd}, "w2:p1": {"cwd": "/w/elsewhere", "at": now_ms()}});
+        std::fs::write(home.join(".cache/cockpit/agents.json"), row.to_string()).unwrap();
+        let out = Command::new("sh").args(["-c", t.body]).current_dir(&repos).env("PATH", &path_var).env("HOME", &home).output().unwrap();
+        let said = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(said.contains("wt-codex: Codex still runs in it"), "{said}");
+    }
+
+    #[test]
+    fn a_run_worktree_picked_by_hand_is_asked_first_and_held_by_the_same_rules() {
+        let (dir, mut store, _) = world();
+        let repo = dir.path().join("api");
+        let wt = dir.path().join("wt-run");
+        let git = |at: &Path, args: &[&str]| {
+            let out = Command::new("git").arg("-C").arg(at).args(["-c", "user.email=a@b", "-c", "user.name=a"]).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "start"]);
+        git(&repo, &["worktree", "add", "-q", "-b", "auto/r-1", &wt.to_string_lossy()]);
+        std::fs::write(wt.join("draft.md"), "draft").unwrap();
+        let tree = json!({"path": wt, "repo": repo, "branch": "auto/r-1", "base": "main"});
+        store.update(runner::DOC, |_| json!({"version": 1, "runs": {"r": [{"id": "1", "worktree": tree}]}}));
+        // Not asked first, nothing is done.
+        let mut ctx = Ctx::new(None, std::collections::HashMap::new());
+        cleanup(&mut ctx, &[json!("r"), json!("1")]).unwrap();
+        assert!(ctx.note.is_empty() && wt.exists());
+        let refused = clean(&mut store, Some("r"), Some("1"), 5).unwrap_err();
+        assert!(refused.starts_with("kept auto/r-1 (1 uncommitted change"), "{refused}");
+        assert!(wt.join("draft.md").is_file(), "never forced");
+        std::fs::remove_file(wt.join("draft.md")).unwrap();
+        assert_eq!(clean(&mut store, Some("r"), Some("1"), 6).unwrap(), "removed 1 run worktree");
+        assert!(!wt.exists());
+    }
+
+    #[test]
+    fn a_routine_that_cannot_run_is_refused_by_hand_too() {
+        let (_dir, mut store, setup) = world();
+        create(&setup, &[json!("Nightly"), json!("daily 02:00"), json!("true"), json!(""), json!("shell")]).unwrap();
+        let path = setup.routines.join("nightly.md");
+        std::fs::write(&path, routines::set_field(&std::fs::read_to_string(&path).unwrap(), "tz", "Mars/Olympus")).unwrap();
+        let err = run_by_hand(&mut store, &setup, "nightly", 1_000).unwrap_err();
+        assert_eq!(err, "Nightly cannot run: tz: \"Mars/Olympus\" is not a time zone: a name like Europe/Paris, or local");
+        assert!(store.get(runner::DOC)["queued"].as_array().is_none_or(Vec::is_empty), "nothing queued");
     }
 
     #[test]

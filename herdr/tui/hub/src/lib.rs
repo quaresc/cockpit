@@ -3,6 +3,7 @@
 //! started it, and exits after 30 minutes with no request, no subscriber and no routine to run on its own.
 
 mod act;
+mod ci_news;
 mod config;
 mod events;
 mod feed;
@@ -17,8 +18,11 @@ mod routines;
 mod search;
 mod server;
 pub mod store;
+mod usage;
 mod value;
 pub mod views;
+
+pub use act::start_view;
 
 use std::io::Write;
 use std::net::TcpListener;
@@ -74,8 +78,13 @@ pub fn run() {
     };
     let inode = std::fs::metadata(&socket).map(|m| m.ino()).unwrap_or_default();
     let _ = cockpit_core::notify::GUI.set(views::notify);
+    // Only the hub asks agents which models they list, and not in the demo world or with COCKPIT_HUB_MODELS=off.
+    cockpit_core::models::ask_agents();
     // The store opens before the first request, waiting out a hub that hands over to this one.
     drop(store::global());
+    for start in STARTED.lock().unwrap_or_else(|e| e.into_inner()).iter().copied() {
+        std::thread::spawn(start);
+    }
     let last = Arc::new(AtomicU64::new(server::now_secs()));
     std::thread::spawn({
         let (last, socket) = (last.clone(), socket.clone());
@@ -85,6 +94,11 @@ pub fn run() {
     std::thread::spawn(search::sessions::keep);
     std::thread::spawn(routines::keep);
     std::thread::spawn(cockpit_core::resume::keep);
+    // A start the hub runs itself would be cut short by a hand-over or an idle exit.
+    keep_alive(act::start_running);
+    usage::start();
+    ci_news::start();
+    on_signals(socket.clone(), inode);
     std::thread::spawn(move || {
         let dir = files::herdr_dir();
         cockpit_update::keep_current(&dir, |binary| hand_over(&dir, binary, &socket, inode));
@@ -94,9 +108,43 @@ pub fn run() {
     }
     let gate = server::Gate { token: None, frontend: None, read_only: false };
     for stream in listener.incoming().flatten() {
+        if STOPPING.load(Ordering::SeqCst) {
+            break;
+        }
         last.store(server::now_secs(), Ordering::SeqCst);
         let (last, gate) = (last.clone(), gate.clone());
-        std::thread::spawn(move || server::serve(stream, last, gate));
+        let pid = peer_pid(&stream);
+        std::thread::spawn(move || {
+            cockpit_core::peer::set(pid);
+            server::serve(stream, last, gate)
+        });
+    }
+}
+
+/// The process at the other end of a unix socket: LOCAL_PEERPID on macOS, SO_PEERCRED on Linux.
+pub fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let fd = stream.as_raw_fd();
+    #[cfg(target_os = "macos")]
+    {
+        let mut pid: libc::pid_t = 0;
+        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+        // SAFETY: getsockopt writes at most `len` bytes into `pid`, a pid_t on the stack.
+        let ok = unsafe { libc::getsockopt(fd, libc::SOL_LOCAL, libc::LOCAL_PEERPID, (&raw mut pid).cast(), &mut len) } == 0;
+        (ok && pid > 0).then_some(pid as u32)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: getsockopt writes at most `len` bytes into `cred`, a ucred on the stack.
+        let ok = unsafe { libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_PEERCRED, (&raw mut cred).cast(), &mut len) } == 0;
+        (ok && cred.pid > 0).then_some(cred.pid as u32)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = fd;
+        None
     }
 }
 
@@ -135,9 +183,19 @@ fn serve_tcp((listener, host): (TcpListener, std::net::IpAddr), last: Arc<Atomic
     let gate = server::Gate { token: Some(token), frontend: Some(cockpit_core::frontend::Frontend::App), read_only: !host.is_loopback() };
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
+            if STOPPING.load(Ordering::SeqCst) {
+                break;
+            }
             last.store(server::now_secs(), Ordering::SeqCst);
             let (last, gate) = (last.clone(), gate.clone());
-            std::thread::spawn(move || server::serve(stream, last, gate));
+            let from = stream.peer_addr().ok().map(|a| a.port());
+            std::thread::spawn(move || {
+                match from {
+                    Some(from) => cockpit_core::peer::set_tcp(from, port),
+                    None => cockpit_core::peer::set(None),
+                }
+                server::serve(stream, last, gate)
+            });
         }
     });
     Ok(())
@@ -153,6 +211,10 @@ fn drop_tcp_file() {
 
 /// A newer binary went into bin/: a hub run from it takes the socket over, the space apps restart on it, this one ends.
 fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
+    // A session cockpit drives would end with this process: the next look hands over once none is left.
+    if kept() {
+        return;
+    }
     drop_tcp_file();
     if std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode) {
         let _ = std::fs::remove_file(socket);
@@ -166,7 +228,8 @@ fn hand_over(dir: &Path, binary: &Path, socket: &Path, inode: u64) {
 /// Whether a pinned space's app runs, which keeps the hub fetching for it, requests or not. Only this hub's own count:
 /// one under another HOME (a test sandbox) talks to a hub of its own.
 fn space_apps_running() -> bool {
-    let Ok(out) = std::process::Command::new("pgrep").args(["-f", "cockpit (inbox|runbook|todo|meetings|monitor|routines|mail) cockpit-space"]).output() else {
+    let pattern = format!("cockpit ({}) cockpit-space", cockpit_core::SPACE_APPS.join("|"));
+    let Ok(out) = std::process::Command::new("pgrep").args(["-f", &pattern]).output() else {
         return false;
     };
     let home = files::home();
@@ -189,6 +252,48 @@ fn socket_is_ours(socket: &Path, inode: u64) -> bool {
     std::fs::metadata(socket).is_ok_and(|m| m.ino() == inode)
 }
 
+/// What runs once this process is the hub, registered from outside the hub crate: driven sessions coming back.
+static STARTED: std::sync::Mutex<Vec<fn()>> = std::sync::Mutex::new(Vec::new());
+
+/// `start` runs on a thread of its own once this process holds the hub's socket, never in a second one that gives way.
+pub fn on_start(start: fn()) {
+    STARTED.lock().unwrap_or_else(|e| e.into_inner()).push(start);
+}
+
+/// What keeps the hub running though nothing asks of it, registered from outside the hub crate: a session cockpit drives
+/// lives in the hub's process and ends with it.
+static KEEP: std::sync::Mutex<Vec<fn() -> bool>> = std::sync::Mutex::new(Vec::new());
+
+/// Set once a signal ends the hub: the listeners take no more requests.
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// SIGTERM (`cockpit hub stop`), SIGINT and SIGHUP end the hub: no new request is served and the socket goes, the
+/// sidebar's token is cleared while hub.json still names this hub, then hub.json and the store close.
+fn on_signals(socket: PathBuf, inode: u64) {
+    let Ok(mut signals) = signal_hook::iterator::Signals::new([libc::SIGTERM, libc::SIGINT, libc::SIGHUP]) else { return };
+    std::thread::spawn(move || {
+        if signals.forever().next().is_some() {
+            STOPPING.store(true, Ordering::SeqCst);
+            if socket_is_ours(&socket, inode) {
+                let _ = std::fs::remove_file(&socket);
+            }
+            usage::stand_down();
+            drop_tcp_file();
+            store::global().close();
+            std::process::exit(0);
+        }
+    });
+}
+
+/// The hub stays, and puts an update's hand-over off, while `wanted` says so.
+pub fn keep_alive(wanted: fn() -> bool) {
+    KEEP.lock().unwrap_or_else(|e| e.into_inner()).push(wanted);
+}
+
+fn kept() -> bool {
+    KEEP.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|wanted| wanted())
+}
+
 fn exit_when_idle(socket: &Path, inode: u64, last: &AtomicU64) {
     let limit = idle_limit();
     loop {
@@ -198,7 +303,8 @@ fn exit_when_idle(socket: &Path, inode: u64, last: &AtomicU64) {
             std::process::exit(0);
         }
         let is_idle = server::now_secs().saturating_sub(last.load(Ordering::SeqCst)) >= limit;
-        if is_idle && !store::global().has_subscribers() && !views::has_subscribers() && !space_apps_running() && !routines::wanted() {
+        if is_idle && !store::global().has_subscribers() && !views::has_subscribers() && !space_apps_running() && !routines::wanted() && !kept() {
+            usage::stand_down();
             drop_tcp_file();
             let _ = std::fs::remove_file(socket);
             std::process::exit(0);
@@ -228,6 +334,24 @@ mod tests {
     fn a_process_home_is_read_from_the_system() {
         let home = std::env::var("HOME").map(PathBuf::from).unwrap();
         assert_eq!(home_of(std::process::id()), Some(home));
+    }
+
+    #[test]
+    fn a_keep_alive_holds_the_hub_while_it_says_so() {
+        static DRIVING: AtomicU64 = AtomicU64::new(0);
+        keep_alive(|| DRIVING.load(Ordering::SeqCst) > 0);
+        assert!(!kept());
+        DRIVING.store(1, Ordering::SeqCst);
+        assert!(kept(), "a live session keeps it");
+        DRIVING.store(0, Ordering::SeqCst);
+        assert!(!kept());
+    }
+
+    #[test]
+    fn a_unix_socket_names_the_process_at_its_other_end() {
+        let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert_eq!(peer_pid(&ours), Some(std::process::id()));
+        drop(theirs);
     }
 
     #[test]

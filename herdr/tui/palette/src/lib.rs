@@ -1,9 +1,11 @@
 //! `cockpit palette`: the launcher herdr opens as a popup over any pane (prefix+space). It searches every app, the
-//! week's events and past agent sessions as you type, and lists cockpit's own commands: the pinned spaces, a refresh of
-//! the inbox, the doctor's report and today's brief. Over an agent's session, a found item can also go into that
-//! session: typed at its prompt, asked about, or looked into by a fork of it in the actions space.
+//! week's events and past agent sessions as you type, and lists the agents waiting on you first, then cockpit's own
+//! commands: the pinned spaces, a refresh of the inbox, the doctor's report and today's brief. Over an agent's session, a
+//! found item can also go into that session: typed at its prompt, asked about, or looked into by a fork of it. Words
+//! nothing matches are offered as a start: the Start work form on them.
 
 pub mod gui;
+mod jump;
 mod reference;
 mod report;
 mod then;
@@ -12,7 +14,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
 use cockpit_core::hub::Found;
-use cockpit_core::palette::{Entry, Outcome, Palette};
+use cockpit_core::palette::{Entry, FALLBACK, Outcome, Palette};
 use cockpit_core::theme::{FG, ORANGE, PANEL, base, bold, dim, fg};
 use cockpit_core::{actions, agent, files, keys, term};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -24,6 +26,7 @@ use ratatui::widgets::{Block, Paragraph};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
+pub use jump::{Jump, LISTED, jumps, listed};
 pub use reference::reference;
 use report::Report;
 pub use then::Then;
@@ -72,11 +75,17 @@ impl Over {
 /// The palette's own entries.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// An agent to bring into view; `listed` ones show before anything is typed.
+    Agent {
+        jump: Jump,
+        listed: bool,
+    },
     /// A pinned space and the chord that jumps to it, when herdr's config binds one.
     Space(String, Option<String>),
     RefreshInbox,
     Doctor,
     Brief,
+    Usage,
     /// The folder of the pane below, in the person's editor.
     Editor(String),
     /// The agent's session below, forked to a tab of the actions space.
@@ -103,11 +112,19 @@ pub enum Command {
 impl Command {
     fn entry(&self, id: usize) -> Entry {
         let (text, help) = match self {
+            Command::Agent { jump, listed } => {
+                let mark = &jump.mark;
+                let title = jump.title.to_ascii_lowercase();
+                let named = title == mark.as_str() || title.strip_prefix(mark.as_str()).is_some_and(|rest| rest.starts_with(char::is_whitespace));
+                let text = if mark.is_empty() || mark == "agent" || named { jump.title.clone() } else { format!("{mark}  {}", jump.title) };
+                return Entry { text, help: jump.help.clone(), featured: *listed, id };
+            }
             // Lowercase, as every in-app palette: the same command must not read two ways.
             Command::Space(name, key) => (format!("go to the {name} space"), key.clone().unwrap_or_else(|| "a pinned space".into())),
             Command::RefreshInbox => ("refresh the inbox".into(), "PRs, reviews, tickets and CI fetched again now".into()),
             Command::Doctor => ("check cockpit".into(), "the doctor's report: every part of cockpit, ok, warn or fail".into()),
             Command::Brief => ("today's brief".into(), "the morning brief: meetings, reviews, CI, tickets".into()),
+            Command::Usage => ("usage and limits".into(), "every agent's limits, resets and account, and the week's tokens".into()),
             Command::Editor(cwd) => (format!("open {} in your editor", folder_name(cwd)), cwd.clone()),
             Command::Fork { title, .. } => ("fork this session to a new tab".into(), format!("{title}, its conversation carried over")),
             Command::Link { label, detail, url } => (format!("open {label}"), if detail.is_empty() { url.clone() } else { detail.clone() }),
@@ -116,6 +133,10 @@ impl Command {
         Entry { text, help, featured: true, id }
     }
 }
+
+/// The row every palette offers when nothing matches what was typed (`start-work` in docs/app.md): the Start work form
+/// on it.
+pub const START_WORK: &str = "start work";
 
 /// The ctrl keys that send a found item into the agent's session below, with their footer labels.
 const SESSION_KEYS: [(char, &str); 3] = [('r', "insert"), ('a', "ask"), ('f', "fork")];
@@ -147,6 +168,14 @@ fn folder_name(cwd: &str) -> &str {
     cwd.trim_end_matches('/').rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or(cwd)
 }
 
+/// The herdr TUI's agents of the hub's agents view as entries, in the order every palette lists them; a session
+/// cockpit drives has no pane to bring into view, so it is left out.
+pub fn agent_entries(agents: &Value, now: u64) -> Vec<Command> {
+    let list: Vec<Jump> = jumps(agents, Some("tui"), now).into_iter().filter(|j| !j.driven).collect();
+    let shown = listed(&list);
+    list.into_iter().enumerate().map(|(i, jump)| Command::Agent { jump, listed: i < shown }).collect()
+}
+
 /// The agent's links and documents, as the hub's agents view has them for the pane below: links first, in its order.
 pub fn agent_commands(pane: &str, agents: &Value) -> Vec<Command> {
     let Some(row) = agents["agents"].as_array().into_iter().flatten().find(|r| r["terminal"] == pane) else { return Vec::new() };
@@ -176,39 +205,45 @@ pub fn session_commands(over: &Over) -> Vec<Command> {
     out
 }
 
+/// What the popup learns in the background: the pane below, its agent's links and documents, and every agent.
+pub struct Arrived {
+    pub over: Option<Over>,
+    pub links: Vec<Command>,
+    pub agents: Vec<Command>,
+}
+
 pub struct App {
     palette: Palette,
     commands: Vec<Command>,
     over: Option<Over>,
-    asking: Option<Receiver<(Option<Over>, Vec<Command>)>>,
+    asking: Option<Receiver<Arrived>>,
     report: Option<Report>,
     /// What to do once the popup has closed.
     pub then: Option<Then>,
 }
 
 impl App {
-    /// Draws at once: the pane below is asked of herdr in the background, and the hub only once something is typed.
+    /// Draws at once: the pane below and the agents are asked in the background (the hub starting meanwhile if it was
+    /// not running), and the hub's search only once something is typed.
     pub fn start(pane: Option<String>) -> App {
-        // A hub that is not running yet starts now, while the first letters are typed, rather than on the first search.
-        std::thread::spawn(|| cockpit_core::hub::request(&serde_json::json!({"op": "ping"}), Duration::from_secs(3)));
-        let asking = pane.map(|pane| {
-            let (tx, rx) = channel();
-            std::thread::spawn(move || {
-                let over = actions::herdr(&["pane", "get", &pane]).and_then(|r| Over::of(&r["pane"]));
-                let request = serde_json::json!({"op": "view", "name": "agents", "args": {}});
-                let agents = cockpit_core::hub::request(&request, Duration::from_secs(3)).map(|r| r["value"].clone()).unwrap_or_default();
-                let _ = tx.send((over, agent_commands(&pane, &agents)));
-                term::wake();
-            });
-            rx
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let over = pane.as_ref().and_then(|pane| actions::herdr(&["pane", "get", pane]).and_then(|r| Over::of(&r["pane"])));
+            let request = serde_json::json!({"op": "view", "name": "agents", "args": {}});
+            let agents = cockpit_core::hub::request(&request, Duration::from_secs(3)).map(|r| r["value"].clone()).unwrap_or_default();
+            let links = pane.as_deref().map(|pane| agent_commands(pane, &agents)).unwrap_or_default();
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default();
+            let _ = tx.send(Arrived { over, links, agents: agent_entries(&agents, now) });
+            term::wake();
         });
-        App::new(commands(&actions::pinned()), None, asking)
+        App::new(commands(&actions::pinned()), None, Some(rx))
     }
 
-    pub fn new(mut commands: Vec<Command>, over: Option<Over>, asking: Option<Receiver<(Option<Over>, Vec<Command>)>>) -> App {
+    pub fn new(mut commands: Vec<Command>, over: Option<Over>, asking: Option<Receiver<Arrived>>) -> App {
         commands.extend(over.iter().flat_map(session_commands));
         let mut palette = Palette::default();
         palette.app = "palette".into();
+        palette.fallback = Some(START_WORK);
         palette.open(commands.iter().enumerate().map(|(n, c)| c.entry(n)).collect());
         App { palette, commands, over, asking, report: None, then: None }
     }
@@ -248,6 +283,10 @@ impl App {
                 self.then = Some(Then::Go(target));
                 true
             }
+            Outcome::Chosen(FALLBACK) => {
+                self.then = Some(Then::StartWork(self.palette.query().trim().to_string()));
+                true
+            }
             Outcome::Chosen(id) => self.choose(id),
         }
     }
@@ -261,6 +300,7 @@ impl App {
 
     fn choose(&mut self, id: usize) -> bool {
         match self.commands.get(id).cloned() {
+            Some(Command::Agent { jump, .. }) => self.then = Some(Then::Agent(jump.terminal)),
             Some(Command::Space(name, _)) => self.then = Some(Then::Space(name)),
             Some(Command::RefreshInbox) => self.then = Some(Then::RefreshInbox),
             Some(Command::Editor(cwd)) => self.then = Some(Then::Editor(cwd)),
@@ -269,6 +309,10 @@ impl App {
             Some(Command::Document { pane, name, .. }) => self.then = Some(Then::Document { pane, name }),
             Some(Command::Doctor) => {
                 self.report = Some(Report::doctor());
+                return false;
+            }
+            Some(Command::Usage) => {
+                self.report = Some(Report::usage());
                 return false;
             }
             Some(Command::Brief) => {
@@ -305,15 +349,21 @@ impl App {
     pub fn tick(&mut self) -> bool {
         let mut changed = false;
         if let Some(rx) = &self.asking
-            && let Ok((over, agent)) = rx.try_recv()
+            && let Ok(Arrived { over, links, agents }) = rx.try_recv()
         {
-            // The agent's own links and documents come first: over an agent, they are what the palette is opened for.
-            self.commands.splice(0..0, agent);
+            // A selection the person moved stays on its entry as the agents arrive above it; one at the top stays there.
+            let moved = self.palette.selection().is_some_and(|i| i > 0);
+            let chosen = self.palette.selected_entry().filter(|_| moved).and_then(|id| self.commands.get(id).cloned());
+            // The agents come first, those waiting on you at the top; then over an agent, its own links and documents.
+            self.commands.splice(0..0, agents.into_iter().chain(links));
             self.commands.extend(over.iter().flat_map(session_commands));
             self.over = over;
             self.asking = None;
             if self.report.is_none() {
                 self.palette.replace(self.commands.iter().enumerate().map(|(n, c)| c.entry(n)).collect());
+                if let Some(n) = chosen.and_then(|c| self.commands.iter().position(|x| *x == c)) {
+                    self.palette.select_entry(n);
+                }
             }
             changed = true;
         }
@@ -373,7 +423,7 @@ pub fn commands(pinned: &[String]) -> Vec<Command> {
 /// The same, with the chords given rather than read from herdr's config: what the screens' tests draw.
 pub fn keyed_commands(pinned: &[String], keys: &std::collections::HashMap<String, String>) -> Vec<Command> {
     let spaces = pinned.iter().filter(|n| !n.is_empty()).map(|n| Command::Space(n.clone(), keys.get(n).cloned()));
-    spaces.chain([Command::RefreshInbox, Command::Doctor, Command::Brief]).collect()
+    spaces.chain([Command::RefreshInbox, Command::Doctor, Command::Brief, Command::Usage]).collect()
 }
 
 impl term::App for App {
@@ -391,5 +441,33 @@ impl term::App for App {
 
     fn timeout(&self) -> Duration {
         Duration::from_secs(1)
+    }
+}
+
+#[cfg(test)]
+mod logo_tests {
+    use super::*;
+
+    #[test]
+    fn the_tui_palette_names_an_agents_mark_without_repeating_a_name() {
+        let make = |title: &str, mark: &str| Command::Agent {
+            jump: Jump {
+                terminal: "w1:t1".into(),
+                address: "t1".into(),
+                title: title.into(),
+                status: "idle".into(),
+                stage: "idle".into(),
+                waiting: false,
+                driven: false,
+                help: "api".into(),
+                icon: "codex".into(),
+                mark: mark.into(),
+            },
+            listed: true,
+        };
+        assert_eq!(make("Enforce quotas", "codex").entry(0).text, "codex  Enforce quotas");
+        assert_eq!(make("Codex", "codex").entry(0).text, "Codex");
+        assert_eq!(make("Codexify exports", "codex").entry(0).text, "codex  Codexify exports");
+        assert_eq!(make("Enforce quotas", "agent").entry(0).text, "Enforce quotas");
     }
 }

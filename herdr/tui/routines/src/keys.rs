@@ -1,10 +1,11 @@
-//! Keys and clicks: the form first, then the dialog and the palette, then rows, the selected row's actions (a delete
-//! asked first), folds, and adding a routine.
+//! Keys and clicks: the template picker and the form first, then the dialog and the palette, then rows, the selected
+//! row's actions (a delete asked first), folds, and adding a routine.
 
 use cockpit_core::acts::Act;
 use cockpit_core::dialog::{Answer, Dialog};
 use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
+use cockpit_core::pointed::MOVE_FIRST;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
@@ -20,7 +21,7 @@ impl App {
             Entry { text: "add a routine".into(), help: "a".into(), featured: true, id: 0 },
             Entry { text: "read the routines again".into(), help: "R".into(), featured: true, id: 1 },
             Entry { text: "mark every run read".into(), help: "X".into(), featured: false, id: 2 },
-            Entry { text: "clean up the run worktrees whose work landed".into(), help: "C".into(), featured: false, id: 3 },
+            Entry { text: "clean up the run worktrees nothing keeps".into(), help: String::new(), featured: false, id: 3 },
         ];
         // Every routine's runs, folded or not, so the palette finds them all.
         let opened = self.opened.clone();
@@ -69,9 +70,12 @@ impl App {
             Event::Key(key) if key.kind != KeyEventKind::Release => self.key(key),
             Event::Mouse(mouse) => {
                 let at = Position::new(mouse.column, mouse.row);
-                let modal = self.palette.is_open || self.dialog.is_some() || self.form.is_some();
+                let modal = self.palette.is_open || self.dialog.is_some() || self.form.is_some() || self.picker.is_some();
                 match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) if !modal => self.click(at),
+                    MouseEventKind::Down(MouseButton::Left) if !modal => {
+                        self.pointed.clear();
+                        self.click(at);
+                    }
                     MouseEventKind::ScrollDown if self.hits.list.contains(at) => self.scroll_by(3),
                     MouseEventKind::ScrollUp if self.hits.list.contains(at) => self.scroll_by(-3),
                     _ => {}
@@ -92,6 +96,14 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl && keys::is_quit(&key) {
             return true;
+        }
+        if let Some(picker) = &mut self.picker {
+            match picker.key(key) {
+                form::Pick::Cancel => self.picker = None,
+                form::Pick::Picked(template) => self.open_form(template),
+                form::Pick::Stay => {}
+            }
+            return false;
         }
         if let Some(form) = &mut self.form {
             match form.key(key) {
@@ -133,6 +145,11 @@ impl App {
         if keys::is_quit(&key) {
             return true;
         }
+        // A routine or run a focus request selected takes no key that acts until the person moves to it.
+        if self.pointed.holds(&key) {
+            self.toasts.push(MOVE_FIRST, cockpit_core::toast::Kind::Note);
+            return false;
+        }
         if let Some(to) = keys::movement(&key) {
             match to {
                 Move::By(n) => self.move_sel(n),
@@ -152,7 +169,6 @@ impl App {
             KeyCode::Char('a') => self.run(Cmd::Add, None),
             KeyCode::Char('R') => self.run(Cmd::Refresh, None),
             KeyCode::Char('X') => self.run(Cmd::ReadAll, None),
-            KeyCode::Char('C') => self.run(Cmd::Cleanup, None),
             KeyCode::Char(' ') => self.fold(),
             KeyCode::Enter => match acts.iter().find(|(a, _)| a.main) {
                 Some((act, cmd)) => self.press(Some(&act.clone()), cmd.clone()),
@@ -177,13 +193,25 @@ impl App {
 
     /// The confirmation a command found in the palette carries: the one its button has.
     fn confirm_of(&self, cmd: &Cmd) -> Option<String> {
-        let Cmd::Delete(slug) = cmd else { return None };
-        self.acts_for(&Item::Routine(slug.clone())).into_iter().find_map(|(a, c)| (c == *cmd).then_some(a.confirm).flatten())
+        let item = match cmd {
+            Cmd::Delete(slug) => Item::Routine(slug.clone()),
+            Cmd::RemoveWorktree(slug, id) => Item::Run(slug.clone(), id.clone()),
+            Cmd::Cleanup => return Some("cleanup-runs".into()),
+            _ => return None,
+        };
+        self.acts_for(&item).into_iter().find_map(|(a, c)| (c == *cmd).then_some(a.confirm).flatten())
     }
 
     pub(crate) fn question(&self, cmd: &Cmd) -> String {
-        let Cmd::Delete(slug) = cmd else { return "sure?".into() };
-        format!("Delete the routine \u{201c}{}\u{201d}, its file and its runs?", self.row_name(&Item::Routine(slug.clone())))
+        match cmd {
+            Cmd::Delete(slug) => format!("Delete the routine \u{201c}{}\u{201d}, its file and its runs?", self.row_name(&Item::Routine(slug.clone()))),
+            Cmd::RemoveWorktree(slug, id) => format!(
+                "Remove the worktree of {}? Its folder is deleted; git refuses while it holds changes, and its branch stays unless merged.",
+                self.row_name(&Item::Run(slug.clone(), id.clone()))
+            ),
+            Cmd::Cleanup => "Remove every run worktree nothing keeps? Their folders are deleted; the others stay, and the note says why.".into(),
+            _ => "sure?".into(),
+        }
     }
 
     /// Folds or unfolds the selected routine, or the routine of the selected run, which then takes the selection.

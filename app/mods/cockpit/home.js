@@ -3,18 +3,30 @@
 // stopped, and the week's delivery. Built after jkuepker's Board; the agents come from the hub's `agents` view joined
 // with Herdr's live list, the PRs and numbers from the `home` view.
 
-import { div, svg, image } from "gpui-kit";
+import { div, image } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { run, spaces, knownAgents, setShared, layout, readTextFile } from "herdr";
+import { run, spaces, setShared, layout, readTextFile } from "herdr";
 import { show } from "./sidebar.js";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
-import { fleet, goToAgent, agentAct, refuseRemoteAgent } from "./fleet.js";
-import { pinsNow, togglePinOf } from "./agentsui.js";
+import { sharing } from "./feed.js";
+import { fleet, goToAgent, agentAct, refuseRemoteAgent, answerPayload, changed, CHANGED } from "./fleet.js";
+import { inFront } from "./front.js";
+import { AllowsBlock, confirmUnasked, takeConfirm, unaskedChoice, pinsNow, togglePinOf, dismissable } from "./agentsui.js";
+import { showWork, layoutName } from "./screens.js";
+import { keyFor, keyText, available } from "./commands.js";
+import { openStart } from "./start.js";
+import { failing } from "./fresh.js";
+import { take } from "./person.js";
+import { Started } from "./doctor.js";
+import { openUsage, spendTile } from "./usage.js";
 import {
-  tokens, TEXT, RADIUS, alpha, Icon, Spinner, Badge, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, openMenu,
-  Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline,
+  tokens, TEXT, RADIUS, alpha, Icon, Spinner, Button, Kbd, TextField, Toaster, Flashes, Hover, AlertDialog, HubDown, openMenu,
+  Progress, Mono, dur, Chip, CountPill, StageHeading, Metric, Callout, ToneButton, Skeleton, StatTile, Card, Sparkline, AgentLogo,
 } from "./ui.js";
+
+// The agents, Home and queue views, followed once per window whichever copies ask (feed.js).
+const following = sharing(hub.subscribe);
 
 /** An event's row, brought into view in its app. */
 function cx_go(e) {
@@ -46,9 +58,12 @@ const OVERVIEW = [
     view: "routines", space: "routines", label: "Routines", icon: "clock",
     line: (v) => {
       const t = v.tiles ?? {};
-      if (t.unread) return { text: `${many(t.unread, "run")} to look at`, tone: t.failing ? "destructive" : "warning" };
-      return { text: t.next ? `next ${t.next}` : "none scheduled" };
+      if (t.look) return { text: `${many(t.look, "routine")} need${t.look === 1 ? "s" : ""} a look`, tone: "destructive" };
+      if (t.unread) return { text: `${many(t.unread, "new run")}` };
+      return { text: t.next ? `next ${t.next.name} ${t.next.text}` : "none scheduled" };
     },
+    // The run that needs a look, else the routines.
+    open: (v) => (v.look?.length ? hub.go({ app: "routines", key: v.look[0].key }).catch(() => {}) : show("routines")),
   },
 ];
 
@@ -78,6 +93,8 @@ export default class Home {
     this.status = "connecting";
     this.filter = null;
     this.sel = null;
+    // The card the person moved to with a key or clicked: only its permission takes a digit.
+    this.chosen = null;
     this.focusMode = false;
     this.width = 1200;
     this.now = Date.now();
@@ -90,25 +107,15 @@ export default class Home {
     this.flashes = new Flashes();
     this.hover = new Hover();
     this.handle = cx.focus_handle();
+    // An empty board shows what is left of getting started, from the doctor's checks.
+    this.started = new Started();
     this.reply = InputState.new({ placeholder: "Type your answer, ⏎ sends it to the agent" });
-    this.reply.on("submit", (_e, cx) => this.sendReply(cx));
+    this.reply.on("submit", (_e, cx) => this.sendReply(cx, "key"));
     this.replying = null;
-    cx.timer.every(30000, (cx) => {
-      this.now = Date.now();
-      cx.notify();
-    });
     this.apps = {};
     this.pinned = null;
     this.events = [];
-    const loadEvents = (cx) =>
-      cx.spawn(async (cx) => {
-        try {
-          this.events = await hub.events(undefined, Date.now() - 3 * 86_400_000);
-          cx.notify();
-        } catch {}
-      });
-    loadEvents(cx);
-    cx.timer.every(60_000, (cx) => loadEvents(cx));
+    this.loadEvents(cx);
     cx.spawn(async (cx) => {
       try {
         const { cache, home } = await hub.install();
@@ -118,11 +125,12 @@ export default class Home {
       } catch {}
       cx.notify();
     });
-    this.sub = hub.subscribe(
+    this.sub = following(
       cx,
-      { views: ["agents", "home", "queue", ...OVERVIEW.map((o) => o.view)] },
+      { views: ["agents", "home", "queue", "start", ...OVERVIEW.map((o) => o.view)] },
       (m, cx) => {
         if (OVERVIEW.some((o) => o.view === m.view)) this.apps[m.view] = m.value;
+        if (m.view === "start") this.starts = (m.value?.runs ?? []).filter((r) => r.state === "running" || r.state === "failed");
         if (m.view === "agents") this.rows = m.value;
         if (m.view === "home") this.home = m.value;
         if (m.view === "queue") this.queue = m.value;
@@ -141,6 +149,24 @@ export default class Home {
 
   close() {
     this.sub?.stop();
+  }
+
+  /** On the copy's clock (main.js): the times shown move on every 30 s, the recent events are read again every minute. */
+  tick(cx, now) {
+    if (now - this.eventsAt >= 60_000) this.loadEvents(cx);
+    if (now - this.now < 30_000) return;
+    this.now = now;
+    cx.notify();
+  }
+
+  loadEvents(cx) {
+    this.eventsAt = Date.now();
+    cx.spawn(async (cx) => {
+      try {
+        this.events = await hub.events(undefined, Date.now() - 3 * 86_400_000);
+        cx.notify();
+      } catch {}
+    });
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -206,12 +232,42 @@ export default class Home {
   // -------------------------------------------------------------------------------------------------------------------
   // Actions
 
-  async act(cx, key, label, fn) {
+  /**
+   * Sets a card's agent aside until it asks something new, Undo on its toast; `back` brings a dismissed one back. The
+   * person's own act: a click, a real key on the card they picked, or a menu's keyed command.
+   */
+  dismiss(cx, card, back) {
+    const a = card.agent;
+    // The wait its card showed goes with it: the hub refuses it once the agent waits on something else.
+    const send = (undo) => agentAct("dismiss", { terminal: a.handle, undo, ...(undo || !a.row?.wait ? {} : { wait: a.row.wait }) });
+    cx.spawn(async (cx) => {
+      this.busy.set(card.key, back ? "Bringing it back…" : "Dismissing…");
+      cx.notify();
+      try {
+        const r = await send(back);
+        if (r?.error && changed(r.error)) this.toasts.push(cx, CHANGED, { kind: "info" });
+        else if (r?.error) this.toasts.push(cx, r.error, { kind: "error" });
+        else if (!back) {
+          const undo = (_e, cx) => cx.spawn(async (cx) => this.act(cx, card.key, "Bringing it back…", () => send(true), `${a.title} is back in Needs you`));
+          this.toasts.push(cx, `Dismissed ${a.title}`, { kind: "success", description: "Back when it asks something new.", ms: 8000, action: { label: "Undo", onClick: undo } });
+        }
+      } catch (e) {
+        this.toasts.push(cx, String(e?.message ?? e), { kind: "error" });
+      }
+      this.busy.delete(card.key);
+      cx.notify();
+    });
+  }
+
+  /** Runs a hub action with its card busy; `pending` is said in place of the hub's note when the result comes later. */
+  async act(cx, key, label, fn, pending = null) {
     this.busy.set(key, label);
     cx.notify();
     try {
       const r = await fn();
-      if (r?.error) this.toasts.push(cx, r.error, { kind: "error" });
+      if (r?.error && changed(r.error)) this.toasts.push(cx, CHANGED, { kind: "info" });
+      else if (r?.error) this.toasts.push(cx, r.error, { kind: "error" });
+      else if (pending) this.toasts.push(cx, pending, { kind: "info" });
       else if (r?.note) this.toasts.push(cx, r.note, { kind: "success" });
       return r;
     } catch (e) {
@@ -223,35 +279,44 @@ export default class Home {
     }
   }
 
-  answer(cx, a, choice) {
-    const q = a.question;
+  /** Answers the question Home shows for `a`, naming it, picked by a click or a key (`how`). */
+  answer(cx, a, choice, how = "click") {
+    // The question Home drew for it: a key answers what was on the board, not a newer one it had not drawn yet.
+    const q = this.drawn?.get(a.address) ?? a.question;
     cx.spawn(async (cx) => {
-      const r = await this.act(cx, `a:${a.address}`, "Answering…", () => agentAct("answer", { terminal: a.handle, ...choice }));
-      if (r?.error) this.openBeside(cx, a);
-      else this.flashes.start(cx, `a:${a.address}`, tokens().success);
+      const r = await this.act(cx, `a:${a.address}`, "Answering…", () => agentAct("answer", answerPayload(a.handle, q, choice, `home:${how}`)));
+      // A question that moved on is drawn again from the newer view; another failure opens the agent beside the board.
+      if (r?.error && !changed(r.error)) this.openBeside(cx, a);
+      else if (!r?.error) this.flashes.start(cx, `a:${a.address}`, tokens().success);
       this.picks.delete(a.address);
       if (q && this.replying === a.address) this.replying = null;
     });
   }
 
-  sendReply(cx) {
+  sendReply(cx, how = "click") {
     const a = this.agentByAddress(this.replying);
     const text = this.reply.value().trim();
     if (!a || !text) return;
     this.reply.set_value("");
-    this.answer(cx, a, { text });
+    this.answer(cx, a, { text }, how);
+  }
+
+  /** Words for an agent that is not asking anything: queued, and sent now when it is free and nothing waits before it. */
+  tell(cx, a, text) {
+    cx.spawn(async (cx) => this.act(cx, `a:${a.address}`, "Sending…", () => hub.act("queue", "tell", [a.handle, text])));
   }
 
   agentByAddress(address) {
     return fleet(this.rows, this.home).find((a) => a.address === address) ?? null;
   }
 
-  openBeside(cx, a) {
+  /** The agent beside the board; asked by a window command (`pick` false) it leaves the card picked as it was. */
+  openBeside(cx, a, pick = true) {
     if (!a) return;
     run("agent.focus", { terminal: a.address });
     run("layout.show", { id: "home-agent" });
     this.focusMode = true;
-    this.sel = `a:${a.address}`;
+    if (pick) this.sel = `a:${a.address}`;
     cx.notify();
   }
 
@@ -275,7 +340,7 @@ export default class Home {
       title: `Merge ${pr.repo}#${pr.number}?`,
       description: `${pr.title} · squash into ${pr.base || "main"}`,
       label: "Merge",
-      run: (cx) => cx.spawn(async (cx) => this.act(cx, `p:${pr.url}`, "Merging…", () => hub.act("inbox", "merge", [{ pr: pr.url, method: "squash" }]))),
+      run: (cx) => cx.spawn(async (cx) => this.act(cx, `p:${pr.url}`, "Merging…", () => hub.act("inbox", "merge", [{ url: pr.url, repo: pr.repo, number: pr.number }, "squash"]))),
     };
     cx.notify();
   }
@@ -298,13 +363,9 @@ export default class Home {
     if (url) cx.spawn(async () => hub.openUrl(url));
   }
 
-  newAgent(cx) {
-    cx.spawn(async () => {
-      const known = (await knownAgents().catch(() => [])).find((k) => k.installed);
-      run("tab.new", known ? { argv: known.run } : {});
-      run("layout.select", { stack: "center", child: "work" });
-      setShared("cockpit.app", "work");
-    });
+  /** New agent: the Start work dialog, where a prompt, a ticket or a PR gets its worktree, space and agent. */
+  newAgent() {
+    openStart();
   }
 
   menu(card) {
@@ -318,6 +379,8 @@ export default class Home {
       a && { label: "Queue a prompt", icon: "list-ordered", kbd: "q", command: `home:queue:${id}` },
       a && "separator",
       a && a.status === "blocked" && { label: "Snooze for an hour", icon: "moon", kbd: "s", command: `home:snooze:${id}` },
+      a && dismissable(a.row) && { label: "Dismiss until it asks again", icon: "x", kbd: "x", command: `home:dismiss:${id}` },
+      a && a.dismissed && !a.remote && { label: "Bring back to Needs you", icon: "undo", kbd: "x", command: `home:restore:${id}` },
       a && { label: pinsNow().includes(a.handle) ? "Unpin" : "Pin to the top", icon: pinsNow().includes(a.handle) ? "pin-off" : "pin", kbd: "p", command: `home:pin:${id}` },
       a && { label: "Mark as seen", icon: "eye", command: `home:seen:${id}` },
       a && { label: "Fork to a new tab", icon: "git-fork", command: `home:fork:${id}` },
@@ -328,10 +391,20 @@ export default class Home {
     ]);
   }
 
-  menuAction(action, key, cx) {
+  /**
+   * A card's menu item. Without the key its menu opened with (`person` false), a window command only brings the agent
+   * or its PR into view: it picks no card and acts on nothing.
+   */
+  menuAction(action, key, cx, person = false) {
+    if (action === "unasked") return this.confirmedUnasked(key, cx);
     const card = this.flat(this.columns(this.cards())).find((c) => c.key === key) ?? this.cards().find((c) => c.key === key);
     if (!card) return;
-    this.sel = key;
+    if (!person) {
+      if (action === "beside") this.openBeside(cx, card.agent, false);
+      else if (action === "go" || action === "pr") this.run(action, card, cx);
+      return;
+    }
+    this.sel = this.chosen = key;
     this.run(action, card, cx);
   }
 
@@ -347,7 +420,12 @@ export default class Home {
     else if (action === "recap" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Recap…", () => agentAct("recap", { terminal: a.handle })));
     else if (action === "snooze" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Snoozing…", () => agentAct("snooze", { terminal: a.handle, until: "1h" })));
     else if (action === "seen" && a) cx.spawn(async (cx) => this.act(cx, card.key, "…", () => agentAct("seen", { terminal: a.handle })));
+    // Each names what it does: a command that comes late never undoes what the person saw.
+    else if (action === "dismiss" && a && !a.remote) this.dismiss(cx, card, false);
+    else if (action === "restore" && a && !a.remote) this.dismiss(cx, card, true);
     else if (action === "fork" && a) cx.spawn(async (cx) => this.act(cx, card.key, "Forking…", () => agentAct("fork", { terminal: a.handle, place: "tab" })));
+    else if (action === "stop" && a?.row?.stoppable && !a.remote && !this.busy.has(card.key)) cx.spawn(async (cx) => this.act(cx, card.key, "Stopping…", () => agentAct("interrupt", { terminal: a.handle }), `Stopping ${a.title}…`));
+    else if (action === "queue" && a && !available(layoutName(), "queue")) goToAgent(a);
     else if (action === "queue" && a) {
       setShared("cockpit.queue.for", a.address);
       run("cockpit.queue", {});
@@ -358,12 +436,21 @@ export default class Home {
     cx.notify();
   }
 
-  command(c, cx) {
+  command(c, cx, key = null) {
     if (c === "show:home" || c === "focus") this.handle.focus();
     else if (c === "escape" && this.focusMode) this.closeBeside(cx);
+    // Brought back into view, the board takes no number for a card picked on an earlier visit.
+    if (c === "show:home") this.chosen = null;
     const [scope, action, ...rest] = c.split(":");
-    if (scope === "home") this.menuAction(action, rest.join(":"), cx);
+    if (scope === "home") this.menuAction(action, rest.join(":"), cx, take(c, key));
     cx.notify();
+  }
+
+  /** The board's own pick when the selected card went: its first card, which is not the person's pick, even of a card they picked before. */
+  keepSel(cols) {
+    if (this.sel && this.flat(cols).some((c) => c.key === this.sel)) return;
+    this.sel = this.flat(cols)[0]?.key ?? null;
+    this.chosen = null;
   }
 
   selected(cols) {
@@ -411,20 +498,26 @@ export default class Home {
       }
       return false;
     }
+    // Home hidden behind another screen keeps its copy, and may keep the keyboard: its keys answer nothing then.
+    if (!inFront("home")) return false;
     const cols = this.columns(this.cards());
-    // Nothing picked yet: the keys act on the NEXT MOVE agent, as its hints say.
+    // Nothing picked yet: the keys act on the NEXT MOVE agent, as its hints say, except a number, which waits for a pick.
     const card = this.selected(cols) ?? cols.all.needs.find((c) => c.agent) ?? null;
     const a = card?.agent;
-    if (k === "j" || k === "down") this.move(cols, 1, 0);
-    else if (k === "k" || k === "up") this.move(cols, -1, 0);
-    else if (k === "l" || k === "right") this.move(cols, 0, 1);
-    else if (k === "h" || k === "left") this.move(cols, 0, -1);
+    if (k === "j" || k === "down") this.chosen = (this.move(cols, 1, 0), this.sel);
+    else if (k === "k" || k === "up") this.chosen = (this.move(cols, -1, 0), this.sel);
+    else if (k === "l" || k === "right") this.chosen = (this.move(cols, 0, 1), this.sel);
+    else if (k === "h" || k === "left") this.chosen = (this.move(cols, 0, -1), this.sel);
     else if (k === "f") this.toggleFocus(cx, cols);
     else if (k === "escape" && this.focusMode) this.closeBeside(cx);
     else if (k === "escape" && this.filter) this.filter = null;
     else if (k === "enter" && card) this.run("go", card, cx);
-    else if (/^[1-9]$/.test(k) && (a?.question?.choices?.length ?? 0) >= Number(k)) this.pick(cx, a, Number(k) - 1);
-    else if (k === "t" && a?.question) this.startReply(cx, a);
+    // A digit held down answers nothing: its repeats are not picks.
+    else if (/^[1-9]$/.test(k) && e?.is_held) return true;
+    // A number answers only the card the person moved to or clicked, never the one the board opened on or NEXT MOVE.
+    else if (/^[1-9]$/.test(k) && a?.question && (!card || this.chosen !== card.key)) this.toasts.push(cx, "Pick its card first (j/k), then its number", { kind: "info" });
+    else if (/^[1-9]$/.test(k) && (a?.question?.choices?.length ?? 0) >= Number(k)) this.pick(cx, a, Number(k) - 1, "key");
+    else if (k === "t" && a?.question && !a.question.permission && !a.waits) this.startReply(cx, a);
     else if (k === "m" && card?.stage === "ready") this.run("merge", card, cx);
     else if (k === "a" && card?.stage === "done") this.run("archive", card, cx);
     else if (k === "p" && a) this.run("pin", card, cx);
@@ -432,23 +525,58 @@ export default class Home {
     else if (k === "r" && a) this.run("recap", card, cx);
     else if (k === "s" && a) this.run("snooze", card, cx);
     else if (k === "q" && a) this.run("queue", card, cx);
-    else if (k === "n") this.newAgent(cx);
+    // x sets a waiting agent aside, and brings a dismissed one back: only on the card the person moved to or clicked,
+    // by a key they pressed themselves.
+    else if (k === "x" && a && (dismissable(a.row) || a.dismissed) && (e?.injected || e?.is_held)) return true;
+    else if (k === "x" && a && (dismissable(a.row) || a.dismissed) && this.chosen !== card.key) this.toasts.push(cx, "Pick its card first (j/k), then x", { kind: "info" });
+    else if (k === "x" && a && (dismissable(a.row) || a.dismissed)) this.run(a.dismissed ? "restore" : "dismiss", card, cx);
+    else if (k === "x" && a?.row?.stoppable) this.armStop(cx, card);
+    else if (k === "n") this.newAgent();
     else return false;
     cx.notify();
     return true;
   }
 
-  pick(cx, a, i) {
-    const q = a.question;
+  /** One `x` arms the stop and says so; a second within three seconds stops the turn. */
+  armStop(cx, card) {
+    const now = Date.now();
+    if (this.armed?.key === card.key && now - this.armed.at < 3000) {
+      this.armed = null;
+      this.run("stop", card, cx);
+    } else {
+      this.armed = { key: card.key, at: now };
+      this.toasts.push(cx, "x again to stop its turn", { kind: "info" });
+    }
+  }
+
+  pick(cx, a, i, how = "click") {
+    const q = this.drawn?.get(a.address) ?? a.question;
     const c = q.choices[i];
     if (!c) return;
+    // A permission cockpit cannot show in full is answered in the agent's terminal, in the hub's own words.
+    if (q.terminal_only) return this.toasts.push(cx, q.terminal_only, { kind: "info" });
     if (q.kind === "multi") {
       const set = new Set(this.picks.get(a.address) ?? q.choices.filter((x) => x.checked).map((x) => x.n));
       set.has(c.n) ? set.delete(c.n) : set.add(c.n);
       this.picks.set(a.address, set);
       cx.notify();
     } else if (c.free) this.startReply(cx, a);
-    else this.answer(cx, a, { choice: c.n });
+    // A choice that runs every tool unasked asks in a step of its own, Cancel first.
+    else if (unaskedChoice(q, c)) confirmUnasked(a.address, q, c, "home:unasked:");
+    else this.answer(cx, a, { choice: c.n }, how);
+  }
+
+  /**
+   * A choice that runs every tool unasked, confirmed from the step its menu opened, by that step's one-time key: answered
+   * for the question it was asked about. A window command from outside the window names no key and answers nothing.
+   */
+  confirmedUnasked(key, cx) {
+    const found = takeConfirm(key);
+    const a = found && this.agentByAddress(found.handle);
+    const q = a && (this.drawn?.get(a.address) ?? a.question);
+    if (!q) return;
+    if ((q.asked ?? q.ask ?? "") !== found.asked) return this.toasts.push(cx, CHANGED, { kind: "info" });
+    this.answer(cx, a, { choice: found.n, confirm: true }, "confirm");
   }
 
   startReply(cx, a) {
@@ -471,12 +599,14 @@ export default class Home {
     if (this.notInstalled) return this.installPanel(k);
     const all = this.cards();
     const cols = this.columns(all);
-    if (!this.sel || !this.flat(cols).some((c) => c.key === this.sel)) this.sel = this.flat(cols)[0]?.key ?? null;
+    this.keepSel(cols);
     const beside = findNode(layout(), "home-agent");
     this.focusMode = Boolean(beside && !beside.hidden);
     const wide = this.width >= 1240;
     const narrow = this.width < 720;
     const loading = this.status !== "live" && !this.home;
+    // The doctor is asked only once the board shows empty.
+    if (!loading && COLUMNS.every((c) => !cols[c.stage].length)) this.started.want(cx);
 
     return div()
       .id("home-root")
@@ -510,6 +640,8 @@ export default class Home {
               .pb(28)
               .gap(18)
               .child(this.header(all, cols, narrow))
+              .when(this.status.startsWith("error"), (e) => e.child(HubDown("home-hub-down", this, this.status.replace(/^error: /, ""), k, { maxW: 100_000 })))
+              .when(Boolean(this.starts?.length), (e) => e.child(this.startsBanner()))
               .when(Boolean(this.home?.lost?.length), (e) => e.child(this.lostBanner(narrow)))
               .child(loading ? this.skeleton() : this.kpis(cols, narrow))
               .child(this.dashboard(cols, wide, narrow)),
@@ -615,6 +747,28 @@ export default class Home {
       .child(this.toasts.render() ?? div());
   }
 
+  /** Starts that still run or failed, each a click from its dialog: retry or cancel it there. */
+  startsBanner() {
+    const k = tokens();
+    return v_flex()
+      .gap(6)
+      .children(
+        this.starts.slice(0, 3).map((r) =>
+          h_flex()
+            .id(`home-start-${r.id}`)
+            .gap(10)
+            .px(12)
+            .py(8)
+            .items_center()
+            .rounded(RADIUS.md)
+            .bg(alpha(r.state === "failed" ? k.destructive : k.info, 0.08))
+            .child(r.state === "failed" ? Icon("circle-x", { size: 14, color: k.destructive }) : Spinner({ size: 12, color: k.info }))
+            .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).child(`Start work · ${r.title || r.label}${r.state === "failed" ? `: ${r.error?.step ?? "a step"} failed` : ""}`))
+            .child(Button(`home-start-open-${r.id}`, { label: "Open", variant: "outline", size: "sm", onClick: () => openStart({ run: r.id }) })),
+        ),
+      );
+  }
+
   header(all, cols, narrow) {
     const k = tokens();
     const now = new Date(this.now);
@@ -638,12 +792,11 @@ export default class Home {
           .child(div().text_size(narrow ? 20 : 24).font_semibold().text_color(k.foreground).child(greeting(now)))
           .child(div().truncate().text_size(TEXT.base).text_color(k.mutedFg).child(parts.join(" · "))),
       )
-      .when(this.status.startsWith("error"), (e) => e.child(Badge("hub offline", "destructive", { dot: k.destructive })))
       .child(
         h_flex()
           .gap(8)
           .flex_none()
-          .child(Button("home-new", { label: narrow ? null : "New agent", icon: "plus", variant: "outline", size: narrow ? "icon-sm" : "sm", kbd: narrow ? null : "n", tooltip: "Start an agent in a new tab  n", onClick: (_e, cx) => this.newAgent(cx) }))
+          .child(Button("home-new", { label: narrow ? null : "New agent", icon: "plus", variant: "outline", size: narrow ? "icon-sm" : "sm", kbd: narrow ? null : "n", tooltip: "Start work: a prompt, a ticket or a PR in a worktree of its own  n", onClick: () => this.newAgent() }))
           .child(
             Button("home-focus", {
               label: narrow ? null : this.focusMode ? "Close beside" : "Focus",
@@ -666,8 +819,8 @@ export default class Home {
     const week = this.home?.week?.by_day ?? [];
     const shipped = week.reduce((n, d) => n + (d.count ?? 0), 0);
     const landed = (this.home?.landed?.days ?? []).map((d) => d.count ?? 0);
-    // Null when no agent writes cost books (Claude Code's plugin does): no tile rather than a made-up $0.
-    const spend = this.home?.spend;
+    // Null until the transcripts are counted, or when they hold no tokens: no tile rather than a made-up $0.
+    const spend = spendTile(this.home?.spend);
     const needs = cols.all.needs.filter((c) => c.agent).length;
     const fix = (this.home?.fixing ?? []).length;
     const ready = (this.home?.ready ?? []).length;
@@ -681,7 +834,7 @@ export default class Home {
       .child(tile("kpi-reviews", { label: "Reviews for you", icon: "eye", value: String(inbox.direct ?? 0), hint: `${Math.max(0, (inbox.reviews ?? 0) - (inbox.direct ?? 0))} for your team`, onClick: () => show("inbox") }))
       .child(tile("kpi-prs", { label: "Your PRs", icon: "git-pull-request", value: String(prs.length), hint: [ready && `${ready} ready`, fix && `${fix} to fix`].filter(Boolean).join(" · ") || "nothing to do", onClick: () => show("inbox") }))
       .child(tile("kpi-shipped", { label: "Merged this week", icon: "git-merge", value: String(shipped), hint: `${landed.at(-1) ?? 0} today` }))
-      .when(Boolean(spend), (e) => e.child(tile("kpi-spend", { label: "Agent spend", icon: "dollar", value: money(spend.today ?? 0), hint: `${money(spend.week ?? 0)} these 7 days` })));
+      .when(Boolean(spend), (e) => e.child(tile("kpi-spend", { label: "Agent spend", icon: "dollar", value: spend.value, hint: spend.hint, onClick: () => openUsage() })));
   }
 
   /** Agents and PRs on the left, what comes next and what happened on the right. */
@@ -691,6 +844,10 @@ export default class Home {
       .min_w(0)
       .gap(18)
       .when(Boolean(this.nextMove(cols, narrow)), (e) => e.child(this.nextMove(cols, narrow)))
+      .when(COLUMNS.every((c) => !cols[c.stage].length), (e) => {
+        const started = this.started.el({ compact: false });
+        return started ? e.child(started) : e;
+      })
       .child(this.board(cols, wide, narrow))
       .when(cols.prs.length > 0, (e) => e.child(this.prList(cols.prs, narrow)));
     const right = v_flex().w(320).flex_none().gap(16).child(this.upNext()).child(this.appsCard()).child(this.activity());
@@ -746,20 +903,28 @@ export default class Home {
 
   /** One line per pinned app, a click away. */
   appsCard() {
+    // "Linear · sign in again", or "limited until 12:30" when the source is the app itself.
+    const sourceLine = (o, v) => {
+      const f = failing(v.sources, Date.now());
+      return f && { text: f.label === o.label ? f.words : f.text, tone: f.tone };
+    };
     const k = tokens();
-    // Meetings have their own card above.
+    // Meetings have their own card above, unless the calendar fails to read.
     // Mail shows wherever it is set up, pinned or not.
-    const items = OVERVIEW.filter((o) => o.view !== "meetings" && ((this.pinned ?? DEFAULT_PINNED).includes(o.space) || (o.view === "mail" && this.apps.mail?.enabled)))
-      .map((o) => ({ ...o, line: this.apps[o.view] ? o.line(this.apps[o.view]) : null }))
-      .filter((o) => o.line);
+    const calendarFails = Boolean(failing(this.apps.meetings?.sources, Date.now()));
+    const items = OVERVIEW.filter((o) => (o.view !== "meetings" || calendarFails) && ((this.pinned ?? DEFAULT_PINNED).includes(o.space) || (o.view === "mail" && this.apps.mail?.enabled)))
+      // The app's own line first; a failing source under it, as its numbers may be old.
+      .map((o) => ({ ...o, line: this.apps[o.view] ? o.line(this.apps[o.view]) : null, source: this.apps[o.view] ? sourceLine(o, this.apps[o.view]) : null }))
+      .filter((o) => o.line || o.source);
     return this.side(
       "home-apps",
       "Apps",
       "layout-dashboard",
-      items.map((o) =>
-        h_flex()
+      items.map((o) => {
+        const tone = o.line?.tone ?? o.source?.tone;
+        return h_flex()
           .id(`ov-${o.label}`)
-          .h(28)
+          .min_h(28)
           .px(6)
           .mx(-6)
           .gap(8)
@@ -767,11 +932,18 @@ export default class Home {
           .rounded(RADIUS.md)
           .cursor_pointer()
           .hover((s) => s.bg(k.accent))
-          .on_click(() => show(o.view))
-          .child(Icon(o.icon, { size: 14, color: o.line.tone ? k[o.line.tone] : k.mutedFg }))
+          .on_click(() => (o.open ? o.open(this.apps[o.view]) : show(o.view)))
+          .child(Icon(o.icon, { size: 14, color: tone ? k[tone] : k.mutedFg }))
           .child(div().w(72).flex_none().text_size(TEXT.sm).font_medium().text_color(k.foreground).child(o.label))
-          .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(o.line.tone ? k[o.line.tone] : k.mutedFg).child(o.line.text)),
-      ),
+          .child(
+            v_flex()
+              .flex_1()
+              .min_w(0)
+              .py(o.line && o.source ? 4 : 0)
+              .when(Boolean(o.line), (e) => e.child(div().truncate().text_size(TEXT.sm).text_color(o.line.tone ? k[o.line.tone] : k.mutedFg).child(o.line.text)))
+              .when(Boolean(o.source), (e) => e.child(div().truncate().text_size(o.line ? TEXT.xs : TEXT.sm).text_color(k[o.source.tone]).child(o.source.text))),
+          );
+      }),
       "Nothing pinned",
     );
   }
@@ -823,7 +995,8 @@ export default class Home {
         ),
       actions: [
         Button("lost-dismiss", { label: "Leave stopped", variant: "ghost", size: "sm", onClick: (_e, cx) => cx.spawn(async () => Promise.all(lost.map((e) => hub.act("home", "dismiss", [e.handle])))) }),
-        ToneButton("lost-resume", { label: "Resume all", tone: k.info, kbd: "⌘⌥R", onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, "lost", "Resuming…", () => hub.act("home", "resume", []))) }),
+        // Its key as Cockpit binds it, on the button; Cockpit Chat keeps keys out of its buttons.
+        ToneButton("lost-resume", { label: "Resume all", tone: k.info, kbd: layoutName() === "cockpit" && keyFor("cockpit.resume") ? keyText(keyFor("cockpit.resume")) : undefined, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, "lost", "Resuming…", () => hub.act("home", "resume", []))) }),
       ],
     });
   }
@@ -834,28 +1007,34 @@ export default class Home {
     if (ask) {
       const a = ask.agent;
       const q = a.question;
-      const meta = [a.repo ?? a.space_name, a.branch, a.since ? `waiting ${dur(this.now - a.since)}` : null, a.ticket].filter(Boolean).join(" · ");
+      const facts = [a.repo ?? a.space_name, a.branch, a.since ? `waiting ${dur(this.now - a.since)}` : null, a.ticket].filter(Boolean).join(" · ");
+      const meta = h_flex().w_full().gap(6).items_center().child(AgentLogo(a, { size: 13, color: k.mutedFg, tooltip: a.agent_name, id: "home-next-logo" })).child(div().flex_1().min_w(0).whitespace_normal().text_size(TEXT.sm).text_color(k.mutedFg).child(facts));
       const replying = this.replying === a.address;
       const choices = q?.choices ?? [];
-      const body =
+      const row =
         replying
           ? h_flex().gap(8).pt(6).child(TextField(this.reply, { leading: Icon("message", { size: 14, color: k.mutedFg }) })).child(Button("reply-send", { label: "Send", icon: "send", size: "sm", onClick: (_e, cx) => this.sendReply(cx) }))
-          : choices.length
+          : choices.length && !q?.terminal_only
             ? this.choiceRow(a, "next", 6)
             : null;
+      // A permission shows what it would allow, in full, above its choices; one cockpit cannot show in full has none.
+      const allows = q?.permission ? AllowsBlock(`next-${a.address}`, q.preview, { cut: q.cut === true, note: q.terminal_only }) : null;
+      const body = allows && row ? v_flex().gap(6).pt(6).child(allows).child(row) : (row ?? allows);
       return Callout("home-next", {
         tone: k.blocked,
         label: "Next move",
         icon: "hand",
         // Beside the side cards the callout is narrow: its actions go under the question.
         stack: narrow || this.width < 1500,
-        title: q?.text ? `${a.title} asks: “${q.text}”` : `${a.title} is waiting for you`,
+        title: q?.text ? `${a.title} asks: “${q.text}”` : a.waits ? `${a.title}: ${a.waits.text}` : `${a.title} is waiting for you`,
         meta,
         body: body ?? undefined,
         actions: [
-          !replying && Button("next-reply", { label: narrow ? null : "Reply", icon: "message", variant: "outline", size: narrow ? "icon-sm" : "sm", kbd: narrow ? null : "t", tooltip: "Type an answer here  t", onClick: (_e, cx) => this.startReply(cx, a) }),
+          !replying && !q?.permission && !a.waits && Button("next-reply", { label: narrow ? null : "Reply", icon: "message", variant: "outline", size: narrow ? "icon-sm" : "sm", kbd: narrow ? null : "t", tooltip: "Type an answer here  t", onClick: (_e, cx) => this.startReply(cx, a) }),
           Button("next-beside", { label: narrow ? null : "Open beside", icon: "panel-right", variant: "outline", size: narrow ? "icon-sm" : "sm", tooltip: "Its terminal beside the board  f", onClick: (_e, cx) => this.openBeside(cx, a) }),
           ToneButton("next-go", { label: "Go to agent", tone: k.blocked, kbd: "⏎", onClick: () => goToAgent(a) }),
+          // No key here: x dismisses the card the person picked, never the one the board opened on.
+          dismissable(a.row) && Button("next-dismiss", { label: narrow ? null : "Dismiss", icon: "x", variant: "ghost", size: narrow ? "icon-sm" : "sm", tooltip: "Dismiss until it asks something new", onClick: (_e, cx) => this.dismiss(cx, ask, false) }),
         ].filter(Boolean),
       });
     }
@@ -865,8 +1044,12 @@ export default class Home {
   choiceRow(a, prefix, pad = 0) {
     const k = tokens();
     const q = a.question;
+    this.drawn ??= new Map();
+    this.drawn.set(a.address, q);
     const multi = q.kind === "multi";
     const picked = this.picks.get(a.address) ?? new Set(q.choices.filter((x) => x.checked).map((x) => x.n));
+    // Each question draws its own choices: a click begun on one never lands on the next one drawn in its place.
+    const named = String(q.ask ?? q.asked ?? "").replace(/[^A-Za-z0-9_-]/g, "");
     return h_flex()
       .flex_wrap()
       .gap(6)
@@ -875,7 +1058,7 @@ export default class Home {
         q.choices.slice(0, 9).map((c, i) => {
           const on = multi ? picked.has(c.n) : i === q.cursor;
           return h_flex()
-            .id(`${prefix}-choice-${a.address}-${i}`)
+            .id(`${prefix}-choice-${a.address}-${named}-${i}`)
             .h(28)
             .px(10)
             .gap(6)
@@ -952,15 +1135,14 @@ export default class Home {
 
   programIcon(a) {
     const k = tokens();
-    const p = a?.program;
-    if (p?.icon) return p.tint ? svg(p.icon).size(14).flex_none().text_color(k.mutedFg) : image(p.icon).w(14).h(14).flex_none();
-    return Icon(a ? "bot" : "git-pull-request", { size: 14, color: k.mutedFg });
+    if (a) return AgentLogo(a, { size: 14, color: k.mutedFg, tooltip: a.agent_name, id: `home-logo-${a.address}` });
+    return Icon("git-pull-request", { size: 14, color: k.mutedFg });
   }
 
   card(card, col) {
     const k = tokens();
-    const tone = k[col.tone];
     const a = card.agent;
+    const tone = a?.status === "failed" && card.stage === "needs" ? k.destructive : k[col.tone];
     const pr = card.pr ?? a?.pr ?? null;
     const sel = card.key === this.sel;
     const busy = this.busy.get(card.key);
@@ -975,9 +1157,7 @@ export default class Home {
           ? "failing"
           : "changes asked"
       : card.stage === "needs"
-        ? a.since
-          ? `waiting ${dur(this.now - a.since)}`
-          : "waiting"
+        ? `${a.status === "failed" ? "stopped" : "waiting"}${a.since ? ` ${dur(this.now - a.since)}` : ""}`
         : card.stage === "working"
           ? a.working
             ? dur(this.now - a.working)
@@ -1004,7 +1184,8 @@ export default class Home {
     const ch = a?.changes;
     if (ch && (ch.added || ch.removed)) facts.push(h_flex().gap(4).child(Mono(`+${ch.added ?? 0}`, { color: k.success })).child(Mono(`−${ch.removed ?? 0}`, { color: k.destructive })));
     if (ch?.files) facts.push(Mono(plural(ch.files, "file")));
-    if (a?.cost) facts.push(Mono(money(a.cost)));
+    // The session's cost as cockpit estimates it from the transcript.
+    if (a?.cost) facts.push(Mono(`~${money(a.cost)} estimated`));
     // What its processes cost the machine: a hot one shows in warning, a runaway in red.
     if (a?.load) {
       const hot = a.load.cpu >= 150 ? k.destructive : a.load.cpu >= 60 ? k.warning : k.mutedFg;
@@ -1018,19 +1199,22 @@ export default class Home {
           .child(Mono(`${a.load.cpu}% · ${a.load.mem >= 1000 ? `${(a.load.mem / 1000).toFixed(1)} GB` : `${a.load.mem} MB`}`, { color: hot })),
       );
     }
+    // Set aside by the person: it still waits, and says so quietly.
+    if (a?.dismissed) facts.push(Chip("Dismissed", { id: `${card.key}-dismissed`, icon: "x", tooltip: a.waits?.text ?? a.question?.text ?? "It still waits: bring it back to answer it here" }));
     const queued = this.queue?.queues?.[a ? a.handle : ""]?.length ?? 0;
     if (queued) facts.push(Chip(`${queued} queued`, { color: k.info, icon: "list-ordered" }));
 
     const actions = [];
     if (busy) actions.push(h_flex().gap(6).items_center().child(Spinner({ size: 12, color: tone })).child(div().text_size(TEXT.sm).text_color(k.mutedFg).child(busy)));
-    else if (card.stage === "needs" && isAgentCard && a.status !== "blocked") {
-      actions.push(ToneButton(`${card.key}-fix`, { label: "Ask it to fix", tone, onClick: (_e, cx) => this.answer(cx, a, { text: a.ci === "FAILURE" ? "The PR's checks fail: look at the failing jobs and fix them." : "Changes were requested on the PR: read the review comments and address them." }) }));
+    else if (card.stage === "needs" && isAgentCard && a.status !== "blocked" && a.status !== "failed") {
+      actions.push(ToneButton(`${card.key}-fix`, { label: "Ask it to fix", tone, onClick: (_e, cx) => this.tell(cx, a, a.ci === "FAILURE" ? "The PR's checks fail: look at the failing jobs and fix them." : "Changes were requested on the PR: read the review comments and address them.") }));
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
       if (pr?.url) actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "ghost", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
     } else if (card.stage === "needs" && isAgentCard) {
-      if (!a.question?.choices?.length) actions.push(ToneButton(`${card.key}-reply`, { label: "Reply", tone, kbd: "t", onClick: (_e, cx) => this.startReply(cx, a) }));
+      if (!a.question?.choices?.length && !a.waits) actions.push(ToneButton(`${card.key}-reply`, { label: "Reply", tone, kbd: "t", onClick: (_e, cx) => this.startReply(cx, a) }));
       actions.push(Button(`${card.key}-beside`, { label: "Open beside", variant: "outline", size: "sm", onClick: (_e, cx) => this.openBeside(cx, a) }));
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a) }));
+      if (dismissable(a.row)) actions.push(Button(`${card.key}-dismiss`, { label: "Dismiss", icon: "x", variant: "ghost", size: "sm", kbd: "x", tooltip: "Dismiss until it asks something new", onClick: (_e, cx) => (cx.stop_propagation(), this.run("dismiss", card, cx)) }));
     } else if (card.stage === "fix") {
       actions.push(ToneButton(`${card.key}-fix`, { label: `Fix with ${this.home?.agent?.name ?? "the agent"}`, tone: k.destructive, onClick: (_e, cx) => cx.spawn(async (cx) => this.act(cx, card.key, "Starting…", () => hub.act("inbox", "fix_ci", [pr.url]))) }));
       actions.push(Button(`${card.key}-open`, { label: "Open PR", variant: "outline", size: "sm", onClick: (_e, cx) => this.openUrl(cx, pr.url) }));
@@ -1040,8 +1224,10 @@ export default class Home {
       if (a) actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "ghost", size: "sm", onClick: () => goToAgent(a) }));
     } else if (showing && isAgentCard) {
       actions.push(Button(`${card.key}-go`, { label: "Go to agent", variant: "outline", size: "sm", onClick: () => goToAgent(a) }));
+      if (a.dismissed && !a.remote) actions.push(Button(`${card.key}-restore`, { label: "Bring back", icon: "undo", variant: "ghost", size: "sm", kbd: "x", tooltip: "Back to Needs you", onClick: (_e, cx) => (cx.stop_propagation(), this.run("restore", card, cx)) }));
       if (card.stage === "done") actions.push(Button(`${card.key}-archive`, { label: "Archive", icon: "archive", variant: "ghost", size: "sm", kbd: "a", onClick: (_e, cx) => this.archive(cx, a) }));
       if (card.stage === "working") actions.push(Button(`${card.key}-queue`, { label: "Queue a prompt", icon: "list-ordered", variant: "ghost", size: "sm", onClick: (_e, cx) => this.run("queue", card, cx) }));
+      if (card.stage === "working" && a.row?.stoppable && !a.remote) actions.push(Button(`${card.key}-stop`, { label: "Stop", icon: "square", variant: "ghost", size: "sm", kbd: "x", onClick: (_e, cx) => this.run("stop", card, cx) }));
     }
 
     if (isAgentCard && showing && !busy) {
@@ -1049,7 +1235,8 @@ export default class Home {
       actions.push(Button(`${card.key}-pin`, { icon: on ? "pin-off" : "pin", variant: "ghost", size: "sm", kbd: "p", tooltip: on ? "Unpin" : "Pin to the top", onClick: (_e, cx) => (cx.stop_propagation(), this.run("pin", card, cx)) }));
     }
 
-    const recap = a?.recap && card.stage !== "needs" ? String(a.recap).split("\n").find((l) => l.trim()) : null;
+    // A driven session a restart paused says so where its recap goes.
+    const recap = a?.row?.paused ? "Paused · picks up when you write" : a?.recap && card.stage !== "needs" ? String(a.recap).split("\n").find((l) => l.trim()) : null;
     const replying = isAgentCard && this.replying === a.address;
     let body = v_flex()
       .flex_1()
@@ -1077,9 +1264,23 @@ export default class Home {
             .gap(4)
             .rounded(RADIUS.md)
             .bg(alpha(tone, 0.1))
-            .child(div().text_size(10.5).font_semibold().text_color(tone).child(a.status === "blocked" ? "ASKS YOU" : "TO FIX"))
-            .child(div().w_full().whitespace_normal().text_size(TEXT.sm).text_color(k.foreground).child(a.question?.text || (a.status === "blocked" ? "It stopped and waits for you." : a.ci === "FAILURE" ? "Its PR's checks fail: tell it to fix them." : "Changes were asked on its PR.")))
-            .when(Boolean(a.question?.choices?.length), (e) => e.child(this.choiceRow(a, card.key, 4))),
+            .child(div().text_size(10.5).font_semibold().text_color(tone).child(a.waits ? (a.waits.kind === "limit" ? "AT ITS LIMIT" : "WAITS FOR YOU") : a.status === "blocked" ? "ASKS YOU" : a.status === "failed" ? "STOPPED WITH AN ERROR" : "TO FIX"))
+            .child(div().w_full().whitespace_normal().text_size(TEXT.sm).text_color(k.foreground).child(a.question?.text || a.waits?.text || (a.status === "blocked" ? "It stopped and waits for you." : a.status === "failed" ? a.error || "It stopped on an error: look at its terminal." : a.ci === "FAILURE" ? "Its PR's checks fail: tell it to fix them." : "Changes were asked on its PR.")))
+            .when(Boolean(a.question?.permission), (e) =>
+              e.child(
+                AllowsBlock(`${card.key}-q`, a.question.preview, {
+                  cut: a.question.cut === true,
+                  note: a.question.terminal_only,
+                  open: Boolean(this.opened?.has(a.address)),
+                  onToggle: (cx) => {
+                    this.opened ??= new Set();
+                    this.opened.has(a.address) ? this.opened.delete(a.address) : this.opened.add(a.address);
+                    cx.notify();
+                  },
+                }),
+              ),
+            )
+            .when(Boolean(a.question?.choices?.length) && !a.question?.terminal_only, (e) => e.child(this.choiceRow(a, card.key, 4))),
         ),
       )
       .when(replying, (e) => e.child(h_flex().gap(6).child(TextField(this.reply)).child(Button(`${card.key}-send`, { icon: "send", size: "icon-sm", onClick: (_e, cx) => this.sendReply(cx) }))))
@@ -1102,12 +1303,12 @@ export default class Home {
       .cursor_pointer()
       .hover((s) => s.border_color(alpha(tone, 0.5)))
       .on_click((e, cx) => {
-        this.sel = card.key;
+        this.sel = this.chosen = card.key;
         if (e.click_count > 1) this.run("go", card, cx);
         cx.notify();
       })
       .on_mouse_down("right", (_e, cx) => {
-        this.sel = card.key;
+        this.sel = this.chosen = card.key;
         this.menu(card);
         cx.notify();
       })

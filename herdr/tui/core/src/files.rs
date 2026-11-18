@@ -29,6 +29,13 @@ pub fn herdr_dir() -> PathBuf {
     exe.ancestors().nth(if released { 2 } else { 4 }).map(Path::to_path_buf).unwrap_or_default()
 }
 
+/// An id from outside (a session, a terminal) as a file name: letters, digits, `-` and `_` kept, anything else `-`, so no
+/// `/` or `..` reaches a path.
+pub fn file_key(id: &str) -> String {
+    let key: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    if key.is_empty() { "_".into() } else { key }
+}
+
 pub fn load(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
@@ -38,9 +45,53 @@ pub fn write(path: &Path, value: &Value) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("tmp");
+    // A temporary file of this write's own: two writers of one file never mix their bytes, the last rename wins.
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("{}-{n}.tmp", std::process::id()));
     std::fs::write(&tmp, serde_json::to_string(value)?)?;
-    std::fs::rename(tmp, path)
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Runs `f` while this process holds `<path>.lock`, so one writer at a time, across processes, reads and writes
+/// `path`. A lock held past 10 s is taken as left behind by a writer that died; a lock that cannot be made at all (an
+/// unwritable folder), or not within 20 s, leaves `f` to run unlocked, so its own write fails and says why.
+pub fn locked<T>(path: &Path, f: impl FnOnce() -> T) -> T {
+    locked_within(path, std::time::Duration::from_secs(10), std::time::Duration::from_secs(20), f)
+}
+
+fn locked_within<T>(path: &Path, stale: std::time::Duration, give_up: std::time::Duration, f: impl FnOnce() -> T) -> T {
+    let lock = path.with_extension("lock");
+    if let Some(dir) = lock.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let start = std::time::Instant::now();
+    let pause = || std::thread::sleep(std::time::Duration::from_millis(20));
+    let held = loop {
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&lock) {
+            Ok(_) => break true,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if start.elapsed() >= give_up {
+                    break false;
+                }
+                let old = std::fs::metadata(&lock).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= stale);
+                // A lock left behind is taken over; another writer that got there first is waited for.
+                if (old || start.elapsed() >= stale) && std::fs::remove_file(&lock).is_ok() {
+                    pause();
+                    continue;
+                }
+                pause();
+            }
+            Err(_) => break false,
+        }
+    };
+    let out = f();
+    if held {
+        let _ = std::fs::remove_file(&lock);
+    }
+    out
 }
 
 /// The config as the mod resolved it, or the raw file before any session has run.
@@ -100,4 +151,43 @@ pub fn herdr(args: &[&str]) -> Option<Value> {
     let bin = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".into());
     let out = std::process::Command::new(bin).args(args).output().ok()?;
     serde_json::from_slice(&out.stdout).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_lock_that_cannot_be_made_runs_the_write_unlocked_at_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("ro");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let start = Instant::now();
+        let wrote = locked(&dir.join("config.json"), || std::fs::write(dir.join("config.json"), "{}"));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(wrote.unwrap_err().kind(), std::io::ErrorKind::PermissionDenied, "the write itself says why");
+        assert!(start.elapsed() < Duration::from_secs(2), "no wait on a lock nobody can make");
+    }
+
+    #[test]
+    fn a_lock_held_is_waited_for_and_one_left_behind_taken_over() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        let lock = path.with_extension("lock");
+        std::fs::write(&lock, "").unwrap();
+        // Held past the stale age: taken over, and released after.
+        let start = Instant::now();
+        assert_eq!(locked_within(&path, Duration::from_millis(200), Duration::from_secs(5), || 7), 7);
+        assert!(start.elapsed() >= Duration::from_millis(200) && start.elapsed() < Duration::from_secs(3));
+        assert!(!lock.exists());
+        // One that is never released and cannot be taken over is given up on: the work runs all the same.
+        std::fs::create_dir(&lock).unwrap();
+        let start = Instant::now();
+        assert_eq!(locked_within(&path, Duration::from_secs(60), Duration::from_millis(300), || 8), 8);
+        assert!(start.elapsed() < Duration::from_secs(3));
+        assert!(lock.is_dir(), "a lock it did not make is not removed");
+    }
 }

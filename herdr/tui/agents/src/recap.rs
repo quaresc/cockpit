@@ -4,22 +4,26 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, UNIX_EPOCH};
 
-use cockpit_core::agent::{self, Agent};
+use cockpit_core::agent::{self, Agent, Headless};
 use cockpit_core::files;
+use cockpit_core::run;
 use cockpit_core::transcripts::{self, Role, Transcripts};
 use serde_json::{Value, json};
-
-use crate::term::output;
 
 static RUNNING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static ERRORS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 fn dir() -> PathBuf {
     files::cache().join("agents/recaps")
+}
+
+/// Where a session's recap is kept, its id made safe as a file name.
+fn kept_at(dir: &Path, session: &str) -> PathBuf {
+    dir.join(format!("{}.json", files::file_key(session)))
 }
 
 /// The session's transcript, in whichever agent's format holds it.
@@ -67,7 +71,7 @@ fn error(session: &str) -> Option<String> {
 
 /// The cached recap as the view shows it: {text, at, fresh, running, error}, or null when none was asked yet.
 pub fn shown(session: &str, transcript: Option<&Path>) -> Value {
-    let cached = files::load(&dir().join(format!("{session}.json")));
+    let cached = files::load(&kept_at(&dir(), session));
     let (running, error) = (running(session), error(session));
     let Some(c) = cached else {
         return if running || error.is_some() { json!({"text": "", "at": null, "fresh": false, "running": running, "error": error}) } else { Value::Null };
@@ -115,19 +119,23 @@ const ASK: &str = "Below are the messages of a coding agent's session with a per
 Recap it in two or three sentences for the person coming back to it: what was done, where it stands, and what is left or \
 what the agent waits for. Plain prose, no preamble, no heading.";
 
-/// The agent that writes the recap: the session's own when it runs headless, else the default one, with what keeps
-/// the run out of its history.
+/// Selects a verified text-only runner, preferring the session's own agent and then an installed safe fallback.
 fn runner(kind: Transcripts, prompt: &str, model: Option<&str>) -> Result<Vec<String>, String> {
-    let own = agent::get(kind.agent()).filter(Agent::can_run);
-    let a = own.unwrap_or_else(agent::default);
-    let model = model.filter(|_| a.id == "claude");
-    let mut argv = a.run_argv(prompt, model).ok_or_else(|| format!("{} has no headless mode for a recap", a.name))?;
-    match a.id.as_str() {
-        "claude" => argv.extend(["--no-session-persistence", "--tools", "", "--strict-mcp-config"].map(str::to_string)),
-        "codex" => argv.extend(["--ephemeral", "--skip-git-repo-check"].map(str::to_string)),
-        _ => {}
+    let mut candidates = vec![agent::get(kind.agent()), Some(agent::default())];
+    candidates.extend(agent::all().into_iter().map(Some));
+    let a = candidates
+        .into_iter()
+        .flatten()
+        .find(|a| a.installed() && !a.aside().is_empty())
+        .ok_or("Recaps need an installed agent that can answer with no tools, such as Claude Code")?;
+    runner_for(&a, prompt, model)
+}
+
+fn runner_for(a: &Agent, prompt: &str, model: Option<&str>) -> Result<Vec<String>, String> {
+    if a.aside().is_empty() {
+        return Err(format!("{} has no verified text-only isolation for recaps", a.name));
     }
-    Ok(argv)
+    a.headless(prompt, &Headless { model, aside: true, ..Default::default() }).ok_or_else(|| format!("{} has no headless mode for a recap", a.name))
 }
 
 fn run(session: &str, cwd: &str, transcript: &Path, model: Option<&str>) -> Result<(), String> {
@@ -140,15 +148,13 @@ fn run(session: &str, cwd: &str, transcript: &Path, model: Option<&str>) -> Resu
     if Path::new(cwd).is_dir() {
         cmd.current_dir(cwd);
     }
-    // Without the terminal's variables, the run is not reported to Herdr as an agent of that terminal.
-    for (k, _) in std::env::vars() {
-        if k.starts_with("HERDR_") || k.starts_with("HC_") || k == "CLAUDECODE" {
-            cmd.env_remove(k);
-        }
+    // The recap belongs to no terminal or parent agent session (`cockpit_core::run`).
+    let out = run::output(&mut cmd, Duration::from_secs(180), 1 << 20, &Default::default())
+        .map_err(|e| if e == "it took too long" { "the recap took too long".to_string() } else { format!("{}: {e}", argv[0]) })?;
+    if !out.status.success() || out.stdout.is_empty() {
+        return Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("the agent failed").to_string());
     }
-    let child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
-    let out = wait(child, Duration::from_secs(180))?;
-    let out = String::from_utf8_lossy(out.trim_ascii()).into_owned();
+    let out = String::from_utf8_lossy(out.stdout.trim_ascii()).into_owned();
     // An agent printing JSON (claude --output-format json) has its answer under `result`.
     let reply: Value = serde_json::from_str(&out).unwrap_or(Value::Null);
     let said = reply["result"].as_str().map(str::to_string).unwrap_or(out);
@@ -159,33 +165,16 @@ fn run(session: &str, cwd: &str, transcript: &Path, model: Option<&str>) -> Resu
     let _ = std::fs::create_dir_all(dir());
     let at = cockpit_core::seen::now_ms();
     files::write(
-        &dir().join(format!("{session}.json")),
+        &kept_at(&dir(), session),
         &json!({"session": session, "text": text, "at": at, "size": size, "modified": modified, "cost": reply["total_cost_usd"]}),
     )
     .map_err(|e| e.to_string())
 }
 
-fn wait(child: std::process::Child, limit: Duration) -> Result<Vec<u8>, String> {
-    let pid = child.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
-    match rx.recv_timeout(limit) {
-        Ok(Ok(out)) if !out.stdout.is_empty() => Ok(out.stdout),
-        Ok(Ok(out)) => Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("the agent failed").to_string()),
-        Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => {
-            let _ = output(&["kill".into(), "-9".into(), pid.to_string()], 2);
-            Err("the recap took too long".into())
-        }
-    }
-}
-
 /// A recap written by hand (the demo world): what `shown` reads afterwards.
 pub fn put(session: &str, text: &str, at: u64) {
     let _ = std::fs::create_dir_all(dir());
-    let _ = files::write(&dir().join(format!("{session}.json")), &json!({"session": session, "text": text, "at": at, "size": 0, "modified": 0}));
+    let _ = files::write(&kept_at(&dir(), session), &json!({"session": session, "text": text, "at": at, "size": 0, "modified": 0}));
 }
 
 #[cfg(test)]
@@ -208,5 +197,32 @@ mod tests {
         assert!(d.ends_with("Agent: Done: the limiter counts per day."));
         assert!(d.len() <= DIGEST_CAP + 200, "{}", d.len());
         assert!(!d.contains("step 0:"));
+    }
+
+    #[test]
+    fn a_recap_is_kept_inside_its_folder_whatever_the_session_says() {
+        let dir = Path::new("/cache/recaps");
+        assert_eq!(kept_at(dir, "c-1"), dir.join("c-1.json"));
+        assert_eq!(kept_at(dir, "../../.ssh/config"), dir.join("-------ssh-config.json"));
+        assert_eq!(kept_at(dir, "a/b"), dir.join("a-b.json"));
+        assert_eq!(kept_at(dir, ""), dir.join("_.json"));
+    }
+
+    #[test]
+    fn recaps_require_verified_text_only_isolation() {
+        let row = |id: &str| agent::builtin().into_iter().find(|a| a.id == id).unwrap();
+        for id in ["codex", "pi", "gemini", "omp"] {
+            assert!(runner_for(&row(id), "Recap.", None).unwrap_err().contains("text-only"));
+        }
+        let mut claude = row("claude");
+        let argv = runner_for(&claude, "Recap.", Some("haiku")).unwrap();
+        assert!(argv.windows(2).any(|w| w == ["--tools", ""]) && argv.contains(&"--safe-mode".into()));
+        assert!(argv.windows(2).any(|w| w == ["--model", "haiku"]));
+        // The prompt, the model, then the isolation: the command line every text-only run takes.
+        let isolation = ["--no-session-persistence", "--setting-sources", "", "--safe-mode", "--tools", "", "--strict-mcp-config"];
+        let rest = ["--disable-slash-commands", "--no-chrome", "--permission-mode", "plan", "--max-turns", "1"];
+        assert_eq!(argv[1..], [&["-p", "Recap.", "--model", "haiku"][..], &isolation[..], &rest[..]].concat());
+        claude.run = vec!["{bin}".into(), "{prompt}".into()];
+        assert!(runner_for(&claude, "Recap.", None).is_err(), "overridden templates cannot inherit isolation");
     }
 }

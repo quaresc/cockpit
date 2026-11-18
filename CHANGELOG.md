@@ -5,6 +5,38 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## Unreleased
+
+- New: Cockpit Chat, a second layout that reads one agent as a conversation: its repo, branch, PR and CI on top, each
+  turn folded to "Worked for…", a box with several lines, files, commands, images, model and effort, and optional next
+  step suggestions. Pick it or keep Cockpit in Cockpit settings, Layout.
+- New: Claude sessions that run in chat, without a terminal: answer their permissions in place, end them or open them in
+  a terminal; they come back after a hub restart.
+- New: Start work turns a prompt, a ticket or a PR into a worktree and an agent, with the plan and its blockers first,
+  then Retry and Cancel on each step.
+- New: every agent Herdr detects, with its logo, models, effort levels and fast mode.
+- New: usage limits for every provider that reports them, Copilot included, grouped under its logo with freshness and
+  reset time.
+- New: Cockpit settings (was Diagnostics): your version and Check for updates, a Layout tab, every option that fits a
+  form, and health checks with Fix and Fix all.
+- New: agents and chats named after their work; failed and interrupted states; Stop for agents you only watch; the
+  queue sends the next prompt when a turn ends.
+- New: Fix CI hands the agent the failing logs, Address review the open threads, and review comments reach any agent on
+  the branch; the TUI gets a review space.
+- New: routines get a precheck, a wake gate, time zones and templates; every source says how fresh its data is.
+- Fix: Needs you shows only real questions, and a card can be dismissed until the agent asks again.
+- Fix: a window keeps its hub on a quiet connection, and says why when it cannot reach it.
+- Fix: the agents view is built once per change (50 agents: 654 ms to 12 ms).
+- Fix: the chat, documents and links follow the session in view, and keys that did nothing now work.
+- Security: an answer names the question it answers, nothing is allowed by default, Full access asks first, and
+  anything that acts needs your own click or key.
+- Breaking: cockpit session answer and cockpit agents answer need an explicit allow or deny, from a terminal; herdr-app
+  do cockpit.* commands that act only navigate.
+- Breaking: Codex permission prompts are answered in Codex's own terminal; VS Code and Cursor terminals no longer count
+  as you; updating a routine is yours alone.
+- Breaking: the limits token and the agents view's quota are grouped by provider; cockpit.diagnostics is now
+  cockpit.settings; cockpit options set takes the option's own kind of value, from a terminal.
+
 ## 0.40.5 (2026-11-18)
 
 - Agents: a stale Herdr app socket falls back to herdr-core's agents (#61)

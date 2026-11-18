@@ -1,0 +1,14 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 90, 10)"
+---
+   Review
+
+
+ The cockpit hub did not answer
+ the cockpit hub did not start; what it said is in ~/.cache/cockpit/hub.log. R asks the
+ hub again, starting it when it is not running.
+
+
+
+ q quit  R refresh  ? keys                                                    ▏^p palette

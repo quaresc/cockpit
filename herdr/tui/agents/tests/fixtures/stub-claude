@@ -1,0 +1,189 @@
+#!/usr/bin/python3
+"""A stand-in for Claude Code under `-p --input-format stream-json --output-format stream-json`, speaking the same
+events and control requests as measured on 2.1.322, so driven sessions and their permission asks run without an
+account. What it does follows the prompt: "ask" asks to run one command, "ask twice" asks again once the first is
+answered, "ask both" asks twice at once; anything else is answered in words. Under `--replay-user-messages` each prompt
+comes back first. Without `--permission-prompt-tool stdio` it refuses every ask on its own, as the real one does.
+`--session-id` names a new session and `--resume` takes one up again; either way it keeps a transcript where Claude Code
+does, under $CLAUDE_CONFIG_DIR or ~/.claude. `--effort`, `--settings` (its `fastMode`), `list_models` and
+`apply_flag_settings` behave as measured on 2.1.325; with $STUB_ARGS set, each start notes its arguments there, and with
+$STUB_ENV the variables that say whose session it is."""
+import json
+import os
+import sys
+import uuid
+
+args = sys.argv[1:]
+host = "--permission-prompt-tool" in args and args[args.index("--permission-prompt-tool") + 1:][:1] == ["stdio"]
+replay = "--replay-user-messages" in args
+mode = args[args.index("--permission-mode") + 1] if "--permission-mode" in args else "default"
+
+
+def flag(name):
+    at = args.index(name) if name in args else -1
+    return args[at + 1] if 0 <= at < len(args) - 1 else None
+
+
+model = flag("--model") or "claude-haiku-5-5"
+if "-" not in model:
+    model = "claude-" + model + "-5-5"
+effort = flag("--effort") or "medium"
+fast = bool(json.loads(flag("--settings") or "{}").get("fastMode"))
+if os.environ.get("STUB_ARGS"):
+    with open(os.environ["STUB_ARGS"], "a") as f:
+        f.write(json.dumps(args) + "\n")
+if os.environ.get("STUB_ENV"):
+    with open(os.environ["STUB_ENV"], "w") as f:
+        json.dump({k: os.environ.get(k) for k in ["COCKPIT_SESSION_KEY", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_TOKEN"]}, f)
+# Its catalog as `list_models` answers it: the models it offers, their effort levels, which have a fast mode.
+LEVELS = ["low", "medium", "high", "xhigh", "max"]
+CATALOG = [
+    {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)", "supportsEffort": True, "supportedEffortLevels": LEVELS, "supportsFastMode": True},
+    {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus", "supportsEffort": True, "supportedEffortLevels": LEVELS, "supportsFastMode": True},
+    {"value": "haiku", "resolvedModel": "claude-haiku-5-5", "displayName": "Haiku", "supportsEffort": True, "supportedEffortLevels": LEVELS},
+]
+
+
+def fast_state():
+    """How fast mode stands, as an init or a result says it: off until opted in, and off on a model without it."""
+    if not fast:
+        return {"fast_mode_state": "off", "fast_mode_disabled_reason": "sdk_opt_in_required"}
+    if "haiku" in model:
+        return {"fast_mode_state": "off", "fast_mode_disabled_reason": "model_not_allowed"}
+    return {"fast_mode_state": "on"}
+session = flag("--resume") or flag("--session-id") or str(uuid.uuid4())
+claude_home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+transcript = os.path.join(claude_home, "projects", "".join(c if c.isalnum() else "-" for c in os.getcwd()), session + ".jsonl")
+started = False
+pending = {}  # request_id -> (tool_use_id, command)
+plan = []  # commands still to ask for this turn
+turn_open = False
+
+
+def keep(kind, content=None, **extra):
+    os.makedirs(os.path.dirname(transcript), exist_ok=True)
+    line = {"type": kind, "sessionId": session, "cwd": os.getcwd(), "timestamp": "2026-11-12T10:00:00Z", **extra}
+    if content is not None:
+        line["message"] = {"role": kind, "content": content}
+    with open(transcript, "a") as f:
+        f.write(json.dumps(line) + "\n")
+
+
+def say(event):
+    sys.stdout.write(json.dumps(event) + "\n")
+    sys.stdout.flush()
+    if event.get("type") in ("assistant", "user"):
+        keep(event["type"], event["message"]["content"])
+    elif event.get("type") == "result":
+        keep("system", subtype="turn_duration")
+
+
+def assistant(content):
+    say({"type": "assistant", "message": {"model": model, "role": "assistant", "content": content}, "session_id": session})
+
+
+def result(text, error=False):
+    global turn_open
+    turn_open = False
+    say({"type": "result", "subtype": "error_during_execution" if error else "success", "is_error": error, "result": text, **fast_state(),
+         "session_id": session, "total_cost_usd": 0.0012, "usage": {"input_tokens": 4, "output_tokens": 20}})
+
+
+def ask(command):
+    tool_use_id = "toolu_stub_" + uuid.uuid4().hex[:20]
+    request_id = str(uuid.uuid4())
+    tool_input = {"command": command, "description": "Run the quota tests"}
+    assistant([{"type": "tool_use", "id": tool_use_id, "name": "Bash", "input": tool_input}])
+    if not host:
+        say({"type": "system", "subtype": "permission_denied", "tool_name": "Bash", "tool_use_id": tool_use_id, "session_id": session})
+        tool_result(tool_use_id, "Running it needs approval.", True)
+        return
+    pending[request_id] = (tool_use_id, command)
+    say({"type": "control_request", "request_id": request_id, "request": {
+        "subtype": "can_use_tool", "tool_name": "Bash", "display_name": "Bash", "input": tool_input,
+        "description": tool_input["description"], "tool_use_id": tool_use_id}})
+
+
+def tool_result(tool_use_id, text, error):
+    say({"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tool_use_id, "content": text, "is_error": error}]}, "session_id": session})
+
+
+def next_step():
+    if plan:
+        ask(plan.pop(0))
+    elif not pending and turn_open:
+        assistant([{"type": "text", "text": "Done with the quota tests."}])
+        result("Done with the quota tests.")
+
+
+for line in sys.stdin:
+    try:
+        event = json.loads(line)
+    except ValueError:
+        continue
+    kind = event.get("type")
+    if kind == "user":
+        if not started:
+            started = True
+            say({"type": "system", "subtype": "init", "session_id": session, "cwd": os.getcwd(), "model": model, "permissionMode": mode,
+                 "slash_commands": ["review"], "tools": ["Bash"], "mcp_servers": [], "effort": effort, **fast_state()})
+        keep("user", event["message"]["content"])
+        # Under --replay-user-messages the prompt comes back first, as Claude Code sends it: what was sent arrived.
+        if replay:
+            sys.stdout.write(json.dumps({"type": "user", "message": event["message"], "session_id": session, "isReplay": True}) + "\n")
+            sys.stdout.flush()
+        text = " ".join(b.get("text", "") for b in event["message"]["content"] if b.get("type") == "text").lower()
+        turn_open = True
+        if "ask both" in text:
+            ask("mix test test/api/quota_test.exs")
+            ask("mix credo --strict")
+        elif "ask twice" in text:
+            plan = ["mix credo --strict"]
+            ask("mix test test/api/quota_test.exs")
+        elif "ask" in text:
+            ask("mix test test/api/quota_test.exs")
+        else:
+            assistant([{"type": "text", "text": "The quota resets at midnight UTC."}])
+            result("The quota resets at midnight UTC.")
+            continue
+        if not host:
+            next_step()
+    elif kind == "control_response":
+        response = event.get("response", {})
+        found = pending.pop(response.get("request_id"), None)
+        if not found:
+            continue
+        decision = response.get("response", {})
+        if decision.get("behavior") == "allow":
+            tool_result(found[0], "34 tests, 0 failures", False)
+        else:
+            tool_result(found[0], decision.get("message", "denied"), True)
+        next_step()
+    elif kind == "control_request":
+        request = event.get("request", {})
+        answer = {}
+        if request.get("subtype") == "interrupt":
+            for request_id, (tool_use_id, _) in list(pending.items()):
+                say({"type": "control_cancel_request", "request_id": request_id})
+            answer = {"still_queued": []}
+        elif request.get("subtype") == "set_permission_mode":
+            mode = request.get("mode", mode)
+            answer = {"mode": mode}
+        elif request.get("subtype") == "set_model":
+            model = "claude-" + request.get("model", "haiku") + "-5-5"
+            answer = {"model": model}
+        elif request.get("subtype") == "list_models":
+            answer = {"models": CATALOG}
+        elif request.get("subtype") == "apply_flag_settings":
+            settings = request.get("settings", {})
+            effort = settings.get("effortLevel", effort)
+            fast = settings.get("fastMode", fast)
+        say({"type": "control_response", "response": {"subtype": "success", "request_id": event.get("request_id"), "response": answer}})
+        if request.get("subtype") == "interrupt" and turn_open:
+            for request_id, (tool_use_id, _) in list(pending.items()):
+                tool_result(tool_use_id, "The user doesn't want to proceed with this tool use.", True)
+            pending.clear()
+            plan = []
+            say({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]}})
+            result("", error=True)

@@ -42,7 +42,7 @@ pub fn pr_changes(prev: &Value, next: &Value) -> Vec<News> {
         out.push(news(
             format!("👀 Review requested: {}#{} {}", s(pr, "repo"), pr["number"], s(pr, "title")),
             url.clone(),
-            &[("Review", format!("act:review:{url}"))],
+            &[("Open PR", format!("inbox:{url}"))],
         ));
     }
     for pr in list(&next["mine"]) {
@@ -51,11 +51,7 @@ pub fn pr_changes(prev: &Value, next: &Value) -> Vec<News> {
         };
         let (url, name) = (s(pr, "url"), format!("{}#{}", s(pr, "repo"), pr["number"]));
         if is_failing(pr) && !is_failing(was) {
-            out.push(news(
-                format!("🔴 CI failing: {name}"),
-                format!("{url}/checks"),
-                &[("Why?", format!("act:ci:{url}")), ("Rerun", format!("act:rerun:{url}"))],
-            ));
+            out.push(news(format!("🔴 CI failing: {name}"), format!("{url}/checks"), &[("Show run", format!("inbox:{url}"))]));
         }
         if pr["review"] != was["review"] && pr["review"] == "APPROVED" {
             out.push(news(format!("✅ Approved: {name}"), url.into(), &[]));
@@ -67,7 +63,7 @@ pub fn pr_changes(prev: &Value, next: &Value) -> Vec<News> {
             out.push(news(format!("🟢 CI fixed: {name}"), format!("{url}/checks"), &[]));
         }
         if is_ready(pr) && !is_ready(was) {
-            out.push(news(format!("🚀 Ready to merge: {name}"), url.into(), &[("Merge", format!("act:merge:{url}"))]));
+            out.push(news(format!("🚀 Ready to merge: {name}"), url.into(), &[("Open PR", format!("inbox:{url}"))]));
         }
         if let (Some(now), Some(before)) = (pr["threads"].as_u64(), was["threads"].as_u64())
             && now > before
@@ -103,7 +99,7 @@ pub fn ticket_changes(prev: &Value, next: &Value) -> Vec<News> {
     list(&next["tickets"])
         .iter()
         .filter(|t| !ids.contains(s(t, "id")))
-        .map(|t| news(format!("🎫 Assigned: {} {}", s(t, "id"), s(t, "title")), s(t, "url").into(), &[("Plan", format!("act:plan:{}", s(t, "id")))]))
+        .map(|t| news(format!("🎫 Assigned: {} {}", s(t, "id"), s(t, "title")), s(t, "url").into(), &[("Open ticket", format!("inbox:{}", s(t, "id")))]))
         .collect()
 }
 
@@ -127,14 +123,7 @@ pub fn ci_changes(prev: &Value, next: &Value, inbox: &Value) -> Vec<News> {
             "succeeded" => out.push(news(format!("🟢 CI passed: {repo} {branch}"), action, &[])),
             "failed" => {
                 let job = run["failed"]["job"].as_str().map(|j| format!(" · {j}")).unwrap_or_default();
-                let mut buttons = Vec::new();
-                if let Some(pr) = pr {
-                    let url = s(pr, "url");
-                    buttons.push(("Why?", format!("act:ci:{url}")));
-                    if run["workflowId"].is_string() {
-                        buttons.push(("Rerun", format!("act:rerun:{url}")));
-                    }
-                }
+                let buttons: Vec<(&str, String)> = pr.map(|pr| ("Show run", format!("inbox:{}", s(pr, "url")))).into_iter().collect();
                 out.push(news(format!("🔴 CI failed: {repo} {branch}{job}"), action, &buttons));
             }
             _ => {}
@@ -191,7 +180,7 @@ mod tests {
         let texts: Vec<String> = pr_changes(&prev, &next).into_iter().map(|n| n.text).collect();
         assert_eq!(texts, ["👀 Review requested: web#9 Dark mode", "🔴 CI failing: api#4", "✅ Approved: api#4"]);
         assert_eq!(pr_changes(&next, &next), []);
-        assert_eq!(pr_changes(&prev, &next)[1].buttons[1], ("Rerun".into(), "act:rerun:https://github.com/acme/api/pull/4".into()));
+        assert_eq!(pr_changes(&prev, &next)[1].buttons, [("Show run".into(), "inbox:https://github.com/acme/api/pull/4".into())], "a button leads to the row");
     }
 
     #[test]
@@ -204,7 +193,7 @@ mod tests {
         let news = pr_changes(&json!({"mine": [was]}), &json!({"mine": [now.clone()]}));
         let texts: Vec<&str> = news.iter().map(|n| n.text.as_str()).collect();
         assert_eq!(texts, ["🟢 CI fixed: api#4", "🚀 Ready to merge: api#4", "💬 2 new review threads: api#4"]);
-        assert_eq!(news[1].buttons, [("Merge".to_string(), format!("act:merge:{url}"))]);
+        assert_eq!(news[1].buttons, [("Open PR".to_string(), format!("inbox:{url}"))]);
         assert_eq!(pr_changes(&json!({"mine": [now.clone()]}), &json!({"mine": [now]})), []);
     }
 
@@ -213,7 +202,7 @@ mod tests {
         let next = json!({"tickets": [{"id": "ENG-1", "title": "a", "url": "u1"}, {"id": "ENG-2", "title": "b", "url": "u2"}]});
         assert_eq!(ticket_changes(&json!({"tickets": []}), &next), []);
         let news = ticket_changes(&json!({"tickets": [{"id": "ENG-1"}]}), &next);
-        assert_eq!(news, [News { text: "🎫 Assigned: ENG-2 b".into(), action: "u2".into(), buttons: vec![("Plan".into(), "act:plan:ENG-2".into())] }]);
+        assert_eq!(news, [News { text: "🎫 Assigned: ENG-2 b".into(), action: "u2".into(), buttons: vec![("Open ticket".into(), "inbox:ENG-2".into())] }]);
     }
 
     #[test]
@@ -231,7 +220,7 @@ mod tests {
         assert_eq!(news.len(), 1);
         assert_eq!(news[0].text, "🔴 CI failed: api me/eng-401-login · test");
         assert_eq!(news[0].action, "https://github.com/acme/api/pull/4/checks");
-        assert_eq!(news[0].buttons.len(), 2);
+        assert_eq!(news[0].buttons, [("Show run".to_string(), "inbox:https://github.com/acme/api/pull/4".to_string())]);
         assert_eq!(ci_changes(&next, &next, &inbox), []);
     }
 }

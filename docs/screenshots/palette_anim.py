@@ -10,7 +10,7 @@ APPS = os.path.join(HERE, "..", "..", "herdr")
 COCKPIT = os.path.join(APPS, "tui", "target", "release", "cockpit")
 # Opened over a Claude session (fake-herdr.sh says pane p7 runs one), so its own keys show.
 env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": os.path.join(HERE, "fake-herdr.sh"), "COCKPIT_HERDR_DIR": APPS,
-       "COCKPIT_HUB_IDLE_SECS": "120", "COCKPIT_HUB_FEED": "off", "PALETTE_PANE": "p7"}
+       "COCKPIT_HUB_IDLE_SECS": "120", "COCKPIT_HUB_FEED": "off", "COCKPIT_HUB_MODELS": "off", "PALETTE_PANE": "p7"}
 COLS, ROWS = 100, 24
 keys = ["", *"ENG-413", "", "\x0e", *["\x7f"] * 7, *"the session where we fixed quotas", "", ""]
 shots = [screen_of(t, COLS, ROWS) for t in run_steps([COCKPIT, "palette"], COLS, ROWS, env, keys, cwd=APPS, settle=3.0, gap=0.35)]

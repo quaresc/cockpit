@@ -44,7 +44,12 @@ export async function forget($: $) {
   await $.process.run(['rm', '-f', `${await cacheDir($)}/sessions/${await $.session.id()}.json`])
 }
 
-type UpdateState = { at: number; latest?: string; notified?: string }
+export type UpdateState = { at: number; latest?: string; notified?: string }
+
+// The state after a look at GitHub: a look that read no version keeps the one read last.
+export function afterLook(state: UpdateState, latest: string | undefined, now: number): UpdateState {
+  return { ...state, at: now, latest: latest ?? state.latest }
+}
 
 // Every six hours one session asks GitHub for the published version; a newer one is announced once, its click updating.
 export async function checkUpdate($: $) {
@@ -57,7 +62,7 @@ export async function checkUpdate($: $) {
       { timeoutMs: 20_000 },
     )
     const latest = exitCode === 0 ? (JSON.parse(stdout) as { version?: string }).version : undefined
-    const next: UpdateState = { ...state, at: Date.now(), latest }
+    const next = afterLook(state, latest, Date.now())
     const current = await ownVersion($)
     const hasLink = await $.fs.stat(`${await home($)}/.config/cockpit/herdr/update.sh`).then(() => true, () => false)
     if (latest && isNewer(latest, current) && state.notified !== latest) {

@@ -32,7 +32,7 @@
   ]},
   "merged": {"nodes": [
     {"number": 2, "url": "https://github.com/acme/api/pull/2", "headRefName": "me/eng-400-sso", "mergedAt": "2026-10-20T09:00:00Z",
-     "repository": {"name": "api", "nameWithOwner": "acme/api"}, "mergeCommit": {"oid": "abc123"}},
+     "repository": {"name": "api", "nameWithOwner": "acme/api"}, "mergeCommit": {"oid": "abc123"}, "headRefOid": "def456"},
     {"number": 1, "url": "https://github.com/acme/api/pull/1", "headRefName": "me/old", "mergedAt": "2026-10-10T09:00:00Z",
      "repository": {"name": "api", "nameWithOwner": "acme/api"}, "mergeCommit": null}
   ]}

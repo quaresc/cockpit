@@ -40,6 +40,7 @@
   "brief": { "enabled": true, "at": "08:30", "weekends": false },
   "notifications": true,
   "names": true,
+  "chat": { "nextSteps": false },
   "fetcher": true,
   "e2eBrowser": "terminal-browser",
   "browserIdleMinutes": 60,

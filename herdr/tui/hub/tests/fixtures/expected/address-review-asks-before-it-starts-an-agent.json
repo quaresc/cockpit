@@ -1,0 +1,25 @@
+{
+  "calls": [
+    {
+      "args": [
+        "api",
+        "graphql",
+        "-f",
+        "query=query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved isOutdated path line originalLine comments(first: 50) { totalCount nodes { author { __typename login } authorAssociation body } } } } reviews(last: 30, states: [CHANGES_REQUESTED, COMMENTED]) { nodes { author { __typename login } authorAssociation state body } } } } }",
+        "-F",
+        "owner=acme",
+        "-F",
+        "name=api",
+        "-F",
+        "number=4"
+      ],
+      "cmd": "gh",
+      "stdin": ""
+    }
+  ],
+  "error": null,
+  "files": {},
+  "note": "no agent works on api#4: address review again to start one on its branch",
+  "pending": {},
+  "refreshing": []
+}

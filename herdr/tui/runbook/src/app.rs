@@ -11,6 +11,7 @@ use cockpit_core::bridge::Bridge;
 use cockpit_core::dialog::Dialog;
 use cockpit_core::files::Density;
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::toast::{self, Toasts};
 use ratatui::layout::Rect;
 use ratatui::style::Color;
@@ -112,6 +113,8 @@ pub struct App {
     said: Vec<String>,
     focus_at: SystemTime,
     focus_seen: SystemTime,
+    /// The step a focus request selected: its keys wait for the person's move.
+    pub pointed: Pointed,
     pinned: bool,
     pub hits: Hits,
     pub started: Instant,
@@ -167,6 +170,7 @@ impl App {
             said: Vec::new(),
             focus_at: SystemTime::now(),
             focus_seen: SystemTime::now(),
+            pointed: Pointed::default(),
             pinned,
             hits: Hits::default(),
             started: Instant::now(),
@@ -274,6 +278,7 @@ impl App {
             {
                 let steps = if steps.is_empty() { book.done_steps() } else { steps };
                 self.play(&slug, steps);
+                self.pointed.point();
                 changed = true;
             }
             for (slug, reason) in pinned::take_requests() {
@@ -423,6 +428,7 @@ impl App {
             self.found = None;
         }
         self.selected = at;
+        self.pointed.point();
         self.reveal = Some((at, at));
         let k = key(slug, &self.books[i].steps[at].n);
         self.flash(&k, FOCUSED);

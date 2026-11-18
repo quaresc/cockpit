@@ -27,19 +27,19 @@ expression: "render(&mut app, 90, HEIGHT)"
  └ ▶  2 muted repos
  ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  ├ ▼ ● Usage limits  4
- │ ├ ▼    ENG-414   to review     [Frontend] - Add a "Know more" … $0.88
+ │ ├ ▼    ENG-414   to review     [Frontend] - Add a "Know more" … ~$0.88
  │ │ └ ▼   web#1866                feat(quota): ▸ fix ci  f     rerun  r     open  o
  │ │   ├    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides wh
  │ │   └    translations
- │ ├ ▼    ENG-413   to merge      [Frontend] - Show the export pr… $23.91
+ │ ├ ▼    ENG-413   to merge      [Frontend] - Show the export pr… ~$23.91
  │ │ └ ▼   web#1864                feat(settings): show the expo…  preview         22h
  │ │   └ ▼   web#1866                feat(quota): link the quota…                   22h
  │ │     ├    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides
  │ │     └    translations
- │ ├ ▼    ENG-415   to review     [Backend] - Ask again when a sh… ▁▃▅█ $11.58
+ │ ├ ▼    ENG-415   to review     [Backend] - Ask again when a sh… ▁▃▅█ ~$11.58
  │ │ └ ▼   api#2224                feat: ask again when a shared…  image           18h
  │ │   └     api#2223                feat: remove the old export…  image           18h
- │ └ ▼    ENG-412   to merge      [Backend] - Count exports in th… ▁▂▅▇█ $17.29
+ │ └ ▼    ENG-412   to merge      [Backend] - Count exports in th… ▁▂▅▇█ ~$17.29
  │   ├     api#2223                feat: remove the old export r…  image           18h
  │   └ ▼   api#2219                feat: count exports in the da…  image           19h
  │     └ ▼   api#2224                feat: ask again when a shar…  image           18h
@@ -47,8 +47,8 @@ expression: "render(&mut app, 90, HEIGHT)"
  ├ ▼ Maintenance  1
  │ └      ENG-405   in progress   Re-import the supplier catalogu…
  ├ ▼ Bugs  2
- │ └ ▼    ENG-420   to review     Delete the legacy filter for al… $38.53
- │   └ ▼    ENG-421   to review     Legacy filter removal C: drop… $2.22
+ │ └ ▼    ENG-420   to review     Delete the legacy filter for al… ~$38.53
+ │   └ ▼    ENG-421   to review     Legacy filter removal C: drop… ~$2.22
  │     ├     api#2207                chore: drop the legacy filt…  image           24h
  │     ├     search#897              chore: drop the legacy filt…  image           25h
  │     └     scrubber#88             chore: remove legacy filter…                   25h

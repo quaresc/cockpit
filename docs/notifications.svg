@@ -2,7 +2,7 @@
 <defs><linearGradient id="desk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B1B24"/><stop offset="1" stop-color="#0F0F12"/></linearGradient></defs>
 <style>text{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Helvetica,Arial,sans-serif}@keyframes n0{0%,4.4%{transform:translateX(460px);opacity:0}9.4%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n0{animation:n0 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c0{0%,9.4%{opacity:0}13.4%,88%{opacity:1}96%,100%{opacity:0}}.c0{animation:c0 9.0s linear infinite}@keyframes n1{0%,12.2%{transform:translateX(460px);opacity:0}17.2%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n1{animation:n1 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c1{0%,17.2%{opacity:0}21.2%,88%{opacity:1}96%,100%{opacity:0}}.c1{animation:c1 9.0s linear infinite}@keyframes n2{0%,20.0%{transform:translateX(460px);opacity:0}25.0%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n2{animation:n2 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c2{0%,25.0%{opacity:0}29.0%,88%{opacity:1}96%,100%{opacity:0}}.c2{animation:c2 9.0s linear infinite}@keyframes n3{0%,27.8%{transform:translateX(460px);opacity:0}32.8%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n3{animation:n3 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c3{0%,32.8%{opacity:0}36.8%,88%{opacity:1}96%,100%{opacity:0}}.c3{animation:c3 9.0s linear infinite}@keyframes n4{0%,35.6%{transform:translateX(460px);opacity:0}40.6%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n4{animation:n4 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c4{0%,40.6%{opacity:0}44.6%,88%{opacity:1}96%,100%{opacity:0}}.c4{animation:c4 9.0s linear infinite}@keyframes n5{0%,43.3%{transform:translateX(460px);opacity:0}48.3%,88%{transform:translateX(0);opacity:1}96%,100%{transform:translateX(0);opacity:0}}.n5{animation:n5 9.0s cubic-bezier(.2,.8,.2,1) infinite}@keyframes c5{0%,48.3%{opacity:0}52.3%,88%{opacity:1}96%,100%{opacity:0}}.c5{animation:c5 9.0s linear infinite}@media (prefers-reduced-motion:reduce){g{animation:none!important;opacity:1!important}}</style>
 <rect width="100%" height="100%" rx="12" fill="url(#desk)" stroke="#2C2C30"/>
-<text x="28" y="574" fill="#707070" font-size="12">macOS notifications from cockpit: a click leads somewhere useful, a button acts</text>
+<text x="28" y="574" fill="#707070" font-size="12">macOS notifications from cockpit: a click or a button leads to where you act</text>
 <g class="c0" opacity="0">
   <text x="448" y="70.0" text-anchor="end" fill="#FFC799" font-size="14">click → the PR</text>
 </g>
@@ -20,7 +20,7 @@
   <text x="934" y="52" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
   <text x="536" y="71" fill="#F2F2F2" font-size="14" font-weight="600">📥 Inbox</text>
   <text x="536" y="89" fill="#C8C8CE" font-size="13">👀 Review requested: web#1840 Quota copy</text>
-  <rect x="870" y="53.0" width="64" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="902.0" y="69.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Review</text>
+  <rect x="850" y="53.0" width="84" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="892.0" y="69.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Open PR</text>
 </g><g class="c1" opacity="0">
   <text x="448" y="158.0" text-anchor="end" fill="#FFC799" font-size="14">click → the PR&#x27;s checks</text>
 </g>
@@ -38,7 +38,7 @@
   <text x="934" y="140" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
   <text x="536" y="159" fill="#F2F2F2" font-size="14" font-weight="600">🔁 CircleCI</text>
   <text x="536" y="177" fill="#C8C8CE" font-size="13">🔴 CI failed: web me/eng-413-quota-ui</text>
-  <rect x="870" y="126.0" width="64" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="902.0" y="142.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Why?</text><rect x="870" y="156.0" width="64" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="902.0" y="172.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Rerun</text>
+  <rect x="850" y="141.0" width="84" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="892.0" y="157.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Show run</text>
 </g><g class="c2" opacity="0">
   <text x="448" y="246.0" text-anchor="end" fill="#FFC799" font-size="14">click → back to that agent&#x27;s space</text>
 </g>
@@ -74,7 +74,7 @@
   <text x="934" y="316" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
   <text x="536" y="335" fill="#F2F2F2" font-size="14" font-weight="600">📥 Inbox</text>
   <text x="536" y="353" fill="#C8C8CE" font-size="13">🎫 Assigned: ENG-420 Quota emails</text>
-  <rect x="870" y="317.0" width="64" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="902.0" y="333.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Plan</text>
+  <rect x="850" y="317.0" width="84" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="892.0" y="333.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Open ticket</text>
 </g><g class="c4" opacity="0">
   <text x="448" y="422.0" text-anchor="end" fill="#FFC799" font-size="14">click → its brief</text>
 </g>
@@ -92,7 +92,7 @@
   <text x="934" y="404" text-anchor="end" fill="#9A9AA2" font-size="11">now</text>
   <text x="536" y="423" fill="#F2F2F2" font-size="14" font-weight="600">📅 Meeting</text>
   <text x="536" y="441" fill="#C8C8CE" font-size="13">Quotas design review in 5 min</text>
-  <rect x="870" y="405.0" width="64" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="902.0" y="421.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Join</text>
+  <rect x="850" y="405.0" width="84" height="24" rx="7" fill="#3A3A44" stroke="#4A4A54"/><text x="892.0" y="421.0" text-anchor="middle" fill="#F2F2F2" font-size="12">Join</text>
 </g><g class="c5" opacity="0">
   <text x="448" y="510.0" text-anchor="end" fill="#FFC799" font-size="14">click → the agent that needs you</text>
 </g>

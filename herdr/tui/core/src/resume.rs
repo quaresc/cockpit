@@ -60,7 +60,7 @@ pub fn is_session_id(id: &str) -> bool {
 /// The line that resumes the agent's session in a shell, its folder quoted; None when the agent cannot resume one.
 pub fn resume_line(cwd: &str, agent: &Agent, session: &str) -> Option<String> {
     let command = agent::shell_line(&agent.typed(&agent.resume_argv(session)?));
-    let quoted = cwd.replace('\'', "'\\''");
+    let quoted = agent::typable(cwd).replace('\'', "'\\''");
     Some(if cwd.is_empty() { command } else { format!("cd '{quoted}' && {command}") })
 }
 
@@ -404,6 +404,11 @@ mod tests {
         let mut claude = agent::builtin().remove(0);
         claude.bin = "/bin/claude".into();
         assert_eq!(resume_line("/code/it's", &claude, A), Some(format!("cd '/code/it'\\''s' && /bin/claude --resume {A}")));
+        assert_eq!(
+            resume_line("/tmp/x\u{15}touch y\r", &claude, A),
+            Some(format!("cd '/tmp/xtouch y' && /bin/claude --resume {A}")),
+            "a folder's name types nothing"
+        );
     }
 
     #[test]

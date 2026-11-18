@@ -1,15 +1,14 @@
 //! The Herdr app's Home: what landed this week and how fast, the PRs ready to land and the ones to fix, what the agents
-//! cost lately, and the agents a restart stopped. The mod lays the agents themselves out from the `agents` view.
+//! cost lately as `usage` estimates it, and the agents a restart stopped. The mod lays the agents out from `agents`.
 
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate};
 use cockpit_core::{files, resume};
 use serde_json::{Value, json};
 
 pub fn dirs() -> Vec<PathBuf> {
-    vec![resume::dir(), files::cache().join("costs")]
+    vec![resume::dir()]
 }
 
 pub fn view(_args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
@@ -21,7 +20,7 @@ pub fn view(_args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     model["lost"] = json!(resume::lost());
     let agent = cockpit_core::agent::default();
     model["agent"] = json!({"id": agent.id, "name": agent.name});
-    model["spend"] = spend(&files::cache().join("costs"));
+    model["spend"] = cockpit_core::usage::spend();
     model
 }
 
@@ -168,34 +167,15 @@ pub fn model(inbox: &Value, ci: &Value, now: DateTime<Local>) -> Value {
     })
 }
 
-/// What the Claude sessions cost over the last 7 days and today, from the cost books they wrote then (a book counts
-/// for the day it was last written); null when no session ever wrote one, so Home shows no spend it cannot know.
-fn spend(dir: &std::path::Path) -> Value {
-    let now = SystemTime::now();
-    let midnight = Local.from_local_datetime(&Local::now().date_naive().and_hms_opt(0, 0, 0).unwrap_or_default()).single();
-    let midnight = midnight.map(|m| UNIX_EPOCH + std::time::Duration::from_secs(m.timestamp().max(0) as u64)).unwrap_or(now);
-    let books: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten().collect();
-    if books.is_empty() {
-        return Value::Null;
-    }
-    let (mut week, mut today) = (0.0, 0.0);
-    for entry in books {
-        let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else { continue };
-        if now.duration_since(modified).is_ok_and(|d| d.as_secs() > 7 * 86_400) {
-            continue;
-        }
-        let total: f64 = files::load(&entry.path()).and_then(|b| b.as_object().map(|o| o.values().filter_map(Value::as_f64).sum())).unwrap_or(0.0);
-        week += total;
-        if modified >= midnight {
-            today += total;
-        }
-    }
-    json!({"week": (week * 100.0).round() / 100.0, "today": (today * 100.0).round() / 100.0})
-}
-
 /// Home's actions: `resume [handle]` (every lost agent without one), `dismiss [handle]`.
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let handle = args.first().and_then(Value::as_str).unwrap_or_default();
+    // A resume starts agents again: the person's to do.
+    if action == "resume"
+        && let Err(why) = cockpit_agents::gui::by_a_person("an agent is resumed by a person, not by an agent's tools")
+    {
+        return Some(Err(why));
+    }
     Some(match action {
         "resume" if handle.is_empty() => resume::resume_all(),
         "resume" => resume::resume(handle),
@@ -210,14 +190,7 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn spend_is_unknown_without_cost_books() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(spend(&dir.path().join("costs")), Value::Null);
-        std::fs::write(dir.path().join("s1.json"), r#"{"ENG-412": 1.5}"#).unwrap();
-        assert_eq!(spend(dir.path()), json!({"week": 1.5, "today": 1.5}));
-    }
+    use chrono::TimeZone;
 
     fn pr(n: u64, review: &str, ci: &str, branch: &str) -> Value {
         json!({"repo": "api", "number": n, "title": format!("PR {n}"), "url": format!("u{n}"), "branch": branch, "review": review, "ci": ci, "isDraft": false})

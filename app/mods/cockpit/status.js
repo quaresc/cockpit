@@ -1,16 +1,22 @@
 // The status bar under the cockpit layout: the agents by whose move it is (each count a click), then on the right the
-// focused agent's branch and its links named after their service (GitHub, Linear, CircleCI, Argo, Slack…), queued
+// branch of the agent in view and its links named after their service (GitHub, Linear, CircleCI, Argo, Slack…), queued
 // prompts, stopped agents, the hub only when it is offline, and the agent's documents at the right end.
-// Always shown, it also runs the shell's window-wide keys: Home, the agent view, the side panel, next agent waiting,
-// the focused branch's PR and ticket, resume.
+// Always shown, it runs the window's commands in this layout (commands.js).
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { run, focused, shared, setShared, layout } from "herdr";
+import { run, notify } from "herdr";
 import * as hub from "./hub.js";
-import { fleet, goToAgent, counts } from "./fleet.js";
-import { show } from "./sidebar.js";
+import { sharing } from "./feed.js";
+import { fleet, counts } from "./fleet.js";
+import { show, agentInView } from "./screens.js";
+import { runCommand, togglePanel, hint, lend, settle } from "./commands.js";
 import { tokens, TEXT, RADIUS, Icon, Spinner, Mono, openMenu } from "./ui.js";
+
+// The agents, Home and queue views, followed once per window whichever copies ask (feed.js).
+const following = sharing(hub.subscribe);
+
+export { PANELS, PANELED, PANEL_CHILD, openPanel, closePanel, togglePanel } from "./commands.js";
 
 /** A node of the shown layout by id. */
 export function findNode(node, id) {
@@ -23,27 +29,16 @@ export function findNode(node, id) {
   return null;
 }
 
-/** The side panel's children by the names keys and the activity bar use. */
-export const PANELS = { show: "show", review: "review", runbook: "runbook-panel", files: "files", changes: "changes" };
-
-/** Opens the side panel on that child, left open when it already shows it. */
-export function openPanel(name) {
-  run("layout.select", { stack: "panel-body", child: PANELS[name] ?? name });
-  run("layout.show", { id: "panel" });
-  if ((shared("cockpit.app") ?? "home") !== "work") show("work");
-}
-
-/** Opens the side panel on that child, or closes it when it already shows it. */
-export function togglePanel(name) {
-  const child = PANELS[name] ?? name;
-  const panel = findNode(layout(), "panel");
-  const body = findNode(layout(), "panel-body");
-  if (panel && !panel.hidden && (!child || body?.active === child)) run("layout.hide", { id: "panel" });
-  else {
-    if (child) run("layout.select", { stack: "panel-body", child });
-    run("layout.show", { id: "panel" });
-    if ((shared("cockpit.app") ?? "home") !== "work") show("work");
+/**
+ * The hub item's tooltip: why the window last failed to reach the hub, in the error's own words, and what a click does.
+ * While it connects, the reason of the try before, when one failed.
+ */
+export function hubTip(state, startable = false) {
+  if (state === "connecting") {
+    const last = hub.lastFailure();
+    return last ? `Reaching the cockpit hub… The last try failed: ${last.message}` : "Reaching the cockpit hub…";
   }
+  return `${hub.downTip(state)}${startable ? ". Click to start it; Cockpit settings, under Health, says more" : ""}`;
 }
 
 export default class Status {
@@ -52,7 +47,9 @@ export default class Status {
     this.home = null;
     this.queue = null;
     this.state = "connecting";
-    this.sub = hub.subscribe(
+    settle();
+    this.unlend = lend(() => (this.state === "live" ? this.rows : null));
+    this.sub = following(
       cx,
       { views: ["agents", "home", "queue"] },
       (m, cx) => {
@@ -69,45 +66,17 @@ export default class Status {
   }
 
   close() {
+    this.unlend?.();
     this.sub?.stop();
   }
 
-  /** The agent the person looks at: the agent block's, else the focused pane's. */
+  /** The agent in view: its branch, links and documents are the bar's, and none once the view moves to a tab with none. */
   current(list) {
-    const f = focused();
-    const address = f?.agent ?? f?.terminal ?? null;
-    return list.find((a) => a.address === address) ?? null;
+    return agentInView(list);
   }
 
-  next(list, stage) {
-    const waiting = list.filter((a) => (stage ? a.stage === stage || a.status === stage : a.stage === "needs")).sort((a, b) => (a.since ?? 0) - (b.since ?? 0));
-    const here = focused()?.terminal;
-    const i = waiting.findIndex((a) => a.address === here);
-    return waiting[(i + 1) % Math.max(1, waiting.length)] ?? null;
-  }
-
-  command(c, cx) {
-    const list = fleet(this.rows, this.home);
-    const me = this.current(list);
-    if (c === "home") show((shared("cockpit.app") ?? "home") === "home" ? "work" : "home");
-    else if (c === "agent-view") {
-      const on = shared("cockpit.view") === "agent";
-      run("layout.select", { stack: "view", child: on ? "main" : "agent" });
-      setShared("cockpit.view", on ? "main" : "agent");
-      if ((shared("cockpit.app") ?? "home") !== "work") show("work");
-    } else if (c === "panel") togglePanel(null);
-    else if (c.startsWith("panel:")) togglePanel(c.slice(6));
-    else if (c === "next-waiting" || c === "next:blocked" || c === "next:done") {
-      const a = this.next(list, c === "next:done" ? "done" : c === "next:blocked" ? "needs" : null) ?? (c === "next-waiting" ? this.next(list, "done") : null);
-      if (a) goToAgent(a);
-    } else if (c === "pr" && me?.pr?.url) cx.spawn(async () => hub.openUrl(me.pr.url));
-    else if (c === "ticket" && me?.ticketUrl) cx.spawn(async () => hub.openUrl(me.ticketUrl));
-    else if (c === "resume") cx.spawn(async () => hub.act("home", "resume", []));
-    else if (c.startsWith("link:")) cx.spawn(async () => hub.openUrl(c.slice(5)));
-    else if (c.startsWith("doc:")) {
-      openPanel("show");
-      run("cockpit.show:go:" + c.slice(4));
-    }
+  command(c, cx, key = null) {
+    runCommand(c, cx, "cockpit", { rows: this.rows, home: this.home, key });
     cx.notify();
   }
 
@@ -139,14 +108,14 @@ export default class Status {
     const left = [
       item("st-needs", [dot(needs ? k.blocked : k.border, needs > 0), div().when(needs > 0, (e) => e.text_color(k.blocked).font_medium()).child(`${needs} need${needs === 1 ? "s" : ""} you`)], {
         onClick: (_e, cx) => this.command("next-waiting", cx),
-        tooltip: "Next agent waiting  ⌘J",
+        tooltip: hint("Next agent waiting", "cockpit.next-waiting"),
       }),
-      item("st-working", [count("working") ? Spinner({ size: 12, color: k.working }) : dot(k.border), div().child(`${count("working")} working`)], { onClick: () => show("home"), tooltip: "Home  ⌘⌥0" }),
+      item("st-working", [count("working") ? Spinner({ size: 12, color: k.working }) : dot(k.border), div().child(`${count("working")} working`)], { onClick: () => show("home"), tooltip: hint("Home", "cockpit.home") }),
       w >= 640 && item("st-ready", [dot(ready ? k.success : k.border), div().child(`${ready} ready`)], { onClick: () => show("home"), tooltip: "Agents whose PR is approved and green" }),
-      w >= 640 && item("st-done", [dot(count("done") ? k.done : k.border), div().child(`${count("done")} done`)], { onClick: (_e, cx) => this.command("next:done", cx), tooltip: "Next finished agent  ⌘⇧U" }),
+      w >= 640 && item("st-done", [dot(count("done") ? k.done : k.border), div().child(`${count("done")} done`)], { onClick: (_e, cx) => this.command("next:done", cx), tooltip: hint("Next finished agent", "cockpit.next:done") }),
     ].filter(Boolean);
 
-    // The focused agent's branch and links on the right, always in the hub's order (PR, ticket, CI, deploy, cited pages);
+    // The branch and links of the agent in view on the right, always in the hub's order (PR, ticket, CI, deploy, cited pages);
     // past the room left, the rest in a "+N" menu. Documents come last.
     const right = [];
     const open = (url) => (url ? (_e, cx) => cx.spawn(async () => hub.openUrl(url)) : undefined);
@@ -178,10 +147,16 @@ export default class Status {
           }),
         );
     }
-    if (queued) right.push(item("st-queue", [Icon("list-ordered", { size: 14, color: k.info }), div().child(w >= 800 ? `${queued} queued` : String(queued))], { tooltip: "Prompts waiting to be sent  ⌘⌥Q", onClick: () => run("cockpit.queue", {}) }));
-    if (lost) right.push(item("st-lost", [Icon("rotate-ccw", { size: 14, color: k.info }), div().text_color(k.info).child(`${lost} to resume`)], { tooltip: "Agents a restart stopped: resume them  ⌘⌥R", onClick: (_e, cx) => cx.spawn(async () => hub.act("home", "resume", [])) }));
-    // The hub shows only when it does not answer.
-    if (this.state !== "live") right.push(item("st-hub", [dot(this.state === "connecting" ? k.warning : k.destructive), div().child(this.state === "connecting" ? "connecting" : "hub offline")], { tooltip: this.state }));
+    if (queued) right.push(item("st-queue", [Icon("list-ordered", { size: 14, color: k.info }), div().child(w >= 800 ? `${queued} queued` : String(queued))], { tooltip: hint("Prompts waiting to be sent", "cockpit.queue"), onClick: () => run("cockpit.queue", {}) }));
+    if (lost) right.push(item("st-lost", [Icon("rotate-ccw", { size: 14, color: k.info }), div().text_color(k.info).child(`${lost} to resume`)], { tooltip: hint("Agents a restart stopped: resume them", "cockpit.resume"), onClick: (_e, cx) => this.command("resume", cx) }));
+    // The hub shows only when it does not answer; down on this machine, a click starts it.
+    const stopped = hub.isStoppedOnPurpose(this.state);
+    const startable = String(this.state).startsWith("error") && !hub.isNotInstalled(this.state) && !hub.remoteMachine();
+    if (this.state !== "live") {
+      const label = this.state === "connecting" ? "connecting" : `${hub.downWords(this.state, true)}${stopped || startable ? " · Start it" : ""}`;
+      const start = startable ? (_e, cx) => cx.spawn(async () => hub.startHub({ explicit: true, cx }).catch((e) => notify({ title: "The hub did not start", body: String(e?.message ?? e), level: "warning" }))) : undefined;
+      right.push(item("st-hub", [dot(this.state === "connecting" ? k.warning : k.destructive), div().child(label)], { tooltip: hubTip(this.state, Boolean(start)), onClick: start }));
+    }
     // The agent's documents always close the bar, so they sit at the same place whatever else shows.
     const docs = me?.row?.documents ?? [];
     if (docs.length)

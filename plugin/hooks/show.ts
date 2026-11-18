@@ -340,6 +340,13 @@ export async function isBlueprintFile($: $, path: unknown) {
   return path.startsWith(`${dir}/`) && /^[a-z0-9][a-z0-9-]{0,39}\.mmd$/.test(path.slice(dir.length + 1))
 }
 
+/** Whose a view is: the app terminal's, else the key of the session cockpit drives that this one is (it has no terminal). */
+export async function viewOwner($: $, here: Here | undefined): Promise<string | undefined> {
+  if (here?.terminal) return here.terminal
+  const key = await $.env.get('COCKPIT_SESSION_KEY')
+  return key && /^[A-Za-z0-9_:-]+$/.test(key) ? key : undefined
+}
+
 export async function show($: $, input: Record<string, unknown>, here: Here | undefined, cwd: string | undefined): Promise<{ result: string } | { deny: string }> {
   const error = viewError(input)
   if (error) return { deny: error }
@@ -354,7 +361,7 @@ export async function show($: $, input: Record<string, unknown>, here: Here | un
     placement: (input.placement as Placement | undefined) ?? 'right',
     cwd,
     url: input.url as string | undefined,
-    terminal: here?.terminal,
+    terminal: await viewOwner($, here),
   }
   // A metrics source is read by cockpit itself, through the observability server setup mapped; the others get their
   // first rows from this session's connectors before the pane opens.

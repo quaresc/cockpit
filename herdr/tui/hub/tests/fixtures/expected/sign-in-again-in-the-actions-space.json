@@ -1,0 +1,84 @@
+{
+  "calls": [
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "workspace",
+        "list"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "tab",
+        "create",
+        "--workspace",
+        "w3",
+        "--cwd",
+        "<BOX>/home",
+        "--label",
+        "sign in · github",
+        "--focus"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p1"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p2"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "get",
+        "w9:p4"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    },
+    {
+      "args": [
+        "pane",
+        "run",
+        "wT:p1",
+        "gh auth login"
+      ],
+      "cmd": "herdr",
+      "stdin": null
+    }
+  ],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/actions.json": {
+      "plan eng-401": "w9:p2",
+      "review web#9": "w9:p1",
+      "sign in · github": "wT:p1",
+      "talk eng-403": "w9:p4"
+    }
+  },
+  "note": "github: signing in again in the actions space",
+  "pending": {},
+  "refreshing": []
+}

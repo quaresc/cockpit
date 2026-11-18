@@ -4,19 +4,21 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import * as hub from "./hub.js";
+import { sharing } from "./feed.js";
 import { fleet, goToAgent } from "./fleet.js";
+import { keyFor, keyText } from "./commands.js";
 import { tokens, TEXT, RADIUS, alpha, Icon, HoverCard, Mono, CornerCount, dur, openMenu } from "./ui.js";
+import { take } from "./person.js";
+
+// The agents, Home and queue views, followed once per window whichever copies ask (feed.js).
+const following = sharing(hub.subscribe);
 
 export default class Bell {
   init(_props, cx) {
     this.rows = null;
     this.home = null;
     this.now = Date.now();
-    cx.timer.every(30000, (cx) => {
-      this.now = Date.now();
-      cx.notify();
-    });
-    this.sub = hub.subscribe(cx, { views: ["agents", "home"] }, (m, cx) => {
+    this.sub = following(cx, { views: ["agents", "home"] }, (m, cx) => {
       if (m.view === "agents") this.rows = m.value;
       if (m.view === "home") this.home = m.value;
       cx.notify();
@@ -27,15 +29,22 @@ export default class Bell {
     this.sub?.stop();
   }
 
+  /** The waits shown move on every 30 s, on the copy's clock (main.js). */
+  tick(cx, now) {
+    if (now - this.now < 30_000) return;
+    this.now = now;
+    cx.notify();
+  }
+
   waiting() {
     return fleet(this.rows, this.home)
       .filter((a) => a.stage === "needs")
       .sort((a, b) => (a.since ?? 0) - (b.since ?? 0));
   }
 
-  command(c) {
+  command(c, _cx, key = null) {
     const [scope, address] = c.split(":");
-    if (scope === "bell" && address) goToAgent(this.waiting().find(a => a.address === address));
+    if (scope === "bell" && address) goToAgent(this.waiting().find(a => a.address === address), take(c, key));
   }
 
   render() {
@@ -43,6 +52,7 @@ export default class Bell {
     const list = this.waiting();
     const done = fleet(this.rows, this.home).filter((a) => a.status === "done").length;
     const n = list.length;
+    const nextKey = keyFor("cockpit.next-waiting");
     const button = h_flex()
       .id("bell-button")
       .size(32)
@@ -80,10 +90,10 @@ export default class Bell {
             .hover((s) => s.bg(alpha(k.blocked, 0.16)))
             .on_click(() => goToAgent(a))
             .child(h_flex().gap(6).child(div().flex_1().truncate().text_size(TEXT.sm).font_medium().child(a.title)).child(Mono(a.since ? dur(this.now - a.since) : "", { color: k.blocked })))
-            .when(Boolean(a.question?.text), (e) => e.child(div().whitespace_normal().text_size(TEXT.xs).text_color(k.mutedFg).child(a.question?.text ?? ""))),
+            .when(Boolean(a.question?.text || a.waits?.text), (e) => e.child(div().whitespace_normal().text_size(TEXT.xs).text_color(k.mutedFg).child(a.question?.text || a.waits?.text || ""))),
         ),
       )
-      .child(h_flex().gap(6).text_size(TEXT.xs).text_color(k.dim).child("click: the longest waiting · ⌘J: next"));
+      .child(h_flex().gap(6).text_size(TEXT.xs).text_color(k.dim).child(`click: the longest waiting${nextKey ? ` · ${keyText(nextKey)}: next` : ""}`));
     return h_flex().id("bell").size_full().items_center().justify_center().pr(8).child(HoverCard("bell-card", button, card, { width: 300, openDelay: 300 }));
   }
 }

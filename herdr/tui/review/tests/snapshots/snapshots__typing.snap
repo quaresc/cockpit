@@ -1,0 +1,44 @@
+---
+source: review/tests/snapshots.rs
+expression: typing
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR
+
+ 2 files  +7 −1   unified · s side by side
+     README.md  +4 −0
+   ▸ src/quotas.py  +3 −1
+
+  ▼ README.md   +4 −0
+  @@ -1,3 +1,7 @@
+    1   1   # acme/api
+    2   2
+    3   3   The acme public API.
+        4 +
+        5 + ## Quotas
+        6 +
+        7 + Each plan has a daily limit (`src/quotas.py`); a call past it gets a 429.
+
+  ▼ src/quotas.py   +3 −1
+  @@ -1,6 +1,8 @@
+    1   1   """Daily quotas for the acme API: how many calls a plan may make in a day."""
+    2   2
+    3   3   PLANS = {"free": 100, "team": 5_000, "enterprise": 50_000}
+        4 + # Calls past the limit still allowed, so a burst at midnight does not fail.
+        5 + GRACE = 10
+    4   6
+    5   7
+    6   8   class QuotaExceeded(Exception):
+  @@ -18,5 +20,5 @@ def remaining(plan: str, used: int) -> int:
+   18  20
+ ▌ 19  21   def enforce(plan: str, used: int) -> None:
+     ✎ keep the grace in the plan    enter adds it, then S sends them all · esc cancels
+   20  22       """Refuses the call once the plan's daily limit is reached."""
+   21     -     if remaining(plan, used) == 0:
+       23 +     if used >= daily_limit(plan) + GRACE:
+   22  24           raise QuotaExceeded(plan)
+
+
+
+
+ enter add  esc cancel                                                                  ▏^p palette

@@ -15,7 +15,8 @@ export type Pr = {
   failedChecks?: string[]
 }
 
-export type MergedPr = { repo: string; slug: string; url: string; number: number; branch: string; mergeSha: string; mergedAt: string }
+// `headSha`: the branch's last commit as merged, which a worktree's cleanup compares its own against.
+export type MergedPr = { repo: string; slug: string; url: string; number: number; branch: string; mergeSha: string; headSha?: string; mergedAt: string }
 
 export type DeployedPr = { repo: string; number: number; isLive: boolean; tag: string | null }
 
@@ -57,9 +58,11 @@ export type HubPart = { at: number; github?: number; tickets?: number; platform?
 
 export type Inbox = {
   version?: number
-  // The last write, by the mod or the hub; `modAt` is the mod's own last fetch.
+  // The last write, by the mod or the hub; `modAt` is when the mod is due again, `modFetched` when each source it read last
+  // came in.
   at: number
   modAt?: number
+  modFetched?: { github?: number; tickets?: number }
   hub?: HubPart
   direct: Pr[]
   team: Pr[]
@@ -93,7 +96,8 @@ export type CiRun = {
 }
 
 // `by: 'hub'` when the hub's feed wrote it.
-export type CiState = { at: number; runs: CiRun[]; error?: string; version?: number; by?: 'hub' }
+// `by`: who read it, the hub or this plugin, beside when (`at`).
+export type CiState = { at: number; runs: CiRun[]; error?: string; version?: number; by?: 'hub' | 'plugin' }
 
 export type Work = { repo: string; dir: string }
 
@@ -179,10 +183,10 @@ export type MonitoredApp = {
   releases: Release[]
 }
 // by: 'hub' when the hub read it through servers of its own.
-export type MonitorState = { version: 1; at: number; env: string; errors: string[]; apps: MonitoredApp[]; by?: 'hub' }
+export type MonitorState = { version: 1; at: number; env: string; errors: string[]; apps: MonitoredApp[]; by?: 'hub' | 'plugin' }
 
 // by: 'hub' when the hub read it from calendar.ics.
-export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string; by?: 'hub' }
+export type MeetingsState = { at: number; meetings: Meeting[]; notified: string[]; error?: string; by?: 'hub' | 'plugin' }
 
 declare module 'claude-code' {
   interface PluginState {

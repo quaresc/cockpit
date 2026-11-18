@@ -1,0 +1,96 @@
+{
+  "calls": [],
+  "error": null,
+  "files": {
+    "home/.cache/cockpit/doctor.json": {
+      "agents": [],
+      "at": 0,
+      "checks": [
+        {
+          "category": "tools",
+          "fix": {
+            "command": "gh auth login",
+            "label": "gh auth login"
+          },
+          "id": "tools.gh",
+          "message": "gh not signed in",
+          "status": "fail"
+        },
+        {
+          "category": "tools",
+          "fix": null,
+          "id": "tools.config",
+          "message": "config.json",
+          "status": "pass"
+        },
+        {
+          "category": "sources",
+          "fix": {
+            "act": {
+              "action": "refresh",
+              "app": "sources",
+              "args": []
+            },
+            "label": "open the inbox space: the hub fills it within a minute"
+          },
+          "id": "sources.cache.inbox",
+          "message": "inbox: no data yet",
+          "status": "warn"
+        },
+        {
+          "category": "claude",
+          "fix": {
+            "label": "/plugin install cockpit --marketplace quaresc/cockpit"
+          },
+          "id": "claude.plugin",
+          "message": "Claude plugin not installed",
+          "status": "fail"
+        },
+        {
+          "category": "tools",
+          "fix": {
+            "act": {
+              "action": "fix",
+              "app": "doctor",
+              "args": [
+                "tools.loop",
+                1793611507779
+              ]
+            },
+            "label": "again"
+          },
+          "id": "tools.loop",
+          "message": "a fix that fixes with a fix",
+          "status": "warn"
+        },
+        {
+          "category": "tools",
+          "fix": {
+            "act": {
+              "action": "vanish",
+              "app": "sources",
+              "args": []
+            },
+            "label": "vanish"
+          },
+          "id": "tools.gone",
+          "message": "a fix this hub never had",
+          "status": "warn"
+        }
+      ],
+      "cockpit": "<VERSION>",
+      "getting_started": [],
+      "stale": true,
+      "summary": {
+        "fail": 2,
+        "pass": 1,
+        "warn": 1
+      },
+      "version": 1
+    },
+    "home/.cache/cockpit/refresh-request": "<T>"
+  },
+  "note": "refresh requested, it lands within a minute",
+  "pending": {},
+  "refreshing": []
+}

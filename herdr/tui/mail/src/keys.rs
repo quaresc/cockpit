@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
+use cockpit_core::pointed::MOVE_FIRST;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
@@ -19,7 +20,10 @@ impl App {
             Event::Mouse(mouse) => {
                 let at = Position::new(mouse.column, mouse.row);
                 match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) => self.click(at),
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        self.pointed.clear();
+                        self.click(at);
+                    }
                     MouseEventKind::ScrollDown if self.hits.body.contains(at) => self.scroll_body(3),
                     MouseEventKind::ScrollUp if self.hits.body.contains(at) => self.scroll_body(-3),
                     MouseEventKind::ScrollDown if self.hits.list.contains(at) => self.move_sel(1),
@@ -87,6 +91,11 @@ impl App {
             return false;
         }
         if key.modifiers.contains(KeyModifiers::ALT) {
+            return false;
+        }
+        // A message a focus request selected takes no key that acts until the person moves to it.
+        if self.pointed.holds(&key) {
+            self.toasts.push(MOVE_FIRST, cockpit_core::toast::Kind::Note);
             return false;
         }
         if let Some(to) = keys::movement(&key) {

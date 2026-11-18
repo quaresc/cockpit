@@ -1,5 +1,6 @@
-//! The palette in the Herdr app: its pages (the doctor's report, today's brief) as view models, and what a found item
-//! does in the agent session the palette opened over, the same as the TUI's ctrl keys.
+//! The palette in the Herdr app: its pages (the doctor's report, today's brief) as view models, the agents in the order
+//! every palette lists them, and what a found item does in the agent session the palette opened over, the same as the
+//! TUI's ctrl keys.
 
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -10,10 +11,12 @@ use cockpit_core::hub::Found;
 use serde_json::{Value, json};
 
 use crate::report::Report;
-use crate::{Over, into_session};
+use crate::{Jump, Over, into_session, jumps, listed};
 
-/// `{report: "doctor" | "brief"}`: that page; anything else, the palette's own commands.
-pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
+/// `{report: "doctor" | "brief"}`: that page; anything else, the palette's own commands, and with `{agents: "app" |
+/// "tui" | "all", rows?}` that frontend's agents in the palette's order (the `rows` given, else the agents view built
+/// here) and how many an empty query lists.
+pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     match args["report"].as_str() {
         Some("doctor") => {
             let exe = std::env::current_exe().unwrap_or_else(|_| "cockpit".into());
@@ -28,7 +31,21 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
             let brief = files::load(&files::cache().join("brief.json")).unwrap_or(Value::Null);
             Report::brief(&brief, &chrono::Local::now().format("%Y-%m-%d").to_string()).json()
         }
-        _ => json!({"pinned": cockpit_core::actions::pinned()}),
+        _ => {
+            let mut out = json!({"pinned": cockpit_core::actions::pinned()});
+            if let Some(frontend) = args["agents"].as_str() {
+                let only = Some(frontend).filter(|f| *f != "all");
+                let model = match &args["rows"] {
+                    Value::Array(rows) => json!({"agents": rows}),
+                    _ => cockpit_agents::gui::view(&json!({"frontend": only}), doc),
+                };
+                let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default();
+                let list = jumps(&model, only, now);
+                out["listed"] = json!(listed(&list));
+                out["agents"] = list.iter().map(Jump::json).collect();
+            }
+            out
+        }
     }
 }
 
@@ -47,6 +64,16 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     };
     let (Some(over), Some(found)) = (args.first(), args.get(1)) else { return Some(Err("needs [over, found]".into())) };
     let over = over_of(over);
+    // Words asked of an agent reach it only from a person or its own tools; typing into its prompt takes the window and a
+    // fork starts an agent, which only a person does.
+    let checked = match key {
+        'a' => cockpit_agents::gui::may_touch(&over.pane),
+        'r' => cockpit_agents::gui::by_a_person("an agent's prompt is typed into by a person, not by an agent's tools"),
+        _ => cockpit_agents::gui::by_a_person("an agent is started by a person, not by an agent's tools"),
+    };
+    if let Err(why) = checked {
+        return Some(Err(why));
+    }
     let found = Found {
         app: text(&found["app"]),
         kind: text(&found["kind"]),
@@ -58,7 +85,22 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let Some(then) = into_session(key, &over, &found, &inbox, &files::config()) else {
         return Some(Err("no agent session to fork there".into()));
     };
-    Some(then.run().map(|()| match key {
+    // Typed into a prompt that shows a menu, the words would pick its choices: refused while the agent waits on one.
+    let done = match key {
+        'r' => {
+            let mut failed = None;
+            let typed = cockpit_agents::gui::waiting(&over.pane, &mut || match then.run() {
+                Ok(()) => true,
+                Err(why) => {
+                    failed = Some(why);
+                    false
+                }
+            });
+            typed.map_err(|why| failed.unwrap_or(why))
+        }
+        _ => then.run(),
+    };
+    Some(done.map(|()| match key {
         'r' => format!("put \"{}\" in the prompt", found.title),
         'a' => format!("asked about \"{}\"", found.title),
         _ => format!("forked the session to look into \"{}\"", found.title),

@@ -31,4 +31,4 @@ expression: "render(&mut app, 100, 30)"
    15:30–15:55   25 min  Weekly Sync Search monitoring                                      3   ▕
    16:00–17:00   60 min  Accounts - Tech Refinement                                         10  ▕
    17:00–17:45   45 min  Interview debriefs                                                 4   ▕
- q quit  o open  m join  b brief  p prepare  w week                                     ▏^p palette
+ q quit  o open  m join  b brief  p prepare  w week  R refresh                          ▏^p palette

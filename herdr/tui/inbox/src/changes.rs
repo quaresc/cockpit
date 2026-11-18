@@ -39,6 +39,8 @@ enum Ci {
 enum Agent {
     Working,
     Idle,
+    /// Stopped with an error (herdr's `error`).
+    Failed,
     Other,
 }
 
@@ -69,6 +71,7 @@ fn agent_state(status: &str) -> Agent {
     match status {
         "working" => Agent::Working,
         "idle" | "done" => Agent::Idle,
+        "error" | "failed" => Agent::Failed,
         _ => Agent::Other,
     }
 }
@@ -90,6 +93,8 @@ pub fn snapshot(data: &Value, ci: &Value, agents: &[(String, String, String)]) -
         let states: Vec<Agent> = agents.iter().filter(|(_, branch, _)| has_ticket(branch, id)).map(|(_, _, status)| agent_state(status)).collect();
         let state = if states.contains(&Agent::Working) {
             Agent::Working
+        } else if states.contains(&Agent::Failed) {
+            Agent::Failed
         } else if states.contains(&Agent::Idle) {
             Agent::Idle
         } else {
@@ -126,6 +131,9 @@ pub fn diff(before: &Snapshot, after: &Snapshot) -> Vec<(String, Change)> {
     for (id, now) in &after.agents {
         if before.agents.get(id) == Some(&Agent::Working) && *now == Agent::Idle {
             out.entry(id.clone()).or_insert(Change::Done);
+        }
+        if before.agents.get(id) == Some(&Agent::Working) && *now == Agent::Failed {
+            out.entry(id.clone()).or_insert(Change::Broken);
         }
     }
     out.into_iter().collect()
@@ -192,6 +200,13 @@ mod tests {
         assert_eq!(diff(&before, &after), vec![("ENG-1".into(), Change::Done)]);
         let gone = snap(vec![], &[], vec![], &[]);
         assert!(diff(&before, &gone).is_empty(), "a session that went away did not finish anything");
+    }
+
+    #[test]
+    fn an_agent_stopping_with_an_error_breaks_its_ticket() {
+        let before = snap(vec![], &[], vec![], &[("me/eng-1-login", "working")]);
+        let after = snap(vec![], &[], vec![], &[("me/eng-1-login", "error")]);
+        assert_eq!(diff(&before, &after), vec![("ENG-1".into(), Change::Broken)]);
     }
 
     #[test]
