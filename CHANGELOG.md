@@ -5,6 +5,11 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 0.40.5 (2026-11-18)
+
+- Agents: a stale Herdr app socket falls back to herdr-core's agents (#61)
+- agents: an agent that only waits on its background shells rests (#62)
+
 ## 0.40.4 (2026-11-17)
 
 - Agents: a runner without a Herdr window lists the agents herdr-core knows (#46)
