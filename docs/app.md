@@ -1102,8 +1102,8 @@ Herdr app. In the app it writes no herdr tokens: what the TUI's sidebar rows sho
   agent's tab, else splits the agent's pane right with `terminal-browser open <url>` and returns once it lists. App
   terminals carry Ghostty's variables and none of herdr's, so every terminal-browser call gets the session's pane
   (`HERDR_PANE_ID`, from `herdr-app ls`: the terminal `HC_TERMINAL_ID` names, else the one the caller descends from) and
-  the app's socket (`HERDR_SOCKET_PATH`); `cockpit browse --env` prints them as exports. A session the window shows
-  nowhere gets the reason and the default browser.
+  the app's socket (`HERDR_SOCKET_PATH`); `cockpit browse --env` prints them as exports, and the plugin sets them for a
+  Claude Code session at its start. A session the window shows nowhere gets the reason and the default browser.
 - **Open in editor** (`editor.js`, `openInEditor(folder, machine)`) and **fork a session** (`agents fork`) are in the
   palette and on the pane header (`{app: "pane"}`, hover: editor, fork to a tab, split, zoom, close).
 
