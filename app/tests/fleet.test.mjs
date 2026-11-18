@@ -199,7 +199,7 @@ test("a blocked agent with nothing to read says what it waits on, never a line o
   assert.equal(at("t41").question.text, "Which limit?");
   const src = await readFile(new URL("../mods/cockpit/agentsui.js", import.meta.url), "utf8");
   const card = src.slice(src.indexOf("export function WaitsCard"), src.indexOf("/** How many of what a permission would do"));
-  assert.match(card, /label: "Go to agent"/, "the way to its terminal is the card's action");
+  assert.match(card, /"Open terminal"/, "the way to its terminal is the card's action");
   assert.doesNotMatch(card, /startReply|TextField|model\.answer/, "it takes no reply: nothing on its screen reads as a question");
   assert.match(src, /if \(!row\.question && row\.waits\) return WaitsCard\(/, "every question card draws it");
 });
