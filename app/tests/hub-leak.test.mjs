@@ -80,9 +80,9 @@ test("request(): a connection that comes after its 20 s bound gave up is closed,
   assert.equal(f.clients.size, 0, `a connection given up on should be closed, ${f.clients.size} still open`);
 });
 
-// The mod loaded again and again in one window, as every save and every update does: each load is hub.js evaluated
-// afresh in the same context, its tasks left waiting on their reads as a reload leaves them.
-async function loads(t, n, { connectDelay = () => 0 } = {}) {
+// hub.js evaluated again and again in one window's context: a save or an update reloads the mod (the older load's
+// tasks left waiting on their reads), and Herdr 0.1.12 evaluates it once per copy, every load running at once.
+async function loads(t, n, { connectDelay = () => 0, together = false } = {}) {
   const clients = new Set();
   const server = net.createServer((socket) => {
     clients.add(socket);
@@ -108,6 +108,7 @@ async function loads(t, n, { connectDelay = () => 0 } = {}) {
   // The loads share one context, as a window's do: one source for all of them.
   const source = await hubSource();
   const namespaces = [];
+  const evaluated = [];
   for (let i = 0; i < n; i++) {
     const delay = connectDelay(i);
     const imports = {
@@ -135,14 +136,22 @@ async function loads(t, n, { connectDelay = () => 0 } = {}) {
       for (const [k, v] of Object.entries(imports[name])) this.setExport(k, v);
     }, { context }));
     await module.evaluate();
-    // A copy's context: tasks run, timers never fire (a reload stops the older load's), no beat.
-    const cx = { spawn: (f) => f(cx), notify() {}, timer: { after: () => ({ cancel() {} }) } };
-    let live = false;
-    module.namespace.subscribe(cx, { views: ["agents"] }, () => (live = true));
-    module.namespace.subscribe(cx, { views: ["queue"] }, () => {});
-    namespaces.push({ hub: module.namespace, live: () => live });
+    evaluated.push(module.namespace);
+    if (!together) namespaces.push(follow(module.namespace));
   }
+  // Every copy starts once every load is evaluated, as a window starting on Herdr 0.1.12 does.
+  if (together) namespaces.push(...evaluated.map(follow));
   return { clients, namespaces };
+}
+
+/** A copy following two views on `hub`: tasks run, timers never fire (a reload stops the older load's), no beat. */
+function follow(hub) {
+  const cx = { spawn: (f) => f(cx), notify() {}, timer: { after: () => ({ cancel() {} }) } };
+  let live = false;
+  const states = [];
+  hub.subscribe(cx, { views: ["agents"] }, () => (live = true), (state) => states.push(state));
+  hub.subscribe(cx, { views: ["queue"] }, () => {}, (state) => states.push(state));
+  return { hub, live: () => live, states };
 }
 
 const settle = async (clients, want, ms = 2000) => {
@@ -150,19 +159,30 @@ const settle = async (clients, want, ms = 2000) => {
   while (clients.size !== want && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
 };
 
-test("ten loads of the mod in one window leave only the newest load's connections open", async (t) => {
-  const { clients, namespaces } = await loads(t, 10);
+test("loads evaluated together, one per copy, all follow the hub: none takes another's connections", async (t) => {
+  const { clients, namespaces } = await loads(t, 6, { together: true });
+  await settle(clients, 12);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(clients.size, 12, `each load's two subscriptions should stay open, ${clients.size} are`);
+  for (const [i, n] of namespaces.entries()) {
+    assert.equal(n.live(), true, `load ${i + 1} should get its values`);
+    assert.deepEqual(n.states.filter((s) => s !== "connecting" && s !== "live"), [], `load ${i + 1} should never be down`);
+  }
+  // A sweep while every load still runs closes nothing.
+  namespaces.at(-1).hub.sweep?.();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(clients.size, 12);
+});
+
+test("the connections of loads that stopped running are closed once past every bound, even one that came late", async (t) => {
+  // The first load's connects take 300 ms; nine loads come after it, then only the newest runs.
+  const { clients, namespaces } = await loads(t, 10, { connectDelay: (i) => (i === 0 ? 300 : 0) });
+  await new Promise((r) => setTimeout(r, 600));
+  await settle(clients, 20);
+  namespaces.at(-1).hub.sweep(Date.now() + 91_000);
   await settle(clients, 2);
   assert.equal(clients.size, 2, `the newest load's two subscriptions alone should be open, ${clients.size} are`);
   assert.equal(namespaces.at(-1).live(), true, "and the newest one is live");
-});
-
-test("a connection an older load asked for that comes after a newer load took over is closed at once", async (t) => {
-  // The first load's connects take 300 ms: the second load is there before they come back.
-  const { clients } = await loads(t, 2, { connectDelay: (i) => (i === 0 ? 300 : 0) });
-  await new Promise((r) => setTimeout(r, 600));
-  await settle(clients, 2);
-  assert.equal(clients.size, 2, `only the second load's connections should be open, ${clients.size} are`);
 });
 
 // Herdr's socket read gives up after 30 s with nothing to read, and rejects with the system's "would block": an idle

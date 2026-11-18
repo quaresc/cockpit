@@ -294,36 +294,22 @@ export function openNew() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Agents
 
-/** This load of the mod, counted on the window: an update reloads the mod with a higher number. */
-const LOAD = (globalThis.cockpitLoads = (globalThis.cockpitLoads ?? 0) + 1);
-
 /**
- * Copies of the window that follow the agents view and lend it, each as a `() => value | null`, all of one load: views
- * an earlier load left behind may never close, so a newer load drops their lenders as it starts.
+ * Copies of the window that follow the agents view and lend it, each as a `() => value | null` with the load of hub.js
+ * it runs: a load that stopped running (a reload left its views behind) lends nothing.
  */
-const lenders = () => {
-  const all = (globalThis.cockpitAgentLenders ??= { load: LOAD, fns: new Set() });
-  if (all.load < LOAD) {
-    all.load = LOAD;
-    all.fns.clear();
-  }
-  return all;
-};
-lenders();
+const lenders = () => (globalThis.cockpitAgentLent ??= new Map());
 
-/** Lends a copy's agents view to the window's commands until the returned function is called; an older load lends nothing. */
+/** Lends a copy's agents view to the window's commands until the returned function is called. */
 export function lend(fn) {
-  const all = lenders();
-  if (all.load !== LOAD) return () => {};
-  all.fns.add(fn);
-  return () => all.fns.delete(fn);
+  lenders().set(fn, hub.LOAD);
+  return () => lenders().delete(fn);
 }
 
-/** The agents view some copy of this load follows now, else null. */
+/** The agents view some running copy follows now, the newest load's first, else null. */
 export function lent() {
-  const all = lenders();
-  if (all.load !== LOAD) return null;
-  for (const fn of all.fns) {
+  for (const [fn, load] of [...lenders()].sort((x, y) => y[1] - x[1])) {
+    if (!hub.liveLoad(load)) continue;
     try {
       const value = fn();
       if (value) return value;
