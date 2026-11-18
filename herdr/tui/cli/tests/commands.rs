@@ -1055,3 +1055,15 @@ fn doctor_tells_the_hub_fetches_the_calendar_without_printing_its_address() {
     let printed = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
     assert!(printed.contains("warn  calendar.ics is set but the calendar is off"), "{printed}");
 }
+
+#[test]
+fn doctor_leaves_the_pinned_spaces_alone_while_herdr_is_not_running() {
+    let sandbox = Sandbox::new();
+    let down = r#"{"id":"cli:workspace:list","error":{"code":"server_not_running","message":"no herdr server is running"}}"#;
+    sandbox.herdr(&[("--version", "herdr 0.9.5"), ("workspace list", down), ("pane list", down)]);
+    sandbox.write("home/.config/cockpit/config.json", r#"{"spaces": ["inbox"]}"#);
+    let out = sandbox.cockpit(&["doctor", "--all"], &[]);
+    let printed = stdout(&out);
+    assert!(printed.lines().any(|l| l == "ok    herdr is not running: its pinned spaces are checked while it runs"), "{printed}");
+    assert!(!printed.contains("space inbox"), "{printed}");
+}

@@ -6,6 +6,11 @@
 sh "$ROOT/fetch-apps.sh"
 prune_installs
 link_bin
+# The Herdr app alone runs no herdr server: its spaces come with herdr.
+if ! "$H" workspace list 2>/dev/null | jq -e '.result.workspaces' >/dev/null 2>&1; then
+  echo "herdr is not running: its pinned spaces are made when it starts"
+  exit 0
+fi
 
 ensure() {
   name=$1 label=$2 app=$3 cwd=${4:-$REPOS}
