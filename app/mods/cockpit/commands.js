@@ -449,14 +449,14 @@ function openTerminal(cx) {
     const row = await rowOf(key);
     // Nothing known of it: no terminal is opened on a guess.
     if (!row) return notify({ title: "No terminal to open", body: row === undefined ? "Cockpit's hub is not answering." : "No agent by that name runs now.", level: "info" });
-    if (!row.driven) return windowFor(key);
+    if (!row.driven) return openTerminalWindow(key);
     if (hub.remoteMachine()) return notify({ title: "It runs on the runner", body: "A remote desk cannot hand it over to a terminal.", level: "info" });
     handOn("chat", "chat:handover", cx);
   });
 }
 
 /** The terminal of an agent Herdr runs, in a window over the reading layout with its own head bar. */
-function windowFor(key) {
+export function openTerminalWindow(key) {
   const address = key.replace(/^app:/, "");
   openOverlay({
     kind: "window",

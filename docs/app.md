@@ -269,6 +269,10 @@ Desktop checks: `node --experimental-vm-modules --test app/tests/*.test.mjs`.
 
 ## The shell: layout, Home, status bar, bell, side panel, queue
 
+Terminal-backed command approvals can be answered in the chat when their full request is readable. Codex's known
+unframed format needs its opening line, command, choices and closing hint; an incomplete request stays terminal-only.
+**Open terminal** opens the same floating terminal window as the chat's agent icon, keeping the conversation visible.
+
 `app/layouts/cockpit.json`: sidebar · a top bar (`tabs` + `bell`) · the `center` stack, `home` first and shown at start
 (the board, with a hidden `home-agent` column: `agent-head` over `{agent: "focused"}`), `work` (a `view` stack: `main` =
 the tab, `agent` = the focused agent alone), the apps · the `status` bar; in `work`, the right `panel` (stack

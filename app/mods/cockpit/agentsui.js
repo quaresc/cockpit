@@ -9,7 +9,8 @@ import * as hub from "./hub.js";
 import { sharing } from "./feed.js";
 import { rowsOf, answerPayload, changed, CHANGED, agentStatus } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, ChoiceKey, Button, Checkbox, Chip, Mono, TextField, dur, openMenu, iconOf } from "./ui.js";
-import { showWork, showPanes, layoutName, readInChat, pinChat } from "./screens.js";
+import { showWork, layoutName, readInChat, pinChat } from "./screens.js";
+import { openTerminalWindow } from "./commands.js";
 import { QuotaGroups } from "./usage.js";
 import { oneTimeKey, take } from "./person.js";
 
@@ -368,7 +369,7 @@ export class AgentsModel {
     // An agent picked on purpose, the one in front too: the chat follows it again.
     pinChat(null);
     run("agent.focus", { terminal: row.address });
-    if (this.shown(row)?.terminal_only || row.waits) showPanes();
+    if (this.shown(row)?.terminal_only || row.waits) openTerminalWindow(row.address);
     else showWork();
     // A runner's hub takes no writes from a remote desk.
     if (person && !row.herdr && !row.remote) this.act(cx, "seen", { terminal: row.terminal });
@@ -731,7 +732,7 @@ export function QuestionCard(id, row, model, { wide = false, header, footer, foc
     multi &&
       Button(`${id}-submit`, { label: "Submit", size: "sm", onClick: (_e, cx) => model.submit(cx, row), tooltip: "Send the ticked choices" }),
     q.kind === "text" && !replying && Button(`${id}-reply`, { label: "Reply", icon: "reply", size: "sm", onClick: (_e, cx) => model.startReply(cx, row) }),
-    Button(`${id}-go`, { label: q.terminal_only && !row.driven ? "Open terminal" : undefined, icon: "corner-down-left", variant: "outline", size: q.terminal_only && !row.driven ? "sm" : "icon-sm", tooltip: q.terminal_only ? "Answer it in its terminal" : "Go to the agent", onClick: (_e, cx) => model.go(cx, row) }),
+    Button(`${id}-go`, { label: !row.driven ? "Open terminal" : undefined, icon: "corner-down-left", variant: "outline", size: !row.driven ? "sm" : "icon-sm", tooltip: "Open the agent's floating terminal", onClick: (_e, cx) => !row.driven ? openTerminalWindow(row.address) : model.go(cx, row) }),
     Button(`${id}-snooze`, { icon: "alarm-clock", variant: "ghost", size: "icon-sm", tooltip: "Snooze…", onClick: () => model.menu(row) }),
   ].filter(Boolean);
   const aside = !dismiss ? null : dismissable(row) ? DismissButton(id, row, model) : row.dismissed && !row.remote ? RestoreButton(id, row, model) : null;
