@@ -3,8 +3,8 @@ import { readFile, readdir } from "node:fs/promises";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 import { test } from "node:test";
 
-// An update reloads the mod in the same window: the views of the load before may never close, so the agents view
-// they lend to the window's commands (⌘J, the palette) must stop counting once a newer load starts.
+// Copies of one window lend the agents view they follow to the window's commands (⌘J, the palette). Herdr 0.1.12
+// evaluates the mod once per copy, so every running load lends; a load that stopped running (a reload) lends nothing.
 
 const folder = new URL("../mods/cockpit/", import.meta.url);
 
@@ -27,9 +27,9 @@ async function sources() {
 }
 
 /** One load of the mod in `context`: its own module instances, the window's globals shared with every other load. */
-async function load(context, { texts, natives }) {
+async function load(context, { texts, natives }, n, running) {
   const modules = new Map();
-  const imports = { ...natives, "./hub.js": { view: async () => null, act: async () => ({}), subscribe: () => ({ stop() {} }), remoteMachine: () => null } };
+  const imports = { ...natives, "./hub.js": { LOAD: n, liveLoad: (l) => running.has(l), view: async () => null, act: async () => ({}), subscribe: () => ({ stop() {} }), remoteMachine: () => null } };
   const link = (name) => {
     if (modules.has(name)) return modules.get(name);
     const lib = imports[name];
@@ -45,26 +45,30 @@ async function load(context, { texts, natives }) {
   return entry.namespace;
 }
 
-test("a newer load of the mod drops the lenders an earlier load left, and only its own are asked", async () => {
+test("every running load lends, the newest first, and a load that stopped running lends nothing", async () => {
   const src = await sources();
   const context = createContext({ console });
-  const before = await load(context, src);
+  const running = new Set([1, 2]);
+  const first = await load(context, src, 1, running);
+  const second = await load(context, src, 2, running);
   const asked = [];
-  before.lend(() => (asked.push("old"), { agents: [] }));
-  assert.equal(before.lent().agents.length, 0, "one load: its lender answers");
+  first.lend(() => (asked.push("first"), { agents: [{ address: "t1" }] }));
+  assert.equal(second.lent().agents[0].address, "t1", "a copy of another running load lends to this one");
+  assert.equal(first.lent().agents[0].address, "t1");
+  second.lend(() => (asked.push("second"), { agents: [{ address: "t2" }] }));
+  asked.length = 0;
+  assert.equal(first.lent().agents[0].address, "t2", "the newest load is asked first");
+  assert.deepEqual(asked, ["second"]);
 
-  // The update: the same window loads the mod again, while the old views stay alive and never close.
-  const after = await load(context, src);
+  // A reload: the first load's views stay behind, frozen, and its load stops running.
+  running.delete(1);
+  const unlend = second.lend(() => null);
   asked.length = 0;
-  assert.equal(after.lent(), null, "the old load's empty list is not taken for the agents now");
-  assert.deepEqual(asked, [], "the old lender is not even asked");
-  after.lend(() => (asked.push("new"), { agents: [{ address: "t41" }] }));
-  assert.equal(after.lent().agents[0].address, "t41");
-  assert.deepEqual(asked, ["new"]);
-  asked.length = 0;
-  const unlend = before.lend(() => (asked.push("late old"), { agents: [] }));
-  assert.equal(typeof unlend, "function");
-  assert.equal(after.lent().agents[0].address, "t41");
-  assert.ok(!asked.includes("late old"), "an old view lending again lends nothing");
-  assert.equal(before.lent(), null, "and the old load's own commands fall back to the hub");
+  running.delete(2);
+  assert.equal(second.lent(), null, "no running load: nothing is lent");
+  assert.deepEqual(asked, [], "a stopped load's lender is not even asked");
+  running.add(2);
+  unlend();
+  assert.equal(second.lent().agents[0].address, "t2");
+  assert.ok(!asked.includes("first"), "the stopped load's lender is never asked");
 });

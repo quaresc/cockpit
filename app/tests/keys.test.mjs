@@ -43,6 +43,8 @@ async function fixture({ layout = "cockpit", bound = [], agents = [], focused = 
       sleep: async () => {},
       subscribe: () => ({ stop() {} }),
       remoteMachine: () => null,
+      LOAD: 1,
+      liveLoad: () => true,
     },
   };
   const sources = new Map(), modules = new Map();

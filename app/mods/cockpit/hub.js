@@ -9,54 +9,48 @@ const close = (socket) => {
   try {
     socket?.close();
   } catch {}
-  owned().open.delete(socket);
+  owned().delete(socket);
 };
 
 /**
- * This load of the mod. Saving a file or an update loads it again, and an older load's tasks stop where they wait,
- * their sockets open: the newest load closes every socket an older one opened and stops its subscriptions.
+ * This evaluation of hub.js. Herdr can evaluate the mod once per copy, or evaluate a build it never runs, so a newer
+ * load says nothing about the older ones: a load counts as gone only once it stops showing signs of life.
  */
-const LOAD = (globalThis.cockpitHubLoads = (globalThis.cockpitHubLoads ?? 0) + 1);
+export const LOAD = (globalThis.cockpitHubLoads = (globalThis.cockpitHubLoads ?? 0) + 1);
 
-/** The sockets the newest load opened and has not closed, and which load that is. */
-const owned = () => (globalThis.cockpitHubSockets ??= { load: 0, open: new Set() });
+/** When each load last showed it runs (a beat, a request, a subscription), on globalThis which every load shares. */
+const signs = () => (globalThis.cockpitHubSigns ??= new Map());
 
-/** Takes over from the loads before this one: their sockets close, their subscriptions and focus listeners stop. */
-function takeOver() {
-  const all = owned();
-  if (all.load >= LOAD) return;
-  for (const socket of all.open) {
-    try {
-      socket.close();
-    } catch {}
-  }
-  all.open.clear();
-  all.load = LOAD;
-  for (const state of [...following()]) {
-    if (state.load === LOAD) continue;
-    state.stopped = true;
-    // Nothing of the older load keeps its sockets: they go as soon as its stopped tasks let go of them.
-    for (const socket of [state.socket, ...(state.opening ?? [])]) {
-      try {
-        socket?.close();
-      } catch {}
-    }
-    state.socket = null;
-    state.opening?.clear();
-    following().delete(state);
-  }
-  const focus = globalThis.cockpitRemoteFocus;
-  for (const listener of [...(focus?.listeners ?? [])]) if (listener.load !== LOAD) focus.listeners.delete(listener);
+/** This load runs: a copy of it beats or asks the hub. */
+const sign = () => signs().set(LOAD, Date.now());
+
+/** Whether a load showed a sign of life within `GONE_MS` (this load always does). */
+export const liveLoad = (load, now = Date.now()) => load === LOAD || now - (signs().get(load) ?? 0) <= GONE_MS;
+
+/** Every socket open in the window, with the load that opened it and when. */
+const owned = () => (globalThis.cockpitHubOwned ??= new Map());
+
+/** A socket this load opened, kept so that another load can close it once this one is gone. */
+function adopt(socket) {
+  owned().set(socket, { load: LOAD, at: Date.now() });
+  return socket;
 }
 
-/** A socket this load opened: kept to be closed by a newer load, or closed at once when a newer load came meanwhile. */
-function adopt(socket) {
-  if (owned().load !== LOAD) {
-    close(socket);
-    throw new Error("a newer load of cockpit's mod took over");
+/** How long a socket of a gone load may stay open: past every bound of a request (20 s to connect, 60 s to answer). */
+const STRAY_MS = 90_000;
+
+/**
+ * Closes what loads that stopped running left open, `now` being a time this load runs: their sockets once past every
+ * bound of a request, and their focus listeners. Their subscriptions are the watchdog's to park.
+ */
+export function sweep(now = Date.now()) {
+  sign();
+  for (const [socket, { load, at }] of owned()) {
+    if (!liveLoad(load, now) && now - at > STRAY_MS) close(socket);
   }
-  owned().open.add(socket);
-  return socket;
+  for (const [load, at] of signs()) if (now - at > FORGOTTEN_MS && load !== LOAD) signs().delete(load);
+  const focus = globalThis.cockpitRemoteFocus;
+  for (const listener of [...(focus?.listeners ?? [])]) if (!liveLoad(listener.load, now)) focus.listeners.delete(listener);
 }
 
 /**
@@ -104,7 +98,7 @@ function localFocus(target) {
     run("layout.select", { stack: "panel-body", child: "show" });
     run("layout.show", { id: "panel" });
   } else run(`cockpit.go:${target.app}`);
-  for (const listener of focus.listeners) if (listener(target)) break;
+  for (const listener of focus.listeners) if (liveLoad(listener.load) && listener(target)) break;
   return { ok: true };
 }
 
@@ -199,7 +193,7 @@ const failure = () => (globalThis.cockpitHubFailure ??= { message: null, at: 0 }
 /** Keeps an error that stopped the window from reaching the hub; one of the window's own making says nothing of the hub. */
 function failed(e) {
   const message = String(e?.message ?? e ?? "").trim();
-  if (!message || message === "subscription stopped" || message.includes("a newer load of cockpit's mod")) return;
+  if (!message || message === "subscription stopped") return;
   Object.assign(failure(), { message, at: Date.now() });
 }
 
@@ -414,6 +408,7 @@ export async function request(op, fields = {}, cx = null) {
     const r = await openUrl(url);
     return r.code === 0 ? { note: `opened ${url}`, pending: {}, refreshing: {} } : { error: r.stderr.trim() || `could not open ${url}`, pending: {} };
   }
+  sign();
   const { machine } = await install();
   if (machine) {
     if (op === "go") return localFocus(fields.target);
@@ -491,8 +486,6 @@ export const history = async (kind, key) => (await request("history", { kind, ke
 /** The window's live subscriptions, on globalThis which every copy shares: what the watchdog looks after. */
 const following = () => (globalThis.cockpitHubSubscriptions ??= new Set());
 
-takeOver();
-
 /** How often each copy beats. */
 const BEAT_MS = 1000;
 
@@ -564,6 +557,8 @@ function watchdog(cx, slept = false) {
     try {
       const woke = w.woke === true;
       w.woke = false;
+      // Just after a sleep every load looks silent: none is taken for gone.
+      if (!woke) sweep();
       const { park, close: stale } = verdict([...following()], port, { woke });
       for (const s of park) {
         // A subscription made by an older version of this module may not know how to park: it is stopped.
@@ -591,6 +586,7 @@ function beatFor(cx, state, tick) {
     b = { states: new Map(), timer: null };
     b.timer = cx.timer.every(BEAT_MS, (later) => {
       const now = Date.now();
+      sign();
       // Long since its last beat, this copy was asleep with the machine: what it sees of the others is stale.
       const slept = b.last !== undefined && now - b.last > 2 * BEAT_MS;
       b.last = now;
@@ -625,6 +621,7 @@ export function subscribe(cx, { views = [], docs = [], notify = false, focus = n
   // `beat` moves while the copy lives (a copy the window dropped stops beating); `port` names the hub it is on;
   // `attempt` numbers the task following the hub, `moved` is when it last got anywhere, `answered` whether the hub ever
   // answered it (live or an error).
+  sign();
   const state = { load: LOAD, stopped: false, parked: false, beat: Date.now(), alive: Date.now(), port: null, attempt: 0, moved: Date.now(), connecting: true, answered: false, opening: new Set(), stop: () => sub.stop(), park: () => park() };
   following().add(state);
   const navigation = (globalThis.cockpitRemoteFocus ??= { targets: new Map(), listeners: new Set() });

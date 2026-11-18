@@ -100,10 +100,12 @@ all is live, 3 s otherwise) pings the hub, closes the sockets of subscriptions o
 those whose copy stopped beating (their own beat follows again; none is parked just after the machine slept, when
 every copy looks behind), and asks for a hub itself only after two of its pings failed in a row. A one-off request is
 bounded on its caller's `cx` when it gives one, closes a connection that comes after it gave up, and one sent but
-never answered throws with `isUnconfirmed(e)`: it may have been done. Every socket belongs to the mod's load that
-opened it (`globalThis.cockpitHubSockets`): a save or an update loads the mod again and leaves the older load's tasks
-waiting on their reads, so the newest load closes the older ones' sockets and stops their subscriptions as it starts,
-and a connect an older load began is closed when it comes back.
+never answered throws with `isUnconfirmed(e)`: it may have been done. Every socket belongs to the evaluation of hub.js
+that opened it (`globalThis.cockpitHubOwned`). Herdr 0.1.12 evaluates the mod once per copy, and Herdr may evaluate a
+build it never runs, so a newer load takes nothing from an older one: a load is gone only once none of its copies beats
+or asks the hub for 10 s (`liveLoad`), and the watchdog's `sweep` then closes its sockets past every bound of a request
+(90 s), a save or an update having left its tasks waiting on their reads; its subscriptions are parked as any silent
+copy's are.
 `{focus, target}` arrives when the palette or a notification asks the view to bring `target.key` into view
 (`cockpit focus`, `hub.go`). Without `cockpit.json` Home draws the install panel and `AgentsModel` (agentsui.js) falls
 back to Herdr's `agents()`. Only the app's main view sets `focus`; count
@@ -200,8 +202,8 @@ Desktop checks: `node --experimental-vm-modules --test app/tests/*.test.mjs`.
   Cockpit, "Home  ⌘⌥8" in Cockpit Chat): the shell's views write no window key by hand.
 - The runners and the agents drawer lend the agents view they follow (`lend`); ⌘J and the palette read it from there
   (`lent()`) and only ask the hub when no copy follows it. ⌘J passes an agent with no running terminal (Herdr's
-  `terminals()`), and one the last press could not bring up, and says which it passed. Lenders belong to the mod's load: an update's newer load
-  drops those an earlier one left (`globalThis.cockpitAgentLenders`). A runner starting puts `cockpit.app` back on one of its
+  `terminals()`), and one the last press could not bring up, and says which it passed. Each lender notes the load of hub.js it runs, the newest
+  load's asked first, and a load that stopped running lends nothing (`globalThis.cockpitAgentLent`). A runner starting puts `cockpit.app` back on one of its
   layout's screens (`settle`).
 - `screens.js` lists each layout's screens (`screens().list`: child, label, icon, the command its key is bound to);
   `show(child)` switches the layout's stack and gives that view the keyboard (`show:<app>`), `showWork()` brings up
