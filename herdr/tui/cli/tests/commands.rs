@@ -444,6 +444,116 @@ fn browse_beside_and_external() {
     assert_eq!((out.status.code(), stderr(&out).trim()), (Some(1), "no terminal-browser beside this pane"));
 }
 
+// The Herdr app: a session's terminal t2 shows in pane p62d2, in a tab with t3, a terminal-browser on ttys013.
+
+const APP_SPACES: &str = r#"{"spaces": [{"id": "sp1", "tabs": [{"id": "tb1", "terminals": [{"terminal": "t2", "pane": "p62d2"}, {"terminal": "t3", "pane": "pe496"}]}, {"id": "tb2", "terminals": [{"terminal": "t7", "pane": "pa11"}]}]}]}"#;
+
+/// The Herdr app's herdr-app and hc, and a ps that knows the browser's tty; terminal-browser fails as it does in an app
+/// terminal (Ghostty's variables, no herdr pane) unless it is told the pane.
+fn app_sandbox(listed: &str) -> Sandbox {
+    let sandbox = Sandbox::new();
+    let says = common::says;
+    let split = format!("    : > '{}'\n{}", sandbox.root.join("split").display(), says(r#"{"pane": "p9", "terminal": "t9"}"#));
+    let app = [("ls", says(APP_SPACES)), ("do pane.split", split), ("*", says("{}"))];
+    let refs: Vec<(&str, &str)> = app.iter().map(|(p, a)| (*p, a.as_str())).collect();
+    executable(&sandbox.root.join("bin/herdr-app"), &common::fake("herdr-app", &sandbox.log(), &refs));
+    let hc = [
+        ("get t3", says(r#"{"pid": 700, "foreground": {"name": "terminal-browser", "pid": 4242}}"#)),
+        ("get t7", says(r#"{"pid": 900, "foreground": {"name": "terminal-browser", "pid": 4343}}"#)),
+        ("*", says(r#"{"pid": 500, "foreground": {"name": "claude", "pid": 501}}"#)),
+    ];
+    let refs: Vec<(&str, &str)> = hc.iter().map(|(p, a)| (*p, a.as_str())).collect();
+    executable(&sandbox.root.join("bin/hc"), &common::fake("hc", &sandbox.log(), &refs));
+    executable(
+        &sandbox.root.join("bin/ps"),
+        "#!/bin/sh\ncase \"$*\" in\n  '-o tty= -p 4242') echo ttys013 ;;\n  '-o tty= -p 4343') echo ttys020 ;;\n  *) echo 1 ;;\nesac\n",
+    );
+    let ghostty = "    [ -n \"$HERDR_PANE_ID\" ] || { echo 'terminal-browser: Ghostty is not running, so there is no window to script' >&2; exit 1; }\n";
+    // Once split, the new browser lists.
+    let started =
+        browsers(r#"{"browsers": [{"key": "b9", "tty": "/dev/ttys013", "tabs": [{"id": 1, "url": "https://app.test/c", "title": "C", "active": true}]}]}"#);
+    let ls = format!("{ghostty}    if [ -e '{}' ]; then\n{started}\n    else\n{}\n    fi", sandbox.root.join("split").display(), browsers(listed));
+    sandbox.terminal_browser(&[("ls", &ls), ("*", ghostty)]);
+    sandbox
+}
+
+/// A session in the app terminal t2 with none of herdr's variables, as the Herdr app starts its terminals.
+fn in_app(sandbox: &Sandbox) -> Vec<(String, String)> {
+    let bin = |name: &str| sandbox.root.join("bin").join(name).to_string_lossy().into_owned();
+    vec![
+        ("HC_TERMINAL_ID".into(), "t2".into()),
+        ("TERM_PROGRAM".into(), "ghostty".into()),
+        ("HERDR_APP_HOME".into(), sandbox.root.join("app-home").to_string_lossy().into_owned()),
+        ("HERDR_APP_BIN".into(), bin("herdr-app")),
+        ("HC_BIN".into(), bin("hc")),
+    ]
+}
+
+fn in_app_refs(env: &[(String, String)]) -> Vec<(&str, &str)> {
+    env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+}
+
+fn tb_calls(sandbox: &Sandbox) -> Vec<String> {
+    sandbox.calls().into_iter().filter(|c| c.starts_with("tb ")).collect()
+}
+
+#[test]
+fn in_the_app_terminal_browser_is_told_the_sessions_pane_and_the_apps_socket() {
+    let _one = serial();
+    let sandbox = app_sandbox(
+        r#"{"browsers": [{"key": "b1", "tty": "/dev/ttys013", "tabs": [{"id": 3, "url": "https://app.test/a", "title": "A", "active": true}]}, {"key": "b2", "tty": "/dev/ttys020", "tabs": []}]}"#,
+    );
+    let env = in_app(&sandbox);
+    let socket = sandbox.root.join("app-home/herdr-app.sock");
+    let out = sandbox.cockpit(&["browse", "--beside"], &in_app_refs(&env));
+    assert_eq!(stdout(&out).trim(), r#"{"key": "b1", "tab": 3, "url": "https://app.test/a", "title": "A"}"#, "{}", stderr(&out));
+    std::fs::write(sandbox.log(), "").unwrap();
+    let out = sandbox.cockpit(&["browse", "https://app.test/b"], &in_app_refs(&env));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let told = format!("tb [p62d2 {}]", socket.display());
+    assert_eq!(tb_calls(&sandbox), [format!("{told} ls --all --json"), format!("{told} new-tab --browser b1 https://app.test/b")], "b2 is another tab's");
+    let out = sandbox.cockpit(&["browse", "--env"], &in_app_refs(&env));
+    assert_eq!(stdout(&out), format!("export HERDR_PANE_ID=p62d2\nexport HERDR_SOCKET_PATH={}\n", socket.display()));
+}
+
+#[test]
+fn in_the_app_a_browser_splits_right_of_the_sessions_pane() {
+    let _one = serial();
+    let sandbox = app_sandbox(r#"{"browsers": []}"#);
+    let env = in_app(&sandbox);
+    let out = sandbox.cockpit(&["browse", "https://app.test/c"], &in_app_refs(&env));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let tb = sandbox.root.join("bin/terminal-browser");
+    let app: Vec<String> = sandbox.calls().into_iter().filter(|c| c.starts_with("herdr-app do")).collect();
+    assert_eq!(
+        app,
+        [
+            format!(r#"herdr-app do pane.split {{"argv":["{}","open","https://app.test/c"],"direction":"right","pane":"p62d2"}}"#, tb.display()),
+            r#"herdr-app do pane.focus {"terminal":"t2"}"#.to_string(),
+        ]
+    );
+    let listings = tb_calls(&sandbox).iter().filter(|c| c.ends_with("ls --all --json")).count();
+    assert_eq!(listings, 2, "browse returns once the new browser lists, so --beside finds it");
+    let out = sandbox.cockpit(&["browse", "--beside"], &in_app_refs(&env));
+    assert_eq!(stdout(&out).trim(), r#"{"key": "b9", "tab": 1, "url": "https://app.test/c", "title": "C"}"#);
+}
+
+#[test]
+fn in_the_app_a_session_shown_nowhere_says_why_and_opens_the_default_browser() {
+    let _one = serial();
+    let sandbox = app_sandbox(r#"{"browsers": []}"#);
+    let mut env = in_app(&sandbox);
+    env[0].1 = "t5".into();
+    let out = sandbox.cockpit(&["browse", "https://app.test/d"], &in_app_refs(&env));
+    assert_eq!(
+        (out.status.code(), stderr(&out).trim()),
+        (Some(0), "browse: the Herdr window shows terminal t5 in no pane: opening the page in the default browser")
+    );
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    assert_eq!(sandbox.calls().last().unwrap(), &format!("{opener} https://app.test/d"));
+    assert!(tb_calls(&sandbox).is_empty() && !sandbox.calls().iter().any(|c| c.contains("pane.split")), "nothing placed beside another pane");
+}
+
 /// A terminal-browser beside the pane that opens tabs and fails `fail` when given.
 fn shooting_browser(sandbox: &Sandbox, fail: Option<&str>) {
     let mut answers =

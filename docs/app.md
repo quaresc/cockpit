@@ -1099,7 +1099,11 @@ Herdr app. In the app it writes no herdr tokens: what the TUI's sidebar rows sho
   subscribes with `{views: [{name: "show", args: {name}}]}`: the hub's `shown {view}` op (`cockpit hub shown show`)
   lists the args of live subscriptions, which is how the plugin knows a view's pane is open.
 - **Browser beside an agent**: `cockpit browse <url> [session]` opens a tab in the terminal-browser already in the
-  agent's tab, else splits the agent's pane right with `terminal-browser open <url>`.
+  agent's tab, else splits the agent's pane right with `terminal-browser open <url>` and returns once it lists. App
+  terminals carry Ghostty's variables and none of herdr's, so every terminal-browser call gets the session's pane
+  (`HERDR_PANE_ID`, from `herdr-app ls`: the terminal `HC_TERMINAL_ID` names, else the one the caller descends from) and
+  the app's socket (`HERDR_SOCKET_PATH`); `cockpit browse --env` prints them as exports. A session the window shows
+  nowhere gets the reason and the default browser.
 - **Open in editor** (`editor.js`, `openInEditor(folder, machine)`) and **fork a session** (`agents fork`) are in the
   palette and on the pane header (`{app: "pane"}`, hover: editor, fork to a tab, split, zoom, close).
 
