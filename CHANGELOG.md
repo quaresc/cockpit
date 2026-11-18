@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.0.0 (2026-11-18)
 
 - New: Cockpit Chat, a second layout that reads one agent as a conversation: its repo, branch, PR and CI on top, each
   turn folded to "Worked for…", a box with several lines, files, commands, images, model and effort, and optional next
