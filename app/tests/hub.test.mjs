@@ -41,10 +41,14 @@ async function fixture(t, remote = true, globals = {}, host = "127.0.0.1") {
         calls.push(["read", path, options]);
         if (path === "C:/Herdr/cockpit.json") return JSON.stringify(install);
         if (path.endsWith("/hub.stopped")) return behavior.stopped ? "" : null;
+        if (behavior.noInfo) return null;
         assert.equal(options?.on, install.machine);
         return JSON.stringify(info);
       },
-      exec: async (...args) => { calls.push(["exec", ...args]); return behavior.exec ?? { code: 0, stdout: JSON.stringify({ ...info, token: behavior.token }), stderr: "" }; },
+      exec: async (...args) => {
+        calls.push(["exec", ...args]);
+        if (behavior.startHangs && args[1]?.includes?.("start")) return new Promise(() => {});
+        return behavior.exec ?? { code: 0, stdout: JSON.stringify({ ...info, token: behavior.token }), stderr: "" }; },
     },
     net: { default: { connect: async (host, port) => {
       if (behavior.hangs > 0) {
@@ -526,3 +530,23 @@ test("the window keeps why it last failed to reach the hub, in the error's own w
   assert.equal(f.hub.downReason("connecting"), "");
 });
 
+test("a window that came up before its hub goes live as soon as hub.json names one, its own start still under way", async t => {
+  const f = await fixture(t, false), r = runtime(t);
+  f.behavior.stopped = true;
+  f.behavior.noInfo = true;
+  const sidebar = f.hub.subscribe(r.cx, { views: ["inbox"] }, r.message, r.state);
+  t.after(() => sidebar.stop());
+  await until(() => r.states.some((s) => f.hub.isStoppedOnPurpose(s)));
+  // Let go, the window's own `cockpit hub start` never comes back; a hub started another way writes hub.json.
+  f.behavior.startHangs = true;
+  f.behavior.stopped = false;
+  await until(() => f.calls.some((c) => c[0] === "exec" && c[2].includes("start")));
+  f.behavior.noInfo = false;
+  await until(() => r.received.length === 1);
+  assert.equal(r.states.at(-1), "live");
+  // Start it joins the start under way, and the views stay live.
+  const started = f.hub.startHub({ explicit: true });
+  started.catch(() => {});
+  assert.equal(f.calls.filter((c) => c[0] === "exec" && c[2].includes("start")).length, 1);
+  sidebar.stop();
+});
