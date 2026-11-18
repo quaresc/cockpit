@@ -25,7 +25,8 @@ must be here first.
   the branch; the TUI gets a review space.
 - New: routines get a precheck, a wake gate, time zones and templates; every source says how fresh its data is.
 - Fix: Needs you shows only real questions, and a card can be dismissed until the agent asks again.
-- Fix: a window keeps its hub on a quiet connection, and says why when it cannot reach it.
+- Fix: a window keeps its hub on a quiet connection, goes live as soon as any hub answers (#65), and says why when it
+  cannot reach it.
 - Fix: the agents view is built once per change (50 agents: 654 ms to 12 ms).
 - Fix: the chat, documents and links follow the session in view, and keys that did nothing now work.
 - Security: an answer names the question it answers, nothing is allowed by default, Full access asks first, and
