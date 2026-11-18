@@ -876,6 +876,11 @@ impl Doctor {
             return;
         }
         let listed = self.herdr_json(&["workspace", "list"]);
+        // The Herdr app alone runs no herdr server: the pinned spaces are the herdr TUI's, checked while it runs.
+        if listed["error"]["code"] == "server_not_running" {
+            ok("spaces", "herdr is not running: its pinned spaces are checked while it runs");
+            return;
+        }
         let labels: Vec<String> = values(&listed["result"]["workspaces"]).map(|w| raw(&w["label"])).collect();
         let herdr_config = std::fs::read_to_string(files::home().join(".config/herdr/config.toml")).ok();
         let link = quote(&self.link.to_string_lossy());
