@@ -2,7 +2,7 @@
 // the agents by whose move it is, and the way to Needs you. It follows the agents only while that sidebar is away.
 
 import { div } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, Scrollbar } from "gpui-base";
 import { shared, focused, run, spaces } from "herdr";
 import * as hub from "./hub.js";
 import { keyed } from "./person.js";
@@ -297,7 +297,7 @@ export default class SidePeek {
       .id("side-peek-body")
       .w(WIDTH)
       .max_h(MAX_H - placesH)
-      .overflow_y_scrollbar()
+      .overflow_y_scroll()
       .px(5)
       .pb(6)
       .gap(1)
@@ -313,6 +313,7 @@ export default class SidePeek {
       .child(
         v_flex()
           .w_full()
+          .flex_none()
           .gap(1)
           .children(
         groups.flatMap(([s, list]) => [
@@ -340,6 +341,7 @@ export default class SidePeek {
         ]),
           ),
       );
+    const scroll = div().relative().w(WIDTH).child(body).child(Scrollbar.vertical("side-peek-body").absolute().inset_0());
     // Places, the update tag and the link stay under the list, outside its scroll.
     const foot = v_flex()
       .px(5)
@@ -347,6 +349,6 @@ export default class SidePeek {
       .children(places)
       .when(Boolean(this.update), (e) => e.child(UpdateTag("peek-update", this.update, { mono: true })))
       .child(SettingsLink("peek-settings"));
-    return h_flex().id("side-peek").child(peekBar(k)).child(v_flex().w(WIDTH).child(body).child(foot));
+    return h_flex().id("side-peek").child(peekBar(k)).child(v_flex().w(WIDTH).child(scroll).child(foot));
   }
 }

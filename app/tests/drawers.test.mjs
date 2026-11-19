@@ -57,7 +57,7 @@ async function fixture({ layoutName = "cockpit-chat", shared: given = {} } = {})
       theme: () => ({ foreground: "#ededed", background: "#1e1e1e", hover: "#2a2a2a", muted: "#a0a0a0", dim: "#707070", border: "#333333" }),
     },
     "gpui-kit": { div: element, svg: element },
-    "gpui-base": { h_flex: element, v_flex: element },
+    "gpui-base": { h_flex: element, v_flex: element, Scrollbar: { vertical: element } },
     "./hub.js": { subscribe: () => ({ stop() {}, park() {} }), sleep: async () => {}, act: async () => ({}), view: async () => null, remoteMachine: () => null },
     // The drawer's own `show`, standing for the real view: only whether it is held matters here.
     "./show.js": { default: class { init() {} close() {} tick() {} render() { return element(); } } },
