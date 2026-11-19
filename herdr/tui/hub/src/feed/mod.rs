@@ -1,13 +1,12 @@
-//! The hub's own feed: GitHub every minute (the inbox's PR fields, and ci.json when the CI is GitHub's checks), and
-//! my tickets through an MCP server of the hub's own (`feed::mcp`) or Linear's API given `tickets.token`, and CircleCI runs
-//! given `ci.token`, so the inbox stays fresh with no Claude session; meetings.json too, every five minutes, given the calendar's secret iCal address in `calendar.ics`.
-//! A touch of refresh-request fetches at once; errors back off, rate limits wait for their reset. COCKPIT_HUB_FEED=off
-//! keeps it still (the hub's tests), and the APIs' base URLs follow COCKPIT_GITHUB_API, COCKPIT_LINEAR_API and
-//! COCKPIT_CIRCLECI_API.
+//! The hub's own feed: GitHub, tickets, CI, deploys, the calendar, mail and the monitor read on their intervals (at once
+//! on a refresh request, later after errors, a rate limit waited out), each source's freshness written beside its data.
+//! COCKPIT_HUB_FEED=off keeps it still, and COCKPIT_GITHUB_API, COCKPIT_LINEAR_API and COCKPIT_CIRCLECI_API point it
+//! at other hosts.
 
 mod calendar;
 mod circleci;
 mod dashboard;
+pub(crate) mod fresh;
 mod github;
 mod github_ci;
 pub(crate) mod http;
@@ -19,7 +18,7 @@ pub mod merge;
 mod news;
 mod requests;
 mod schedule;
-mod upgrade;
+pub(crate) mod upgrade;
 
 use std::path::Path;
 use std::sync::Once;
@@ -78,6 +77,23 @@ struct Plan {
     calendar: Option<String>,
 }
 
+impl Plan {
+    /// The sources this plan reads, by the names their freshness goes by.
+    fn sources(&self) -> Vec<&'static str> {
+        let reads = [
+            ("github", self.github || self.code_server.is_some()),
+            ("tickets", self.tickets_server.is_some() || self.linear.is_some()),
+            ("ci", self.github_ci || self.ci_server.is_some() || self.circleci.is_some()),
+            ("platform", self.platform_server.is_some()),
+            ("calendar", self.calendar_server.is_some() || self.calendar.is_some()),
+            // Named, not asked whether it is logged in: that asks the keychain, and this runs every round.
+            ("mail", self.config.0["mail"]["enabled"] != false && self.config.0["mail"]["server"].as_str().is_some_and(|s| !s.is_empty())),
+            ("monitor", self.platform_server.is_some() && self.signals.is_some()),
+        ];
+        reads.iter().filter(|(_, on)| *on).map(|(source, _)| *source).collect()
+    }
+}
+
 fn plan() -> Plan {
     let config = config::load();
     let raw = files::load(&files::config_dir().join("config.json")).unwrap_or(Value::Null);
@@ -118,13 +134,23 @@ struct Feed {
     circleci: Schedule,
     calendar: Schedule,
     circle: circleci::CircleCi,
+    /// How fresh each source is, for the documents' `hub.fresh`.
+    fresh: fresh::Sources,
     /// The latest error of each source, until it fetches again.
     errors: Vec<(&'static str, String)>,
     asked: u64,
 }
 
 fn run() {
-    let mut feed = Feed { calendar: Schedule::every(calendar::EVERY), monitor: Schedule::every(120), mail: Schedule::every(120), ..Feed::default() };
+    // What the documents say of each source, so a restart keeps when each was read and since when one fails.
+    let docs: Vec<Value> = fresh::DOCS.iter().map(|d| crate::store::global().get(d)).collect();
+    let mut feed = Feed {
+        calendar: Schedule::every(calendar::EVERY),
+        monitor: Schedule::every(120),
+        mail: Schedule::every(120),
+        fresh: fresh::Sources::seed(&docs),
+        ..Feed::default()
+    };
     loop {
         feed.round(&files::cache(), &plan());
         std::thread::sleep(TICK);
@@ -159,6 +185,37 @@ impl Feed {
 
     fn round(&mut self, cache: &Path, plan: &Plan) {
         self.pace(plan);
+        // A source the config no longer reads leaves its chip, its document's error and its inbox error line with it.
+        let gone = self.fresh.keep(&plan.sources());
+        if !gone.is_empty() {
+            self.errors.retain(|(name, _)| !gone.iter().any(|g| note_source(name) == g));
+            let lines: Vec<Value> = self.errors.iter().map(|(_, e)| Value::from(e.as_str())).collect();
+            crate::store::global().update("inbox", |doc| {
+                let mut doc = gone.iter().filter(|g| fresh::doc_of(g) == "inbox").fold(doc.clone(), |doc, g| fresh::without(&doc, Some(g)));
+                if doc["hub"]["errors"].is_array() {
+                    // The hub's lines are written again from what it still reads; the mod's own stay.
+                    let theirs: Vec<Value> = doc["errors"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|e| !doc["hub"]["errors"].as_array().is_some_and(|h| h.contains(e)))
+                        .cloned()
+                        .collect();
+                    doc["errors"] = Value::from(theirs.into_iter().chain(lines.iter().cloned()).collect::<Vec<_>>());
+                    doc["hub"]["errors"] = Value::from(lines);
+                }
+                doc
+            });
+            for source in gone.iter().filter(|g| fresh::doc_of(g) != "inbox") {
+                crate::store::global().update(fresh::doc_of(source), |doc| {
+                    let mut doc = fresh::without(doc, Some(source));
+                    if let Some(fields) = doc.as_object_mut() {
+                        fields.remove("error");
+                    }
+                    doc
+                });
+            }
+        }
         let asked = asked_at(cache);
         let is_asked = asked > self.asked;
         self.asked = asked;
@@ -170,7 +227,9 @@ impl Feed {
         {
             let name = plan.raw["code"]["name"].as_str().unwrap_or("Code").to_string();
             let fetched = mcp::code(server, &plan.raw["code"]);
-            let error = self.github.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.github.after(&outcome, now);
+            self.fresh.record("github", &name, &outcome, now_ms(), self.github.interval(), self.github.next_at());
             self.note("GitHub", error.map(|e| format!("{name} {e}")));
             part = Some(match fetched {
                 Ok(fields) => InboxPart { github: Some(fields), ..InboxPart::default() },
@@ -182,7 +241,12 @@ impl Feed {
                 let data = github::fetch(&token, org)?;
                 Ok((token, data))
             });
-            let error = self.github.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.github.after(&outcome, now);
+            self.fresh.record("github", "GitHub", &outcome, now_ms(), self.github.interval(), self.github.next_at());
+            if plan.github_ci {
+                self.fresh.record("ci", "CI", &outcome, now_ms(), self.github.interval(), self.github.next_at());
+            }
             self.note("GitHub", error.clone());
             let prev_ci = crate::store::global().get("ci");
             let image_job = plan.config.0["ci"]["imageJob"].as_str().unwrap_or_default().to_string();
@@ -206,14 +270,18 @@ impl Feed {
         {
             let name = plan.config.0["tickets"]["name"].as_str().unwrap_or("Tickets").to_string();
             let fetched = mcp::tickets(server, &plan.raw["tickets"]);
-            let error = self.mcp_tickets.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.mcp_tickets.after(&outcome, now);
+            self.fresh.record("tickets", &name, &outcome, now_ms(), self.mcp_tickets.interval(), self.mcp_tickets.next_at());
             self.note("Tickets", error.map(|e| format!("{name} {e}")));
             part = Some(InboxPart { tickets: fetched.ok(), ..part.unwrap_or_default() });
         } else if let Some(token) = &plan.linear
             && self.linear.is_due(now, is_asked)
         {
             let fetched = linear::fetch(token);
-            let error = self.linear.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.linear.after(&outcome, now);
+            self.fresh.record("tickets", "Linear", &outcome, now_ms(), self.linear.interval(), self.linear.next_at());
             self.note("Linear", error);
             part = Some(InboxPart { tickets: fetched.ok(), ..part.unwrap_or_default() });
         }
@@ -224,14 +292,19 @@ impl Feed {
             let prev = crate::store::global().get("ci");
             let prev = if prev["version"].as_i64() == Some(merge::CI_VERSION) { prev } else { Value::Null };
             let fetched = mcp::ci_runs(server, &plan.raw["ci"], &prev);
-            let error = self.mcp_ci.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.mcp_ci.after(&outcome, now);
+            self.fresh.record("ci", &name, &outcome, now_ms(), self.mcp_ci.interval(), self.mcp_ci.next_at());
             self.note("CI", error.clone().map(|e| format!("{name} {e}")));
             runs = Some(fetched.map_err(|_| format!("{name} {}", error.unwrap_or_default())));
         } else if let Some(token) = &plan.circleci
             && self.circleci.is_due(now, is_asked)
         {
             let fetched = self.circleci_runs(token, &plan.config);
-            let error = self.circleci.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.circleci.after(&outcome, now);
+            let label = plan.config.0["ci"]["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("CircleCI").to_string();
+            self.fresh.record("ci", &label, &outcome, now_ms(), self.circleci.interval(), self.circleci.next_at());
             self.note("CircleCI", error.clone());
             runs = Some(fetched.map_err(|_| format!("CircleCI {}", error.unwrap_or_default())));
         }
@@ -239,16 +312,22 @@ impl Feed {
             && self.calendar.is_due(now, is_asked)
         {
             let fetched = mcp::meetings(server, &plan.raw["calendar"], &plan.config.0);
-            let error = self.calendar.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.calendar.after(&outcome, now);
+            self.fresh.record("calendar", "Calendar", &outcome, now_ms(), self.calendar.interval(), self.calendar.next_at());
             let fetched = fetched.map_err(|_| format!("Calendar: {}", error.unwrap_or_default()));
-            crate::store::global().update("meetings", |doc| calendar::merge(doc, fetched, now_ms()));
+            let record = self.fresh.of_doc("meetings", &plan.raw, &plan.config.0, now_ms());
+            crate::store::global().update("meetings", |doc| fresh::stamp(&calendar::merge(doc, fetched, now_ms()), record));
         } else if let Some(url) = &plan.calendar
             && self.calendar.is_due(now, is_asked)
         {
             let fetched = calendar::fetch(url, &plan.config);
-            let error = self.calendar.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.calendar.after(&outcome, now);
+            self.fresh.record("calendar", "Calendar", &outcome, now_ms(), self.calendar.interval(), self.calendar.next_at());
             let fetched = fetched.map_err(|_| format!("Calendar: {}", error.unwrap_or_default()));
-            crate::store::global().update("meetings", |doc| calendar::merge(doc, fetched, now_ms()));
+            let record = self.fresh.of_doc("meetings", &plan.raw, &plan.config.0, now_ms());
+            crate::store::global().update("meetings", |doc| fresh::stamp(&calendar::merge(doc, fetched, now_ms()), record));
         }
         if let Some(server) = &plan.platform_server
             && self.mcp_platform.is_due(now, is_asked)
@@ -262,7 +341,9 @@ impl Feed {
                 inbox["merged"] = github[4].clone();
             }
             let fetched = mcp::platform_part(server, &plan.raw["platform"], &inbox);
-            let error = self.mcp_platform.after(&fetched.as_ref().map(|_| ()).map_err(Clone::clone), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(Clone::clone);
+            let error = self.mcp_platform.after(&outcome, now);
+            self.fresh.record("platform", "Deploys", &outcome, now_ms(), self.mcp_platform.interval(), self.mcp_platform.next_at());
             self.note("Platform", error.map(|e| format!("Deploys and previews: {e}")));
             part = Some(InboxPart { platform: fetched.ok(), ..part.unwrap_or_default() });
         }
@@ -272,9 +353,29 @@ impl Feed {
             let before = crate::store::global().get("monitor");
             let inbox = crate::store::global().get("inbox");
             let fetched = mcp::monitor_doc(server, signals, &plan.raw, &plan.config.0, &before, &inbox, now_ms() as i64);
-            let _ = self.monitor.after(&fetched.as_ref().map(|_| ()).map_err(|e| Failure::Other(e.clone())), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(|e| Failure::Other(e.clone()));
+            let _ = self.monitor.after(&outcome, now);
+            let label = signals.1["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Monitor").to_string();
+            self.fresh.record("monitor", &label, &outcome, now_ms(), self.monitor.interval(), self.monitor.next_at());
+            if let Err(message) = &fetched {
+                // It reads through two servers: the sign-in goes to the one that failed.
+                let platform = plan.raw["platform"]["server"].as_str().unwrap_or_default();
+                let failed =
+                    if !platform.is_empty() && message.contains(&server.describe()) { platform } else { signals.1["server"].as_str().unwrap_or_default() };
+                self.fresh.failed_through("monitor", failed);
+            }
+            if matches!(fetched, Ok(None)) && self.fresh.forget("monitor") {
+                // No deploys mapped, no monitor: nothing to say of it.
+                crate::store::global().update("monitor", |doc| fresh::without(doc, Some("monitor")));
+            }
+            let record = self.fresh.of_doc("monitor", &plan.raw, &plan.config.0, now_ms());
+            if fetched.is_err() {
+                // The numbers stay as they were; the record says they could not be read again, even before any came.
+                crate::store::global().update("monitor", |doc| fresh::stamp(doc, record.clone()));
+            }
             if let Ok(Some(mut doc)) = fetched {
                 doc["by"] = "hub".into();
+                let doc = fresh::stamp(&doc, record);
                 crate::store::global().update("monitor", |_| doc.clone());
                 let notify = plan.config.0["monitor"]["notify"].as_str().unwrap_or("mine");
                 for n in cockpit_connectors::monitor::changes(&before, &doc, notify) {
@@ -285,9 +386,13 @@ impl Feed {
         if self.mail.is_due(now, is_asked)
             && let Some(fetched) = mail::fetch(&plan.raw, &plan.config.0)
         {
-            let error = self.mail.after(&fetched.as_ref().map(|_| ()).map_err(|e| Failure::Other(e.clone())), now);
+            let outcome = fetched.as_ref().map(|_| ()).map_err(|e| Failure::Other(e.clone()));
+            let error = self.mail.after(&outcome, now);
+            let label = plan.config.0["mail"]["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Mail").to_string();
+            self.fresh.record("mail", &label, &outcome, now_ms(), self.mail.interval(), self.mail.next_at());
+            let record = self.fresh.of_doc("mail", &plan.raw, &plan.config.0, now_ms());
             let fetched = fetched.map_err(|_| format!("Mail: {}", error.unwrap_or_default()));
-            let (before, after) = crate::store::global().update("mail", |doc| mail::merge(doc, fetched, now_ms()));
+            let (before, after) = crate::store::global().update("mail", |doc| fresh::stamp(&mail::merge(doc, fetched, now_ms()), record));
             for (title, body, action) in mail::news(&before, &after) {
                 news::notify(&plan.config, &title, &body, &action, &[]);
             }
@@ -298,15 +403,17 @@ impl Feed {
         requests::take(cache, &plan.config, &plan.raw);
         if let Some(mut part) = part {
             part.errors = self.errors.iter().map(|(_, e)| e.clone()).collect();
+            part.fresh = self.fresh.of_doc("inbox", &plan.raw, &plan.config.0, now_ms());
             write_inbox(&plan.config, &part);
             dashboard::report(&plan.config);
         }
         if let Some(runs) = runs {
-            write_ci(&plan.config, runs);
+            write_ci(&plan.config, runs, self.fresh.of_doc("ci", &plan.raw, &plan.config.0, now_ms()));
         }
     }
 
     fn note(&mut self, source: &'static str, error: Option<String>) {
+        debug_assert!(!note_source(source).is_empty());
         self.errors.retain(|(s, _)| *s != source);
         if let Some(error) = error {
             self.errors.push((source, format!("{source}: {error}")));
@@ -323,6 +430,17 @@ impl Feed {
         let logs = move |job: &str| circleci::logs_hint(&name, &tools, job);
         let org = config.0["github"]["org"].as_str().unwrap_or_default();
         self.circle.runs(&mut get, org, ci["imageJob"].as_str().unwrap_or_default(), &logs)
+    }
+}
+
+/// The source an error line's name stands for (`note`'s names).
+fn note_source(name: &str) -> &'static str {
+    match name {
+        "GitHub" => "github",
+        "Tickets" | "Linear" => "tickets",
+        "CI" | "CircleCI" => "ci",
+        "Platform" => "platform",
+        _ => "",
     }
 }
 
@@ -367,8 +485,8 @@ fn write_inbox(config: &Config, part: &InboxPart) {
     news::announce_inbox(config, &changes);
 }
 
-fn write_ci(config: &Config, runs: Result<Vec<Value>, String>) {
-    let (before, after) = crate::store::global().update("ci", |doc| merge::merge_ci(doc, runs, now_ms()));
+fn write_ci(config: &Config, runs: Result<Vec<Value>, String>, record: Value) {
+    let (before, after) = crate::store::global().update("ci", |doc| fresh::stamp(&merge::merge_ci(doc, runs, now_ms()), record));
     if before["version"].as_i64() == Some(merge::CI_VERSION) && after["error"].is_null() {
         let inbox = crate::store::global().get("inbox");
         news::announce_ci(config, &news::ci_changes(&before, &after, &inbox));

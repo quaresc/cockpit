@@ -29,7 +29,10 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
     whose move (a button cycles), each agent a row with its status mark, title, PR number, `+adds −dels` and age; then
     Herdr's spaces list, each space followed by what runs in it, one line per terminal (status mark, agent or program,
     title; waiting ones first, four lines at most, then "+N more"). At the bottom, over the footer, an **Update**
-    tag whenever a newer cockpit is published ("Update cockpit to 0.41.0"), folded to its arrow on the rail.
+    tag whenever a newer cockpit is published ("Update cockpit to 0.41.0"), folded to its arrow on the rail, and a
+    quiet **Cockpit settings** row with how many checks fail ("2 failing") when some do: it opens a sheet with every
+    option as a switch, a choice or a field, the health checks with their fixes, the agents, and in its header the
+    installed and published versions with Check for updates.
   - **Footer**, 69px: Herdr's `workspace-chrome` footer (Settings, Add machine).
 - **Top bar**, 42px: Herdr's `tabs`, and at the right a 52px **bell**.
 - **Center**, a stack with 8px padding; each view is a card with a 10px radius, a 1px `border` (`#2d2f32` dark), the
@@ -65,7 +68,7 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
 - **Status bar**, 34px: counts on the left ("2 need you · 2 working · 0 ready · 3 done", each a click), the focused
   agent's branch, ahead/behind, changed files and its links named after their service, always in the same order (GitHub
   PR, Linear ticket, CircleCI, Argo, Argo Workflows, then cited pages such as Slack or Datadog; a "+N" menu past the room)
-  on the right, for any agent, then queued prompts, agents to resume, the hub's state only while it is offline, and its
+  on the right, for any agent, then queued prompts, agents to resume, the hub's state only while it does not answer, and its
   documents ("Documents · 4", a menu of the views it showed) at the right end.
 - **Queue drawer**, floating on the right edge, centered, a 44px peek: prompts queued for an agent, shown only while
   some are.
@@ -88,11 +91,16 @@ dark theme); type is the theme's UI font at 13px, monospace for branches, refs a
   runbooks, meetings, past sessions); `⌘⌥0` Home ↔ work; `⌘⌥1…7` Inbox, Runbook, To-do, Meetings, Monitor, Routines, Mail;
   `⌘⌥A` the focused agent alone; `⌘⌥B` the right panel, `⌃⌘1…5` its Show / Review / Runbook / Files / Changes;
   `⌘J` the next agent waiting, `⌘⇧J` the next blocked, `⌘⇧U` the next done; `⌘⌥Q` the queue; `⌘⌥R` resume agents
-  lost to a restart; `⌘R` recap of every agent; `⌘G` the focused agent's PR; `⌘L` its ticket.
+  lost to a restart; `⌘R` recap of every agent; `⌘G` the focused agent's PR; `⌘L` its ticket; `⌘/` the keys sheet
+  (every key of the layout, grouped and searchable). With nothing typed, the palette lists the agents by stage, those
+  waiting on you first, in the same order as the herdr TUI's palette.
 - **Updating**: the hub reads the published version and the changelog every six hours into `update.json`; the tag
   shows while it is newer than the installed one, and a click opens a dialog with each version's changes and an Install
   button. Install runs `cockpit focus update` (update.sh in the background) and the dialog follows `update.log` until
-  cockpit.json names the new version. A checkout running its own build gets no tag.
+  cockpit.json names the new version, then goes on: what changed since the version that ran, the options it brought
+  (each with one line, its default and a switch; Save writes `config.json` through the hub, Skip keeps them), and Cockpit
+  Chat to try when the window shows another layout (⌘⇧L comes back). An update installed any other way opens the same
+  steps once at the window's next start. A checkout running its own build gets no tag.
 - **Bell**: while agents wait, a bell-dot icon in `blocked` with a red count that breathes from 70% to full every
   1.4s; when none waits but some finished, a plain bell with a 6px `done` dot. Click goes to the longest waiting, hover
   lists their questions, right-click picks one.

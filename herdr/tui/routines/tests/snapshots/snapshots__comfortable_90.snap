@@ -2,15 +2,15 @@
 source: routines/tests/snapshots.rs
 expression: "render(&mut app(Density::Comfortable), 90, 30)"
 ---
-   Routines   6 routines · 1 running · 3 runs today · ~$0.74 this week
+   Routines   7 routines · 1 running · 3 runs today · ~$0.76 this week
 
  ▶ ⣾ Pull my notes       every 30 min                           running 40 s
  ▶  Fix CI on checkout  on CI failing · checkout  ~$0.41 last  over its weekly budget
     Standup notes       when?                                  never ran
  ▶  Morning sweep       weekdays at 09:00         ~$0.18 last  ran 1 h ago
     Ping the team       daily at 10:00                         never ran
+ ▶  Review digest       cron */15 8-18 * * 1-5 i…              skipped 14 min ago
     Weekly digest       Fri at 16:00                           never ran
-
 
 
 

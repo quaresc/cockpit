@@ -1,0 +1,11 @@
+⏺ The banner is in. Which platforms should show it first?
+
+✻ Worked for 2m 14s
+
+❯ Web and iOS first, Android after the 4.12 release.
+
+──────────────────────────────────────────────────────────────────────────────── quota-banner ─
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────
+  C 64%·5h
+  ⏵⏵ accept edits on (shift+tab to cycle)

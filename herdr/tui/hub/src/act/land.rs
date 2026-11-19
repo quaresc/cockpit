@@ -1,20 +1,20 @@
 //! Landing PRs and starting work: whether GitHub would merge a PR now and what the merge menu offers (after
-//! mrolafsson/herdr-github's readiness), merge, auto-merge, draft and the merge queue through gh; a ticket or a PR to a
-//! worktree with the agent in a space of its own, checked first; and the worktrees of merged branches removed.
+//! mrolafsson/herdr-github's readiness), merge, auto-merge, draft and the merge queue through gh; a ticket or a PR
+//! handed to start work; and the worktrees of merged branches removed.
 //! The readiness line and merge menu are ported from https://github.com/mrolafsson/herdr-github (MIT, Copyright (c) 2026
 //! Hjortur Stefan Olafsson); see THIRD_PARTY_NOTICES.md.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use cockpit_core::{agent, files, frontend};
+use cockpit_core::{files, frontend};
 use serde_json::{Value, json};
 
-use super::{Ctx, arg, inbox, opt, tickets};
+use super::{Ctx, arg, inbox, opt};
 use crate::config::{self, Config};
 use crate::herdr;
 use crate::proc;
-use crate::value::{Res, list, s, text};
+use crate::value::{Res, list, text};
 
 const GH_TIMEOUT: Duration = Duration::from_secs(40);
 
@@ -24,9 +24,12 @@ fn gh(args: &[&str]) -> Res<String> {
     if out.ok() { Ok(out.stdout) } else { Err(format!("gh: {}", out.stderr.trim().lines().next().unwrap_or("failed"))) }
 }
 
-fn git(dir: &Path, args: &[&str]) -> proc::Out {
-    let argv: Vec<String> = ["git", "-C", &dir.to_string_lossy()].into_iter().map(str::to_string).chain(args.iter().map(|a| a.to_string())).collect();
-    proc::run(&argv, Duration::from_secs(60), None)
+/// git in `dir` as every cleanup runs it: never asking for a password, a minute at most.
+pub(super) fn git(dir: &Path, args: &[&str]) -> proc::Out {
+    match cockpit_core::cleanup::git_out(dir, args, Duration::from_secs(60), true) {
+        Some(out) => proc::Out { started: true, code: if out.ok { 0 } else { 1 }, stdout: out.stdout, stderr: out.stderr },
+        None => proc::Out { started: false, code: 1, stdout: String::new(), stderr: format!("git {} ran out of time", args.first().unwrap_or(&"")) },
+    }
 }
 
 /// The inbox's actions called the short way, as other views do: a PR by its URL, `{pr, method}` for a merge, `fix_ci`
@@ -344,7 +347,19 @@ pub fn merge(ctx: &mut Ctx, args: &[Value]) -> Res {
     let method = opt(args, 1).as_str().map(str::to_string).unwrap_or_else(|| allowed(&d).first().map(|m| m.1.to_string()).unwrap_or("squash".into()));
     let repo = format!("{owner}/{name}");
     gh(&["pr", "merge", &n, "--repo", &repo, method_flag(&method)?, "--match-head-commit", &head])?;
-    after_change(ctx, format!("merged {name}#{n} ({method}): its worktree can go from Alerts"));
+    // Said where the cleanup reads it, so its worktree can go before the feed hears of the merge.
+    let merged = json!({"repo": name, "slug": repo, "url": d["pr"]["url"], "number": d["pr"]["number"], "branch": d["pr"]["headRefName"],
+                        "headSha": head, "mergedAt": chrono::Utc::now().to_rfc3339(), "mergeSha": ""});
+    crate::store::global().update("inbox", |doc| {
+        let mut doc = doc.clone();
+        if doc.is_object() && !list(&doc["merged"]).iter().any(|m| m["url"] == merged["url"]) {
+            let mut all = list(&doc["merged"]).to_vec();
+            all.insert(0, merged.clone());
+            doc["merged"] = Value::from(all);
+        }
+        doc
+    });
+    after_change(ctx, format!("merged {name}#{n} ({method}): its worktree is in To clean up"));
     Ok(())
 }
 
@@ -404,25 +419,8 @@ pub fn dequeue(ctx: &mut Ctx, args: &[Value]) -> Res {
 // ---------------------------------------------------------------------------------------------------------------------
 // From a ticket or a PR to a worktree with an agent
 
-/// Where a new worktree of the branch goes: herdr's convention, ~/.herdr/worktrees/<repo>/<branch>.
-fn worktree_path(repo: &str, branch: &str) -> PathBuf {
-    files::home().join(".herdr/worktrees").join(repo).join(branch.replace('/', "-"))
-}
-
-fn is_pr(target: &Value) -> bool {
-    target["url"].as_str().is_some_and(|u| u.contains("/pull/")) || (target["number"].is_number() && target["repo"].is_string())
-}
-
-/// Whether a space of this label is open, in either frontend.
-fn space_named(label: &str) -> bool {
-    match frontend::current() {
-        frontend::Frontend::App => frontend::app_space_named(label).is_some(),
-        frontend::Frontend::Tui => herdr::spaces().iter().any(|w| w["label"] == label),
-    }
-}
-
 /// Whether a branch names the ticket as a whole token: eng-4-login does, eng-42-login does not.
-fn names_ticket(branch: &str, ticket: &str) -> bool {
+pub(super) fn names_ticket(branch: &str, ticket: &str) -> bool {
     let (branch, key) = (branch.to_lowercase(), ticket.to_lowercase());
     !key.is_empty()
         && branch.match_indices(&key).any(|(at, _)| {
@@ -432,252 +430,73 @@ fn names_ticket(branch: &str, ticket: &str) -> bool {
         })
 }
 
-/// What `start` does for a target, or why it can't: {ok, kind, label, steps, blockers, ...what it needs to run}.
-pub fn plan(cfg: &Config, target: &Value) -> Value {
-    if is_pr(target) { pr_plan(cfg, target, None) } else { ticket_plan(cfg, target) }
+/// A ticket or a PR as start work's source: the PR's URL, else the ticket's key.
+fn source_of(target: &Value) -> String {
+    match target["url"].as_str().filter(|u| u.contains("/pull/")) {
+        Some(url) => url.to_string(),
+        None => target["id"].as_str().or(target.as_str()).unwrap_or_default().to_uppercase(),
+    }
 }
 
-fn finish(mut plan: Value) -> Value {
-    plan["ok"] = json!(list(&plan["blockers"]).is_empty());
-    plan
+/// What `start` does for a ticket or a PR, or why it can't: {ok, steps, blockers}, each a line, as start work plans it.
+pub fn plan(_: &Config, target: &Value) -> Value {
+    let p = super::start::plan_json(&json!({"text": source_of(target), "lastRepo": false}));
+    let steps: Vec<Value> = list(&p["steps"]).iter().map(|s| s["text"].clone()).collect();
+    let blockers: Vec<Value> = list(&p["blockers"]).iter().map(|b| b["text"].clone()).collect();
+    json!({"ok": p["ok"], "kind": p["kind"], "label": p["label"], "steps": steps, "blockers": blockers})
 }
 
-fn pr_plan(cfg: &Config, target: &Value, ticket: Option<&Value>) -> Value {
-    let mut steps: Vec<String> = Vec::new();
-    let mut blockers: Vec<String> = Vec::new();
-    let d = match detail(cfg, target) {
-        Ok(d) => d,
-        Err(e) => return finish(json!({"kind": "pr", "steps": [], "blockers": [format!("GitHub: {e}")]})),
-    };
-    let pr = &d["pr"];
-    let repo = d["repo"]["nameWithOwner"].as_str().unwrap_or_default().rsplit('/').next().unwrap_or_default().to_string();
-    let branch = pr["headRefName"].as_str().unwrap_or_default().to_string();
-    let label = ticket.map(|t| s(t, "id").unwrap_or_default().to_lowercase()).unwrap_or_else(|| format!("{repo}#{}", text(&pr["number"])));
-    if pr["state"] != "OPEN" {
-        blockers.push(format!("{repo}#{} is {}", text(&pr["number"]), pr["state"].as_str().unwrap_or("closed").to_lowercase()));
-    }
-    let main = PathBuf::from(format!("{}/{repo}", cfg.repos()));
-    let mut path = String::new();
-    let mut place = "worktree";
-    if space_named(&label) {
-        place = "focus";
-        steps.push(format!("\u{201c}{label}\u{201d} already runs: bring it into view"));
-    } else if !main.join(".git").exists() {
-        blockers.push(format!("no checkout of {repo} in {}: clone it there first", cfg.repos()));
-    } else if let Some(found) = inbox::checkout_in(&main.to_string_lossy(), &branch) {
-        path = found.clone();
-        if inbox::space_on(&found).is_some() {
-            place = "space";
-            steps.push(format!("{branch} is open in a space already: bring it into view"));
-        } else {
-            place = "checkout";
-            steps.push(format!("{branch} is checked out in {found}: {} starts there in a new space \u{201c}{label}\u{201d}", agent::default().name));
-        }
-    } else {
-        let at = worktree_path(&repo, &branch);
-        path = at.to_string_lossy().into_owned();
-        if at.exists() {
-            blockers.push(format!("{path} exists but is not a worktree of {branch}"));
-        }
-        let from = if pr["isCrossRepository"] == true {
-            format!("{}'s fork (pull/{}/head)", pr["headRepositoryOwner"]["login"].as_str().unwrap_or("its author"), text(&pr["number"]))
-        } else {
-            format!("origin/{branch}")
-        };
-        steps.push(format!("fetch {branch} from {from}"));
-        steps.push(format!("add a worktree of it at {path}"));
-        steps.push(format!("start {} there in a new space \u{201c}{label}\u{201d}", agent::default().name));
-    }
-    finish(json!({
-        "kind": "pr", "label": label, "place": place, "path": path, "repo": repo, "main": main, "branch": branch,
-        "number": pr["number"], "url": pr["url"], "title": pr["title"], "cross": pr["isCrossRepository"], "steps": steps, "blockers": blockers,
-    }))
-}
-
-fn ticket_plan(cfg: &Config, target: &Value) -> Value {
-    let id = target["id"].as_str().or(target.as_str()).unwrap_or_default().to_uppercase();
-    if id.is_empty() {
-        return finish(json!({"kind": "ticket", "steps": [], "blockers": ["no ticket given"]}));
-    }
-    let inbox = config::read_inbox();
-    let known = list(&inbox["tickets"]).iter().find(|t| t["id"] == id.as_str()).cloned().unwrap_or_else(|| json!({"id": id}));
-    let mut steps: Vec<String> = Vec::new();
-    let mut blockers: Vec<String> = Vec::new();
-    let mut branch = String::new();
-    let issue = tickets::issue(&id);
-    let ticket_name = cfg.0["tickets"]["name"].as_str().unwrap_or("Linear").to_string();
-    match &issue {
-        Ok(Some(issue)) => {
-            branch = issue["branchName"].as_str().unwrap_or_default().to_string();
-            match issue["state"]["type"].as_str() {
-                Some("completed") | Some("canceled") => {
-                    blockers.push(format!("{id} is {}: reopen it first", issue["state"]["name"].as_str().unwrap_or("closed")))
-                }
-                Some("started") => {}
-                _ => steps.push(format!("move {id} to In Progress")),
-            }
-            match issue["assignee"].as_object() {
-                None => steps.push(format!("assign {id} to you")),
-                Some(a) if a.get("isMe") != Some(&json!(true)) => blockers.push(format!(
-                    "{id} is assigned to {}: take it over in {ticket_name} first",
-                    a.get("displayName").and_then(Value::as_str).unwrap_or("someone else")
-                )),
-                Some(_) => {}
-            }
-        }
-        Ok(None) => {
-            if known["statusType"] != "started" {
-                steps.push(format!("the session moves {id} to In Progress and assigns it to you ({ticket_name} has no token here)"));
-            }
-        }
-        Err(e) => blockers.push(format!("{ticket_name}: {e}")),
-    }
-    let mine = list(&inbox["mine"]).iter().find(|pr| pr["branch"].as_str().is_some_and(|b| names_ticket(b, &id))).cloned();
-    if let Some(pr) = mine {
-        let mut on = pr_plan(cfg, &pr, Some(&known));
-        let mut all: Vec<Value> = steps.into_iter().map(Value::from).collect();
-        all.extend(list(&on["steps"]).iter().cloned());
-        let mut stop: Vec<Value> = blockers.into_iter().map(Value::from).collect();
-        stop.extend(list(&on["blockers"]).iter().cloned());
-        on["steps"] = json!(all);
-        on["blockers"] = json!(stop);
-        on["ticket"] = known;
-        on["issue"] = issue.ok().flatten().unwrap_or(Value::Null);
-        return finish(on);
-    }
-    let label = id.to_lowercase();
-    let place = if space_named(&label) { "focus" } else { "repos" };
-    if place == "focus" {
-        steps = vec![format!("\u{201c}{label}\u{201d} already runs: bring it into view")];
-    } else {
-        let name = if branch.is_empty() { format!("a branch named after {label}") } else { format!("the branch {branch}") };
-        steps.push(format!(
-            "start {} in {} in a new space \u{201c}{label}\u{201d}: it finds the repo and makes {name} in a worktree",
-            agent::default().name,
-            cfg.repos()
-        ));
-    }
-    finish(
-        json!({"kind": "ticket", "label": label, "place": place, "branch": branch, "ticket": known, "issue": issue.ok().flatten(), "steps": steps, "blockers": blockers}),
-    )
-}
-
-/// `start [ticket | pr]`: the plan's checks, then the ticket moved and assigned, then the agent on the branch.
+/// `start [ticket | pr]`: start work on it once confirmed; a ticket needs its PR's repo, since nobody picks one here.
 pub fn start(ctx: &mut Ctx, args: &[Value]) -> Res {
-    let target = arg(args, 0)?;
-    let key = if is_pr(target) {
-        target["url"].as_str().unwrap_or_default().to_string()
-    } else {
-        target["id"].as_str().or(target.as_str()).unwrap_or_default().to_uppercase()
-    };
-    if !ctx.confirmed(&format!("start-{key}")) {
+    let source = source_of(arg(args, 0)?);
+    if !ctx.confirmed(&format!("start-{source}")) {
         return Ok(());
     }
-    let plan = plan(&ctx.cfg, target);
-    if plan["ok"] != true {
-        let why: Vec<String> = list(&plan["blockers"]).iter().map(text).collect();
-        return Err(format!("can't start: {}", why.join("; ")));
-    }
-    let label = plan["label"].as_str().unwrap_or_default().to_string();
-    let mut moved = String::new();
-    if let Some(issue) = plan["issue"].as_object() {
-        let id = issue.get("identifier").and_then(Value::as_str).unwrap_or_default();
-        moved = tickets::take(id, issue).map_err(|e| format!("{id}: {e}"))?;
-    }
-    let ask = if plan["issue"].is_null() && plan["ticket"].is_object() && plan["ticket"]["statusType"] != "started" {
-        let id = plan["ticket"]["id"].as_str().unwrap_or_default();
-        format!(" First move {id} to In Progress and assign it to me in {}.", ctx.cfg.0["tickets"]["name"].as_str().unwrap_or("the ticket tool"))
-    } else {
-        String::new()
-    };
-    match plan["place"].as_str().unwrap_or_default() {
-        "focus" => {
-            frontend::focus_space_named(&label);
-            ctx.note(format!("\u{201c}{label}\u{201d} already runs: focused it"));
-        }
-        "space" => {
-            if let Some(open) = inbox::space_on(plan["path"].as_str().unwrap_or_default()) {
-                inbox::focus_space(&text(&open["workspace_id"]));
-            }
-            ctx.note(format!("{} is already open: focused it", plan["branch"].as_str().unwrap_or_default()));
-        }
-        "checkout" | "worktree" => {
-            let path = plan["path"].as_str().unwrap_or_default().to_string();
-            if plan["place"] == "worktree" {
-                add_worktree(&plan)?;
-            }
-            let prompt = format!(
-                "Work on {} ({}) on its branch {}, checked out in {path}.{ask} Read the PR's state, review comments and CI, and summarize where it stands before changing anything.",
-                text(&plan["url"]),
-                text(&plan["title"]),
-                text(&plan["branch"])
-            );
-            inbox::start_space(ctx, &path, &label, &prompt, &inbox::Launch::new());
-        }
-        _ => {
-            let t = &plan["ticket"];
-            let branch =
-                plan["branch"].as_str().filter(|b| !b.is_empty()).map(|b| format!("the branch {b}")).unwrap_or_else(|| format!("a branch named after {label}"));
-            let prompt = format!(
-                "Start {} ({}): {}.{ask} Read the ticket, find the repo it touches, create {branch} in a git worktree of that repo (git worktree add ~/.herdr/worktrees/<repo>/<branch>), and propose a plan before coding.",
-                text(&t["id"]),
-                t["url"].as_str().unwrap_or(""),
-                t["title"].as_str().unwrap_or("")
-            );
-            let repos = ctx.cfg.repos();
-            inbox::start_space(ctx, &repos, &label, &prompt, &inbox::Launch::new());
-        }
-    }
-    if !moved.is_empty() {
-        ctx.note(format!("{} · {moved}", ctx.note));
-    }
-    Ok(())
-}
-
-fn add_worktree(plan: &Value) -> Res {
-    let main = PathBuf::from(plan["main"].as_str().unwrap_or_default());
-    let (path, branch) = (plan["path"].as_str().unwrap_or_default(), plan["branch"].as_str().unwrap_or_default());
-    if let Some(dir) = Path::new(path).parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let fetched = if plan["cross"] == true {
-        git(&main, &["fetch", "-q", "origin", &format!("pull/{}/head:{branch}", text(&plan["number"]))])
-    } else {
-        git(&main, &["fetch", "-q", "origin", branch])
-    };
-    if !fetched.ok() {
-        return Err(format!("git fetch: {}", fetched.stderr.trim()));
-    }
-    let has_local = git(&main, &["rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")]).ok();
-    let added = if has_local {
-        git(&main, &["worktree", "add", path, branch])
-    } else {
-        git(&main, &["worktree", "add", "--track", "-b", branch, path, &format!("origin/{branch}")])
-    };
-    if added.ok() { Ok(()) } else { Err(format!("git worktree add: {}", added.stderr.trim())) }
+    super::start::work(ctx, &[json!({"text": source, "lastRepo": false})])
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Worktrees
 
-/// `remove_worktree [path]`: its space closed, the worktree removed and its branch deleted, never forced.
+/// `remove_worktree [path]`: refused with what keeps it, the merge fetched only when it is the last question; else
+/// removed as git allows, then its space closed and its branch deleted, never forced.
 pub fn remove_worktree(ctx: &mut Ctx, args: &[Value]) -> Res {
+    use cockpit_core::cleanup;
     let path = text(arg(args, 0)?);
     if !ctx.confirmed(&format!("remove-{path}")) {
         return Ok(());
     }
     let dir = Path::new(&path);
-    let status = git(dir, &["--no-optional-locks", "status", "--porcelain"]);
-    if !status.ok() {
+    let Some((branch, main)) = cleanup::place(dir).filter(|_| dir.is_dir()) else {
         return Err(format!("{path} is not a git worktree any more"));
+    };
+    let repo = main.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let merged_at = list(&config::read_inbox()["merged"])
+        .iter()
+        .find(|m| m["repo"] == repo.as_str() && m["branch"] == branch.as_str())
+        .and_then(|m| m["headSha"].as_str().map(str::to_string));
+    let facts = cleanup::Facts { merged_at, ..cleanup::Facts::now() };
+    let seen = cleanup::look(dir, &facts);
+    // What a fetch cannot change refuses at once; only the merge is worth asking the remote.
+    let fetched = !seen.blockers.is_empty() && seen.blockers.iter().all(cleanup::Blocker::is_merge);
+    let seen = if fetched {
+        let pruned = cleanup::fetch(&seen.repo).and_then(|p| p.get(&seen.branch).cloned());
+        cleanup::look(dir, &cleanup::Facts { pruned, ..facts })
+    } else {
+        seen
+    };
+    if !seen.blockers.is_empty() {
+        if fetched {
+            cleanup::changed();
+            crate::views::touch("inbox");
+        }
+        return Err(format!("kept {path}: {}", cleanup::said(&seen.blockers)));
     }
-    let changes = status.stdout.lines().count();
-    if changes > 0 {
-        return Err(format!("{path} holds {changes} uncommitted change{}: commit or drop them first", if changes == 1 { "" } else { "s" }));
+    let removed = git(&seen.repo, &["worktree", "remove", &path]);
+    if !removed.ok() {
+        return Err(format!("git did not remove {path}: {}", removed.stderr.trim()));
     }
-    let branch = git(dir, &["branch", "--show-current"]).stdout.trim().to_string();
-    let common = git(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout.trim().to_string();
-    let main = Path::new(&common).parent().map(Path::to_path_buf).ok_or("its main checkout is unknown")?;
+    // Its space closes once the folder is gone, not before git agreed.
     if let Some(open) = inbox::space_on(&path) {
         let id = text(&open["workspace_id"]);
         if id.starts_with(frontend::APP) {
@@ -686,12 +505,15 @@ pub fn remove_worktree(ctx: &mut Ctx, args: &[Value]) -> Res {
             herdr::run(&["workspace", "close", &id]);
         }
     }
-    let removed = git(&main, &["worktree", "remove", &path]);
-    if !removed.ok() {
-        return Err(format!("git worktree remove: {}", removed.stderr.trim()));
-    }
-    let deleted = !branch.is_empty() && git(&main, &["branch", "-d", &branch]).ok();
-    ctx.note(if deleted { format!("removed {path} and the branch {branch}") } else { format!("removed {path}; the branch {branch} stays (not merged here)") });
+    let branch = &seen.branch;
+    let deleted = !branch.is_empty() && git(&seen.repo, &["branch", "-d", branch]).ok();
+    cleanup::changed();
+    crate::views::touch("inbox");
+    ctx.note(if deleted {
+        format!("removed {path} and the branch {branch}")
+    } else {
+        format!("removed {path}; the branch {branch} stays until git counts it merged")
+    });
     Ok(())
 }
 
@@ -751,6 +573,5 @@ mod tests {
         let cfg = Config(json!({"github": {"org": "acme"}}));
         assert_eq!(coords(&cfg, &json!({"url": "https://github.com/acme/web/pull/12"})).unwrap(), ("acme".into(), "web".into(), "12".into()));
         assert_eq!(coords(&cfg, &json!({"repo": "api", "number": 7})).unwrap(), ("acme".into(), "api".into(), "7".into()));
-        assert_eq!(worktree_path("api", "me/eng-4-login").file_name().unwrap(), "me-eng-4-login");
     }
 }

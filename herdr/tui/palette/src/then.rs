@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 pub enum Then {
     /// A found item, brought into view in its space.
     Go(Value),
+    /// An agent's terminal, brought into view and marked seen.
+    Agent(String),
     /// A pinned space, by name.
     Space(String),
     RefreshInbox,
@@ -31,6 +33,8 @@ pub enum Then {
         pane: String,
         name: String,
     },
+    /// The Start work form on these words, in the popup the palette leaves.
+    StartWork(String),
     /// A fork of the session in a tab of the actions space, asked to look into an item (no prompt: just the fork).
     Fork {
         agent: String,
@@ -46,6 +50,10 @@ impl Then {
     pub fn run(&self) -> Result<(), String> {
         match self {
             Then::Go(target) => hub::request(&json!({"op": "go", "target": target}), Duration::from_secs(10)).map(drop),
+            Then::Agent(terminal) => {
+                let request = json!({"op": "act", "app": "agents", "action": "focus", "args": [{"terminal": terminal}], "armed": null});
+                hub::request(&request, Duration::from_secs(10)).map(drop)
+            }
             Then::Space(name) => space(name),
             Then::RefreshInbox => {
                 let request = json!({"op": "act", "app": "inbox", "action": "request_refresh", "args": [], "armed": null});
@@ -60,14 +68,19 @@ impl Then {
                 Some(terminal) => frontend::app_type(terminal, text).then_some(()).ok_or_else(|| format!("could not type into {terminal}")),
                 None => herdr(&["pane", "send-text", pane, text]),
             },
-            Then::Ask { pane, text } => match pane.strip_prefix(frontend::APP) {
-                Some(terminal) => frontend::app_prompt(terminal, text).then_some(()).ok_or_else(|| format!("could not send to {terminal}")),
-                None => herdr(&["agent", "prompt", pane, text]),
-            },
+            Then::Ask { pane, text } => cockpit_core::deliver::deliver(pane, text),
             Then::Fork { agent, session, cwd, title, prompt } => fork(agent, session, cwd, title, prompt),
             Then::Document { pane, name } => document(pane, name),
+            Then::StartWork(text) => start_work(text),
         }
     }
+}
+
+/// `cockpit start-work <text>` in this terminal, the popup herdr opened for the palette: it stays until the form closes.
+fn start_work(text: &str) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let status = Command::new(exe).args(["start-work", text]).status().map_err(|e| format!("start work: {e}"))?;
+    if status.success() { Ok(()) } else { Err(format!("start work ended with {status}")) }
 }
 
 /// A herdr command run to its end; its error output when it fails.
@@ -118,7 +131,7 @@ pub fn fork_line(agent: &str, session: &str, prompt: &str) -> Result<String, Str
 /// The config's `editor` (code, cursor, zed, ...), else VS Code: its command line, else on macOS the app of that name.
 fn editor(cwd: &str) -> Result<(), String> {
     let config = files::config();
-    let name = config["editor"].as_str().filter(|e| !e.is_empty()).unwrap_or("code");
+    let name = config["editor"].as_str().map(str::trim).filter(|e| !e.is_empty() && !e.starts_with('-')).unwrap_or("code");
     if Command::new(name).arg(cwd).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success()) {
         return Ok(());
     }

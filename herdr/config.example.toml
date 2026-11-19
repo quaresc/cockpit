@@ -33,6 +33,7 @@ rows = [
     { token = "$monitor", dim = true },
     { token = "$routines_bad", fg = "#FF8080" },
     { token = "$routines", dim = true },
+    { token = "$review_space", dim = true },
   ],
   # The actions space's sessions, one per line with its state; one waiting for you in the accent colour.
   [{ token = "$act_1", dim = true }, { token = "$act_1_wait", fg = "#FFC799" }],
@@ -93,6 +94,13 @@ key = "prefix+shift+q"
 type = "shell"
 command = "sh ~/.config/cockpit/herdr/popup.sh queue"
 description = "prompt queue"
+
+# Start work: a prompt, a ticket's key or a PR's URL becomes a worktree, a space and an agent, planned before Enter.
+[[keys.command]]
+key = "prefix+shift+s"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/popup.sh start-work"
+description = "start work"
 
 # The agents a restart stopped, resumed where they were.
 [[keys.command]]
@@ -156,6 +164,13 @@ key = "prefix+y"
 type = "shell"
 command = "sh ~/.config/cockpit/herdr/focus-space.sh routines"
 description = "routines space"
+
+# The review space, when pinned: an agent's changes commented line by line and sent back to it.
+[[keys.command]]
+key = "prefix+shift+c"
+type = "shell"
+command = "sh ~/.config/cockpit/herdr/focus-space.sh review"
+description = "review space"
 
 # prefix+e is herdr's edit_scrollback, so mail takes prefix+shift+e.
 [[keys.command]]

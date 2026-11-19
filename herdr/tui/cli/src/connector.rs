@@ -123,19 +123,19 @@ fn rows(source: &str) -> Result<String, String> {
     })
 }
 
-/// Maps a configured server's tools for a section with the default agent, and writes the section.
+/// Maps a configured server's tools for a section with the agent for headless jobs, and writes the section.
 fn map(section: &str, key: &str) -> Result<String, String> {
     let path = cockpit_core::files::config_dir().join("config.json");
     let raw = cockpit_core::files::load(&path).unwrap_or(Value::Null);
     let server = Server::from_entry(&raw["servers"][key]).ok_or_else(|| format!("no servers.{key} in config.json"))?;
     let name = raw[section]["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(key).to_string();
-    let (mapping, sample) = crate::mapper::map(section, &server, &name, &cockpit_core::agent::default())?;
+    let (mapping, sample) = crate::mapper::map(section, &server, &name, &cockpit_core::agent::for_headless())?;
     let mut text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     for (k, v) in mapping.as_object().into_iter().flatten() {
-        text = crate::jsonedit::set(&text, &[section], k, v)?;
+        text = cockpit_core::jsonedit::set(&text, &[section], k, v)?;
     }
     for (k, v) in [("server", Value::from(key)), ("name", Value::from(name)), ("enabled", Value::Bool(true))] {
-        text = crate::jsonedit::set(&text, &[section], k, &v)?;
+        text = cockpit_core::jsonedit::set(&text, &[section], k, &v)?;
     }
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok(format!("Mapped {key} for {section}: {sample}"))

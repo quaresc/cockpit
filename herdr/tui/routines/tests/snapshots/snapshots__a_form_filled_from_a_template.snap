@@ -1,0 +1,40 @@
+---
+source: routines/tests/snapshots.rs
+expression: "render(&mut app, 100, 36)"
+---
+   Routines   7 routines · 1 running · 3 runs today · ~$0.76 this week
+
+ ▶ ⣾ Pull my notes       every 30 min                           running 40 s
+ ▶  Fix CI on checkout  on CI failing · checkout  ~$0.41 last  over its weekly budget  The failur…
+    Standup notes       when?                                  never ran
+ ▶  Morning sweep       weekdays at 09:00         ~$0.18 last  ran 1 h ago             3 PRs wait…
+    Ping the team       daily at 10:00                         never ran               lists no t…
+ ▶  Review digest       cron */15 8-18 * * 1-5 i…              skipped 14 min ago      no PR wait…
+    Weekly ╭──────────────────────────────────────────────────────────────────────────╮
+            │                                                                          │
+            │  New routine                                                             │
+            │                                                                          │
+            │  name      Morning sweep                                                 │
+            │  when      weekdays 09:00                                                │
+            │  tz        the machine's                                                 │
+            │            → weekdays at 09:00 · next Fri 09:00, Mon 09:00, Tue 09:00    │
+            │  prompt    … with one line for the whole picture, then one line per PR.  │
+            │  folder    a folder of its own                                           │
+            │  precheck  …@me --state=open --json number --jq length | grep -qv '^0$'  │
+            │  runs       Claude Code   Codex   shell                                  │
+            │  model      default   lightest   opus   sonnet   haiku   fable           │
+            │  worktree   no   one per run                                             │
+            │  tools     Bash(gh search prs:*), Bash(gh pr view:*), Bash(gh pr         │
+            │            checks:*)                                                     │
+            │                                                                          │
+            │  tab moves · enter from the precheck on adds it · esc cancels            │
+            │                                                                          │
+            ╰──────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Pull my notes  ·  every 30 min  ·  next in 30 min
+ shell · in /home/me/notes · notifies on failure
+ git pull --rebase --autostash
+ running for 40 s · every 30 min
+
+ ▸ stop  s     edit  e     open  o     pause  p     delete  D
+ q quit  enter main  a add  space runs  R refresh                                       ▏^p palette

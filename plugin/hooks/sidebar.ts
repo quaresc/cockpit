@@ -3,7 +3,7 @@ import type { EngineInterface, SessionMeasureInput } from 'claude-code'
 
 import { clashWith } from './activity'
 import { ciMark, notify, readCi } from './ci'
-import { cacheDir, home, loadConfig } from './config'
+import { cacheDir, home, loadConfig, writeAtomic } from './config'
 import { reportFacts } from './facts'
 import { appDo, appSpaces, browsersBeside, findTerminal, herdr, hereSoon, inboxSpace, placeHere, placeOf } from './herdr'
 import type { Here } from './herdr'
@@ -22,8 +22,9 @@ const views = atom({ plugin: 'cockpit', key: 'views' } as const, [])
 const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 type Limit = { name: string; percent: number; resetsAt?: string }
 
-// What the herdr sidebar shows: counts and limits on the inbox space's row, and on this agent's rows its context,
-// its repo and branch, and the page beside it. The same facts go to the hub for the Herdr app's `agents` view.
+// What the herdr sidebar shows: counts on the inbox space's row, and on this agent's rows its context, repo, branch and
+// the page beside it, the same facts going to the hub for the Herdr app. The `$limits` token is the hub's, from the
+// limits.json written here.
 
 const tokenArgs = (args: string[], tokens: [string, string | undefined][]) => {
   for (const [name, value] of tokens) args.push(...(value === undefined ? ['--clear-token', name] : ['--token', `${name}=${value}`]))
@@ -31,15 +32,6 @@ const tokenArgs = (args: string[], tokens: [string, string | undefined][]) => {
 }
 
 let lastDashboard = ''
-
-async function readLimits($: $): Promise<Limit[]> {
-  try {
-    const { at, limits } = JSON.parse(await $.fs.read(`${await cacheDir($)}/limits.json`)) as { at: number; limits: Limit[] }
-    return Date.now() - at < 6 * 3600_000 ? limits : []
-  } catch {
-    return []
-  }
-}
 
 export async function reportDashboard($: $) {
   const data = await read($, inbox)
@@ -50,14 +42,12 @@ export async function reportDashboard($: $) {
   const team = data.team.filter(pr => !mutedRepos.includes(pr.repo) && !isOldReview(pr)).length
   const failing = data.mine.filter(isFailing).length
   const working = data.tickets.filter(t => t.statusType === 'started' && !isDeploying(t)).length
-  const limits = await readLimits($)
 
   const tokens: [string, string | undefined][] = [
     ['review', direct + team === 0 ? `${ICON.review}  nothing to review` : `${ICON.review}  ${direct} you · ${team} team`],
     ['ci_fail', failing > 0 ? `${ICON.fail}  ${failing} failing` : undefined],
     ['ci_ok', failing === 0 ? `${ICON.ok}  all green` : undefined],
     ['tickets', `${ICON.ticket}  ${working} active · ${data.tickets.length}`],
-    ['limits', limits.length > 0 ? `${ICON.gauge}  ${limits.map(l => `${l.name} ${Math.round(l.percent)}%`).join(' · ')}` : undefined],
   ]
   const key = `${space}|${JSON.stringify(tokens)}`
   if (key === lastDashboard) return
@@ -116,10 +106,9 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
   $.ui.status(undefined)
   await update($, usage, () => ({ limits: limits.map(l => ({ name: l.name, percent: l.percent })) }))
 
-  if (limits.length > 0) {
-    await $.fs.write(`${await cacheDir($)}/limits.json`, JSON.stringify({ at: Date.now(), limits }))
-    await reportDashboard($)
-  }
+  // The hub reads it for every surface: the herdr sidebar's `$limits`, the Herdr app's bars and the Usage sheet.
+  // A write that fails leaves the last reading, which the hub keeps reading.
+  if (limits.length > 0) await writeAtomic($, `${await cacheDir($)}/limits.json`, JSON.stringify({ at: Date.now(), limits })).catch(() => undefined)
 
   const here = await hereSoon($)
   if (!here) return
@@ -208,7 +197,7 @@ export async function reportSide($: $) {
   const tokens: [string, string | undefined][] = right
     ? [['agent', clip(topic, 12)], ['side_sep', '│'], ['side', extra > 0 ? `${right} +${extra}` : right]]
     : [['agent', fitWords(topic, (await sidebarWidth($)) - 2 - ctxCells)], ['side_sep', undefined], ['side', undefined]]
-  await reportFacts($, here, { task: topic || null, page: shown?.url ?? null, pageTitle: shown?.title || null, views: (await read($, views)).map(v => ({ name: v.name, open: v.isOpen })) }).catch(() => undefined)
+  await reportFacts($, here, { page: shown?.url ?? null, pageTitle: shown?.title || null, views: (await read($, views)).map(v => ({ name: v.name, open: v.isOpen })) }).catch(() => undefined)
   const key = JSON.stringify(tokens)
   if (key === lastRow) return
   if ((await herdr($, tokenArgs(['pane', 'report-metadata', here.pane, '--source', 'cockpit'], tokens))).exitCode === 0) lastRow = key

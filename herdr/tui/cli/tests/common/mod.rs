@@ -58,6 +58,8 @@ impl Sandbox {
         executable(&sandbox.root.join("bin/notify"), &fake("notify", &log, &[]));
         // herdr's client on a terminal of its own, and a Ghostty that answers AppleScript: the real ones stay untouched.
         executable(&sandbox.root.join("bin/ps"), "#!/bin/sh\nprintf '%s\\n' '??       /opt/homebrew/bin/herdr server' 'ttys007  herdr'\n");
+        // That herdr runs whether or not one runs on this machine, so its panes are listed; the rest asks the real pgrep.
+        executable(&sandbox.root.join("bin/pgrep"), "#!/bin/sh\n[ \"$*\" = '-x herdr' ] && exit 0\nexec /usr/bin/pgrep \"$@\"\n");
         executable(&sandbox.root.join("bin/osascript"), &fake("osascript", &log, &[]));
         sandbox.herdr(&[]);
         sandbox
@@ -83,9 +85,10 @@ impl Sandbox {
         executable(&self.root.join("bin/herdr"), &fake("herdr", &self.log(), &refs));
     }
 
-    /// terminal-browser answering these prefixes with raw sh, each call logged with the pane it was asked from.
+    /// terminal-browser answering these prefixes with raw sh, each call logged with the pane it was asked from (and the
+    /// socket, when one is given).
     pub fn terminal_browser(&self, answers: &[(&str, &str)]) {
-        let script = fake("tb", &self.log(), answers).replacen("\"tb $*\"", "\"tb [$HERDR_PANE_ID] $*\"", 1);
+        let script = fake("tb", &self.log(), answers).replacen("\"tb $*\"", "\"tb [$HERDR_PANE_ID${HERDR_SOCKET_PATH:+ $HERDR_SOCKET_PATH}] $*\"", 1);
         executable(&self.root.join("bin/terminal-browser"), &script);
     }
 
@@ -114,6 +117,8 @@ impl Sandbox {
                 ("COCKPIT_NOTIFY_PROGRAM".into(), self.root.join("bin/notify").to_string_lossy().into_owned()),
                 // A hub started here indexes sessions without downloading the search model.
                 ("COCKPIT_EMBED".into(), "off".into()),
+                // Nor does it ask the agents installed on this machine which models they list.
+                ("COCKPIT_HUB_MODELS".into(), "off".into()),
             ])
             .collect()
     }

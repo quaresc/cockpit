@@ -13,6 +13,8 @@ pub struct Mail {
     pub error: Option<String>,
     /// When the list was last fetched, in epoch milliseconds; None before any fetch.
     pub at: Option<i64>,
+    /// How fresh the mail is, when the hub reads it.
+    pub sources: Vec<cockpit_core::header::Source>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,7 +62,10 @@ impl Mail {
             *n += 1;
             *n <= PER_GROUP
         });
-        Self { messages, error: doc["error"].as_str().map(str::to_string), at: doc["at"].as_i64().filter(|at| *at > 0) }
+        let sources = cockpit_core::header::sources(&[doc]);
+        // The mail's chip says how it fails, when the hub reads it.
+        let error = doc["error"].as_str().map(str::to_string).filter(|_| !cockpit_core::header::has(&sources, "mail"));
+        Self { messages, error, at: doc["at"].as_i64().filter(|at| *at > 0), sources }
     }
 
     pub fn unread(&self) -> usize {

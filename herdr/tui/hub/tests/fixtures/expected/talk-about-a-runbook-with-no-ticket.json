@@ -55,7 +55,7 @@
         "pane",
         "run",
         "wT:p1",
-        "claude 'Let'\"'\"'s talk notes over. Per the inbox: notes \"Notes for later\"; its runbook is <BOX>/home/.config/cockpit/runbooks/notes.md. Read the ticket with its comments and the PRs with their reviews and CI, sum up where it stands in a few lines, then wait for my questions. Change nothing (no edits, commits, pushes or ticket updates) unless I ask.'"
+        "sh <BOX>/home/.cache/cockpit/prompts/talk-notes-<R>.sh"
       ],
       "cmd": "herdr",
       "stdin": null
@@ -68,7 +68,9 @@
       "review web#9": "w9:p1",
       "talk eng-403": "w9:p4",
       "talk notes": "wT:p1"
-    }
+    },
+    "home/.cache/cockpit/prompts/talk-notes-<R>.prompt": "Let's talk notes over. Per the inbox: notes \"Notes for later\"; its runbook is <BOX>/home/.config/cockpit/runbooks/notes.md. Read the ticket with its comments and the PRs with their reviews and CI, sum up where it stands in a few lines, then wait for my questions. Change nothing (no edits, commits, pushes or ticket updates) unless I ask.",
+    "home/.cache/cockpit/prompts/talk-notes-<R>.sh": "# An agent on a prompt read from a file: nothing of it is typed into a shell.\nP=<BOX>/home/.cache/cockpit/prompts/talk-notes-<R>.prompt\nexec claude ''\"$(cat \"$P\")\"''\n"
   },
   "note": "started \"talk notes\" in the actions space",
   "pending": {},

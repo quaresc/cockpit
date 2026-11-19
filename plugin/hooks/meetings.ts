@@ -160,7 +160,7 @@ export function refreshMeetings($: $, isForced = false) {
             else state = { ...state, error: `Calendar: ${err.message.replace(/^cockpit: /, '')}` }
             return null
           })
-          if (meetings) state = { ...state, at: Date.now(), meetings: markBriefable(meetings, (await loadConfig($)).meetingBrief.skip), error: undefined, by: undefined }
+          if (meetings) state = { ...state, at: Date.now(), meetings: markBriefable(meetings, (await loadConfig($)).meetingBrief.skip), error: undefined, by: 'plugin' }
         }
         const soon = state.meetings.filter(m => {
           const until = Date.parse(m.start) - Date.now()

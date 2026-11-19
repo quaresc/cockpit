@@ -35,7 +35,7 @@ export type MailMessage = {
 }
 
 export type ThreadMessage = { id: string; from: string; fromName: string; date: string; html: string; text: string }
-type MailState = { at: number; messages: MailMessage[]; notified: string[]; error?: string; by?: 'hub' }
+type MailState = { at: number; messages: MailMessage[]; notified: string[]; error?: string; by?: 'hub' | 'plugin' }
 
 async function readMail($: $): Promise<MailState | null> {
   try {
@@ -117,7 +117,7 @@ export function refreshMail($: $, isForced = false) {
         // Only mail newer than any listed before: a longer listing brings older unread mail in, which is not news.
         const newest = Math.max(0, ...(prev?.messages ?? []).map(m => Date.parse(m.date) || 0))
         const fresh = prev ? messages.filter(m => m.unread && !known.has(m.id) && (Date.parse(m.date) || 0) > newest) : []
-        await writeDoc($, 'mail', { at: Date.now(), messages, notified: unread })
+        await writeDoc($, 'mail', { at: Date.now(), messages, notified: unread, by: 'plugin' })
         if (fresh.length > 3) await notify($, `✉️ ${fresh.length} new mails`, fresh.slice(0, 3).map(m => `${m.fromName}: ${m.subject}`).join('\n'), 'space:mail')
         else for (const m of fresh) await notify($, `✉️ ${m.fromName}`, m.subject || m.snippet, `mail:${m.id}`)
         await readAhead($, messages)

@@ -1,11 +1,12 @@
 // A diff to read and comment on, shared by the show view's diff blocks and the review view: files that fold, lines in
 // syntax colours with changed words marked, unified or side by side, a cursor moved by keys or clicks, and line
-// comments drawn as rows of their own under their line, written in a composer that floats over the list.
+// comments drawn as rows of their own under their line, written in a composer that floats over the list. A rename shows
+// its old path, a binary file a row of its own, and a large file's lines wait until asked for (`onLoad`).
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, Input } from "gpui-base";
 import { theme, settings } from "herdr";
-import { tokens, alpha, TEXT, RADIUS, Icon, Button, Kbd } from "./ui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Button } from "./ui.js";
 
 const H = { file: 34, hunk: 24, line: 20, more: 26, gap: 8 };
 const mono = () => settings().font_family ?? "Menlo";
@@ -17,6 +18,10 @@ function syntax(cls) {
 }
 
 const lineNo = (line) => (line[0] === "-" ? line[1] : line[2] ?? line[1]);
+/** A size as people read it: "980 B", "12 KB", "1.4 MB". */
+export const bytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.floor(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+/** Whether a file's lines were held back as a large diff, not loaded yet. */
+export const held = (file) => Boolean(file?.large) && !(file.lines ?? []).length;
 const codeOf = (line) => (line?.[3] ?? []).map((p) => p[0]).join("");
 const commentHeight = (text) => 30 + Math.max(1, Math.ceil(String(text).length / 70)) * 18;
 
@@ -66,12 +71,17 @@ export class DiffView {
   /** Every row the list draws, with its height. */
   rows() {
     const out = [];
+    // The comments under each line, gathered once: a large diff has many lines and few comments.
+    const byLine = new Map();
+    for (const c of this.comments) if (!c.stale) byLine.set(`${c.f}:${c.l}`, [...(byLine.get(`${c.f}:${c.l}`) ?? []), c]);
     this.files().forEach((file, f) => {
       if (this.only && !(file.hunks ?? []).some((h) => this.only.has(h.id))) return;
       out.push({ key: `f:${f}`, h: H.file, kind: "file", f });
       if (this.folded.has(file.path)) return;
+      if (file.binary) return out.push({ key: `b:${f}`, h: H.more, kind: "binary", f });
+      if (held(file)) return out.push({ key: `g:${f}`, h: H.more + 8, kind: "large", f });
       const lines = file.lines;
-      const after = (l) => this.comments.filter((c) => c.f === f && c.l === l && !c.stale);
+      const after = (l) => byLine.get(`${f}:${l}`) ?? [];
       const pushComments = (ls) => ls.forEach((l) => after(l).forEach((c) => out.push({ key: `c:${c.id}`, h: commentHeight(c.text) + 8, kind: "comment", f, l, c })));
       for (let i = 0; i < lines.length; i++) {
         if (!this.visible(file, i)) continue;
@@ -185,6 +195,11 @@ export class DiffView {
     if (this.composer?.edit === id) this.composer = null;
   }
 
+  /** The files to read whole: those asked for, and every file a comment is on, so none loses its line as it grows. */
+  whole(loaded) {
+    return [...new Set([...loaded, ...this.comments.map((c) => c.path)])];
+  }
+
   /** The comments as the hub sends them. */
   review() {
     return this.comments.filter((c) => !c.stale).map(({ path, line, old, code, text }) => ({ path, line, old, code, text }));
@@ -210,7 +225,8 @@ export class DiffView {
       case "s": this.split = !this.split; return true;
       case "z": this.foldAll(); return true;
       case "enter":
-        if (this.cursor?.l === null) this.fold(this.cursor.f);
+        if (this.cursor?.l === null && held(this.files()[this.cursor.f]) && this.onLoad) this.onLoad(this.files()[this.cursor.f].path);
+        else if (this.cursor?.l === null) this.fold(this.cursor.f);
         else if (this.cursor) this.compose(this.cursor.f, this.cursor.l);
         return true;
       case "c": return this.cursor?.l !== null && this.cursor ? this.compose(this.cursor.f, this.cursor.l) : false;
@@ -221,7 +237,8 @@ export class DiffView {
 
   click(key, cx) {
     const [kind, a, b] = key.split(":");
-    if (kind === "f") this.fold(Number(a));
+    if (kind === "g" && this.onLoad) this.onLoad(this.files()[Number(a)]?.path);
+    else if (kind === "f") this.fold(Number(a));
     else if (kind === "l") {
       const f = Number(a), l = Number(b);
       if (this.cursor?.f === f && this.cursor?.l === l) this.compose(f, l);
@@ -245,8 +262,11 @@ export class DiffView {
     return h_flex().h(H.file).px(10).gap(8).items_center().border_b_1().border_t_1().border_color(k.border).bg(on ? k.selected : k.muted).cursor_pointer()
       .child(Icon(folded ? "chevron-right" : "chevron-down", { size: 14, color: k.mutedFg }))
       .child(h_flex().flex_1().min_w(0).text_size(TEXT.sm).font_family(mono())
+        .when(Boolean(file.old_path), (e) => e.child(div().flex_none().text_color(k.mutedFg).child(`${file.old_path} → `)))
         .child(div().flex_none().text_color(k.mutedFg).child(slash >= 0 ? file.path.slice(0, slash + 1) : ""))
         .child(div().truncate().font_semibold().text_color(k.foreground).child(file.path.slice(slash + 1))))
+      .when(Boolean(file.binary), (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(k.mutedFg).child("binary")))
+      .when(Boolean(file.old_path) && !file.added && !file.removed, (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(k.mutedFg).child("renamed")))
       .when(count > 0, (e) => e.child(h_flex().gap(4).items_center().text_size(TEXT.xs).text_color(k.ring).child(Icon("message-square", { size: 12 })).child(String(count))))
       .child(div().text_size(TEXT.xs).font_family(mono()).text_color(k.success).child(`+${file.added}`))
       .child(div().text_size(TEXT.xs).font_family(mono()).text_color(k.destructive).child(`−${file.removed}`));
@@ -320,6 +340,23 @@ export class DiffView {
     return h_flex().h(H.more).px(10).items_center().text_size(TEXT.xs).text_color(k.mutedFg).child(`${file.more} more lines not drawn`);
   }
 
+  /** A binary file's row: its size when the working tree has it. */
+  binaryRow(r, k) {
+    const file = this.files()[r.f];
+    const size = file.size != null ? `, ${bytes(file.size)}` : "";
+    return h_flex().h(H.more).px(10).gap(6).items_center().text_size(TEXT.xs).text_color(k.mutedFg)
+      .child(Icon("image", { size: 12, color: k.mutedFg })).child(`Binary${size}: no lines to show`);
+  }
+
+  /** A large file's lines held back: how many, and Load it. A click on the row or Enter on its header loads them. */
+  largeRow(r, k) {
+    const file = this.files()[r.f];
+    return h_flex().h(H.more + 8).px(10).gap(8).items_center().text_size(TEXT.xs).text_color(k.mutedFg).cursor_pointer()
+      .child(Icon("triangle-alert", { size: 12, color: k.warning }))
+      .child(div().child(`Large diff · ${file.total ?? 0} lines`))
+      .child(Button(`${this.id}-load-${r.f}`, { label: "Load it", variant: "outline", size: "sm" }));
+  }
+
   /** The composer floating over the list's top right, or docked under it when the list is narrow. */
   composerCard(k, cx, narrow) {
     const c = this.composer;
@@ -333,11 +370,10 @@ export class DiffView {
       .child(div().px(8).py(4).rounded(RADIUS.sm).bg(k.muted).text_size(TEXT.xs).font_family(mono()).text_color(k.mutedFg).truncate().child(codeOf(line).trim() || " "))
       .child(Input.new(this.input).h(32).px(8).rounded(RADIUS.md).border_1().border_color(k.input).bg(k.background).text_size(TEXT.sm))
       .child(h_flex().gap(6).items_center()
-        .child(h_flex().gap(4).items_center().text_size(TEXT.xs).text_color(k.mutedFg).child(Kbd("⏎")).child("add").child(Kbd("esc")).child("cancel"))
         .child(div().flex_1())
         .when(Boolean(c.edit), (e) => e.child(Button(`${this.id}-del`, { label: "Delete", variant: "ghost", size: "sm", onClick: (_e, cx) => { this.remove(c.edit); cx.notify(); } })))
-        .child(Button(`${this.id}-cancel`, { label: "Cancel", variant: "outline", size: "sm", onClick: (_e, cx) => { this.composer = null; cx.notify(); } }))
-        .child(Button(`${this.id}-add`, { label: c.edit ? "Save" : "Add comment", size: "sm", onClick: (_e, cx) => { this.commit(); cx.notify(); } })));
+        .child(Button(`${this.id}-cancel`, { label: "Cancel", variant: "outline", size: "sm", kbd: "esc", onClick: (_e, cx) => { this.composer = null; cx.notify(); } }))
+        .child(Button(`${this.id}-add`, { label: c.edit ? "Save" : "Add comment", size: "sm", kbd: "⏎", onClick: (_e, cx) => { this.commit(); cx.notify(); } })));
     return stop(narrow ? card.mx(8).mb(8) : card.absolute().top(8).right(12).w(340));
   }
 
@@ -356,7 +392,8 @@ export class DiffView {
     const list = v_virtual_list(`${this.id}-rows`, rows.length, rows.map((r) => r.h), (i) => rows[i].key, (range) => {
       this.range = range;
       return rows.slice(range.start, range.end).map((r) =>
-        r.kind === "file" ? this.fileRow(r, k) : r.kind === "comment" ? this.commentRow(r, k) : r.kind === "more" ? this.moreRow(r, k) : this.lineRow(r, k));
+        r.kind === "file" ? this.fileRow(r, k) : r.kind === "comment" ? this.commentRow(r, k) : r.kind === "more" ? this.moreRow(r, k)
+          : r.kind === "binary" ? this.binaryRow(r, k) : r.kind === "large" ? this.largeRow(r, k) : this.lineRow(r, k));
     }).track_scroll(this.scroll).size_full().on_item_click((key, cx) => this.click(key, cx));
     let box = div().relative().w_full().overflow_hidden().child(list).child(Scrollbar.vertical(`${this.id}-rows`).viewport_from_layout().absolute().inset_0());
     box = height === null ? box.flex_1().min_h(0) : box.h(Math.min(height, rows.reduce((s, r) => s + r.h, 0) + 2));

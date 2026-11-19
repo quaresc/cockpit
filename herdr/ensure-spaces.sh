@@ -6,6 +6,11 @@
 sh "$ROOT/fetch-apps.sh"
 prune_installs
 link_bin
+# The Herdr app alone runs no herdr server: its spaces come with herdr.
+if ! "$H" workspace list 2>/dev/null | jq -e '.result.workspaces' >/dev/null 2>&1; then
+  echo "herdr is not running: its pinned spaces are made when it starts"
+  exit 0
+fi
 
 ensure() {
   name=$1 label=$2 app=$3 cwd=${4:-$REPOS}
@@ -53,6 +58,7 @@ printf '%s\n' "$SPACE_ROWS" | while IFS="$(printf '\037')" read -r name icon cwd
     meetings) glyph='\357\221\225' app=meetings ;;
     monitor) glyph='\357\203\244' app=monitor ;;
     routines) glyph='\357\200\227' app=routines ;;
+    review) glyph='\357\222\257' app=review ;;
     mail) glyph='\357\220\257' app=mail ;;
     *) glyph='\357\220\223' app="" ;;
   esac

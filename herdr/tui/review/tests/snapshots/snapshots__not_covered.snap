@@ -1,0 +1,44 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 100, 40)"
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR   walkthrough   → main · 2 commits
+
+ Calls past a plan's daily limit are refused
+ A plan that used its daily calls gets a 429 instead of an answer, and the remaining count never
+ goes below zero.
+
+ ENFORCING THE LIMIT
+    1  Refuse calls past the limit  key
+    2  Tests for the limit  outdated
+
+ ▸  ·  Not covered
+
+ ─────────────────────────────────────────────────────────────────────────────────────────────────
+ ‹ 3 / 3 ›  Not covered   h l steps
+   README.md  The README says what a call past the limit gets.
+ The changes moved on since this was written · r writes it again
+ haiku · $0.002
+
+ 1 file  +4 −0   unified · s side by side
+
+  ▼ README.md   +4 −0
+  @@ -1,3 +1,7 @@
+ ▌  1   1   # acme/api
+    2   2
+    3   3   The acme public API.
+        4 +
+        5 + ## Quotas
+        6 +
+        7 + Each plan has a daily limit (`src/quotas.py`); a call past it gets a 429.
+
+
+
+
+
+
+
+
+
+ q quit  h/l step  n/p hunk  c comment  S send  w diff  ? keys                          ▏^p palette

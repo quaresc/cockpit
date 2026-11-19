@@ -10,7 +10,9 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+chrono-tz.workspace = true
 crossterm.workspace = true
+libc = "0.2"
 notify.workspace = true
 nucleo-matcher.workspace = true
 ratatui.workspace = true

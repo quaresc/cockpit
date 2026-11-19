@@ -5,6 +5,7 @@ use cockpit_core::acts::Act;
 use cockpit_core::dialog::{Answer, Dialog};
 use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
+use cockpit_core::pointed::MOVE_FIRST;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
@@ -79,7 +80,10 @@ impl App {
                 let at = Position::new(mouse.column, mouse.row);
                 let modal = self.palette.is_open || self.dialog.is_some();
                 match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) if !modal => self.click(at),
+                    MouseEventKind::Down(MouseButton::Left) if !modal => {
+                        self.pointed.clear();
+                        self.click(at);
+                    }
                     MouseEventKind::ScrollDown if self.hits.list.contains(at) => self.scroll_by(3),
                     MouseEventKind::ScrollUp if self.hits.list.contains(at) => self.scroll_by(-3),
                     _ => {}
@@ -132,6 +136,11 @@ impl App {
         }
         if keys::is_quit(&key) {
             return true;
+        }
+        // A row a focus request selected takes no key that acts until the person moves to it.
+        if self.pointed.holds(&key) {
+            self.toasts.push(MOVE_FIRST, cockpit_core::toast::Kind::Note);
+            return false;
         }
         if let Some(to) = keys::movement(&key) {
             match to {

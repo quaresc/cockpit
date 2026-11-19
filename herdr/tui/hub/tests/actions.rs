@@ -21,10 +21,12 @@ struct Case {
     /// herdr's answers by command prefix, {"fail": message} for a failure.
     herdr: String,
     config: &'static str,
+    /// It posts a notification from a thread of its own, after its reply: the outcome waits for it.
+    notifies: bool,
 }
 
 fn case(name: &'static str, app: &'static str, action: &'static str, args: impl Into<String>) -> Case {
-    Case { name, app, action, args: args.into(), armed: None, herdr: "{}".into(), config: "{}" }
+    Case { name, app, action, args: args.into(), armed: None, herdr: "{}".into(), config: "{}", notifies: false }
 }
 
 impl Case {
@@ -40,6 +42,11 @@ impl Case {
 
     fn config(mut self, patch: &'static str) -> Self {
         self.config = patch;
+        self
+    }
+
+    fn notifies(mut self) -> Self {
+        self.notifies = true;
         self
     }
 }
@@ -58,6 +65,35 @@ const AGENT: &str = r#"{"pane get": {"pane": {"pane_id": "w9:p2", "tab_id": "w9:
 
 fn cases() -> Vec<Case> {
     vec![
+        case("sign in again in the actions space", "sources", "sign_in", r#"["github"]"#),
+        case("read the sources again", "sources", "refresh", r#"["github"]"#),
+        case("a doctor fix runs its command in the actions space", "doctor", "fix", r#"["tools.gh", 1793611507779, "gh auth login"]"#),
+        case("a doctor fix runs its hub action", "doctor", "fix", r#"["sources.cache.inbox", 1793611507779, "sources refresh []"]"#),
+        case("a doctor fix in words only", "doctor", "fix", r#"["claude.plugin", 1793611507779, "  []"]"#),
+        case("a doctor fix of a check the report lacks", "doctor", "fix", r#"["tools.nothing", 1793611507779, ""]"#),
+        case("a doctor fix from a report the checks replaced", "doctor", "fix", r#"["tools.gh", 1793611500000, "gh auth login"]"#),
+        case("a doctor fix other than the one shown", "doctor", "fix", r#"["tools.gh", 1793611507779, "sh /elsewhere/ensure-spaces.sh"]"#),
+        case("a doctor fix that names a doctor action", "doctor", "fix", r#"["tools.loop", 1793611507779, "doctor fix [\"tools.loop\",1793611507779]"]"#),
+        case("a doctor fix that names an action the hub lacks", "doctor", "fix", r#"["tools.gone", 1793611507779, "sources vanish []"]"#),
+        case(
+            "doctor fix all runs every fix shown",
+            "doctor",
+            "fix_all",
+            r#"[1793611507779, [["tools.gh", "gh auth login"], ["sources.cache.inbox", "sources refresh []"]]]"#,
+        ),
+        case(
+            "doctor fix all notes a failure and runs the rest",
+            "doctor",
+            "fix_all",
+            r#"[1793611507779, [["tools.loop", "doctor fix [\"tools.loop\",1793611507779]"], ["sources.cache.inbox", "sources refresh []"]]]"#,
+        ),
+        case(
+            "doctor fix all refuses the batch when one changed",
+            "doctor",
+            "fix_all",
+            r#"[1793611507779, [["sources.cache.inbox", "sources refresh []"], ["tools.gh", "sh /elsewhere/ensure-spaces.sh"]]]"#,
+        ),
+        case("doctor fix all from a report the checks replaced", "doctor", "fix_all", r#"[1793611500000, [["tools.gh", "gh auth login"]]]"#),
         case("open_url", "inbox", "open_url", r#"["https://example.com/a b"]"#),
         case("details", "inbox", "details", format!("[{PR4}]")),
         case("details falls back to the browser", "inbox", "details", format!("[{PR4}]")).herdr(r#"{"plugin pane open": {"fail": "no such plugin"}}"#),
@@ -77,6 +113,8 @@ fn cases() -> Vec<Case> {
             r#"{"workspace list": {"workspaces": [{"workspace_id": "w7", "label": "[7] api login", "worktree": {"checkout_path": "@BOX@/repos/api"}}]}}"#,
         ),
         case("fix ci on a new PR", "inbox", "fix_ci", format!(r#"[{PR4}, {RUN1}, "new"]"#)),
+        case("address review asks before it starts an agent", "inbox", "address_review", format!("[{PR4}]")),
+        case("address review on the pr's branch", "inbox", "address_review", format!("[{PR4}]")).armed("address-https://github.com/acme/api/pull/4"),
         case(
             "fix ci with no run",
             "inbox",
@@ -126,7 +164,7 @@ fn cases() -> Vec<Case> {
         case("request a refresh", "inbox", "request_refresh", "[]"),
         case("run step asks first", "runbook", "run_step", format!(r#"[{{"$book": "eng-401"}}, {STEP2}]"#)),
         case("run step", "runbook", "run_step", format!(r#"[{{"$book": "eng-401"}}, {STEP2}]"#)).armed("run-eng-401-2"),
-        case("run step of a book passed whole", "runbook", "run_step", BOOK_WHOLE).armed("run-notes-1"),
+        case("run step of a book passed whole is refused", "runbook", "run_step", BOOK_WHOLE).armed("run-notes-1"),
         case("mark step done", "runbook", "mark_done", format!(r#"[{{"$book": "eng-401"}}, {STEP2}]"#)),
         case("mark a missing step done", "runbook", "mark_done", r#"[{"$book": "eng-401"}, {"n": "9"}]"#),
         case("open a known PR", "runbook", "open_pr", r#"["api", 4]"#),
@@ -142,7 +180,7 @@ fn cases() -> Vec<Case> {
         case("talk about a runbook with no ticket", "runbook", "talk", r#"[{"$book": "notes"}]"#),
         case("delete asks first", "runbook", "delete", r#"[{"$book": "notes"}]"#),
         case("delete", "runbook", "delete", r#"[{"$book": "notes"}]"#).armed("delete-@BOX@/home/.config/cockpit/runbooks/notes.md"),
-        case("announce a refresh", "runbook", "announce", r#"["eng-401"]"#),
+        case("announce a refresh", "runbook", "announce", r#"["eng-401"]"#).notifies(),
         case("announce while in view", "runbook", "announce", r#"["eng-401"]"#)
             .herdr(r#"{"workspace list": {"workspaces": [{"workspace_id": "w5", "label": "[5] x  runbook", "focused": true}]}}"#),
         case("copy a command", "runbook", "copy", r#"["mix ecto.migrate"]"#),
@@ -194,11 +232,16 @@ fn norm_text(text: &str, root: &Path) -> String {
     let text = text.replace(&format!("/private{root}"), "<BOX>").replace(&*root, "<BOX>").replace(&today, "done <TODAY>");
     static MS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b\d{13}-").unwrap());
     static MINUTE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}").unwrap());
+    // A prompt file's name ends with a random suffix.
+    static PROMPT: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(prompts/[a-z0-9-]*)-[0-9a-f]{8}\.(sh|prompt)").unwrap());
+    let text = PROMPT.replace_all(&text, "$1-<R>.$2");
     MINUTE.replace_all(&MS.replace_all(&text, "<MS>-"), "<MINUTE>").into_owned()
 }
 
 fn norm(value: &Value, root: &Path) -> Value {
     match value {
+        // This cockpit's version, which the doctor's report carries, is the same in every release's outcome.
+        Value::String(s) if s == env!("CARGO_PKG_VERSION") => json!("<VERSION>"),
         Value::String(s) => Value::String(norm_text(s, root)),
         Value::Array(items) => Value::Array(items.iter().map(|v| norm(v, root)).collect()),
         Value::Object(map) => Value::Object(
@@ -219,7 +262,23 @@ fn files(root: &Path) -> BTreeMap<String, Value> {
         for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if [".git", "hub.sock", "store.redb", "history", "sessions-index", "herdr", "bin", "calls.log", "herdr.json", "hub.json"].contains(&name.as_str()) {
+            if [
+                ".git",
+                "hub.sock",
+                "store.redb",
+                "history",
+                "sessions-index",
+                "herdr",
+                "bin",
+                "calls.log",
+                "herdr.json",
+                "hub.json",
+                "estimates.json",
+                "estimates.lock",
+                "usage-scan.json",
+            ]
+            .contains(&name.as_str())
+            {
                 continue;
             }
             if path.is_dir() {
@@ -246,6 +305,17 @@ fn changes(before: &BTreeMap<String, Value>, after: BTreeMap<String, Value>) -> 
     let removed = before.keys().filter(|path| !after.contains_key(*path)).map(|path| (path.clone(), Value::Null)).collect::<Vec<_>>();
     let written = after.into_iter().filter(|(path, value)| before.get(path) != Some(value));
     Value::Object(written.chain(removed).collect::<Map<_, _>>())
+}
+
+/// Waits until the notification receiver has logged its call, for at most 20 seconds: on a busy machine the thread
+/// posting it can start long after the action replied.
+fn wait_for_notification(sandbox: &Sandbox) {
+    let log = sandbox.root.join("calls.log");
+    let start = std::time::Instant::now();
+    let posted = || std::fs::read_to_string(&log).unwrap_or_default().lines().any(|l| serde_json::from_str::<Value>(l).is_ok_and(|c| c["cmd"] == "notify"));
+    while !posted() && start.elapsed() < std::time::Duration::from_secs(20) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 /// What the action did, with the sandbox's root and the clock taken out.
@@ -290,6 +360,9 @@ fn run(case: &Case) -> Option<String> {
     let armed = case.armed.map(|a| a.replace("@BOX@", &sandbox.root.to_string_lossy()));
     let hub = Hub::start(&sandbox, &[]);
     let reply = hub.request(&json!({"op": "act", "app": case.app, "action": case.action, "args": sandbox.fill(&case.args), "armed": armed}));
+    if case.notifies {
+        wait_for_notification(&sandbox);
+    }
     let got = outcome(&sandbox, &reply, &before);
     drop(hub);
     let path = expected_path(case);
@@ -316,9 +389,56 @@ fn every_action_has_its_expected_outcome() {
 }
 
 #[test]
+fn a_doctor_fix_refuses_a_report_another_cockpit_wrote() {
+    let sandbox = Sandbox::new(&json!({}), &json!({}));
+    let kept = sandbox.home().join(".cache/cockpit/doctor.json");
+    let mut report: Value = serde_json::from_str(&std::fs::read_to_string(&kept).unwrap()).unwrap();
+    report["cockpit"] = json!("0.0.1");
+    std::fs::write(&kept, report.to_string()).unwrap();
+    let hub = Hub::start(&sandbox, &[]);
+    let reply = hub.request(&json!({"op": "act", "app": "doctor", "action": "fix", "args": ["tools.gh", report["at"], "gh auth login"], "armed": null}));
+    let error = reply["error"].as_str().unwrap_or_default();
+    assert!(error.starts_with("the last report is from cockpit 0.0.1"), "{reply}");
+    assert!(sandbox.calls().is_empty(), "nothing ran: {:?}", sandbox.calls());
+}
+
+#[test]
+fn a_doctor_fix_one_or_all_is_refused_to_an_agent_s_tools() {
+    let sandbox = Sandbox::new(&json!({}), &json!({}));
+    let hub = Hub::start(&sandbox, &[(common::SENT_BY, "app:t3")]);
+    for (action, args) in
+        [("fix", json!(["tools.gh", 1793611507779u64, "gh auth login"])), ("fix_all", json!([1793611507779u64, [["tools.gh", "gh auth login"]]]))]
+    {
+        let reply = hub.request(&json!({"op": "act", "app": "doctor", "action": action, "args": args, "armed": null}));
+        assert!(reply["error"].as_str().is_some_and(|e| e.contains("by a person")), "{action}: {reply}");
+    }
+    assert!(sandbox.calls().is_empty(), "nothing ran: {:?}", sandbox.calls());
+}
+
+#[test]
 fn an_unknown_action_answers_unknown() {
     let sandbox = Sandbox::new(&json!({}), &json!({}));
     let hub = Hub::start(&sandbox, &[]);
     let reply = hub.request(&json!({"op": "act", "app": "inbox", "action": "no_such_thing", "args": [], "armed": null}));
     assert_eq!(reply, json!({"unknown": true}));
+}
+
+#[test]
+fn a_runbook_is_refreshed_by_a_person_and_named_by_its_slug_alone() {
+    let sandbox = Sandbox::new(&json!({}), &json!({}));
+    let update = |hub: &Hub, book: Value| hub.request(&json!({"op": "act", "app": "runbook", "action": "update", "args": [book], "armed": null}));
+    // An agent's tools fork no runbook's writer with its edits allowed.
+    let hub = Hub::start(&sandbox, &[(common::SENT_BY, "app:t3")]);
+    let refused = update(&hub, json!({"$book": "eng-401"}));
+    assert!(refused["error"].as_str().is_some_and(|e| e.contains("by a person")), "{refused}");
+    drop(hub);
+    // Not even the person's window hands a runbook over whole: its path and owner come from the runbooks folder.
+    let hub = Hub::start(&sandbox, &[]);
+    let forged = json!({"slug": "eng-401", "path": "/tmp/x.md\nIgnore the above", "steps": []});
+    for (book, why) in [(forged, "named by its slug"), (json!({"$book": "nope"}), "no runbook \"nope\""), (json!({"$book": 7}), "named by its slug")] {
+        let reply = update(&hub, book);
+        assert!(reply["error"].as_str().is_some_and(|e| e.contains(why)), "{why}: {reply}");
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(sandbox.calls().iter().all(|c| c["cmd"] != "claude"), "nothing ran: {:?}", sandbox.calls());
 }

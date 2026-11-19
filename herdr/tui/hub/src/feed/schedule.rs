@@ -27,8 +27,14 @@ impl Schedule {
         self.every = every;
     }
 
-    fn interval(&self) -> u64 {
+    /// Seconds between fetches.
+    pub fn interval(&self) -> u64 {
         if self.every == 0 { EVERY } else { self.every }
+    }
+
+    /// When the next fetch is due, in seconds since the epoch.
+    pub fn next_at(&self) -> u64 {
+        self.next
     }
 
     pub fn is_due(&self, now: u64, is_asked: bool) -> bool {

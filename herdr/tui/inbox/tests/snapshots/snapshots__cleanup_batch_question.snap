@@ -1,0 +1,14 @@
+---
+source: inbox/tests/snapshots.rs
+expression: question
+---
+╭──────────────────────────────────────────────────────────────╮
+│                                                              │
+│  remove worktree: 1 worktree? Its folder is deleted; its     │
+│  branch too once git counts it merged. Goes: accounts-web    │
+│  dev/eng-399-bump-ui. Stays: accounts-web                    │
+│  dev/eng-399-remove-icon-workaround (2 uncommitted changes,  │
+│  Claude Code still runs in it).                              │
+│                                                              │
+│   No  n    Yes  y                                            │
+│                                                              │

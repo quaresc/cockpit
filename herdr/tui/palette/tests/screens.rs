@@ -2,7 +2,7 @@
 
 use cockpit_core::hub::Found;
 use cockpit_core::testing::render;
-use cockpit_palette::{App, Command, Over, Then, agent_commands, commands, into_session, keyed_commands};
+use cockpit_palette::{App, Arrived, Command, Over, Then, agent_commands, commands, into_session, keyed_commands};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 
@@ -52,6 +52,20 @@ fn enter_chooses_a_command_and_esc_closes() {
     assert_eq!(app.then, None);
 }
 
+/// Typed words nothing matches become a start: the Start work form on them. One character, so the hub is not asked.
+#[test]
+fn what_nothing_matches_is_offered_as_start_work() {
+    let mut app = App::new(commands(&["inbox".into()]), None, None);
+    assert!(!app.event(press(KeyCode::Char('r'))));
+    assert!(!render(&mut app, 80, 18).contains("start work:"), "a command matches: no start offered");
+    assert!(!app.event(press(KeyCode::Backspace)));
+    assert!(!app.event(press(KeyCode::Char('#'))));
+    let screen = render(&mut app, 80, 18);
+    assert!(screen.contains("start work: #"), "{screen}");
+    assert!(app.event(press(KeyCode::Enter)));
+    assert_eq!(app.then, Some(Then::StartWork("#".into())));
+}
+
 #[test]
 fn a_found_item_goes_into_the_agent_session() {
     let pr = Found {
@@ -80,7 +94,7 @@ fn a_found_item_goes_into_the_agent_session() {
 #[test]
 fn over_an_agent_session_it_forks_it_and_opens_its_folder() {
     let mut app = App::new(commands(&[]), Some(claude()), None);
-    for _ in 0..3 {
+    for _ in 0..4 {
         app.event(press(KeyCode::Down));
     }
     assert!(app.event(press(KeyCode::Enter)));
@@ -89,7 +103,7 @@ fn over_an_agent_session_it_forks_it_and_opens_its_folder() {
         Some(Then::Fork { agent: "claude".into(), session: "4f1c-77".into(), cwd: "/repos/api".into(), title: "Google sign-in".into(), prompt: String::new() })
     );
     let mut app = App::new(commands(&[]), Some(claude()), None);
-    for _ in 0..4 {
+    for _ in 0..5 {
         app.event(press(KeyCode::Down));
     }
     assert!(app.event(press(KeyCode::Enter)));
@@ -115,4 +129,85 @@ fn the_agent_below_brings_its_links_then_its_documents() {
     let mut app = App::new(found, Some(claude()), None);
     app.event(press(KeyCode::Enter));
     assert_eq!(app.then, Some(Then::Open("https://github.com/acme/api/pull/12".into())));
+}
+
+/// The demo's agents as both halves list them: herdr panes, the app's terminals, and a session cockpit drives.
+fn demo_agents(frontend: &str) -> Value {
+    let row = |t: &str, title: &str, stage: &str, mins: u64, tab: &str| {
+        let terminal = if frontend == "tui" { format!("w1:{t}") } else { format!("app:{t}") };
+        json!({"terminal": terminal, "address": t, "frontend": frontend, "title": title, "stage": stage, "status": "idle",
+               "since": NOW - mins * 60_000, "space": {"name": "api"}, "tab": {"name": tab}})
+    };
+    json!({"agents": [
+        row("t1", "Invoice CSV export", "working", 4, "csv"),
+        row("t2", "Enforce daily quotas", "needs_you", 7, "quotas"),
+        row("t3", "Settings page copy", "done", 10, "copy"),
+        row("t4", "Quota banner and disabled state", "needs_you", 3, "banner"),
+        row("t5", "Flaky checkout e2e test", "idle", 15, "e2e"),
+        json!({"terminal": "claude:1793611000000", "address": "claude:1793611000000", "frontend": frontend, "driven": true,
+               "title": "Make the quota configurable", "stage": "needs_you", "status": "blocked", "since": NOW - 20 * 60_000}),
+    ]})
+}
+
+/// Both halves' agents in one agents view, as the hub serves it to the herdr TUI.
+fn both_halves() -> Value {
+    let mut all = demo_agents("tui");
+    let app = demo_agents("app");
+    all["agents"].as_array_mut().unwrap().push(app["agents"][0].clone());
+    all
+}
+
+const NOW: u64 = 1_793_611_400_000;
+
+#[test]
+fn lists_the_agents_waiting_on_you_first_then_the_latest() {
+    let keys = [("inbox", "prefix+i")].iter().map(|(s, k)| (s.to_string(), k.to_string())).collect();
+    let mut commands = cockpit_palette::agent_entries(&both_halves(), NOW);
+    commands.extend(keyed_commands(&["inbox".into()], &keys));
+    let mut app = App::new(commands, None, None);
+    insta::assert_snapshot!(render(&mut app, 80, 24));
+    assert!(app.event(press(KeyCode::Enter)));
+    assert_eq!(app.then, Some(Then::Agent("w1:t2".into())), "the one waiting longest");
+}
+
+#[test]
+fn the_tui_lists_its_own_panes_and_no_driven_session() {
+    let entries = cockpit_palette::agent_entries(&both_halves(), NOW);
+    let terminals: Vec<String> = entries.iter().filter_map(|c| if let Command::Agent { jump, .. } = c { Some(jump.terminal.clone()) } else { None }).collect();
+    assert_eq!(terminals, ["w1:t2", "w1:t4", "w1:t3", "w1:t1", "w1:t5"], "no app terminal, no driven session");
+}
+
+#[test]
+fn the_order_is_the_hubs_for_every_palette() {
+    let order: Vec<String> = cockpit_palette::jumps(&demo_agents("app"), Some("app"), NOW).into_iter().map(|j| j.title).collect();
+    assert_eq!(
+        order,
+        [
+            "Make the quota configurable",
+            "Enforce daily quotas",
+            "Quota banner and disabled state",
+            "Settings page copy",
+            "Invoice CSV export",
+            "Flaky checkout e2e test"
+        ]
+    );
+    let driven = cockpit_palette::jumps(&demo_agents("app"), Some("app"), NOW).into_iter().find(|j| j.driven).map(|j| j.json());
+    assert_eq!(driven.map(|j| j["driven"].clone()), Some(json!(true)), "a desktop palette knows which one has no terminal");
+}
+
+#[test]
+fn the_selection_stays_on_its_entry_when_the_agents_arrive() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut app = App::new(commands(&["inbox".into()]), None, Some(rx));
+    app.event(press(KeyCode::Down));
+    tx.send(Arrived { over: None, links: Vec::new(), agents: cockpit_palette::agent_entries(&both_halves(), NOW) }).unwrap();
+    assert!(app.tick());
+    assert!(app.event(press(KeyCode::Enter)));
+    assert_eq!(app.then, Some(Then::RefreshInbox), "the entry picked before the agents arrived");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut app = App::new(commands(&["inbox".into()]), None, Some(rx));
+    tx.send(Arrived { over: None, links: Vec::new(), agents: cockpit_palette::agent_entries(&both_halves(), NOW) }).unwrap();
+    app.tick();
+    assert!(app.event(press(KeyCode::Enter)));
+    assert_eq!(app.then, Some(Then::Agent("w1:t2".into())), "a selection left at the top stays there: the agent waiting longest");
 }

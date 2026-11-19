@@ -8,10 +8,11 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { props, openOverlay, closeOverlay } from "herdr";
 import * as hub from "./hub.js";
+import { take, holds, MOVE_FIRST } from "./person.js";
 import {
-  tokens, TEXT, RADIUS, Icon, Badge, Button, Kbd, PageHeader, SearchField, KeyHints, Empty, ErrorState, Skeleton, Command,
+  tokens, TEXT, RADIUS, Icon, Badge, Button, Kbd, PageHeader, SearchField, KeyHints, Empty, Skeleton, Command,
   Toaster, Flashes, Scroller, Hover, SidePanel, AlertDialog, Avatar, Chip, Mono, Metric, StageHeading, Meter, Strip, SegBar,
-  Tabs, Spinner, openMenu, alpha, Overline, Tiles,
+  Tabs, Spinner, openMenu, alpha, Overline, Tiles, sourceKey, HubDownBody,
 } from "./ui.js";
 
 const ICONS = {
@@ -308,7 +309,7 @@ export default class Monitor {
       { views: ["monitor"], focus: "monitor" },
       (m, cx) => {
         if (m.view === "monitor") this.take(m.value, cx);
-        if (m.focus === "monitor") this.goTo(m.target?.key, cx);
+        if (m.focus === "monitor") this.goTo(m.target?.key, cx, true);
         cx.notify();
       },
       (s, cx) => {
@@ -318,11 +319,18 @@ export default class Monitor {
     );
   }
 
+  /** The header's source chips say an age: drawn again every 30 s while there are some (the copy's clock, main.js). */
+  tick(cx, now) {
+    if (!this.model?.sources?.length || now - (this.aged ?? 0) < 30_000) return;
+    this.aged = now;
+    cx.notify();
+  }
+
   close() {
     this.sub?.stop();
   }
 
-  command(c, cx) {
+  command(c, cx, menuKey = null) {
     if (c === "focus" || c === "show:monitor") {
       this.visible = true;
       this.handle.focus();
@@ -330,7 +338,8 @@ export default class Monitor {
       this.leave(cx);
     }
     const [scope, what, id, ...rest] = c.split(":");
-    if (scope === "monitor" && what === "act") {
+    // A row's action runs only from the menu that offered it, by its key: a window command does nothing here.
+    if (scope === "monitor" && what === "act" && take(c, menuKey)) {
       const key = rest.join(":");
       const a = this.byKey.get(key)?.item.acts?.find((x) => x.id === id);
       if (a) {
@@ -443,7 +452,11 @@ export default class Monitor {
     return this.sel ? this.byKey.get(this.sel) ?? null : null;
   }
 
-  goTo(key, cx) {
+  /**
+   * An app, a release or an alert brought into view. Pointed at by a hub focus or a command (`pointed`), it takes no
+   * key that acts until the person moves to it or clicks.
+   */
+  goTo(key, cx, pointed = false) {
     if (!key || !this.model?.ready) return;
     const [appKey] = key.split("/");
     const app = this.model.apps.find((a) => a.key === appKey || a.name === appKey);
@@ -457,6 +470,7 @@ export default class Monitor {
       this.search.set_value("");
     }
     this.select(this.byKey.has(target) ? target : app.key);
+    this.pointed = pointed;
     this.handle.focus();
   }
 
@@ -515,15 +529,15 @@ export default class Monitor {
     const q = this.query.value().toLowerCase().split(/\s+/).filter(Boolean);
     const hit = (t) => q.every((w) => t.toLowerCase().includes(w));
     const own = [
-      { id: "p-view", label: this.timeline ? "Show the apps" : "Show the releases, newest first", shortcut: "w", icon: "history", run: () => ((this.timeline = !this.timeline), cx.notify()) },
-      { id: "p-refresh", label: "Refresh the monitor", shortcut: "R", icon: "refresh-cw", run: () => this.refresh(cx) },
+      { id: "p-view", label: this.timeline ? "Show the apps" : "Show the releases, newest first", shortcut: "w", icon: "history", run: (cx) => ((this.timeline = !this.timeline), cx.notify()) },
+      { id: "p-refresh", label: "Refresh the monitor", shortcut: "R", icon: "refresh-cw", run: (cx) => this.refresh(cx) },
     ];
     const acts = [];
     const jumps = [];
     for (const [key, e] of this.byKey) {
       const [name, help] = titleOf(e);
-      for (const a of e.item.acts ?? []) acts.push({ id: `p-${a.id}-${key}`, label: `${a.label[0].toUpperCase() + a.label.slice(1)}  ${name}`, hint: help, icon: ICONS[a.id], run: () => ((this.sel = key), this.run(a, cx)) });
-      jumps.push({ id: `p-go-${key}`, label: `Go to  ${name}`, hint: help, icon: "chevron-right", run: () => (this.goTo(key, cx), cx.notify()) });
+      for (const a of e.item.acts ?? []) acts.push({ id: `p-${a.id}-${key}`, label: `${a.label[0].toUpperCase() + a.label.slice(1)}  ${name}`, hint: help, icon: ICONS[a.id], run: (cx) => ((this.sel = key), this.run(a, cx)) });
+      jumps.push({ id: `p-go-${key}`, label: `Go to  ${name}`, hint: help, icon: "chevron-right", run: (cx) => (this.goTo(key, cx), cx.notify()) });
     }
     const main = acts.filter((a) => {
       const e = this.byKey.get(a.id.split("-").slice(2).join("-"));
@@ -553,7 +567,7 @@ export default class Monitor {
     const all = this.paletteGroups(cx).flatMap((g) => g.items);
     const item = picked ?? all[this.palette?.at ?? 0];
     this.closePalette(cx);
-    if (item) item.run();
+    if (item) item.run(cx);
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -589,6 +603,8 @@ export default class Monitor {
       cx.notify();
       return true;
     }
+    if (sourceKey(ev, this.model?.sources, cx, this)) return true;
+    if (holds(this, ev)) return this.toasts.push(cx, MOVE_FIRST, { kind: "info" }), cx.notify(), true;
     const e = this.selected();
     const acts = e?.item.acts ?? [];
     const own = acts.find((a) => a.key && (a.key === unstroke(s) || stroke(a.key) === s));
@@ -891,7 +907,7 @@ export default class Monitor {
   body(k, cx) {
     const m = this.model;
     if (!m) {
-      if (this.status.startsWith("error")) return ErrorState({ title: "Cannot reach the cockpit hub", message: this.status.slice(7) });
+      if (this.status.startsWith("error")) return HubDownBody("monitor-hub-down", this, this.status, k);
       return v_flex().flex_1().p(24).gap(16).child(h_flex().gap(12).children([0, 1, 2, 3].map(() => Skeleton({ h: 96 })))).children([0, 1, 2, 3, 4].map(() => Skeleton({ h: 48 })));
     }
     if (!m.ready)
@@ -958,6 +974,8 @@ export default class Monitor {
         }
       })
       .on_mouse_down("left", () => {
+        // A click in the view makes the row the person's, whatever a command pointed at.
+        this.pointed = false;
         this.visible = true;
         if (!this.filtering && !this.palette) this.handle.focus();
       })
@@ -969,6 +987,9 @@ export default class Monitor {
           icon: "activity",
           title: "Monitor",
           description,
+          sources: m?.sources,
+          view: this,
+          narrow: this.width < 980,
           aside: m?.ready ? (m.bad ? Badge(m.headline, ["failed", "alert"].includes(m.verdict) ? "destructive" : "warning", { dot: tone(m.verdict, k) }) : Badge(m.headline || "all good", "success", { dot: k.success })) : null,
           actions: [
             Button("monitor-commands", { icon: "command", variant: "ghost", size: "icon", tooltip: "Commands  ctrl+p", onClick: (_e, cx) => this.openPalette(cx) }),

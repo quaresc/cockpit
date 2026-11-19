@@ -1,0 +1,76 @@
+diff --git a/README.md b/README.md
+index 8889659..8c62138 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,7 @@
+ # acme/api
+ 
+ The acme public API.
++
++## Quotas
++
++Each plan has a daily limit (`src/quotas.py`); a call past it gets a 429.
+diff --git a/src/api.py b/src/api.py
+index b59f4ad..296a0ac 100644
+--- a/src/api.py
++++ b/src/api.py
+@@ -1,6 +1,10 @@
+-from src.quotas import remaining
++from src.quotas import QuotaExceeded, enforce, remaining
+ 
+ 
+ def handle(request):
++    try:
++        enforce(request.plan, request.used)
++    except QuotaExceeded:
++        return {"status": 429, "error": "daily quota reached"}
+     left = remaining(request.plan, request.used)
+     return {"status": 200, "remaining": left}
+diff --git a/src/quotas.py b/src/quotas.py
+index 9a80759..fb07585 100644
+--- a/src/quotas.py
++++ b/src/quotas.py
+@@ -1,6 +1,12 @@
+ """Daily quotas for the acme API: how many calls a plan may make in a day."""
+ 
+ PLANS = {"free": 100, "team": 5_000, "enterprise": 50_000}
++# Calls past the limit still allowed, so a burst at midnight does not fail.
++GRACE = 10
++
++
++class QuotaExceeded(Exception):
++    """A plan made more calls today than it may."""
+ 
+ 
+ def daily_limit(plan: str) -> int:
+@@ -9,4 +15,10 @@ def daily_limit(plan: str) -> int:
+ 
+ 
+ def remaining(plan: str, used: int) -> int:
+-    return daily_limit(plan) - used
++    return max(0, daily_limit(plan) - used)
++
++
++def enforce(plan: str, used: int) -> None:
++    """Refuses the call once the plan's daily limit is reached."""
++    if used >= daily_limit(plan) + GRACE:
++        raise QuotaExceeded(plan)
+diff --git a/tests/test_quotas.py b/tests/test_quotas.py
+new file mode 100644
+index 0000000..ade6b3d
+--- /dev/null
++++ b/tests/test_quotas.py
+@@ -0,0 +1,13 @@
++from src.quotas import QuotaExceeded, enforce, remaining
++
++
++def test_remaining_never_goes_below_zero():
++    assert remaining("free", 150) == 0
++
++
++def test_enforce_refuses_past_the_limit():
++    try:
++        enforce("free", 100)
++    except QuotaExceeded:
++        return
++    raise AssertionError("expected QuotaExceeded")

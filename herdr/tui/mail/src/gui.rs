@@ -64,6 +64,7 @@ pub fn model(data: Option<&Value>, config: &Value, now: DateTime<Utc>) -> Value 
         "enabled": enabled,
         "updated": updated,
         "error": mail.error,
+        "sources": cockpit_core::header::json(&mail.sources, cockpit_core::header::now()),
         "counts": {"unread": mail.unread(), "read": ids(Group::Read).len(), "total": mail.messages.len()},
         "groups": GROUPS.iter().map(|(group, key, label)| json!({"key": key, "label": label, "ids": ids(*group)})).collect::<Vec<_>>(),
         "messages": messages,

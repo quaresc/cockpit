@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { forgetFacts, reportFacts, transcriptPath } from '../hooks/facts'
-import { findTerminal, frontendOf, herdrHere } from '../hooks/herdr'
+import { exportAppPane, findTerminal, frontendOf, herdrHere } from '../hooks/herdr'
 import type { AppSpace } from '../hooks/herdr'
 import { isBrowserTerminal } from '../hooks/sidebar'
 
@@ -20,9 +20,16 @@ const SPACES: AppSpace[] = [
 // Just what the frontend and the facts reach for: the environment, herdr-app, cockpit store and the plugin manifest.
 function fake(env: Record<string, string>, ancestry = 1) {
   const patches: Record<string, unknown>[] = []
+  const exported: Record<string, string | undefined> = {}
   const files = new Map<string, string>([['/plugin/.claude-plugin/plugin.json', '{"version": "0.26.0"}'], [`${HOME}/.config/cockpit/herdr/cockpit.sh`, '']])
   const $ = {
-    env: { get: async (name: string) => (name === 'HOME' ? HOME : env[name]) },
+    env: {
+      get: async (name: string) => (name === 'HOME' ? HOME : name in exported ? exported[name] : env[name]),
+      set: async (name: string, value: string | undefined) => {
+        exported[name] = value
+        return {}
+      },
+    },
     plugin: { root: '/plugin' },
     session: { id: async () => 's1', cwd: async () => '/repos/api' },
     fs: {
@@ -50,7 +57,7 @@ function fake(env: Record<string, string>, ancestry = 1) {
       },
     },
   } as unknown as Parameters<typeof reportFacts>[0]
-  return { $, patches }
+  return { $, patches, exported }
 }
 
 test('a terminal is found with its pane, tab and space, and a browser terminal by its program', async () => {
@@ -74,6 +81,21 @@ test('a Herdr app terminal is the app, a herdr pane the TUI, and with both the p
 test('in the app a session sits at app:<terminal>, with the pane to split', async () => {
   const here = await herdrHere(fake({ HC_TERMINAL_ID: 't3' }).$)
   expect(here).toEqual({ pane: 'app:t3', tab: 'tb1', space: 'sp1', frontend: 'app', terminal: 't3', paneId: 'p3' })
+})
+
+test('in the app the session exports its pane and the app socket for terminal-browser, elsewhere nothing', async () => {
+  const app = fake({ HC_TERMINAL_ID: 't3' })
+  await exportAppPane(app.$)
+  expect(app.exported).toEqual({ HERDR_PANE_ID: 'p3', HERDR_SOCKET_PATH: `${HOME}/.config/herdr-app/herdr-app.sock` })
+  const own = fake({ HC_TERMINAL_ID: 't3', HERDR_APP_HOME: '/tmp/box/herdr-home' })
+  await exportAppPane(own.$)
+  expect(own.exported.HERDR_SOCKET_PATH).toBe('/tmp/box/herdr-home/herdr-app.sock')
+  const tui = fake({ HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p2' })
+  await exportAppPane(tui.$)
+  expect(tui.exported).toEqual({})
+  const gone = fake({ HC_TERMINAL_ID: 't9' })
+  await exportAppPane(gone.$)
+  expect(gone.exported).toEqual({})
 })
 
 test('facts reach the agents document under the handle, once per change, and go with the session', async () => {

@@ -1,0 +1,14 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 100, 10)"
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR   walkthrough
+
+ ⣾ Writing the walkthrough with haiku…
+   It runs in the background: leave, it is waiting when you come back.
+
+   s stops it
+
+
+ q quit  s stop  w diff  W worktree  ? keys                                             ▏^p palette

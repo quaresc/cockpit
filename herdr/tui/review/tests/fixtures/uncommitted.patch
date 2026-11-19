@@ -1,0 +1,32 @@
+diff --git a/README.md b/README.md
+index 8889659..8c62138 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,7 @@
+ # acme/api
+ 
+ The acme public API.
++
++## Quotas
++
++Each plan has a daily limit (`src/quotas.py`); a call past it gets a 429.
+diff --git a/src/quotas.py b/src/quotas.py
+index 5ba0d7b..fb07585 100644
+--- a/src/quotas.py
++++ b/src/quotas.py
+@@ -1,6 +1,8 @@
+ """Daily quotas for the acme API: how many calls a plan may make in a day."""
+ 
+ PLANS = {"free": 100, "team": 5_000, "enterprise": 50_000}
++# Calls past the limit still allowed, so a burst at midnight does not fail.
++GRACE = 10
+ 
+ 
+ class QuotaExceeded(Exception):
+@@ -18,5 +20,5 @@ def remaining(plan: str, used: int) -> int:
+ 
+ def enforce(plan: str, used: int) -> None:
+     """Refuses the call once the plan's daily limit is reached."""
+-    if remaining(plan, used) == 0:
++    if used >= daily_limit(plan) + GRACE:
+         raise QuotaExceeded(plan)

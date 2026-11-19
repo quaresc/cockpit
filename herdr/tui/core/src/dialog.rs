@@ -88,7 +88,7 @@ impl Dialog {
         // What a shorter box cut off is scrolled past, so the last rows — the answer — are the ones kept.
         let chrome = u16::from(bordered) * 2 + pad * 2;
         let room = height.saturating_sub(chrome);
-        let inner = width.saturating_sub(chrome + 4);
+        let inner = width.saturating_sub(u16::from(bordered) * 2 + 4);
         let scroll = (crate::text::wrapped(&text, inner) as u16).saturating_sub(room);
         let padding = ratatui::widgets::Padding::new(2, 2, pad, pad);
         frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)).block(block.padding(padding)), box_);
@@ -107,6 +107,13 @@ mod tests {
         terminal.draw(|frame| dialog.render(frame, frame.area())).expect("a frame");
         let buffer = terminal.backend().buffer();
         (0..height).map(|y| (0..width).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>()).collect()
+    }
+
+    #[test]
+    fn a_long_question_keeps_its_first_line_when_the_pane_has_room() {
+        let question = "remove 1 worktree? Goes: accounts-web dev/eng-399-bump-ui. Stays: accounts-web dev/eng-399-remove-icon-workaround (2 uncommitted changes, Claude Code still runs in it).";
+        let screen = drawn(&Dialog::Confirm { question: question.to_string() }, 120, 40).join("\n");
+        assert!(screen.contains("remove 1 worktree?"), "{screen}");
     }
 
     #[test]

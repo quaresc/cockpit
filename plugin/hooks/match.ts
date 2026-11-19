@@ -52,13 +52,13 @@ export function prChanges(prev: Inbox, next: Inbox) {
   const before = new Map(prev.mine.map(pr => [pr.url, pr]))
   const known = new Set(prev.direct.map(pr => pr.url))
   for (const pr of next.direct) {
-    if (!known.has(pr.url)) out.push({ text: `👀 Review requested: ${pr.repo}#${pr.number} ${pr.title}`, action: pr.url, buttons: [['Review', `act:review:${pr.url}`]] })
+    if (!known.has(pr.url)) out.push({ text: `👀 Review requested: ${pr.repo}#${pr.number} ${pr.title}`, action: pr.url, buttons: [['Open PR', `inbox:${pr.url}`]] })
   }
   for (const pr of next.mine) {
     const was = before.get(pr.url)
     if (!was) continue
     if (isFailing(pr) && !isFailing(was)) {
-      out.push({ text: `🔴 CI failing: ${pr.repo}#${pr.number}`, action: `${pr.url}/checks`, buttons: [['Why?', `act:ci:${pr.url}`], ['Rerun', `act:rerun:${pr.url}`]] })
+      out.push({ text: `🔴 CI failing: ${pr.repo}#${pr.number}`, action: `${pr.url}/checks`, buttons: [['Show run', `inbox:${pr.url}`]] })
     }
     if (pr.review !== was.review && pr.review === 'APPROVED') out.push({ text: `✅ Approved: ${pr.repo}#${pr.number}`, action: pr.url })
     if (pr.review !== was.review && pr.review === 'CHANGES_REQUESTED') out.push({ text: `❌ Changes requested: ${pr.repo}#${pr.number}`, action: `${pr.url}/files` })
@@ -70,7 +70,7 @@ export function prChanges(prev: Inbox, next: Inbox) {
 export function ticketChanges(prev: Inbox, next: Inbox) {
   if (prev.tickets.length === 0) return []
   const ids = new Set(prev.tickets.map(t => t.id))
-  return next.tickets.filter(t => !ids.has(t.id)).map((t): News => ({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url, buttons: [['Plan', `act:plan:${t.id}`]] }))
+  return next.tickets.filter(t => !ids.has(t.id)).map((t): News => ({ text: `🎫 Assigned: ${t.id} ${t.title}`, action: t.url, buttons: [['Open ticket', `inbox:${t.id}`]] }))
 }
 
 export const changes = (prev: Inbox, next: Inbox) => [...prChanges(prev, next), ...ticketChanges(prev, next)]
@@ -88,7 +88,7 @@ export function ciChanges(prev: CiState, next: CiState, inbox: Inbox | null) {
     const action = pr ? `${pr.url}/checks` : 'space:inbox'
     if (run.outcome === 'succeeded') out.push({ text: `🟢 CI passed: ${run.repo} ${run.branch}`, action })
     else if (run.outcome === 'failed') {
-      const buttons: [string, string][] = pr ? [['Why?', `act:ci:${pr.url}`], ...(run.workflowId ? [['Rerun', `act:rerun:${pr.url}`] as [string, string]] : [])] : []
+      const buttons: [string, string][] = pr ? [['Show run', `inbox:${pr.url}`]] : []
       out.push({ text: `🔴 CI failed: ${run.repo} ${run.branch}${run.failed ? ` · ${run.failed.job}` : ''}`, action, buttons })
     }
   }

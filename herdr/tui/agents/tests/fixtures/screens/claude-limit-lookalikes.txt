@@ -1,0 +1,10 @@
+⏺ The rate limit is exceeded at 101 requests: should the cap be 100 or 120?
+----
+⏺ Once a user has reached the daily quota, should we return 429 or 403?
+----
+⏺ Should the banner say the account hit the monthly limit?
+----
+⏺ Bash(mix test test/api/quota_test.exs)
+  ⎿  ** (QuotaError) quota limit exceeded
+
+⏺ The test hits the quota on purpose. Keep it, or mock the counter?

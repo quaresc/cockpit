@@ -10,6 +10,7 @@ use cockpit_core::bridge::Bridge;
 use cockpit_core::files;
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
 use ratatui::text::Line;
@@ -65,6 +66,8 @@ pub struct App {
     pub bridge: Bridge,
     calls: usize,
     focus_seen: SystemTime,
+    /// The message a focus request selected: its keys wait for the person's move.
+    pub pointed: Pointed,
     pinned: bool,
     reported: Option<String>,
     pub hits: Hits,
@@ -102,6 +105,7 @@ impl App {
             bridge: Bridge::default(),
             calls: 0,
             focus_seen: SystemTime::now(),
+            pointed: Pointed::default(),
             pinned,
             reported: None,
             hits: Hits::default(),
@@ -224,6 +228,7 @@ impl App {
             return;
         }
         self.select(id);
+        self.pointed.point();
         self.run(Cmd::See(id.to_string()));
     }
 
@@ -381,5 +386,17 @@ mod tests {
         assert_eq!(labels(&app), ["read", "reply", "archive", "web page"]);
         app.set_mail(&json!({"messages": [{"id": "b", "from": "maya@example.com", "unread": false}]}));
         assert_eq!(app.selected.as_deref(), Some("b"), "an archived message's place goes to the first");
+    }
+
+    #[test]
+    fn a_message_a_focus_request_opened_waits_for_a_move() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = App::with(json!({}), false);
+        app.set_mail(&json!({"messages": [{"id": "a", "from": "maya@example.com", "unread": true}, {"id": "b", "from": "sam@example.com", "unread": true}]}));
+        app.focus("b");
+        assert!(app.pointed.is_on());
+        assert!(app.pointed.holds(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)), "archive waits");
+        assert!(!app.pointed.holds(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)));
+        assert!(!app.pointed.is_on(), "a move makes it the person's");
     }
 }

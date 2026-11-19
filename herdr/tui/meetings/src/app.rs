@@ -10,6 +10,7 @@ use cockpit_core::bridge::Bridge;
 use cockpit_core::files::{self, Density};
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use ratatui::layout::Rect;
 use ratatui::style::Color;
@@ -40,6 +41,8 @@ pub enum Cmd {
     Prepare(String),
     GoTo(String),
     Week,
+    /// The calendar read again at once.
+    Refresh,
 }
 
 /// Where the last frame drew what a click can land on.
@@ -79,6 +82,8 @@ pub struct App {
     pub bridge: Bridge,
     calls: usize,
     focus_seen: SystemTime,
+    /// The meeting a focus request selected: its keys wait for the person's move.
+    pub pointed: Pointed,
     notified_seen: SystemTime,
     pinned: bool,
     reported: Option<String>,
@@ -130,6 +135,7 @@ impl App {
             bridge: Bridge::default(),
             calls: 0,
             focus_seen: SystemTime::now(),
+            pointed: Pointed::default(),
             notified_seen: SystemTime::now(),
             pinned,
             reported: None,
@@ -261,6 +267,7 @@ impl App {
         self.selected = Some(id.to_string());
         self.reveal = Some(id.to_string());
         self.week_view = false;
+        self.pointed.point();
     }
 
     /// Every few seconds, a beat on each meeting starting within five minutes.
@@ -360,6 +367,10 @@ impl App {
                 self.reveal = Some(id);
             }
             Cmd::Week => self.week_view = !self.week_view,
+            Cmd::Refresh => {
+                self.calls += 1;
+                self.bridge.call("refresh", "sources", "refresh", vec!["calendar".into()], None);
+            }
         }
     }
 }

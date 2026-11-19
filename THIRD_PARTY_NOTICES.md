@@ -42,7 +42,44 @@ mods/relevo/spinner.svg comes from Herdr's `workspace-chrome` mod
 - In cockpit: `app/mods/cockpit/code.js`, the code view.
 - Modified by cockpit: adapted to cockpit's mod and extended. The project ships no NOTICE file.
 
+### Gemini CLI
+
+- Source: https://github.com/google-gemini/gemini-cli, `packages/core/src/services/chatRecordingService.ts`.
+- In cockpit: the Gemini JSONL replay in `herdr/tui/core/src/transcripts.rs`.
+- Modified by cockpit: translated the checkpoint and message-patch accumulator to Rust and adapted its output to the
+  shared transcript model. Licensed under Apache-2.0; copyright Google LLC.
+
 ## MIT License
+
+### herdr-automatic-rename
+
+- Source: https://github.com/qu8n/herdr-automatic-rename, `naming.sh`
+- In cockpit: `herdr/tui/core/src/names.rs`, the prompt-condensation word lists and rules.
+- Modified by cockpit: translated to Rust and adapted to space-separated labels and cockpit's naming sources.
+
+```text
+MIT License
+
+Copyright (c) 2026 Quan Nguyen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ### herdr-github
 
@@ -192,3 +229,32 @@ SOFTWARE.
   Copyright (c) 2014, Ryan L McIntyre (https://ryanlmcintyre.com).
 
 The subset is licensed under the SIL Open Font License, Version 1.1, whose full text is in `LICENSES/OFL-1.1.txt`.
+
+## MIT License: LobeHub icons
+
+- Source: https://github.com/lobehub/lobe-icons, `@lobehub/icons-static-svg` 1.102.0, monochrome agent marks.
+- In cockpit: `app/mods/cockpit/icons/agents/`, used in Cockpit Chat.
+
+```text
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

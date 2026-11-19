@@ -3,24 +3,29 @@
 # never their cockpit data. Everything lives under $COCKPIT_SANDBOX (default: $TMPDIR/cockpit-gui). The window shares
 # herdr-core with the person's own: its spaces and terminals are theirs, so never create, close or type into them here.
 #
-#   sh scripts/sandbox.sh start            fake HOME from docs/screenshots/demo_data.py (FRESH=1 rebuilds it), dev build,
-#                                      a separate Herdr window on the cockpit layout, and the layout and mod copied
-#                                      again each time a file of app/ changes (Herdr reloads the mod on its own)
+#   sh scripts/sandbox.sh start            fake HOME from docs/screenshots/demo_data.py (FRESH=1 rebuilds it, with
+#                                      COCKPIT_DEMO_SOURCES=failing its sources failing), dev build, a separate Herdr
+#                                      window on the cockpit layout, and the layout and mod copied again each time a
+#                                      file of app/ changes (Herdr reloads the mod on its own)
 #   sh scripts/sandbox.sh do <cmd> [json]  a Herdr command in that window (layout.select, app.theme, ...)
 #   sh scripts/sandbox.sh show <app>       that app's block in front (work, todo, inbox, ...)
 #   sh scripts/sandbox.sh kit [charts]     the design kit's gallery as a window (every ui.js component, both themes)
 #   sh scripts/sandbox.sh light|dark       the window's appearance
-#   sh scripts/sandbox.sh key <keystroke>  a key pressed in the shown views (j, shift-d, ctrl-p, escape, ...)
+#   sh scripts/sandbox.sh key <keystroke>  a key pressed in the view in front (j, shift-d, ctrl-p, escape, ...)
 #   sh scripts/sandbox.sh shot [file.png]  a screenshot of that window, its path printed
 #   sh scripts/sandbox.sh check            herdr-app check on the mod
 #   sh scripts/sandbox.sh status           herdr-app status (errors from the mod show here)
 #   sh scripts/sandbox.sh notify <title> <body> [action]
 #                                      a cockpit notification, as the hub and the plugin post them
+#   sh scripts/sandbox.sh hc-wrapper <file>
+#                                      writes the hc the sandbox's hub runs (start does it), for a test
 #   sh scripts/sandbox.sh env              the variables to run cockpit or herdr-app against the sandbox yourself
 #   sh scripts/sandbox.sh stop             quits the window and stops the sandbox's hub (and its herdr-core, see HC_SESSION)
 #
-# HC_SESSION=<name> gives the window a herdr-core of its own, empty, so none of the person's terminals shows in it
-# (screenshots); terminals and spaces made there are the sandbox's.
+# The window gets a herdr-core of its own, empty, so none of the person's terminals shows in it: HC_SESSION names it
+# (default: the sandbox folder's name); terminals and spaces made there are the sandbox's. That herdr-core runs with
+# the real HOME, so a line typed into one of its terminals runs on the real machine: the sandbox's hc refuses `send`
+# (a fix's command, a runbook step, an inbox run, a prompt typed to an agent) unless SANDBOX_ALLOW_SEND=1.
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -32,16 +37,28 @@ app_home="$box/herdr-home"
 bin=${COCKPIT_BIN:-$repo/herdr/tui/target/debug/cockpit}
 herdr_app=${HERDR_APP_BIN:-$HOME/.local/bin/herdr-app}
 app_bundle=${HERDR_APP_BUNDLE:-$HOME/Applications/Herdr.app}
-session=${HC_SESSION:-}
+session=${HC_SESSION:-$(basename "$box")}
 
 # Notifications always show as the window's toasts (it is rarely in front), and system ones only go to a log. hc runs
 # on the real HOME: under the fake one it would start a herdr-core of its own, not the window's. The hub fetches
-# nothing: the demo world's documents stay as written.
+# nothing and asks no agent of this machine for its models: the demo world's documents stay as written.
 in_box() {
   HOME="$fake_home" HERDR_APP_HOME="$app_home" COCKPIT_FRONTEND=app COCKPIT_TOASTS=always COCKPIT_HUB_FEED=off \
-    COCKPIT_NOTIFY_PROGRAM="$box/notified.sh" COCKPIT_HC_BIN="$box/hc.sh" "$@"
+    COCKPIT_HUB_MODELS=off COCKPIT_NOTIFY_PROGRAM="$box/notified.sh" COCKPIT_HC_BIN="$box/hc.sh" "$@"
 }
 app() { HERDR_APP_HOME="$app_home" "$herdr_app" "$@"; }
+
+# The hc the sandbox's hub runs, written to $1: herdr-core's own hc on the real HOME and the sandbox's session. What it
+# would type into a terminal there is refused, unless SANDBOX_ALLOW_SEND=1 when it is written or when it runs.
+hc_wrapper() {
+  {
+    printf '#!/bin/sh\n'
+    printf 'if [ "${1:-}" = send ] && [ "${SANDBOX_ALLOW_SEND:-%s}" != 1 ]; then\n' "${SANDBOX_ALLOW_SEND:-}"
+    printf '  echo "sandbox: typing into a terminal with the real HOME is refused" >&2\n  exit 1\nfi\n'
+    printf 'HOME="%s" %sexec "%s/.local/bin/hc" "$@"\n' "$HOME" "${session:+HC_SESSION=$session }" "$HOME"
+  } >"$1"
+  chmod +x "$1"
+}
 
 running() { [ -S "$app_home/herdr-app.sock" ] && app status >/dev/null 2>&1; }
 
@@ -52,8 +69,7 @@ start() {
   [ -f "$app_home/shared.json" ] || printf '{"frame.welcomed": "skipped"}\n' >"$app_home/shared.json"
   printf '#!/bin/sh\nprintf "%%s | " "$@" >> "%s/notified.log"; echo >> "%s/notified.log"\n' "$box" "$box" >"$box/notified.sh"
   chmod +x "$box/notified.sh"
-  printf '#!/bin/sh\nHOME="%s" %sexec "%s/.local/bin/hc" "$@"\n' "$HOME" "${session:+HC_SESSION=$session }" "$HOME" >"$box/hc.sh"
-  chmod +x "$box/hc.sh"
+  hc_wrapper "$box/hc.sh"
   if [ ! -f "$fake_home/.config/cockpit/config.json" ] || [ "${FRESH:-}" = 1 ]; then
     # The window's mod would start a hub again at once, and the hub's store keeps the documents of the last run.
     if running; then
@@ -62,15 +78,16 @@ start() {
       while [ -S "$app_home/herdr-app.sock" ] && app status >/dev/null 2>&1 && [ $i -lt 40 ]; do i=$((i + 1)); sleep 0.25; done
     fi
     in_box "$bin" hub stop >/dev/null 2>&1 || true
-    rm -f "$fake_home/.cache/cockpit/store.redb"
+    rm -f "$fake_home/.cache/cockpit/store.redb" "$fake_home/.cache/cockpit/hub.stopped"
     python3 "$repo/docs/screenshots/demo_data.py" "$fake_home" >/dev/null
   fi
   if ! running; then
-    # The app writes its home (AGENTS.md, keys.json, the shipped mods) on its first start.
+    # The app writes its home (AGENTS.md, keys.json, the shipped mods) on its first start. Its own environment says it is
+    # a sandbox that takes keys from a shell (`key`, `palette:type:`): no file written later can say so.
     if [ -n "$session" ]; then
-      open -n "$app_bundle" --env HERDR_APP_HOME="$app_home" --env HC_SESSION="$session"
+      open -n "$app_bundle" --env HERDR_APP_HOME="$app_home" --env COCKPIT_SANDBOX="$box" --env COCKPIT_TEST_KEYS=1 --env HC_SESSION="$session"
     else
-      open -n "$app_bundle" --env HERDR_APP_HOME="$app_home"
+      open -n "$app_bundle" --env HERDR_APP_HOME="$app_home" --env COCKPIT_SANDBOX="$box" --env COCKPIT_TEST_KEYS=1
     fi
     i=0
     until running; do
@@ -81,8 +98,9 @@ start() {
   fi
   [ -f "$box/watch.pid" ] && kill "$(cat "$box/watch.pid")" 2>/dev/null || true
   in_box "$bin" app install --from "$repo/app"
-  # The mod's next hub starts with the environment the install just wrote.
+  # The mod's next hub starts with the environment the install just wrote: the stop is not one the window waits out.
   in_box "$bin" hub stop >/dev/null 2>&1 || true
+  rm -f "$fake_home/.cache/cockpit/hub.stopped"
   # The watcher notes its own pid: $! would name the subshell running in_box, and stop would leave the watcher behind.
   in_box sh -c 'echo $$ >"$1"; exec nohup "$2" app install --watch --from "$3"' sh "$box/watch.pid" "$bin" "$repo/app" >"$box/watch.log" 2>&1 &
   app "do" overlay.close >/dev/null 2>&1 || true
@@ -104,6 +122,7 @@ case "${1:-}" in
   check) app check "$app_home/mods/cockpit" ;;
   status) app status ;;
   notify) shift; in_box "$bin" notify "$@" ;;
+  hc-wrapper) hc_wrapper "$2" ;;
   env) echo "HOME=$fake_home HERDR_APP_HOME=$app_home COCKPIT_FRONTEND=app" ;;
   stop)
     [ -f "$box/watch.pid" ] && kill "$(cat "$box/watch.pid")" 2>/dev/null || true
@@ -111,5 +130,5 @@ case "${1:-}" in
     running && app "do" app.quit >/dev/null 2>&1 || true
     [ -z "$session" ] || "$box/hc.sh" server stop >/dev/null 2>&1 || true
     ;;
-  *) sed -n '2,23p' "$0"; exit 1 ;;
+  *) sed -n '2,24p' "$0"; exit 1 ;;
 esac

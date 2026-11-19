@@ -19,6 +19,12 @@ export const freshTurn = (text = ''): Turn => ({
   shown: false,
 })
 
+/** A subagent's turn: what its own brief asks for counts like the person's prompt, on top of the parent's turn. */
+export function subagentTurn(parent: Turn, brief: string): Turn {
+  const own = freshTurn(brief)
+  return { ...parent, page: parent.page || own.page, artifact: parent.artifact || own.artifact }
+}
+
 const FALLBACK = /\bCOCKPIT_SHOW_FALLBACK=("[^"]+"|'[^']+'|\S+)/
 
 /** The local HTML file a Bash command opens beside the session (browse.sh, terminal-browser), if any. */

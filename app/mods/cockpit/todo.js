@@ -6,9 +6,10 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import * as hub from "./hub.js";
+import { take, holds, MOVE_FIRST } from "./person.js";
 import {
   tokens, TEXT, RADIUS, Icon, Badge, Button, Checkbox, Kbd, ListRow, PageHeader, SearchField, TextField, KeyHints, Empty,
-  ErrorState, Skeleton, Command, Toaster, Flashes, Scroller, Hover, Reorder, Progress, openMenu, alpha,
+  Skeleton, Command, Toaster, Flashes, Scroller, Hover, Reorder, Progress, openMenu, alpha, HubDownBody,
 } from "./ui.js";
 
 const ADDER = { kind: "adder" };
@@ -57,7 +58,7 @@ export default class Todo {
       { views: ["todo"], focus: "todo" },
       (m, cx) => {
         if (m.view === "todo") this.take(m.value, cx);
-        if (m.focus === "todo") this.goTo(m.target?.key, cx);
+        if (m.focus === "todo") this.goTo(m.target?.key, cx, true);
         cx.notify();
       },
       (state, cx) => {
@@ -72,11 +73,11 @@ export default class Todo {
   }
 
   /** Keyboard commands from keys.json (`cockpit.<command>`) and pane.go's "focus". */
-  command(c, cx) {
+  command(c, cx, key = null) {
     if (c === "focus" || c === "show:todo") this.handle.focus();
-    // A right-click menu's choice: todo:<action>:<item>.
+    // A right-click menu's choice, todo:<action>:<item>, by its menu's key: a window command does nothing here.
     const [scope, action, ...rest] = c.split(":");
-    if (scope === "todo") this.menuAction(action, rest.join(":"), cx);
+    if (scope === "todo" && take(c, key)) this.menuAction(action, rest.join(":"), cx);
     cx.notify();
   }
 
@@ -282,7 +283,11 @@ export default class Todo {
     cx.notify();
   }
 
-  goTo(key, cx) {
+  /**
+   * An item brought into view. Pointed at by a hub focus or a command (`pointed`), it takes no
+   * key that acts until the person moves to it or clicks.
+   */
+  goTo(key, cx, pointed = false) {
     const item = key && (this.item(key) ?? this.items().find((i) => i.undated === key.replace(/\s*\(done \d{4}-\d{2}-\d{2}\)$/, "")));
     if (!item) {
       if (key) this.toasts.push(cx, `Not on the list any more: ${key}`);
@@ -294,6 +299,7 @@ export default class Todo {
     }
     if (item.done) this.showDone = true;
     this.sel = { kind: "item", key: item.key };
+    this.pointed = pointed;
     this.handle.focus();
   }
 
@@ -302,28 +308,28 @@ export default class Todo {
     if (this.marks.size) {
       const n = this.targets().length;
       return [
-        { id: "toggle", label: `Toggle ${n}`, kbd: "x", icon: "check", run: () => this.toggle(cx) },
-        { id: "delete", label: `Delete ${n}`, kbd: "D", icon: "trash", variant: "outline", run: () => this.remove(cx) },
-        { id: "unmark", label: "Unmark all", kbd: "esc", variant: "ghost", run: () => (this.marks.clear(), cx.notify()) },
+        { id: "toggle", label: `Toggle ${n}`, kbd: "x", icon: "check", run: (cx) => this.toggle(cx) },
+        { id: "delete", label: `Delete ${n}`, kbd: "D", icon: "trash", variant: "outline", run: (cx) => this.remove(cx) },
+        { id: "unmark", label: "Unmark all", kbd: "esc", variant: "ghost", run: (cx) => (this.marks.clear(), cx.notify()) },
       ];
     }
-    if (this.sel.kind === "adder") return [{ id: "add", label: "Add a to-do", kbd: "a", icon: "plus", run: () => this.startEdit(cx) }];
-    if (this.sel.kind === "fold") return [{ id: "fold", label: this.unfolded() ? "Hide done" : "Show done", kbd: "z", run: () => this.fold(cx) }];
+    if (this.sel.kind === "adder") return [{ id: "add", label: "Add a to-do", kbd: "a", icon: "plus", run: (cx) => this.startEdit(cx) }];
+    if (this.sel.kind === "fold") return [{ id: "fold", label: this.unfolded() ? "Hide done" : "Show done", kbd: "z", run: (cx) => this.fold(cx) }];
     const item = this.selected();
     if (!item) return [];
     const link = item.parts.find((p) => p.token);
     return [
-      { id: "toggle", label: item.done ? "Reopen" : "Done", kbd: "x", icon: item.done ? "undo" : "check", run: () => this.toggle(cx) },
-      { id: "edit", label: "Edit", kbd: "e", icon: "pencil", variant: "outline", run: () => this.startEdit(cx, item.key) },
-      ...(link ? [{ id: "open", label: `Open ${link.label}`, kbd: "o", icon: "external", variant: "outline", run: () => this.openLink(cx, link.text) }] : []),
+      { id: "toggle", label: item.done ? "Reopen" : "Done", kbd: "x", icon: item.done ? "undo" : "check", run: (cx) => this.toggle(cx) },
+      { id: "edit", label: "Edit", kbd: "e", icon: "pencil", variant: "outline", run: (cx) => this.startEdit(cx, item.key) },
+      ...(link ? [{ id: "open", label: `Open ${link.label}`, kbd: "o", icon: "external", variant: "outline", run: (cx) => this.openLink(cx, link.text) }] : []),
       ...(!item.done
         ? [
-            { id: "up", label: "Up", kbd: "K", icon: "arrow-up", variant: "ghost", run: () => this.shift(cx, -1) },
-            { id: "down", label: "Down", kbd: "J", icon: "arrow-down", variant: "ghost", run: () => this.shift(cx, 1) },
+            { id: "up", label: "Up", kbd: "K", icon: "arrow-up", variant: "ghost", run: (cx) => this.shift(cx, -1) },
+            { id: "down", label: "Down", kbd: "J", icon: "arrow-down", variant: "ghost", run: (cx) => this.shift(cx, 1) },
           ]
         : []),
-      { id: "mark", label: "Mark", kbd: "v", variant: "ghost", run: () => this.mark(cx) },
-      { id: "delete", label: "Delete", kbd: "D", icon: "trash", variant: "ghost", run: () => this.remove(cx) },
+      { id: "mark", label: "Mark", kbd: "v", variant: "ghost", run: (cx) => this.mark(cx) },
+      { id: "delete", label: "Delete", kbd: "D", icon: "trash", variant: "ghost", run: (cx) => this.remove(cx) },
     ];
   }
 
@@ -338,23 +344,23 @@ export default class Todo {
   paletteGroups(cx) {
     const q = this.query.value().toLowerCase().split(/\s+/).filter(Boolean);
     const hit = (text) => q.every((w) => text.toLowerCase().includes(w));
-    const list = [{ id: "p-add", label: "Add a to-do", shortcut: "a", icon: "plus", run: () => this.startEdit(cx) }];
-    if (this.model?.can_undo) list.push({ id: "p-undo", label: "Undo the last change", shortcut: "u", icon: "undo", run: () => this.act(cx, "undo", []) });
+    const list = [{ id: "p-add", label: "Add a to-do", shortcut: "a", icon: "plus", run: (cx) => this.startEdit(cx) }];
+    if (this.model?.can_undo) list.push({ id: "p-undo", label: "Undo the last change", shortcut: "u", icon: "undo", run: (cx) => this.act(cx, "undo", []) });
     const done = this.items().filter((i) => i.done).length;
-    if (done) list.push({ id: "p-fold", label: `${this.showDone ? "Hide" : "Show"} the ${done} done`, shortcut: "z", run: () => this.fold(cx) });
+    if (done) list.push({ id: "p-fold", label: `${this.showDone ? "Hide" : "Show"} the ${done} done`, shortcut: "z", run: (cx) => this.fold(cx) });
     const items = [];
     const links = [];
     for (const item of this.items()) {
-      for (const p of item.parts.filter((p) => p.token)) links.push({ id: `p-open-${item.key}-${p.text}`, label: `Open ${p.label}`, hint: item.text, icon: "external", run: () => this.act(cx, "open_link", [p.text]) });
+      for (const p of item.parts.filter((p) => p.token)) links.push({ id: `p-open-${item.key}-${p.text}`, label: `Open ${p.label}`, hint: item.text, icon: "external", run: (cx) => this.act(cx, "open_link", [p.text]) });
       const status = item.done ? "done" : "open";
-      items.push({ id: `p-toggle-${item.key}`, label: `${item.done ? "Reopen" : "Done"}  ${item.text}`, hint: status, icon: item.done ? "undo" : "check", run: () => this.toggle(cx, [item.key]) });
-      items.push({ id: `p-edit-${item.key}`, label: `Edit  ${item.text}`, hint: status, icon: "pencil", run: () => this.startEdit(cx, item.key) });
+      items.push({ id: `p-toggle-${item.key}`, label: `${item.done ? "Reopen" : "Done"}  ${item.text}`, hint: status, icon: item.done ? "undo" : "check", run: (cx) => this.toggle(cx, [item.key]) });
+      items.push({ id: `p-edit-${item.key}`, label: `Edit  ${item.text}`, hint: status, icon: "pencil", run: (cx) => this.startEdit(cx, item.key) });
       if (!item.done) {
-        items.push({ id: `p-up-${item.key}`, label: `Move up  ${item.text}`, hint: status, icon: "arrow-up", run: () => ((this.sel = { kind: "item", key: item.key }), this.shift(cx, -1)) });
-        items.push({ id: `p-down-${item.key}`, label: `Move down  ${item.text}`, hint: status, icon: "arrow-down", run: () => ((this.sel = { kind: "item", key: item.key }), this.shift(cx, 1)) });
+        items.push({ id: `p-up-${item.key}`, label: `Move up  ${item.text}`, hint: status, icon: "arrow-up", run: (cx) => ((this.sel = { kind: "item", key: item.key }), this.shift(cx, -1)) });
+        items.push({ id: `p-down-${item.key}`, label: `Move down  ${item.text}`, hint: status, icon: "arrow-down", run: (cx) => ((this.sel = { kind: "item", key: item.key }), this.shift(cx, 1)) });
       }
-      items.push({ id: `p-delete-${item.key}`, label: `Delete  ${item.text}`, hint: status, icon: "trash", run: () => this.remove(cx, [item.key]) });
-      items.push({ id: `p-go-${item.key}`, label: `Go to  ${item.text}`, hint: status, icon: "chevron-right", run: () => this.goTo(item.key, cx) });
+      items.push({ id: `p-delete-${item.key}`, label: `Delete  ${item.text}`, hint: status, icon: "trash", run: (cx) => this.remove(cx, [item.key]) });
+      items.push({ id: `p-go-${item.key}`, label: `Go to  ${item.text}`, hint: status, icon: "chevron-right", run: (cx) => this.goTo(item.key, cx) });
     }
     const groups = [
       { heading: "To-do", items: list.filter((i) => hit(i.label)) },
@@ -381,7 +387,7 @@ export default class Todo {
     const all = this.paletteGroups(cx).flatMap((g) => g.items);
     const item = picked ?? all[this.palette?.at ?? 0];
     this.closePalette(cx);
-    if (item) cx.spawn(async (cx) => item.run());
+    if (item) cx.spawn(async (cx) => item.run(cx));
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -413,6 +419,8 @@ export default class Todo {
       }
       return false;
     }
+    // Space ticks an item here: it waits with the keys that act.
+    if (holds(this, e, ["space"])) return this.toasts.push(cx, MOVE_FIRST, { kind: "info" }), cx.notify(), true;
     const item = this.selected();
     const n = this.selectable().length;
     switch (k) {
@@ -589,6 +597,7 @@ export default class Todo {
               leading: Icon("plus", { size: 16 }),
               title: "Add a to-do",
               meta: Kbd("a"),
+              tooltip: "Add a to-do  a",
               onClick: (_e, cx) => this.startEdit(cx),
             }),
     });
@@ -604,6 +613,7 @@ export default class Todo {
           leading: Icon(unfolded ? "chevron-down" : "chevron-right", { size: 16 }),
           title: `${done.length} done`,
           meta: Kbd("z"),
+          tooltip: `${unfolded ? "Fold" : "Show"} the done ones  z`,
           onClick: (_e, cx) => {
             this.sel = FOLD;
             this.fold(cx);
@@ -617,7 +627,7 @@ export default class Todo {
 
   body(k, cx) {
     if (!this.model) {
-      if (this.status.startsWith("error")) return ErrorState({ title: "Cannot reach the cockpit hub", message: this.status.slice(7) });
+      if (this.status.startsWith("error")) return HubDownBody("todo-hub-down", this, this.status, k);
       return v_flex().p(16).gap(10).children([0, 1, 2, 3, 4].map((i) => h_flex().gap(10).items_center().child(Skeleton({ w: 16, h: 16, radius: RADIUS.sm })).child(Skeleton({ w: 180 + ((i * 97) % 260) }))));
     }
     if (!this.items().length && !this.editing) {
@@ -651,6 +661,8 @@ export default class Todo {
       .text_color(k.foreground)
       .text_size(TEXT.base)
       .on_mouse_down("left", () => {
+        // A click in the view makes the row the person's, whatever a command pointed at.
+        this.pointed = false;
         if (!this.editing && !this.filtering && !this.palette) this.handle.focus();
       })
       .on_key_down((e, cx) => {
@@ -714,7 +726,7 @@ export default class Todo {
               .flex_1()
               .gap(6)
               .flex_wrap()
-              .children(acts.map((a, i) => Button(`act-${a.id}`, { label: a.label, icon: a.icon, kbd: a.kbd, size: "sm", variant: a.variant ?? (i === 0 ? "default" : "outline"), onClick: () => a.run() }))),
+              .children(acts.map((a, i) => Button(`act-${a.id}`, { label: a.label, icon: a.icon, kbd: a.kbd, size: "sm", variant: a.variant ?? (i === 0 ? "default" : "outline"), onClick: (_e, cx) => a.run(cx) }))),
           )
           .when(this.status !== "live", (e) => e.child(Badge(this.status.startsWith("error") ? "offline" : "connecting", this.status.startsWith("error") ? "destructive" : "secondary", { dot: this.status.startsWith("error") ? k.destructive : k.warning }))),
       )

@@ -172,7 +172,7 @@ fn extract(answer: &str) -> Option<Value> {
 fn ask_agent(agent: &agent::Agent, prompt: &str) -> Result<String, String> {
     let argv = agent.headless(prompt, &Headless::default()).ok_or_else(|| format!("{} has no headless mode to write the mapping", agent.name))?;
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let out = proc::run(&refs, &[], Duration::from_secs(300)).ok_or_else(|| format!("{} did not answer in 5 minutes", agent.name))?;
+    let out = proc::run(&refs, &[], Duration::from_secs(300)).map_err(|why| format!("{} did not answer: {why}", agent.name))?;
     if !out.ok() {
         return Err(format!("{}: {}", agent.name, out.stderr.lines().last().unwrap_or("failed")));
     }

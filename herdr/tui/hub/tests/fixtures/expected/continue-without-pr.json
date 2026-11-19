@@ -26,14 +26,17 @@
         "pane",
         "run",
         "wT:p1",
-        "claude 'Continue ENG-403 (https://linear.app/acme/issue/ENG-403/reset). Find its branch (named after eng-403) in the repo it touches, check it out, and summarize where it stands before changing anything.'"
+        "sh <BOX>/home/.cache/cockpit/prompts/eng-403-<R>.sh"
       ],
       "cmd": "herdr",
       "stdin": null
     }
   ],
   "error": null,
-  "files": {},
+  "files": {
+    "home/.cache/cockpit/prompts/eng-403-<R>.prompt": "Continue ENG-403 (https://linear.app/acme/issue/ENG-403/reset). Find its branch (named after eng-403) in the repo it touches, check it out, and summarize where it stands before changing anything.",
+    "home/.cache/cockpit/prompts/eng-403-<R>.sh": "# An agent on a prompt read from a file: nothing of it is typed into a shell.\nP=<BOX>/home/.cache/cockpit/prompts/eng-403-<R>.prompt\nexec claude ''\"$(cat \"$P\")\"''\n"
+  },
   "note": "started \"eng-403\" in a new space",
   "pending": {},
   "refreshing": []

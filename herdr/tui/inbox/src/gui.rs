@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use cockpit_core::files;
 use cockpit_core::theme::{DIM, GREEN, ORANGE, RED};
+use cockpit_core::{files, header};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use serde_json::{Map, Value, json};
@@ -56,7 +56,7 @@ fn results() -> Value {
 
 /// Each ticket's cost history, oldest first, from the hub's history store.
 fn series(ids: &[String]) -> HashMap<String, Vec<f64>> {
-    let kept = std::fs::read_to_string(files::cache().join("history").join("ticket_cost.jsonl")).unwrap_or_default();
+    let kept = std::fs::read_to_string(files::cache().join("history").join("ticket_estimate.jsonl")).unwrap_or_default();
     let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let mut out: HashMap<String, Vec<f64>> = HashMap::new();
     for point in kept.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
@@ -75,7 +75,7 @@ pub fn model_of(inputs: &Inputs, config: &Config, by_status: bool, local: &mut L
     let (head, top) = model::model(inputs, &ctx, local);
     let state = match (&inputs.data, model::usable(inputs)) {
         (None, _) => "empty",
-        (Some(_), None) => "stale",
+        (Some(_), None) => "other_version",
         _ => "ok",
     };
     let message = if state == "ok" { String::new() } else { head.first().map(plain).unwrap_or_default() };
@@ -95,7 +95,7 @@ pub fn model_of(inputs: &Inputs, config: &Config, by_status: bool, local: &mut L
         "failing": prs.iter().filter(|p| p["ci"] == "FAILURE" || p["ci"] == "ERROR").count(),
         "alerts": alerts,
         "worktrees": worktrees.len(),
-        "cleanup": worktrees.iter().filter(|w| w["merged"] == true && w["changes"] == 0).count(),
+        "cleanup": worktrees.iter().filter(|w| w["merged"] == true && w["blockers"].as_array().is_some_and(Vec::is_empty)).count(),
     });
     // When it was fetched goes out by the minute the app shows it in, not the millisecond: each refresh would move the
     // whole view otherwise.
@@ -104,6 +104,7 @@ pub fn model_of(inputs: &Inputs, config: &Config, by_status: bool, local: &mut L
         "state": state,
         "message": message,
         "errors": errors,
+        "sources": header::json(&header::sources(&[&data, &inputs.ci]), header::now()),
         "group": if by_status { "status" } else { "feature" },
         "counts": counts,
         "sections": sections,
@@ -163,7 +164,9 @@ fn worktrees(data: &Value, inputs: &Inputs) -> Vec<Value> {
         .map(|w| {
             let key = (s(w, "repo"), s(w, "branch"));
             let pr = list(data, "mine").iter().find(|pr| (s(pr, "repo"), s(pr, "branch")) == key).map(|pr| pr["url"].clone());
-            json!({"path": w["path"], "repo": w["repo"], "branch": w["branch"], "changes": w["changes"], "merged": merged.contains(&key) && pr.is_none(), "pr": pr})
+            let is_merged = (merged.contains(&key) || w["merged"] == true) && pr.is_none();
+            json!({"path": w["path"], "repo": w["repo"], "branch": w["branch"], "changes": w["changes"], "merged": is_merged, "pr": pr,
+                   "blockers": w["blockers"]})
         })
         .collect()
 }

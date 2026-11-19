@@ -70,7 +70,7 @@ impl Local {
         beats.iter().filter(|b| fixed || now_ms() - b["at"].as_f64().unwrap_or(0.0) < LIVE_MS).cloned().collect()
     }
 
-    /// Each pane's agent status as herdr reports it: working, idle, blocked or unknown.
+    /// Each pane's agent status as herdr reports it: working, idle, blocked, error (stopped with one) or unknown.
     fn panes(&mut self) -> &HashMap<String, String> {
         if self.stale(&self.panes) {
             let listed = files::herdr(&["pane", "list"]).unwrap_or(Value::Null);

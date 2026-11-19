@@ -1,0 +1,22 @@
+---
+source: review/tests/snapshots.rs
+expression: "all.lines().take_while(|l|\n!l.starts_with(\"Moving\")).map(row).collect::<Vec<_>>().join(\"\\n\")"
+---
+Keys in review
+
+This row
+  c  comment
+  e  edit
+  D  delete
+  S  send
+  n  next hunk
+  p  previous hunk
+  s  side by side
+  z  fold all
+  w  switch view
+  1  uncommitted
+  2  branch
+  3  pull request
+  T  send to
+  W  worktree
+  R  refresh

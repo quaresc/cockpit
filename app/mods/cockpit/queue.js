@@ -1,14 +1,19 @@
-// Each agent's prompt queue: follow-ups written while it works, sent one at a time or all at once as one numbered
-// prompt (hub view and actions `queue`). It floats as a drawer on the window's right edge (its count peeks out and the
-// rest slides out on hover) and opens as a dialog on ⌘⌥Q for the agent in front.
+// Each agent's prompt queue: follow-ups written while it works, the next one sent once the agent rests, paused after a
+// failed or stopped turn (or when written for another agent) until resumed, or sent by hand, one or all at once as one
+// numbered prompt (hub view and actions `queue`). It floats as a drawer on the window's right edge (its count peeks out and the rest slides out on
+// hover) and opens as a dialog on ⌘⌥Q for the agent in front.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { placement, props, focused, shared, setShared, openOverlay, layout } from "herdr";
 import { findNode } from "./status.js";
 import * as hub from "./hub.js";
+import { sharing } from "./feed.js";
 import { fleet } from "./fleet.js";
-import { tokens, TEXT, RADIUS, Icon, Button, Kbd, TextField, Chip, CountPill, CornerCount, Mono, dur } from "./ui.js";
+import { tokens, TEXT, RADIUS, Icon, Button, Kbd, TextField, Chip, CountPill, CornerCount, Mono, dur, AgentLogo } from "./ui.js";
+
+// The agents, Home and queue views, followed once per window whichever copies ask (feed.js).
+const following = sharing(hub.subscribe);
 
 const EDGE = 44;
 const WIDTH = 340;
@@ -25,7 +30,7 @@ export default class Queue {
     this.input.on("submit", (_e, cx) => this.add(cx));
     this.edit = InputState.new({ placeholder: "" });
     this.edit.on("submit", (_e, cx) => this.saveEdit(cx));
-    this.sub = hub.subscribe(cx, { views: ["agents", "home", "queue"] }, (m, cx) => {
+    this.sub = following(cx, { views: ["agents", "home", "queue"] }, (m, cx) => {
       if (m.view === "agents") this.rows = m.value;
       if (m.view === "home") this.home = m.value;
       if (m.view === "queue") this.model = m.value;
@@ -42,7 +47,7 @@ export default class Queue {
     if (c === "queue" && !this.dialog && placement()) {
       const f = focused();
       if (!shared("cockpit.queue.for") && f?.terminal) setShared("cockpit.queue.for", f.terminal);
-      openOverlay({ mod: "cockpit", props: { app: "queue", mode: "dialog" }, kind: "dialog", width: 460, height: 440 });
+      openOverlay({ mod: "cockpit", props: { app: "queue", mode: "dialog", popup: true }, kind: "dialog", width: 460, height: 440 });
     }
     cx.notify();
   }
@@ -73,7 +78,8 @@ export default class Queue {
     const text = this.input.value().trim();
     if (!a || !text) return;
     this.input.set_value("");
-    cx.spawn(async (cx) => this.run(cx, "add", [a.handle, text]));
+    // Queued, and sent at once when the agent is free and nothing waits before it.
+    cx.spawn(async (cx) => this.run(cx, "tell", [a.handle, text]));
   }
 
   saveEdit(cx) {
@@ -145,11 +151,25 @@ export default class Queue {
         list.slice(0, 8).map((x) => {
           const n = queues[x.handle]?.length ?? 0;
           const on = x.address === a?.address;
-          return Chip(`${x.title}${n ? ` · ${n}` : ""}`, { id: `q-pick-${x.address}`, color: on ? k.ring : undefined, onClick: () => setShared("cockpit.queue.for", x.address) });
+          return Chip(`${x.title}${n ? ` · ${n}` : ""}`, { id: `q-pick-${x.address}`, logo: x, color: on ? k.ring : undefined, tooltip: x.agent_name ?? undefined, onClick: () => setShared("cockpit.queue.for", x.address) });
         }),
       );
 
-    const status = a ? (a.status === "working" ? "working: they go when you send them" : a.status === "blocked" ? "waiting on a question: answer it first" : "ready for the next prompt") : "";
+    const paused = a ? this.model?.paused?.[a.handle] : null;
+    const drain = this.model?.drain !== false;
+    const status = !a
+      ? ""
+      : a.status === "blocked"
+        ? "waiting on a question: answer it first"
+        : a.status === "failed"
+          ? "stopped with an error: what you queue waits until it works again"
+          : this.model?.asleep?.[a.handle] === true
+            ? "Paused · picks up when you write"
+            : !drain
+            ? "sent by hand only: queue.drain is off"
+            : a.status === "working"
+              ? "working: the next goes once it rests"
+              : "resting: the next goes now";
     const body = v_flex()
       .when(!this.dialog, (e) => e.w(WIDTH).flex_none())
       .when(this.dialog, (e) => e.size_full())
@@ -166,7 +186,20 @@ export default class Queue {
           .when(this.dialog, (e) => e.child(Kbd("esc"))),
       )
       .when(list.length > 1, (e) => e.child(picker))
-      .when(Boolean(a), (e) => e.child(div().text_size(TEXT.xs).text_color(k.mutedFg).child(`${a?.title} · ${status}`)))
+      .when(Boolean(a) && !paused, (e) => e.child(h_flex().gap(6).items_center().child(AgentLogo(a, { size: 12, color: k.mutedFg, tooltip: a?.agent_name, id: "q-agent-logo" })).child(div().flex_1().min_w(0).text_size(TEXT.xs).text_color(k.mutedFg).child(`${a?.title} · ${status}`))))
+      .when(Boolean(paused), (e) =>
+        e.child(
+          h_flex()
+            .gap(8)
+            .items_center()
+            .p(8)
+            .rounded(RADIUS.md)
+            .bg(k.muted)
+            .child(Icon("circle-pause", { size: 14, color: k.warning }))
+            .child(div().flex_1().min_w(0).whitespace_normal().text_size(TEXT.sm).text_color(k.foreground).child(`Paused — ${paused?.why ?? "held"}`))
+            .child(Button("q-resume", { label: "Resume", icon: "play", size: "sm", variant: "outline", kbd: this.dialog ? "alt-r" : undefined, tooltip: drain ? "Send the next once it rests" : "Lift the pause: queue.drain is off, so they go by hand", onClick: (_e, cx) => cx.spawn(async (cx) => this.run(cx, "resume", [a.handle])) })),
+        ),
+      )
       .child(
         v_flex()
           .id("q-list")
@@ -189,7 +222,18 @@ export default class Queue {
         ),
       );
 
-    if (this.dialog) return v_flex().id("queue-dialog").size_full().bg(k.popover).child(body);
+    // The dialog's own key: ⌥R lifts a pause, whatever field holds the keyboard.
+    if (this.dialog)
+      return v_flex()
+        .id("queue-dialog")
+        .size_full()
+        .bg(k.popover)
+        .on_key_down((e, cx) => {
+          if (e.keystroke !== "alt-r" || !paused) return;
+          cx.stop_propagation();
+          cx.spawn(async (cx) => this.run(cx, "resume", [a.handle]));
+        })
+        .child(body);
     // Nothing queued, an app with its own side panel in front, or the work area's panel open on that edge (its activity
     // bar is there): the drawer steps aside, and the status bar's count opens the queue.
     const shownApp = shared("cockpit.app") ?? "home";

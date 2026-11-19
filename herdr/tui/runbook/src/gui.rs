@@ -207,11 +207,20 @@ fn texts(value: Option<&Value>) -> Vec<String> {
 }
 
 /// The mod's edits: `done [[slug, n], ...]` (their sessions told), `set [slug, n, column, value]` (column command,
-/// status, step or where), `add [slug, after n or null, step, where, command]`, `undo []`.
+/// status, step or where), `add [slug, after n or null, step, where, command]`, `undo []`. Each is a person's.
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
+    if !EDITS.contains(&action) {
+        return None;
+    }
+    if let Err(why) = cockpit_core::peer::person(&format!("{action} edits a runbook: a person does it, not an agent's tools")) {
+        return Some(Err(why));
+    }
     let today = chrono::Local::now().format("%d %b").to_string();
     act_in(&book::dir(), &handoff::dir(), action, args, &today)
 }
+
+/// The view's actions, every one an edit of a runbook file.
+const EDITS: [&str; 4] = ["done", "set", "add", "undo"];
 
 pub fn act_in(dir: &Path, handoffs: &Path, action: &str, args: &[Value], today: &str) -> Option<Result<String, String>> {
     let s = |i: usize| args.get(i).and_then(Value::as_str).unwrap_or_default().to_string();
@@ -299,6 +308,27 @@ mod tests {
 
     const BOOK: &str = "# ENG-1 · Quotas\nupdated: today\n\n| # | Step | Where | Status | Command |\n|---|---|---|---|---|\n\
                         | 1 | Merge | api#12 | ✅ merged | |\n| 2 | Backfill | prod | ⬜ to do | `bin/backfill` |\n\n## Notes\n- run `x` first\n";
+
+    #[test]
+    fn an_edit_is_a_person_s_never_an_agent_s_tools() {
+        use cockpit_core::peer::{Sender, Who, adopt};
+        let asked = |who: Option<Who>, action: &'static str| {
+            std::thread::spawn(move || {
+                if let Some(who) = who {
+                    adopt(Sender::Placed(who));
+                }
+                act(action, &[json!("eng-1"), json!("2"), json!("command"), json!("rm -rf /")])
+            })
+            .join()
+            .unwrap()
+        };
+        for action in EDITS {
+            let refused = asked(Some(Who::Agent("app:t3".into())), action).expect("a view action").expect_err("an agent's tools");
+            assert!(refused.contains("not an agent's tools"), "{refused}");
+            assert!(asked(None, action).expect("a view action").is_err(), "a sender cockpit cannot place");
+        }
+        assert!(asked(Some(Who::Agent("app:t3".into())), "dance").is_none(), "not the view's");
+    }
 
     #[test]
     fn the_view_and_its_edits() {

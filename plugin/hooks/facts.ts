@@ -17,7 +17,6 @@ export type Facts = {
   repo: string | null
   branch: string | null
   ticket: string | null
-  task: string | null
   page: string | null
   pageTitle: string | null
   context: number | null
@@ -53,7 +52,7 @@ export async function reportFacts($: $, here: Here | undefined, change: Partial<
   const cwd = known.cwd ?? (await $.session.cwd()) ?? null
   const facts: Facts = {
     transcript: cwd ? transcriptPath(await home($), cwd, session) : null,
-    repo: null, branch: null, ticket: null, task: null, page: null, pageTitle: null, context: null, cost: null, account: null,
+    repo: null, branch: null, ticket: null, page: null, pageTitle: null, context: null, cost: null, account: null,
     pr: null, ci: null, clash: null, views: [], last: null,
     ...known,
     session,

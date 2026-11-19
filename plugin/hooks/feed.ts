@@ -26,8 +26,16 @@ export const hubOwnsMeetings = (meetings: MeetingsState | null, now = Date.now()
 
 export type GithubPart = { direct: Pr[]; team: Pr[]; botRepos: string[]; mine: Pr[]; merged: MergedPr[] }
 
-// The mod's part of the inbox: what it fetched, with its own fetch time; the hub keeps the rest and adds its errors after
-// the mod's. A failed source makes that time due again within a minute.
-export function modPart(gh: GithubPart | null, tickets: Ticket[] | null, isRetry: boolean, staleMs: number, now = Date.now()): Partial<Inbox> {
-  return { at: now, modAt: isRetry ? now - staleMs + 60_000 : now, ...(gh ?? {}), ...(tickets ? { tickets } : {}) }
+// The mod's part of the inbox: what it fetched, with when each source came in (`modFetched`, only the ones that did) and
+// its own fetch time, which a failed source makes due again within a minute. The hub keeps the rest and adds its errors.
+export function modPart(
+  gh: GithubPart | null,
+  tickets: Ticket[] | null,
+  isRetry: boolean,
+  staleMs: number,
+  now = Date.now(),
+  before: Inbox['modFetched'] = {},
+): Partial<Inbox> {
+  const modFetched = { ...before, ...(gh ? { github: now } : {}), ...(tickets ? { tickets: now } : {}) }
+  return { at: now, modAt: isRetry ? now - staleMs + 60_000 : now, modFetched, ...(gh ?? {}), ...(tickets ? { tickets } : {}) }
 }

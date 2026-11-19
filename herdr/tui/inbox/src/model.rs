@@ -1,9 +1,10 @@
 //! The inbox's caches as rows of a tree: the header and its error lines, then Today, Alerts, Review, Work and Other PRs.
+//! A source the hub reads says how it fails in its header chip, so its errors are no line of their own.
 
 use std::collections::{HashMap, HashSet};
 
-use cockpit_core::sources;
 use cockpit_core::theme::{DIM, GREEN, ORANGE, RED, bold, dim, fg};
+use cockpit_core::{header, sources};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use serde_json::{Value, json};
@@ -28,6 +29,9 @@ pub struct Ctx<'a> {
 }
 
 pub const INBOX_VERSION: i64 = 1;
+
+/// What the inbox says of a cache another version of cockpit wrote, which this one does not read.
+pub const OTHER_VERSION: &str = "Written by another version of cockpit · this one reads it once its own hub writes it.";
 
 pub fn heading(name: &str, title: &str, extra: &str) -> Line<'static> {
     Line::from(vec![
@@ -59,18 +63,25 @@ pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static
         return (vec![Line::styled(waiting, dim())], Vec::new());
     };
     if usable(inputs).is_none() {
-        return (vec![Line::styled("Refreshing: this was last filled by another version of cockpit.", dim())], Vec::new());
+        return (vec![Line::styled(OTHER_VERSION, dim())], Vec::new());
     }
     let ci = if inputs.ci.is_object() { inputs.ci.clone() } else { json!({"runs": []}) };
     let mut head = vec![heading("inbox", "Inbox", &format!("updated {}", facts::clock(&data["at"])))];
-    let errors = list(data, "errors").iter().chain([&ci["error"]]).filter(|e| e.is_string());
+    let told = header::sources(&[data, &ci]);
+    // The hub's error lines a chip tells; a source no chip shows (the config dropped it) keeps its line.
+    let hubs: Vec<Value> = list(&data["hub"], "errors").iter().filter(|e| e.as_str().is_some_and(|line| header::covers(&told, line))).cloned().collect();
+    let ci_error = if header::has(&told, "ci") { &Value::Null } else { &ci["error"] };
+    let errors = list(data, "errors").iter().filter(|e| !hubs.contains(e)).chain([ci_error]).filter(|e| e.is_string());
     head.extend(errors.map(|e| Line::styled(e.as_str().unwrap_or_default().to_string(), fg(RED))));
 
     let mut top = Vec::new();
-    if let Some(today) = inputs.brief.as_ref().and_then(today) {
+    if let Some(today) = today(inputs.brief.as_ref(), inputs.routines.as_ref()) {
         top.push(today);
     }
-    let alerts = alerts(data, &ci, ctx.config, local, &inputs.worktrees);
+    let mut alerts = alerts(data, &ci, ctx.config, local);
+    for row in start_rows(&inputs.starts) {
+        alerts.add(row);
+    }
     if !alerts.children.is_empty() {
         top.push(alerts);
     }
@@ -78,18 +89,26 @@ pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static
     let (work, other) = work::rows(data, &ci, ctx, &inputs.costs, &inputs.secs);
     top.push(work);
     top.push(other);
+    let merged: HashSet<(String, String)> = list(data, "merged").iter().map(|m| (s(m, "repo").into(), s(m, "branch").into())).collect();
+    let cleanup = cleanup(&inputs.worktrees, &merged, list(data, "mine"), local);
+    if !cleanup.children.is_empty() {
+        top.push(cleanup);
+    }
     (head, top)
 }
 
-/// The morning brief, when it is today's and not dismissed.
-fn today(brief: &Value) -> Option<Row> {
-    if s(brief, "date") != facts::today() || flag(brief, "dismissed") || list(brief, "lines").is_empty() {
-        return None;
-    }
-    let written = facts::clock(&brief["at"]);
-    let mut today = Row::text("today", heading("today", "Today", &format!("morning brief, {written}")))
-        .acts(vec![RowAct::new("dismiss", 'x', call("dismiss_brief", vec![])).main()]);
-    for (n, entry) in list(brief, "lines").iter().enumerate() {
+/// The morning brief when it is today's and not dismissed, then the routine runs that need a look.
+fn today(brief: Option<&Value>, routines: Option<&Value>) -> Option<Row> {
+    let brief = brief.filter(|b| s(b, "date") == facts::today() && !flag(b, "dismissed") && !list(b, "lines").is_empty());
+    let look = routines.map(cockpit_core::routines::needing_look).unwrap_or_default();
+    let mut today = match brief {
+        Some(brief) => Row::text("today", heading("today", "Today", &format!("morning brief, {}", facts::clock(&brief["at"]))))
+            .acts(vec![RowAct::new("dismiss", 'x', call("dismiss_brief", vec![])).main()]),
+        None if look.is_empty() => return None,
+        None if look.len() == 1 => Row::text("today", heading("today", "Today", "1 routine needs a look")),
+        None => Row::text("today", heading("today", "Today", &format!("{} routines need a look", look.len()))),
+    };
+    for (n, entry) in brief.map(|b| list(b, "lines")).unwrap_or_default().iter().enumerate() {
         let style = match s(entry, "tone") {
             "bad" => fg(RED),
             "warn" => fg(ORANGE),
@@ -105,16 +124,85 @@ fn today(brief: &Value) -> Option<Row> {
         }
         today.add(row);
     }
+    for row in look.iter().map(routine_row) {
+        today.add(row);
+    }
     Some(today)
+}
+
+/// A routine run that needs a look, or a routine whose file is broken: open takes it into the routines space, dismiss
+/// marks the run read.
+fn routine_row(item: &Value) -> Row {
+    let (glyph, style) = match s(item, "word") {
+        "missed" => ("\u{f05e}", fg(ORANGE)),
+        "broken" => ("\u{f071}", fg(RED)),
+        _ => ("\u{f00d}", fg(RED)),
+    };
+    let at = if item["at"].as_u64().unwrap_or(0) > 0 { format!(" {}", facts::day_clock(&item["at"])) } else { String::new() };
+    let word = if s(item, "word") == "broken" { "cannot run" } else { s(item, "word") };
+    // A sentence that starts with how it went ("Missed Sun 09:00: …") says it once.
+    let says_it = s(item, "reason").to_lowercase().starts_with(word);
+    let text =
+        if says_it { format!("{} · {}", s(item, "name"), s(item, "reason")) } else { format!("{} · {word}{at} · {}", s(item, "name"), s(item, "reason")) };
+    let cockpit = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "cockpit".into());
+    let go = call("run", vec![json!([cockpit, "focus", format!("routine:{}", s(item, "key"))])]);
+    let mut info = vec![Line::styled(s(item, "reason").to_string(), style)];
+    if s(item, "summary") != s(item, "reason") {
+        info.push(Line::raw(s(item, "summary").to_string()));
+    }
+    Row::text(format!("routine:{}", s(item, "key")), Line::from(vec![Span::styled(format!("{glyph}  "), style), Span::raw(text.clone())]))
+        .info(info)
+        .name(text)
+        .section("Today")
+        .kind(Kind::Alert)
+        .acts(if item["id"].is_string() {
+            vec![
+                RowAct::new("open", 'o', go.clone()).main(),
+                RowAct::new("dismiss", 'x', call("routines:read", vec![item["slug"].clone(), item["id"].clone()])),
+            ]
+        } else {
+            vec![RowAct::new("open", 'o', go.clone()).main()]
+        })
+        .primary(go)
+}
+
+/// Start work's runs that still run or failed: open one in the form, retry it, cancel it (asked first, since that
+/// removes what it made) or dismiss it.
+fn start_rows(starts: &[Value]) -> Vec<Row> {
+    let mut rows = Vec::new();
+    for run in starts.iter().filter(|r| matches!(s(r, "state"), "running" | "failed")) {
+        let id = s(run, "id");
+        let title = if s(run, "title").is_empty() { s(run, "label") } else { s(run, "title") };
+        let failed = s(run, "state") == "failed";
+        let (words, style) = if failed {
+            let step = s(&run["error"], "step");
+            (format!("start {title}: {} failed", if step.is_empty() { "a step" } else { step }), fg(RED))
+        } else {
+            (format!("start {title}: running"), fg(ORANGE))
+        };
+        let open = call("start_open", vec![json!(id)]);
+        let mut acts = vec![RowAct::new("open", 'o', open.clone()).main()];
+        if failed {
+            acts.push(RowAct::new("rerun", 'r', call("start_retry", vec![json!(id)])));
+        }
+        if flag(run, "cancel") {
+            acts.push(RowAct::new("cancel", 'c', call("start_cancel", vec![json!(id)])).confirm(format!("cancel-start-{id}")));
+        }
+        if failed {
+            acts.push(RowAct::new("dismiss", 'x', call("start_dismiss", vec![json!(id)])));
+        }
+        rows.push(alert(format!("start:{id}"), &words, style).acts(acts).primary(open));
+    }
+    rows
 }
 
 fn alert(key: String, text: &str, style: Style) -> Row {
     Row::text(key, Line::styled(format!(" {}  {text}", icon("alert")), style)).name(text).section("Alerts").kind(Kind::Alert)
 }
 
-/// Previews expiring, unhealthy or running a merged branch, red CI of the last hours, sessions left on merged branches,
-/// worktrees of merged branches and uncommitted work no session holds.
-fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktrees: &[Value]) -> Row {
+/// Previews expiring, unhealthy or running a merged branch, red CI of the last hours and sessions left on merged
+/// branches.
+fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local) -> Row {
     let mut alerts = Row::text("alerts", heading("alert", "Alerts", ""));
     let previews = list(data, "previews");
     let mut ids: Vec<&str> = previews.iter().map(|b| s(b, "id")).collect::<HashSet<_>>().into_iter().collect();
@@ -186,11 +274,10 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktree
             .name(format!("session on {label}"))
             .section("Alerts")
             .kind(Kind::Alert);
-        let close = RowAct::new(verb, 'c', call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
+        // Removing a worktree is on the one key every removal is on.
+        let key = if is_worktree && tab.is_none() { 'D' } else { 'c' };
+        let close = RowAct::new(verb, key, call("close_space", vec![json!(space), json!(label), json!(is_worktree)])).main().confirm(format!("close-{space}"));
         alerts.add(row.acts(vec![close, RowAct::new("go", 'o', call("run", vec![go]))]));
-    }
-    for row in worktree_rows(worktrees, &merged, list(data, "mine"), local) {
-        alerts.add(row);
     }
     if !alerts.children.is_empty()
         && let crate::row::Body::Text(line) = &mut alerts.body
@@ -200,34 +287,48 @@ fn alerts(data: &Value, ci: &Value, config: &Config, local: &mut Local, worktree
     alerts
 }
 
-/// A merged branch's worktree to remove, or uncommitted changes in one no live session works on.
-fn worktree_rows(worktrees: &[Value], merged: &HashSet<(String, String)>, mine: &[Value], local: &mut Local) -> Vec<Row> {
+/// The worktrees to clean up: those of merged branches with no open PR, and those holding work, each saying what keeps
+/// it (`cockpit_core::cleanup`'s words). One a live session works on is the Alerts' to say; removing is refused while
+/// anything keeps it.
+fn cleanup(worktrees: &[Value], merged: &HashSet<(String, String)>, mine: &[Value], local: &mut Local) -> Row {
+    let mut section = Row::text("cleanup", heading("worktree", "To clean up", ""));
     let open: HashSet<(String, String)> = mine.iter().map(|pr| (s(pr, "repo").into(), s(pr, "branch").into())).collect();
     let live: HashSet<(String, String)> = local.agents().into_iter().map(|(repo, branch, _)| (repo, branch)).collect();
-    let mut rows = Vec::new();
     for tree in worktrees {
         let key = (s(tree, "repo").to_string(), s(tree, "branch").to_string());
-        let (path, changes) = (s(tree, "path"), tree["changes"].as_u64().unwrap_or(0));
-        let place = format!("{} {}", key.0, key.1);
-        let changed = format!("{changes} uncommitted change{}", if changes == 1 { "" } else { "s" });
-        let go = RowAct::new("go", 'o', call("open_worktree", vec![json!(path)]));
-        let (text, style, acts) = if merged.contains(&key) && !open.contains(&key) {
-            if changes == 0 {
-                let remove = RowAct::new("remove", 'c', call("remove_worktree", vec![json!(path)])).main().confirm(format!("remove-{path}"));
-                (format!("worktree of merged {place}: nothing left in it"), dim(), vec![remove, go])
-            } else {
-                (format!("worktree of merged {place} holds {changed}"), fg(ORANGE), vec![go.main()])
-            }
-        } else if changes > 0 && !live.contains(&key) {
-            (format!("{changed} in {place}, no session on them"), fg(ORANGE), vec![go.main()])
-        } else {
+        let is_merged = (merged.contains(&key) || flag(tree, "merged")) && !open.contains(&key);
+        if live.contains(&key) || !(is_merged || tree["changes"].as_u64().unwrap_or(0) > 0) {
             continue;
+        }
+        let path = s(tree, "path");
+        let blockers = list(tree, "blockers").to_vec();
+        let words: Vec<String> = blockers.iter().map(|b| s(b, "words").to_string()).collect();
+        let place = format!("{} {}", key.0, key.1);
+        let (text, style) = if words.is_empty() {
+            (format!("{place}: merged, nothing keeps it"), dim())
+        } else {
+            (format!("{place}: kept by {}", words.join(", ")), fg(ORANGE))
         };
+        let remove = RowAct::new("remove worktree", 'D', call("remove_worktree", vec![json!(path)])).confirm(format!("remove-{path}"));
+        let go = RowAct::new("go", 'o', call("open_worktree", vec![json!(path)]));
+        let acts = if words.is_empty() { vec![remove.main(), go] } else { vec![go.main(), remove] };
+        let mut info = vec![Line::styled(text.clone(), style), Line::styled(path.to_string(), dim())];
+        if words.is_empty() {
+            info.push(Line::styled("Nothing keeps it: removing it deletes its folder; its branch too once git counts it merged.", dim()));
+        } else {
+            info.push(Line::styled("Kept by:", dim()));
+            info.extend(words.iter().map(|w| Line::styled(format!("  · {w}"), fg(ORANGE))));
+        }
+        let item = tree.clone();
         let line = Line::styled(format!(" {}  {text}", icon("worktree")), style);
-        let info = vec![Line::styled(text.clone(), style), Line::styled(path.to_string(), dim())];
-        rows.push(Row::text(format!("worktree:{path}"), line).name(text).info(info).acts(acts).section("Alerts").kind(Kind::Worktree).item(tree));
+        section.add(Row::text(format!("worktree:{path}"), line).name(place).info(info).acts(acts).section("To clean up").kind(Kind::Worktree).item(&item));
     }
-    rows
+    if !section.children.is_empty()
+        && let crate::row::Body::Text(line) = &mut section.body
+    {
+        line.spans.push(Span::styled(section.children.len().to_string(), dim()));
+    }
+    section
 }
 
 fn review_row(pr: &Value) -> Row {
@@ -302,4 +403,26 @@ fn review(data: &Value, muted: &[String], compact: bool) -> Row {
         }
     }
     reviews
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn today_lists_the_routine_runs_that_need_a_look_each_opening_its_run() {
+        let routines = json!({"version": 1, "inboxFrom": 0, "routines": [{"slug": "sweep", "name": "Morning sweep"}, {"slug": "x", "name": "X", "error": "when?"}],
+            "runs": {"sweep": [{"id": "7", "ok": false, "ended": 5, "summary": "Did not start: the folder /x does not exist.", "reason": "Did not start: the folder /x does not exist."}]}});
+        let section = today(None, Some(&routines)).expect("a Today section");
+        let keys: Vec<&str> = section.children.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys, ["routine:sweep/run/7", "routine:x"]);
+        let call = section.children[0].acts[0].call.as_ref().expect("open runs a command");
+        let argv = call.args[0].as_array().expect("an argv");
+        assert_eq!((call.function, &argv[1], &argv[2]), ("run", &json!("focus"), &json!("routine:sweep/run/7")));
+        assert!(section.children[0].name.contains("Morning sweep · failed"), "{}", section.children[0].name);
+        let dismiss = section.children[0].acts[1].call.as_ref().expect("dismiss marks it read");
+        assert_eq!((dismiss.function, &dismiss.args), ("routines:read", &vec![json!("sweep"), json!("7")]));
+        assert_eq!(section.children[1].acts.len(), 1, "a routine that cannot run has no run to mark read");
+        assert!(today(None, Some(&json!({"version": 1, "routines": [], "runs": {}}))).is_none(), "nothing to look at: no Today");
+    }
 }

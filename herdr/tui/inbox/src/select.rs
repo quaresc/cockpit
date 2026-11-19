@@ -70,6 +70,8 @@ pub fn shared(tree: &Tree, rows: &[usize]) -> Vec<Act> {
         .row
         .acts
         .iter()
+        // A start opens the form on one row; it is never run for many at once.
+        .filter(|act| act.call.as_ref().is_none_or(|c| c.function != "start"))
         .filter(|act| rows.iter().all(|&n| tree.nodes[n].row.acts.iter().any(|a| a.act.label == act.act.label && a.act.key == act.act.key)))
         .map(|a| a.act.clone())
         .collect()
@@ -88,9 +90,77 @@ pub fn describe(tree: &Tree, rows: &[usize]) -> String {
     kinds.iter().map(|(kind, n)| kind.count(*n)).collect::<Vec<_>>().join(", ")
 }
 
-/// The question before a batch: "rerun 4 PRs?", or "rerun 3 rows?" across kinds.
+/// The label of the irreversible removal, the only action a kept worktree stays out of.
+pub const REMOVE: &str = "remove worktree";
+
+/// "a, b and 7 more": a list kept short, its count still said, its items joined by `sep`.
+pub fn short(names: &[String], first: usize, sep: &str) -> String {
+    match names.len() {
+        n if n <= first + 1 => names.join(sep),
+        n => format!("{} and {} more", names[..first].join(sep), n - first),
+    }
+}
+
+/// What keeps a worktree row, in words: "1 uncommitted change, locked".
+fn why(tree: &Tree, node: usize) -> String {
+    blockers(tree, node).into_iter().filter_map(|b| b["words"].as_str().map(str::to_string)).collect::<Vec<_>>().join(", ")
+}
+
+/// The picked rows an action runs on: every one, but a removal leaves the worktrees something keeps.
+pub fn takes(tree: &Tree, rows: &[usize], label: &str) -> Vec<usize> {
+    rows.iter().copied().filter(|&r| !(label == REMOVE && kept(tree, r))).collect()
+}
+
+/// The worktrees a removal leaves, with what keeps each: "a (1 uncommitted change); b (…)".
+pub fn stays(tree: &Tree, rows: &[usize]) -> String {
+    let said: Vec<String> = rows.iter().filter(|&&n| kept(tree, n)).map(|&n| format!("{} ({})", tree.nodes[n].row.name, why(tree, n))).collect();
+    short(&said, 3, "; ")
+}
+
+/// The question before a batch: "rerun 4 PRs?", or "rerun 3 rows?" across kinds. A removal of worktrees says which go
+/// and which stay, with what keeps them.
 pub fn question(tree: &Tree, rows: &[usize], label: &str) -> String {
     let kinds: HashSet<Kind> = rows.iter().map(|&n| tree.nodes[n].row.kind).collect();
+    if label == REMOVE && kinds.len() == 1 && kinds.contains(&Kind::Worktree) {
+        let go: Vec<String> = rows.iter().filter(|&&n| !kept(tree, n)).map(|&n| tree.nodes[n].row.name.clone()).collect();
+        let goes = if go.len() == 1 {
+            "Its folder is deleted; its branch too once git counts it merged."
+        } else {
+            "Their folders are deleted; their branches too once git counts them merged."
+        };
+        let mut question = format!("{label}: {}? {goes}", Kind::Worktree.count(go.len()));
+        question.push_str(&format!(" Goes: {}.", short(&go, 5, ", ")));
+        let stay = stays(tree, rows);
+        if !stay.is_empty() {
+            question.push_str(&format!(" Stays: {stay}."));
+        }
+        return question;
+    }
     let what = if kinds.len() == 1 { describe(tree, rows) } else { Kind::Plain.count(rows.len()) };
     format!("{label} {what}?")
+}
+
+/// The question before a merged session's worktree goes with its space: the session ends first.
+pub fn ending(name: &str) -> String {
+    format!("{REMOVE}: {name}? Ends the session in it, then deletes its folder; its branch too once git counts it merged.")
+}
+
+/// The question before one worktree's removal: what goes, or what keeps it and that the hub refuses then.
+pub fn removal(tree: &Tree, node: usize) -> String {
+    let name = &tree.nodes[node].row.name;
+    if kept(tree, node) {
+        format!("{REMOVE}: {name}? Kept by {}; the hub refuses while anything keeps it.", why(tree, node))
+    } else {
+        format!("{REMOVE}: {name}? Its folder is deleted; its branch too once git counts it merged.")
+    }
+}
+
+/// What keeps a worktree row, as its item says.
+fn blockers(tree: &Tree, node: usize) -> Vec<serde_json::Value> {
+    tree.nodes[node].row.item.as_ref().and_then(|i| i["blockers"].as_array().cloned()).unwrap_or_default()
+}
+
+/// A worktree something keeps: a batch leaves it where it is.
+pub fn kept(tree: &Tree, node: usize) -> bool {
+    tree.nodes[node].row.kind == Kind::Worktree && !blockers(tree, node).is_empty()
 }

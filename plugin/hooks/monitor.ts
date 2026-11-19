@@ -331,7 +331,7 @@ export function refreshMonitor($: $, isForced = false) {
         const ctx = { config, now, login: await githubLogin($), inbox: await readJson<Inbox>($, `${await cacheDir($)}/inbox.json`) }
         for (const app of apps.filter(a => a.watched)) await watch($, app, previous?.apps.find(p => p.id === app.id), ctx, errors)
         apps.sort((a, b) => Date.parse(b.deployedAt || '0') - Date.parse(a.deployedAt || '0'))
-        const next: MonitorState = { version: 1, at: now, env: config.monitor.env, errors, apps }
+        const next: MonitorState = { version: 1, at: now, env: config.monitor.env, errors, apps, by: 'plugin' }
         await writeDoc($, 'monitor', next)
         await announce($, config, previous, next)
       })

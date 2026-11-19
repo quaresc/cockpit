@@ -464,9 +464,16 @@ export function fill(template: string, values: Record<string, string>) {
 }
 
 
-// A file other sessions or the herdr apps read, written beside it then moved in place, so none reads half of it.
-export async function writeAtomic($: $, path: string, body: string) {
+/** What writing a file whole takes of the engine: `$` itself, or a test's stand-in. */
+export type Writer = { fs: Pick<$['fs'], 'write'>; process: Pick<$['process'], 'run'> }
+
+// A file other sessions or the herdr apps read, written beside it then moved in place, so none reads half of it; when
+// the move fails, the old file stays and the temporary one goes.
+export async function writeAtomic($: Writer, path: string, body: string) {
   const tmp = `${path}.${Math.random().toString(36).slice(2)}.tmp`
   await $.fs.write(tmp, body)
-  if ((await $.process.run(['mv', tmp, path])).exitCode !== 0) throw new Error(`could not write ${path}`)
+  const moved = await $.process.run(['mv', '-f', tmp, path]).catch(() => undefined)
+  if (moved?.exitCode === 0) return
+  await $.process.run(['rm', '-f', tmp]).catch(() => undefined)
+  throw new Error(`could not write ${path}`)
 }

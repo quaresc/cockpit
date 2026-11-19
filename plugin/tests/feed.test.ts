@@ -53,9 +53,18 @@ test('PR and ticket news split, so each side announces only what it fetched', as
 
 test('the mod sends only what it fetched, and its own fetch time', async () => {
   const pr = { repo: 'api', number: 5, title: 't', url: 'https://github.com/acme/api/pull/5', author: 'me', updatedAt: '', isDraft: false, isDirect: false, review: null, ci: null }
-  expect(modPart(null, null, false, 5 * 60_000, now)).toEqual({ at: now, modAt: now })
+  expect(modPart(null, null, false, 5 * 60_000, now)).toEqual({ at: now, modAt: now, modFetched: {} })
   const fetched = modPart({ direct: [], team: [], botRepos: [], mine: [pr], merged: [] }, [], true, 5 * 60_000, now)
   expect([fetched.mine, fetched.tickets, fetched.direct]).toEqual([[pr], [], []])
   // A failed source makes the mod due again a minute later rather than five.
   expect(fetched.modAt).toBe(now - 4 * 60_000)
+})
+
+test('each source says when the mod brought it, never when it only tried', () => {
+  const pr = { repo: 'api', number: 5, title: 't', url: 'https://github.com/acme/api/pull/5', author: 'me', updatedAt: '', isDraft: false, isDirect: false, review: null, ci: null }
+  const gh = { direct: [], team: [], botRepos: [], mine: [pr], merged: [] }
+  // GitHub came in, tickets failed: only GitHub's time moves, and a retry's earlier due time is not a fetch time.
+  expect(modPart(gh, null, true, 5 * 60_000, now, { tickets: now - 60_000 }).modFetched).toEqual({ github: now, tickets: now - 60_000 })
+  expect(modPart(null, null, true, 5 * 60_000, now, { github: now - 90_000 }).modFetched).toEqual({ github: now - 90_000 })
+  expect(modPart(null, [], false, 5 * 60_000, now).modFetched).toEqual({ tickets: now })
 })

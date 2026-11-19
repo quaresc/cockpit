@@ -66,6 +66,7 @@ fn argv(kind: &str, asked: &Asked, a: &Agent) -> Result<Vec<String>, String> {
                 edits: asked.edits,
                 dirs: asked.dirs.clone(),
                 system: asked.system.as_deref(),
+                aside: false,
             };
             a.headless(prompt.unwrap_or_default(), &how).ok_or_else(|| {
                 if how.fork.is_some() { format!("{} cannot run headless on a fork of a session", a.name) } else { format!("{} has no headless mode", a.name) }

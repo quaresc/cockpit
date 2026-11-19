@@ -21,13 +21,21 @@ the session; a hand-made HTML page here is only for what no show block can draw,
 **Open a page** with `sh ~/.config/cockpit/herdr/browse.sh <url>`, never with `terminal-browser open`. A URL, a
 `localhost:<port>` or an absolute path to an HTML file all work. It opens the page as a tab of the browser already beside
 you, or brings the tab to the front when that page is already open, or splits a new pane right of yours sized so herdr
-draws it fast (in the Herdr app, a terminal split right of yours). The keyboard stays with the conversation. `--size 0.6` asks for a wider pane, `--reload` reloads the page
-when it is already open.
+draws it fast (in the Herdr app, a terminal split right of yours, which Cockpit Chat shows in its side panel beside the
+conversation). The keyboard stays with the conversation. `--size 0.6` asks for a wider pane, `--reload` reloads the page
+when it is already open. When it cannot place the browser it says why and opens the page in the default browser.
 
 **Drive it** with `terminal-browser action -- <command>`, which targets the active tab of the browser beside you (the
 `terminal-browser` skill has the full command list). terminal-browser only knows herdr's panes: in the Herdr app
 (`$HC_TERMINAL_ID` set), name the browser on every call, `terminal-browser action --browser <key> -- <command>` and
-`terminal-browser new-tab --browser <key> <url>`, with the key `sh ~/.config/cockpit/herdr/browse.sh --beside` prints. `snapshot -i` lists the elements with refs, then `click @e12`,
+`terminal-browser new-tab --browser <key> <url>`, with the key `sh ~/.config/cockpit/herdr/browse.sh --beside` prints.
+
+<!-- agent: codex -->
+There it also needs `HERDR_PANE_ID` and `HERDR_SOCKET_PATH`: start each such command with
+`eval "$(sh ~/.config/cockpit/herdr/browse.sh --env)";`, which exports this session's.
+<!-- /agent -->
+
+`snapshot -i` lists the elements with refs, then `click @e12`,
 `fill @e3 "text"`, `press Enter`, `get text @e5`, `eval "document.title"`, `wait --load networkidle`,
 `screenshot <path>` to look at the result. Run `terminal-browser action done` after your last action, which clears the
 "agent in control" banner the person sees.
