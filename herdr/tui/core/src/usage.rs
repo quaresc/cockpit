@@ -176,7 +176,8 @@ impl Window {
             "percent": percent, "figure": self.figure(now), "floor": self.floor(now),
             "status": self.status, "status_words": self.status.as_deref().map(status_words),
             "resets_at": self.resets_at, "resets_words": self.resets_at.map(|r| resets_words(r, now)),
-            "length": self.length, "elapsed": elapsed, "ahead": ahead, "warn": self.warn(),
+            // To the percent the bar draws, so a view moves with it rather than every second.
+            "length": self.length, "elapsed": elapsed.map(|e| (e * 100.0).round() / 100.0), "ahead": ahead, "warn": self.warn(),
             "as_of": self.as_of, "as_of_words": format!("as of {}", clock(self.as_of, now)),
             "source": self.source, "source_words": source_words(self.source),
             "state": state.word(), "fresh": self.freshness().json(now),
@@ -2673,6 +2674,7 @@ mod tests {
         let q = quota(&providers(&i, NOW), NOW);
         assert_eq!(q[0]["name"], "5h", "shortest window first");
         assert!((q[0]["elapsed"].as_f64().unwrap() - 0.2).abs() < 1e-9);
+        assert_eq!(quota(&providers(&i, NOW + 1_000), NOW + 1_000)[0]["elapsed"], q[0]["elapsed"], "to the percent the bar draws, not each second");
         assert_eq!((q[0]["ahead"].as_bool(), q[0]["warn"].as_bool()), (Some(true), Some(true)));
         assert_eq!((q[0]["label"].as_str(), q[0]["source"].as_str(), q[0]["state"].as_str()), (Some("Claude 5h"), Some(STATUSLINE), Some("fresh")));
         assert_eq!(q[0]["icon"], "claude", "Herdr's logo for the agent it limits");

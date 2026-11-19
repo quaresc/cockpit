@@ -715,6 +715,13 @@ fn ci_of(ci: &Value, repo: &str, branch: Option<&str>, pr: &Value) -> Value {
     }
 }
 
+/// An agent's time today and its ticket's today and this week, in seconds to the nearest minute: the panel shows
+/// minutes, and the view moves no more often than they do.
+fn time(agent_today: u64, (ticket_today, ticket_week): (u64, u64)) -> Value {
+    let minute = |secs: u64| (secs + 30) / 60 * 60;
+    json!({"agent_today": minute(agent_today), "ticket_today": minute(ticket_today), "ticket_week": minute(ticket_week)})
+}
+
 fn stretches(now: u64) -> Vec<ledger::Stretch> {
     let (_, monday) = ledger::day_and_week_start(now);
     if let Some(world) = term::demo() {
@@ -840,7 +847,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "context": f["context"].as_f64().or(l.context),
             "cost": session.as_deref().and_then(cockpit_core::usage::session_estimate).or(mock["cost"].as_f64()),
             "page": f["page"].as_str().or(mock["page"].as_str()),
-            "time": {"agent_today": totals.agents.get(&l.handle).copied().unwrap_or(0), "ticket_today": ticket_secs.0, "ticket_week": ticket_secs.1},
+            "time": time(totals.agents.get(&l.handle).copied().unwrap_or(0), ticket_secs),
             "snoozed": snoozed, "dismissed": Value::Null, "seen": seen, "unread": unread, "session": session, "interrupted": interrupted,
             "stoppable": stop_keys(agent, &l.status).is_ok(), "interrupt": agent.and_then(|a| a.interrupt.as_ref()).map_or(Value::Null, |keys| json!(keys)),
             "error": if l.status == "failed" { mock["error"].clone() } else { Value::Null },
@@ -2089,6 +2096,12 @@ mod tests {
         assert_eq!(stage("idle", false, false, &json!({"state": "merged"}), &Value::Null, &json!({"files": 2})), "idle");
         assert_eq!(stage("done", false, false, &open, &Value::Null, &Value::Null), "done");
         assert_eq!(stage("done", false, true, &open, &Value::Null, &Value::Null), "review", "opened, it leaves the queue");
+    }
+
+    #[test]
+    fn agent_times_move_by_the_minute_they_are_shown_in() {
+        assert_eq!(time(125, (61, 3_599)), json!({"agent_today": 120, "ticket_today": 60, "ticket_week": 3_600}));
+        assert_eq!(time(125, (61, 3_599)), time(140, (75, 3_610)));
     }
 
     #[test]
