@@ -675,7 +675,9 @@ export default class Sidebar {
     // Each space's terminal lines fold away, one space with its chevron or all of them from the header.
     const byAddress = new Map(this.agents.rows.map((r) => [r.address, r]));
     const folded = new Set(shared("cockpit.spaces.folded") ?? []);
-    const hasTerms = (s) => this.termRows(k, s, ps, byAddress, false).length > 0;
+    // Presence checks inspect pane data; only expanded spaces build terminal elements.
+    const terminalTabs = new Set(ps.filter((p) => p.terminal).map((p) => p.tab));
+    const hasTerms = (s) => (s.tabs ?? []).some((t) => terminalTabs.has(t.id));
     const withLines = ordered.filter((r) => hasTerms(r.s));
     const allFolded = withLines.length > 0 && withLines.every((r) => folded.has(r.s.id));
     const head = SectionHeader("Spaces", {
