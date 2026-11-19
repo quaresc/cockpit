@@ -346,7 +346,10 @@ fn subscribed(sandbox: &Sandbox) -> std::os::unix::net::UnixStream {
 /// Reads what the hub sent until it closes the connection; false when it is still open after `quiet` with nothing new.
 fn closed_by_the_hub(mut stream: std::os::unix::net::UnixStream, quiet: Duration) -> bool {
     use std::io::Read;
-    stream.set_read_timeout(Some(quiet)).unwrap();
+    // macOS refuses socket options (EINVAL) on a connection the other end already shut down.
+    if stream.set_read_timeout(Some(quiet)).is_err() {
+        return true;
+    }
     let mut buf = vec![0; 1 << 16];
     loop {
         match stream.read(&mut buf) {
