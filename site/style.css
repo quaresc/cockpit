@@ -311,7 +311,11 @@ main { display: block; }
 .rows { display: grid; gap: 80px; }
 .row { display: grid; gap: 48px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; }
 .row:nth-child(even) .row-text { order: 2; }
-.row.wide { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.row.wide { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+.row.wide:nth-child(even) { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.row.stack { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+.row.stack .row-text { order: 0; max-width: 46rem; margin: 0 auto; text-align: center; }
+.row .frame.strip { max-width: none; }
 .row-text h3 { font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.2; margin-bottom: 14px; }
 .row-text p { color: var(--muted); font-size: 1.05rem; margin: 0 0 12px; }
 .row-text .fine { color: var(--faint); font-size: 0.9rem; }
@@ -322,7 +326,7 @@ main { display: block; }
 .frame .crop img { position: absolute; left: var(--x); top: var(--y); width: var(--z); max-width: none; height: auto; border-radius: 0; }
 @media (max-width: 860px) {
   .rows { gap: 56px; }
-  .row, .row.wide { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .row, .row.wide, .row.wide:nth-child(even) { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .row:nth-child(even) .row-text { order: 0; }
 }
 
