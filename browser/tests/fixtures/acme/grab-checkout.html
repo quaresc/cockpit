@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout - acme/web</title>
+    <style>
+      body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #1f2933; background: #f5f7fa; }
+      header { position: sticky; top: 0; padding: 12px 24px; background: #102a43; color: #fff; }
+      main { max-width: 560px; margin: 24px auto; padding: 24px; background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; }
+      label, input { display: block; }
+      input { width: 100%; box-sizing: border-box; margin: 4px 0 16px; padding: 8px; border: 1px solid #9fb3c8; border-radius: 4px; }
+      ul { padding-left: 20px; }
+      button { padding: 8px 16px; border: 0; border-radius: 6px; background: #0b6e4f; color: #fff; font: inherit; cursor: pointer; }
+      button.plain { background: #d9e2ec; color: #102a43; }
+      .total { font-weight: 600; }
+      .spacer { height: 900px; }
+    </style>
+  </head>
+  <body>
+    <!-- A page to try design mode on: a sticky header, a form, a list, a web component, a popover and a modal dialog. -->
+    <header id="top">acme/web <a class="back" href="http://localhost:3000/cart?step=2#items" style="color: #fff">Back to cart</a></header>
+    <main id="app" role="main">
+      <h1>Checkout</h1>
+      <form id="checkout" class="checkout-form" onsubmit="return false">
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" placeholder="maya@example.com" />
+        <label for="card-password">Card password</label>
+        <input id="card-password" type="password" name="password" />
+        <ul class="items">
+          <li>Keyboard</li>
+          <li>Mouse</li>
+          <li>Cable</li>
+        </ul>
+        <p class="total">Order total: 42.00 EUR</p>
+        <button class="pay primary" type="submit" aria-label="Pay now" onclick="window.payClicks = (window.payClicks || 0) + 1">Pay now</button>
+        <button class="plain" type="button" popovertarget="help">Help</button>
+        <button class="plain" type="button" onclick="document.getElementById('confirm').showModal()">Review order</button>
+      </form>
+      <acme-coupon></acme-coupon>
+      <div id="help" popover>Ask Sam in support for a hand with payments.</div>
+      <dialog id="confirm">
+        <p>Send the order to Priya for review?</p>
+        <button id="confirm-send" type="button" onclick="this.closest('dialog').close()">Send</button>
+      </dialog>
+      <div class="spacer"></div>
+      <p id="footer-note">Shipping by Leo and Omar's team.</p>
+    </main>
+    <script>
+      customElements.define(
+        "acme-coupon",
+        class extends HTMLElement {
+          connectedCallback() {
+            this.attachShadow({ mode: "open" }).innerHTML = '<div class="coupon"><input class="code" placeholder="Coupon" /> <button class="apply">Apply coupon</button></div>';
+          }
+        },
+      );
+    </script>
+  </body>
+</html>

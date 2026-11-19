@@ -1,0 +1,16 @@
+{
+  "electron": {
+    "version": "44.5.1",
+    "url": "https://github.com/electron/electron/releases/download/v{version}/electron-v{version}-darwin-{arch}.zip",
+    "checksum": {
+      "arm64": "1d75703019bb16461ae65f3081d7e6f5c0b11e901d0ccb5c343bcf7bcdd6435c",
+      "x64": "e567d13833d0e161d7749727355b98643461df3395b537cfa7bdddf8a8bfedff"
+    }
+  },
+  "agentBrowser": {
+    "version": "0.38.1",
+    "url": "https://registry.npmjs.org/agent-browser/-/agent-browser-{version}.tgz",
+    "member": "package/bin/agent-browser-darwin-{arch}",
+    "checksum": "939f050b3d3250e080368364322a897be1f6cbaafab1465acea5ec585f8c62ad62442e363e3b4b701a1a83a4924ce0ff151429a6f3c3bc4e470d8121725be787"
+  }
+}

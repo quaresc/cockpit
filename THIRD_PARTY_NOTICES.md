@@ -169,6 +169,52 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### Orca
+
+- Source: https://github.com/stablyai/orca, commit `49498c3`, under `src/`
+- In cockpit: the Chromium side browser (`browser/`).
+  - The element picker and its notes, `browser/main/grab/`: `scripts.js`, `script-foundation.js`,
+    `script-composed-tree.js`, `script-content.js`, `script-element-context.js`, `script-react.js`, `script-overlay.js`
+    (from `main/browser/element-grab/grab-guest-*.ts` and `shared/browser/element-grab/browser-composed-tree-script.ts`),
+    `types.js`, `payload.js`, `selection.js`, `screenshot.js` (from `shared/browser/element-grab/browser-grab-types.ts`
+    and `main/browser/element-grab/browser-grab-{payload,session-controller,screenshot}.ts`), `markdown.js`,
+    `viewport-bridge.js`, `viewport-report.js` (from `shared/browser/annotations/`), `text.js` and `keys.js` (from the
+    renderer's grab sheet and `main/browser/guest-lifecycle/input/shortcuts/`), with their tests in
+    `browser/tests/grab-*.test.mjs`.
+  - Cookie import, `browser/main/cookies/`: `detect.js`, `key.js`, `decrypt.js`, `snapshot.js`, `chromium.js`,
+    `partition.js`, `firefox.js`, `safari.js`, `failure.js`, `file.js`, `validate.js`, `policy.js`, `plan.js`,
+    `write.js`, `cdp.js`, `replace.js`, `lock.js` (from `main/browser/cookies/`), with their tests in
+    `browser/tests/cookies-*.test.mjs` and the fixture builder `browser/tests/fixtures/cookies/build.mjs`.
+  - `browser/main/viewport.js` (the viewport sizes), and the rules in `browser/main/permissions.js`,
+    `browser/main/profiles.js` and `browser/main/discard.js` (what a page may do, who owns a managed profile, what keeps
+    a tab awake), from `shared/browser/` and `main/browser/`.
+- Modified by cockpit: translated from TypeScript to plain ES modules, cut to macOS, freed of Orca's app (its stores,
+  IPC, i18n and agent sessions), and renamed (`cockpit` in place of `orca` in the markers the page sees). The public
+  suffix library Orca uses for cookie domains is replaced by a short list of multi-label suffixes.
+
+```text
+MIT License
+
+Copyright (c) 2026 Lovecast Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF THE SOFTWARE.
+```
+
 ## ISC License: Lucide
 
 - Source: https://github.com/lucide-icons/lucide

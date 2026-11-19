@@ -35,6 +35,25 @@ jobs:
             xargs -0 -n1 sh -c 'jq empty "$0" || { echo "::error file=$0::not valid JSON"; exit 255; }'
       - run: for f in app/mods/cockpit/*.js; do node --input-type=module --check < "$f" || { echo "$f"; exit 1; }; done
       - run: node --experimental-vm-modules --test app/tests/*.test.mjs
+      # The Chromium side browser's shell has no build step either: every module must parse, and its logic is tested
+      # without Electron.
+      - run: jq empty browser/package.json browser/pins.json
+      - run: for f in browser/main/*.js browser/main/*/*.js browser/ui/*.js; do node --check "$f" || { echo "$f"; exit 1; }; done
+      - run: node --test browser/tests/*.test.mjs
+
+  # The shell end to end in the Electron it pins, on the one system it runs on.
+  browser:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/cockpit-ci/electron
+          key: electron-${{ runner.arch }}-${{ hashFiles('browser/pins.json') }}
+      - run: sh scripts/browser-smoke.sh
 
   plugin:
     runs-on: ubuntu-latest

@@ -47,6 +47,19 @@ notification. `cockpit setup` pins the spaces for the features you picked; `cock
 Each agent session loads the plugin when it starts, so one that was already running keeps the old code after an
 update. `/reload-plugins` in that session picks up the new one; doctor lists every session that is behind.
 
+## The Chromium side browser does not show
+
+`cockpit browser status` says which browser is in use and why, what is installed and whether it runs.
+
+- "runs on macOS only" or "shows in the Herdr app only": herdr's panes and Linux keep terminal-browser.
+- Electron or agent-browser missing → `cockpit browser install`.
+- It runs but the side panel is empty: open the panel on the globe (⌘⌥B). The browser is a window of its own laid over
+  that panel, so it only shows in the cockpit and Cockpit Chat layouts, with the agent's screen in front.
+- It sits in the wrong place: move the pointer over the panel once, which measures it, or turn `browser.dock` off to
+  use it as an ordinary window.
+- What it said is in `~/.cache/cockpit/browser/browser.log`; `cockpit browser quit` ends it, and the next page opened
+  starts it again.
+
 ## Still stuck
 
 Open an issue with the output of `cockpit doctor --all`:

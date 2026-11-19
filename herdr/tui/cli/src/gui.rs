@@ -118,6 +118,7 @@ pub fn register() {
         build: |_, _| cockpit_core::usage::view(cockpit_core::seen::now_ms()),
         act: |_, _| None,
     });
+    crate::browser::hub::register();
     cockpit_core::usage::stream_from(|| cockpit_agents::session::keys().iter().filter_map(|k| cockpit_agents::session::summary(k)).collect());
 }
 

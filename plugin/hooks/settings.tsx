@@ -21,6 +21,7 @@ type Setting = {
 
 const SETTINGS: Setting[] = [
   { key: 'e2e', path: ['e2eBrowser'], label: 'E2E tests run in', values: ['terminal-browser', 'chrome'], names: { 'terminal-browser': 'terminal-browser beside the agent', chrome: 'Claude in Chrome' } },
+  { key: 'browser', path: ['sideBrowser'], label: 'Side browser', values: ['terminal-browser', 'chromium'], names: { 'terminal-browser': 'terminal-browser in a pane', chromium: 'Chromium, docked in the Herdr app (macOS)' } },
   { key: 'idle', path: ['browserIdleMinutes'], label: 'Close browsers out of view', values: [60, 180, 0], names: { 60: 'after 1 h', 180: 'after 3 h', 0: 'never' } },
   { key: 'notifications', path: ['notifications'], label: 'Notifications', values: [true, false], names: { true: 'on', false: 'off' } },
   { key: 'brief', path: ['brief', 'enabled'], label: 'Morning brief', values: [true, false], names: { true: 'on', false: 'off' } },
@@ -31,7 +32,7 @@ const SETTINGS: Setting[] = [
 ]
 
 const ALIASES: Record<string, string | boolean | number> = {
-  on: true, off: false, true: true, false: false, terminal: 'terminal', chrome: 'chrome', '1h': 60, '3h': 180, never: 0, comfortable: 'comfortable', compact: 'compact',
+  on: true, off: false, true: true, false: false, terminal: 'terminal-browser', 'terminal-browser': 'terminal-browser', chrome: 'chrome', chromium: 'chromium', '1h': 60, '3h': 180, never: 0, comfortable: 'comfortable', compact: 'compact',
 }
 
 function valueOf(config: Config, setting: Setting) {

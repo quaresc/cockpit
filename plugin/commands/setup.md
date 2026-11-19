@@ -21,7 +21,7 @@ say to add it.
 (GitHub through `gh`, nothing to map, done in a minute — recommended for a first setup) or **"Pick what I want"**.
 On the quick answer, enable the PRs inbox and the routines space, skip every other feature, skip the connector
 mapping of step 5 and every token question, and say that `cockpit setup` adds the rest any time. Otherwise, ask
-with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, tickets (naming the ticket connector found), CI runs (GitHub checks, or the CI connector found), meetings (naming the calendar connector found), unread mail (naming the mail connector found, e.g. Gmail), deploys and preview environments through the platform connector, E2E tests in terminal-browser beside the agent, for an agent testing a front change in a browser you watch (installs it with `brew install --cask terminal-browser` when missing, then runs `terminal-browser config set render.transport auto` and `terminal-browser config set render.fps 60`; on macOS with Ghostty older than 1.4.0, asks me to update it (Ghostty → Check for Updates…), since older builds refuse the frame files herdr hands it). Without it, E2E tests run in Claude in Chrome. Links and footer chips always open in the default browser. Mark the ones whose connector is missing as such in their description.
+with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, tickets (naming the ticket connector found), CI runs (GitHub checks, or the CI connector found), meetings (naming the calendar connector found), unread mail (naming the mail connector found, e.g. Gmail), deploys and preview environments through the platform connector, E2E tests in terminal-browser beside the agent, for an agent testing a front change in a browser you watch (installs it with `brew install --cask terminal-browser` when missing, then runs `terminal-browser config set render.transport auto` and `terminal-browser config set render.fps 60`; on macOS with Ghostty older than 1.4.0, asks me to update it (Ghostty → Check for Updates…), since older builds refuse the frame files herdr hands it). Without it, E2E tests run in Claude in Chrome. When I picked it and I use the Herdr app on macOS, ask whether pages should show in cockpit's own Chromium window docked in the side panel instead (a browser per agent session, DevTools, elements I point at for that agent); if so set `sideBrowser: "chromium"` and run `cockpit browser install`, which downloads Electron and agent-browser once, about 130 MB. Links and footer chips always open in the default browser. Mark the ones whose connector is missing as such in their description.
 
 5. **Values.** Propose each from what you can detect, and ask only what you cannot settle:
    - `reposDir`: the folder holding the git checkouts; look for one with several `*/.git` among `~/code`, `~/src`, `~/dev`, `~/Work/*`, `~/projects`.
@@ -80,6 +80,7 @@ with AskUserQuestion, multi-select, preselecting nothing: GitHub PRs inbox, tick
   "notifications": true,
   "e2eBrowser": "terminal-browser",
   "browserIdleMinutes": 60,
+  "sideBrowser": "terminal-browser",
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "agents": { "default": "claude" },

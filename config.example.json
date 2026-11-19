@@ -44,6 +44,7 @@
   "fetcher": true,
   "e2eBrowser": "terminal-browser",
   "browserIdleMinutes": 60,
+  "sideBrowser": "terminal-browser",
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "runbookTools": [],

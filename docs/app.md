@@ -347,7 +347,7 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
 showing the terminal: a `screen` stack over a 56px `chat-top` bar, beside the cockpit layout's own sidebar (the same
 `workspace-chrome` brand row, `sidebar` view and footer), which ⌘B opens and closes. Its agent screen is a row of the
 `view` stack (`chat` and `tab`) beside the same `panel` the cockpit layout has, so `show`'s charts, the review screen,
-files and changes are ⌘⌥B away in both. Its panel also has `browser`, a block of the tab in front: a terminal-browser
+files and changes are ⌘⌥B away in both, and so is `web`, the Chromium side browser's slot. Its panel also has `browser`, a block of the tab in front: a terminal-browser
 split beside the agent opens the panel there, at least 600px wide, with its tab zoomed on the browser (`browser.js`,
 on the top bar's clock), and the chat's box keeps the keyboard. The panel put on another child or closed, the Tab
 screen, or another layout gives the tab back unzoomed; the Tab screen hands the browser back to the panel on the way
@@ -1111,6 +1111,24 @@ Herdr app. In the app it writes no herdr tokens: what the TUI's sidebar rows sho
   the app's socket (`HERDR_SOCKET_PATH`); `cockpit browse --env` prints them as exports, and the plugin sets them for a
   Claude Code session at its start. A session the window shows nowhere gets the reason and the default browser.
   Cockpit Chat shows that browser in its side panel (below).
+- **The Chromium side browser** (`sideBrowser: chromium`, macOS; [browser.md](browser.md) is its guide): cockpit's own
+  Electron shell (`browser/`), one process the hub starts (`cli/src/browser/hub.rs`) and every command reaches on
+  `~/.cache/cockpit/browser.sock`, one JSON request per line (`browser/main/protocol.js` lists the ops). A browser
+  belongs to a session and is named by its owner, the session's app terminal (`app:t3`). `cockpit browse` goes there
+  instead of terminal-browser (`core/src/browser.rs` `engine_for`): `act browser open {url, owner, session, cwd}` starts
+  the shell and opens the page in that session's browser, and `cockpit browse action` pins agent-browser to its active
+  tab on Chromium's debugging port. The window is docked from three sides. The `web` view (`web.js`, the `web` child of
+  `panel-body` in both layouts) only draws the slot and writes its size to the shared store (`cockpit.web.size`). The
+  sidebar, which is in every layout, follows it (`followBrowser`): ten times a second it tells the hub the slot with
+  `act browser slot` when it changed (its rectangle inside the window, whether the panel shows it, whether something of
+  cockpit's covers it, the terminal in front), one request at a time, and it moves the panel with the session in front
+  (`panelSteps`). The hub adds the Herdr app's process, the owner, the worktree of the folder in focus and its servers;
+  the shell follows the Herdr window on screen through `cockpit browser track` and lays its window on the slot, one
+  step above the Herdr window, when the session in front has a browser. The hub's `browser` view (`{enabled, installed,
+  docked, running, run, shown, frame, current, tabs: {owner: count}, opened: {owner, at}}`) is what the slot draws: the
+  shell's last frame while its window is hidden, and `opened` is what brings the panel to a page an agent opens. Notes
+  a person sends from the page arrive as the shell's `grab.send {owner, markdown}` event, and the hub types them to
+  that owner through `deliver`. The hub closes the browsers of sessions whose terminal is gone.
 - **Open in editor** (`editor.js`, `openInEditor(folder, machine)`) and **fork a session** (`agents fork`) are in the
   palette and on the pane header (`{app: "pane"}`, hover: editor, fork to a tab, split, zoom, close).
 
@@ -1707,6 +1725,9 @@ wide, into `docs/app/` (`OUT`, `WIDTHS`, `THEMES` change that). It brings the wi
 
 - The question parser and its key sequences (`herdr/tui/agents/src/prompt.rs`) are ported from
   [herdr-relevo](https://github.com/johnny4young/herdr-relevo)'s `lib/prompt.js` (Apache-2.0).
+- The Chromium side browser's element picker, its notes' Markdown, its cookie import, its viewport sizes and its rules
+  for permissions and sleeping tabs are ported from [Orca](https://github.com/stablyai/orca) (MIT); see
+  `THIRD_PARTY_NOTICES.md`. Its per-worktree tabs, its profiles and its design mode follow Orca's browser.
 - The recap, the stages by whose move it is and the recap popup's layout follow
   [herdr-recap](https://github.com/mrolafsson/herdr-recap) (MIT).
 - The monitor's segmented meters and history strips follow [herdr-vitals](https://github.com/mrolafsson/herdr-vitals)

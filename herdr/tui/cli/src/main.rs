@@ -4,6 +4,7 @@
 mod act;
 mod actions;
 mod browse;
+mod browser;
 mod connect;
 mod connector;
 mod doctor;
@@ -91,7 +92,8 @@ const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agent
     cockpit doctor [--all]                     checks every part of cockpit: what is wrong, or with --all every check
     cockpit doctor --json [--cached]           the same checks as data, with getting started and the agents (--cached:
                                                the last report when under ten minutes old)
-    cockpit browse ...                         a page in terminal-browser beside a pane (cockpit browse for more)
+    cockpit browse ...                         a page in the side browser beside a pane (cockpit browse for more)
+    cockpit browser ...                        the Chromium side browser: install, status, profiles (cockpit browser for more)
     cockpit shots ...                          screenshots at phone, tablet and desktop sizes (cockpit shots for more)
     cockpit store ...                          the documents the hub keeps and its leases, for the mod (cockpit store for more)
     cockpit routine run <slug>                 a routine run now and waited for: how it went, what it called, its output
@@ -160,6 +162,7 @@ fn main() {
         "options" => options::main(rest),
         "space" => space::main(rest),
         "browse" => browse::main(rest),
+        "browser" => browser::main(rest),
         "shots" => shots::main(rest),
         "store" => store::main(rest),
         "routine" => routine::main(rest),

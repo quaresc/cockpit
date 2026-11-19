@@ -1,0 +1,31 @@
+[
+  {
+    "domain": ".acme.example",
+    "name": "session",
+    "value": "maya-session",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true,
+    "sameSite": "lax",
+    "expirationDate": 4102444800
+  },
+  {
+    "domain": "api.acme.example",
+    "name": "token",
+    "value": "api-token",
+    "secure": 1,
+    "httpOnly": 1,
+    "sameSite": "None"
+  },
+  {
+    "domain": "app.acme.example",
+    "name": "__Host-chips",
+    "value": "partitioned",
+    "secure": true,
+    "sameSite": "no_restriction",
+    "partitionKey": { "topLevelSite": "https://acme.example", "hasCrossSiteAncestor": true }
+  },
+  { "domain": "acme.example", "name": "missing-value" },
+  { "name": "no-domain", "value": "x" },
+  "not-an-object"
+]

@@ -195,7 +195,8 @@ export async function placeHere($: $) {
 
 export type Browser = { tabs?: { url: string; title?: string; active?: boolean }[] }
 
-// The terminal-browser browsers in this session's tab (an agent's checks, browser views); none outside herdr and the app.
+// The browsers beside this session (an agent's checks, browser views): terminal-browsers in its tab, or the Chromium
+// side browser's tabs for its worktree; none outside herdr and the app.
 export async function browsersBeside($: $, here: Here): Promise<Browser[]> {
   if (here.frontend === 'app') {
     const cockpit = await cockpitCommand($)
@@ -223,5 +224,5 @@ export async function pageContext($: $) {
   if (!page || page.url === toldPage) return []
   toldPage = page.url
   return [`The browser beside this conversation shows "${page.title || page.url}" at ${page.url}. ` +
-    'When the person says "this page" they mean it; read or drive it with `terminal-browser action -- snapshot` (the side-browser skill).']
+    'When the person says "this page" they mean it; read or drive it with `sh ~/.config/cockpit/herdr/browse.sh action -- snapshot -i` (the side-browser skill).']
 }
