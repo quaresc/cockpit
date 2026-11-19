@@ -314,6 +314,7 @@ main { display: block; }
 .row.wide { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
 .row.wide:nth-child(even) { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
 .row.stack { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+.rows + .more { max-width: 46rem; margin: 64px auto 0; text-align: center; color: var(--muted); font-size: 1.1rem; }
 .row.stack .row-text { order: 0; max-width: 46rem; margin: 0 auto; text-align: center; }
 .row .frame.strip { max-width: none; }
 .row-text h3 { font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.2; margin-bottom: 14px; }
