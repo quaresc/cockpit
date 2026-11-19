@@ -36,10 +36,10 @@
 <main>
   <section class="hero">
     <div class="wrap">
-      <a class="pill" href="#why"><b>New in 1.1</b> A real browser beside each agent: click what is wrong, the agent gets it →</a>
+      <a class="pill" href="#why"><b>New in 1.1</b> A real browser inside Herdr, beside each agent →</a>
       <h1>See every coding agent, <span class="grad">and what it is working on</span></h1>
       <p class="sub">Claude Code, Codex and the other agents Herdr runs, each shown with its ticket, PR, CI run and deploy, and which of them
-        are waiting for an answer. Answer them from the sidebar, check their page in a real browser, and keep your reviews, meetings and releases one key away.</p>
+        are waiting for an answer. Your inbox, mail, runbooks and meetings sit in the same window, and a real browser is docked beside each agent.</p>
       <div class="buttons">
         <a class="button primary" href="#install">Install</a>
         <a class="button" href="#demo" data-play><svg class="i play" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>Watch the demo</a>
@@ -69,19 +69,28 @@
         <h2>Three things you only get here</h2>
       </div>
       <div class="rows">
-        <div class="row">
+        <div class="row wide">
           <div class="row-text">
-            <h3>Agents' questions come to you</h3>
-            <p>When an agent asks something, the question shows in the sidebar with its choices. Pick one and the agent goes on: you never look for its tab.</p>
-            <p>The bar under the agents counts who needs you, who works, what is ready and what is done.</p>
+            <h3>Your day, next to your agents</h3>
+            <p>Inbox, mail, runbooks, to-dos, meetings and the release monitor are views of the same window, one key each.</p>
+            <p>Home sums them up: the reviews waiting for you, your PRs to fix, what is next on your calendar, and which agent to answer first.</p>
           </div>
-          <figure class="frame narrow">
-            <picture class="crop" style="--ar:1/1;--z:250%;--x:0%;--y:-45.3%"><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img src="img/app/browser-dark.png" alt="The sidebar with three agents' questions and their choices, beside an agent at work" width="1600" height="1000" loading="lazy"></picture>
+          <figure class="frame">
+            <picture class="crop" style="--ar:130/96;--z:123.1%;--x:-23.1%;--y:-4.2%"><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="Home: reviews, PRs, the next meetings, and the inbox, mail, runbooks, to-do, releases and routines summed up in one list" width="1600" height="1000" loading="lazy"></picture>
+          </figure>
+        </div>
+        <div class="row stack">
+          <div class="row-text">
+            <h3>Every session keeps its links</h3>
+            <p>The bar under an agent shows its branch, then one button per page it works with: the PR, the ticket, the CI run, the deploy, and what its conversation cites, such as a design or a Slack thread. Each is named after its tool and opens in a click.</p>
+          </div>
+          <figure class="frame strip">
+            <picture><source srcset="img/app/links-light.png" media="(prefers-color-scheme: light)"><img src="img/app/links-dark.png" alt="The status bar of a session: its branch, then GitHub, Linear, CI, Figma, Slack and Datadog buttons" width="1530" height="74" loading="lazy"></picture>
           </figure>
         </div>
         <div class="row wide">
           <div class="row-text">
-            <h3>A real browser beside each agent<span class="badge new">New</span></h3>
+            <h3>A real browser inside Herdr<span class="badge new">New</span></h3>
             <p>Each session gets a Chromium of its own, docked in the side panel, with your sign-ins. The agent tests its page there while you watch.</p>
             <p>Click an element and write what should change. The agent gets its selector, its source file and a picture; leave several notes and send them together.</p>
             <p class="fine">Herdr app on macOS, turned on in Cockpit settings. Everywhere else the browser runs in a terminal pane.</p>
@@ -90,17 +99,8 @@
             <picture class="crop" style="--ar:130/94;--z:123.1%;--x:-23.1%;--y:-3.2%"><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img src="img/app/browser-dark.png" alt="An agent in its terminal and, beside it, its page in a docked browser with a note being written on the Search button" width="1600" height="1000" loading="lazy"></picture>
           </figure>
         </div>
-        <div class="row">
-          <div class="row-text">
-            <h3>Read an agent as a conversation<span class="badge new">New</span></h3>
-            <p>Cockpit Chat is a second layout: one agent at a time, with its repo, branch, PR and CI on top and each turn folded to what it did.</p>
-            <p>Permissions are answered in place, and Claude sessions can run there with no terminal at all. Start work turns a prompt, a ticket or a PR into a worktree and an agent.</p>
-          </div>
-          <figure class="frame">
-            <picture class="crop" style="--ar:46/47;--z:173.9%;--x:-54.35%;--y:-6.38%"><source srcset="img/app/chat-light.png" media="(prefers-color-scheme: light)"><img src="img/app/chat-dark.png" alt="Cockpit Chat: one agent's turn with its tool calls, and a permission answered in place" width="1600" height="1000" loading="lazy"></picture>
-          </figure>
-        </div>
       </div>
+      <p class="more">And many more features: Cockpit Chat, to-dos, a release monitor, routines, a command palette, recaps, usage limits and notifications. <a href="#features">See them all</a></p>
     </div>
   </section>
 
@@ -140,7 +140,7 @@
       </div>
       <div class="features" data-show="app">
         <article class="fcard only-app">
-          <a class="fshot" href="desktop.html#home" data-note="App only"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="Home dashboard" width="1600" height="1025" loading="lazy"></picture></a>
+          <a class="fshot" href="desktop.html#home" data-note="App only"><picture class="half-app" style="--z:128%;--x:-24.5%;--y:-4%"><source srcset="img/app/home-light.png" media="(prefers-color-scheme: light)"><img src="img/app/home-dark.png" alt="Home dashboard" width="1600" height="1025" loading="lazy"></picture></a>
           <div class="fbody"><h3>Home dashboard</h3><p>KPI tiles, the next move, agents by stage; Up next, Apps and Activity.</p><span class="where">Herdr APP</span></div>
         </article>
         <article class="fcard">
@@ -184,7 +184,7 @@
           <div class="fbody"><h3>Guided walkthrough</h3><p>The diff explained in reading order, steps you can follow, untested parts called out.</p><span class="where">Herdr APP</span></div>
         </article>
         <article class="fcard">
-          <a class="fshot" href="desktop.html#inbox"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img src="img/app/inbox-dark.png" alt="Inbox" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/inbox.svg" alt="Inbox" width="1044" height="963" loading="lazy"></a>
+          <a class="fshot" href="desktop.html#inbox"><picture class="half-app" style="--z:128%;--x:-24.5%;--y:-4%"><source srcset="img/app/inbox-light.png" media="(prefers-color-scheme: light)"><img src="img/app/inbox-dark.png" alt="Inbox" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/inbox.svg" alt="Inbox" width="1044" height="963" loading="lazy"></a>
           <div class="fbody"><h3>Inbox</h3><p>Alerts, reviews, your PRs and tickets by kind; merge, or start an agent on one.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard">
@@ -196,7 +196,7 @@
           <div class="fbody"><h3>Every agent at once</h3><p>Agents by stage with their question and recap, or what one did while you were away.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard">
-          <a class="fshot" href="desktop.html#runbook"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/runbook-light.png" media="(prefers-color-scheme: light)"><img src="img/app/runbook-dark.png" alt="Runbook" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/runbook-done.svg" alt="Runbook" width="1212" height="679" loading="lazy"></a>
+          <a class="fshot" href="desktop.html#runbook"><picture class="half-app" style="--z:128%;--x:-24.5%;--y:-4%"><source srcset="img/app/runbook-light.png" media="(prefers-color-scheme: light)"><img src="img/app/runbook-dark.png" alt="Runbook" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/runbook-done.svg" alt="Runbook" width="1212" height="679" loading="lazy"></a>
           <div class="fbody"><h3>Runbook</h3><p>The steps left to ship a ticket, each with its PR, deploy or command.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard">
@@ -204,11 +204,11 @@
           <div class="fbody"><h3>To-do</h3><p>Your list, with the tickets and links it mentions.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard">
-          <a class="fshot" href="desktop.html#meetings"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/meetings-light.png" media="(prefers-color-scheme: light)"><img src="img/app/meetings-dark.png" alt="Meetings" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/meetings.svg" alt="Meetings" width="842" height="435" loading="lazy"></a>
+          <a class="fshot" href="desktop.html#meetings"><picture class="half-app" style="--z:128%;--x:-24.5%;--y:-4%"><source srcset="img/app/meetings-light.png" media="(prefers-color-scheme: light)"><img src="img/app/meetings-dark.png" alt="Meetings" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/meetings.svg" alt="Meetings" width="842" height="435" loading="lazy"></a>
           <div class="fbody"><h3>Meetings</h3><p>Your week, with join and a brief prepared before each one.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard only-app">
-          <a class="fshot" href="desktop.html#mail" data-note="App shot"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/mail-light.png" media="(prefers-color-scheme: light)"><img src="img/app/mail-dark.png" alt="Mail" width="1600" height="1025" loading="lazy"></picture></a>
+          <a class="fshot" href="desktop.html#mail" data-note="App shot"><picture class="half-app" style="--z:128%;--x:-24.5%;--y:-4%"><source srcset="img/app/mail-light.png" media="(prefers-color-scheme: light)"><img src="img/app/mail-dark.png" alt="Mail" width="1600" height="1025" loading="lazy"></picture></a>
           <div class="fbody"><h3>Mail<span class="badge">opt-in</span></h3><p>Your inbox, unread first, read whole beside the list; reply, archive or mark read.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard">

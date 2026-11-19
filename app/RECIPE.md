@@ -6,8 +6,8 @@ are one key away.
 
 ![Cockpit](preview.png)
 
-The preview shows the real window on demo data: agents' questions in the sidebar, an agent at work, and its page in
-the Chromium side browser with a note being written on it.
+The preview shows the real window on demo data: an agent with its page in the Chromium side browser, the links of
+its session from the status bar, and the inbox, mail, runbook and meetings views.
 
 Works with Claude Code, Codex and the other agents Herdr runs. The layout needs the
 [cockpit](https://github.com/quaresc/cockpit) app for its data; without it, Home shows how to install it.
