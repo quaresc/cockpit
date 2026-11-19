@@ -5,6 +5,22 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## Unreleased
+
+- New: a Chromium side browser for the Herdr app on macOS, docked in the side panel of both layouts, with tabs, an
+  address bar with history, find, DevTools, phone and tablet sizes and downloads. Choose it in Cockpit settings, Apps,
+  Side browser; terminal-browser stays the default.
+- New: each session has a browser of its own. It shows when that session is in front, keeps its tabs, and closes when
+  the session ends.
+- New: point at the page for the agent. Pick an element and ask about it, or leave numbered notes on several and send
+  them together, each with its selector, its source file and a picture. They go to the session the browser belongs to.
+- New: browser profiles keep sign-ins apart, one for all, one per repo or one per worktree, and import cookies from
+  Chrome, Arc, Brave, Edge, Firefox, Safari and others.
+- New: agents drive the Chromium browser with the same side-browser commands as terminal-browser.
+- New: the sidebar leads with the tab's title, and Cockpit Chat shows pasted images as thumbnails (#71).
+- Fix: the hub lets go of subscribers that went away instead of filling its memory (#53).
+- Fix: the hub sends a view only when what its subscriber reads changed (#54).
+
 ## 1.0.1 (2026-11-18)
 
 - Fix: on Herdr 0.1.12 the window no longer says "Hub not running" while the hub runs (#67).
