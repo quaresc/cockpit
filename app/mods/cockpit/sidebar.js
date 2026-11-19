@@ -6,6 +6,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run, shared, setShared, focused, spaces, agents, machines, hc, panes, terminals, setAgentOrder, notify, openOverlay, window as win, readTextFile, exec } from "herdr";
 import * as hub from "./hub.js";
+import { followBrowser } from "./web.js";
 import { deliver } from "./notify.js";
 import { rowsOf, countsOf, agentStatus, needing } from "./fleet.js";
 import { show, showWork, showPanes, screens, layoutName } from "./screens.js";
@@ -119,6 +120,8 @@ export default class Sidebar {
         await hub.sleep(cx, 5 * 60 * 1000);
       }
     });
+    // The sidebar is in every layout: it is where a page an agent opens brings the side panel to the browser.
+    this.web = followBrowser(cx);
     const views = Object.entries(BADGE_FIELDS).map(([name, pick]) => ({ name, pick }));
     this.sub = hub.subscribe(cx, { views, notify: true }, (m, cx) => {
       if (m.view) this.counts[m.view] = appBadge(m.view, m.value);
@@ -130,6 +133,7 @@ export default class Sidebar {
   close() {
     this.unlend?.();
     this.sub?.stop();
+    this.web?.stop();
     this.agents.stop();
   }
 

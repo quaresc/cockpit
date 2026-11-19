@@ -36,10 +36,10 @@
 <main>
   <section class="hero">
     <div class="wrap">
-      <a class="pill" href="desktop.html#mail"><b>New in 0.38</b> A Mail space: what needs you, above the updates →</a>
+      <a class="pill" href="#why"><b>New in 1.1</b> A real browser beside each agent: click what is wrong, the agent gets it →</a>
       <h1>See every coding agent, <span class="grad">and what it is working on</span></h1>
       <p class="sub">Claude Code, Codex and the other agents Herdr runs, each shown with its ticket, PR, CI run and deploy, and which of them
-        are waiting for an answer. Your reviews, runbooks, meetings and releases are one key away.</p>
+        are waiting for an answer. Answer them from the sidebar, check their page in a real browser, and keep your reviews, meetings and releases one key away.</p>
       <div class="buttons">
         <a class="button primary" href="#install">Install</a>
         <a class="button" href="#demo" data-play><svg class="i play" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>Watch the demo</a>
@@ -62,7 +62,49 @@
     </div>
   </section>
 
-  <section class="section" id="how">
+  <section class="section" id="why">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Why cockpit</span>
+        <h2>Three things you only get here</h2>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <h3>Agents' questions come to you</h3>
+            <p>When an agent asks something, the question shows in the sidebar with its choices. Pick one and the agent goes on: you never look for its tab.</p>
+            <p>The bar under the agents counts who needs you, who works, what is ready and what is done.</p>
+          </div>
+          <figure class="frame narrow">
+            <picture class="crop" style="--ar:1/1;--z:250%;--x:0%;--y:-45.3%"><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img src="img/app/browser-dark.png" alt="The sidebar with three agents' questions and their choices, beside an agent at work" width="1600" height="1000" loading="lazy"></picture>
+          </figure>
+        </div>
+        <div class="row wide">
+          <div class="row-text">
+            <h3>A real browser beside each agent<span class="badge new">New</span></h3>
+            <p>Each session gets a Chromium of its own, docked in the side panel, with your sign-ins. The agent tests its page there while you watch.</p>
+            <p>Click an element and write what should change. The agent gets its selector, its source file and a picture; leave several notes and send them together.</p>
+            <p class="fine">Herdr app on macOS, turned on in Cockpit settings. Everywhere else the browser runs in a terminal pane.</p>
+          </div>
+          <figure class="frame">
+            <picture class="crop" style="--ar:130/94;--z:123.1%;--x:-23.1%;--y:-3.2%"><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img src="img/app/browser-dark.png" alt="An agent in its terminal and, beside it, its page in a docked browser with a note being written on the Search button" width="1600" height="1000" loading="lazy"></picture>
+          </figure>
+        </div>
+        <div class="row">
+          <div class="row-text">
+            <h3>Read an agent as a conversation<span class="badge new">New</span></h3>
+            <p>Cockpit Chat is a second layout: one agent at a time, with its repo, branch, PR and CI on top and each turn folded to what it did.</p>
+            <p>Permissions are answered in place, and Claude sessions can run there with no terminal at all. Start work turns a prompt, a ticket or a PR into a worktree and an agent.</p>
+          </div>
+          <figure class="frame">
+            <picture class="crop" style="--ar:46/47;--z:173.9%;--x:-54.35%;--y:-6.38%"><source srcset="img/app/chat-light.png" media="(prefers-color-scheme: light)"><img src="img/app/chat-dark.png" alt="Cockpit Chat: one agent's turn with its tool calls, and a permission answered in place" width="1600" height="1000" loading="lazy"></picture>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" id="how">
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">How it works</span>
@@ -85,7 +127,7 @@
     </div>
   </section>
 
-  <section class="section alt" id="features">
+  <section class="section" id="features">
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Features</span>
@@ -105,9 +147,21 @@
           <a class="fshot" href="desktop.html#agents"><picture class="half-app" style="--z:100%;--x:0%;--y:0%"><source srcset="img/app/work-light.png" media="(prefers-color-scheme: light)"><img src="img/app/work-dark.png" alt="Agents beside their work" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/sidebar.svg" alt="Agents beside their work" width="372" height="578" loading="lazy"></a>
           <div class="fbody"><h3>Agents beside their work</h3><p>Questions answered in place; ticket, branch, PR and CI on every agent.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
+        <article class="fcard only-app">
+          <a class="fshot" href="desktop.html#browser" data-note="TUI: in a terminal pane"><picture class="half-app" style="--z:200%;--x:-100%;--y:-2%"><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img src="img/app/browser-dark.png" alt="Browser beside the agent" width="1600" height="1000" loading="lazy"></picture></a>
+          <div class="fbody"><h3>Browser beside the agent<span class="badge new">New</span></h3><p>A Chromium per session, docked in the side panel: tabs, DevTools, phone sizes, your sign-ins.</p><span class="where">Herdr APP · macOS</span></div>
+        </article>
+        <article class="fcard only-app">
+          <a class="fshot" href="desktop.html#notes" data-note="App only"><picture class="half-app" style="--z:230%;--x:-124%;--y:-63%"><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img src="img/app/browser-dark.png" alt="Notes on the page" width="1600" height="1000" loading="lazy"></picture></a>
+          <div class="fbody"><h3>Notes on the page<span class="badge new">New</span></h3><p>Click an element, write what should change; the agent gets the selector, the file and a picture.</p><span class="where">Herdr APP · macOS</span></div>
+        </article>
+        <article class="fcard only-app">
+          <a class="fshot" href="desktop.html#chat" data-note="App only"><picture class="half-app" style="--z:128%;--x:-27.5%;--y:-4%"><source srcset="img/app/chat-light.png" media="(prefers-color-scheme: light)"><img src="img/app/chat-dark.png" alt="Cockpit Chat" width="1600" height="1000" loading="lazy"></picture></a>
+          <div class="fbody"><h3>Cockpit Chat<span class="badge new">New</span></h3><p>One agent as a conversation, turns folded, permissions answered in place; no terminal needed.</p><span class="where">Herdr APP</span></div>
+        </article>
         <article class="fcard">
-          <a class="fshot" href="desktop.html#show"><picture class="half-app" style="--z:170%;--x:-70%;--y:-7%"><source srcset="img/app/show-light.png" media="(prefers-color-scheme: light)"><img src="img/app/show-dark.png" alt="Charts, drawn unaskedNew" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/show.svg" alt="Charts, drawn unaskedNew" width="1296" height="679" loading="lazy"></a>
-          <div class="fbody"><h3>Charts, drawn unasked<span class="badge new">New</span></h3><p>Figure tiles, area, donut and stacked bars beside the session.</p><span class="where">Herdr APP · Herdr TUI</span></div>
+          <a class="fshot" href="desktop.html#show"><picture class="half-app" style="--z:170%;--x:-70%;--y:-7%"><source srcset="img/app/show-light.png" media="(prefers-color-scheme: light)"><img src="img/app/show-dark.png" alt="Charts, drawn unasked" width="1600" height="1025" loading="lazy"></picture><img class="half-tui tui" src="img/show.svg" alt="Charts, drawn unasked" width="1296" height="679" loading="lazy"></a>
+          <div class="fbody"><h3>Charts, drawn unasked</h3><p>Figure tiles, area, donut and stacked bars beside the session.</p><span class="where">Herdr APP · Herdr TUI</span></div>
         </article>
         <article class="fcard only-app">
           <a class="fshot" href="desktop.html#blueprint" data-note="TUI: drawn as text"><picture class="half-app" style="--z:170%;--x:-70%;--y:-28%"><source srcset="img/app/blueprint-light.png" media="(prefers-color-scheme: light)"><img src="img/app/blueprint-dark.png" alt="Live blueprint" width="1600" height="1025" loading="lazy"></picture></a>
@@ -181,7 +235,7 @@
     </div>
   </section>
 
-  <section class="section" id="tour">
+  <section class="section alt" id="tour">
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Tour</span>
@@ -192,6 +246,8 @@
       <div class="tabs" role="tablist" aria-label="Screens">
         <button role="tab" id="t-home" aria-controls="p-home" aria-selected="true">Home</button>
         <button role="tab" id="t-work" aria-controls="p-work" aria-selected="false" tabindex="-1">Work</button>
+        <button role="tab" id="t-browser" aria-controls="p-browser" aria-selected="false" tabindex="-1">Browser</button>
+        <button role="tab" id="t-chat" aria-controls="p-chat" aria-selected="false" tabindex="-1">Chat</button>
         <button role="tab" id="t-show" aria-controls="p-show" aria-selected="false" tabindex="-1">Charts</button>
         <button role="tab" id="t-blueprint" aria-controls="p-blueprint" aria-selected="false" tabindex="-1">Blueprint</button>
         <button role="tab" id="t-inbox" aria-controls="p-inbox" aria-selected="false" tabindex="-1">Inbox</button>
@@ -207,6 +263,18 @@
         <figure class="frame">
           <picture><source srcset="img/app/work-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/work-dark.png" alt="An agent at work in its terminal card" width="1600" height="1025" loading="lazy"></picture>
           <figcaption><b>Work.</b> The agent in a floating card, the questions waiting on you beside it.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-browser" aria-labelledby="t-browser">
+        <figure class="frame">
+          <picture><source srcset="img/app/browser-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/browser-dark.png" alt="The agent's page in a docked browser, a note being written on it" width="1600" height="1000" loading="lazy"></picture>
+          <figcaption><b>Browser.</b> The agent's page beside it; click an element to tell the agent what to change.</figcaption>
+        </figure>
+      </div>
+      <div class="panel" role="tabpanel" id="p-chat" aria-labelledby="t-chat">
+        <figure class="frame">
+          <picture><source srcset="img/app/chat-light.png" media="(prefers-color-scheme: light)"><img class="app-shot" src="img/app/chat-dark.png" alt="Cockpit Chat on one agent, with a permission to answer" width="1600" height="1000" loading="lazy"></picture>
+          <figcaption><b>Chat.</b> One agent as a conversation, its permission answered in place.</figcaption>
         </figure>
       </div>
       <div class="panel" role="tabpanel" id="p-show" aria-labelledby="t-show">
@@ -230,7 +298,7 @@
     </div>
   </section>
 
-  <section class="section alt" id="halves">
+  <section class="section" id="halves">
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">Two ways to run it</span>
@@ -248,6 +316,8 @@
               <li><svg class="i"><use href="#i-check"/></svg><span>Home dashboard with the next move</span></li>
               <li><svg class="i"><use href="#i-check"/></svg><span>Sidebar: questions answered in place, agents by ticket</span></li>
               <li><svg class="i"><use href="#i-check"/></svg><span>Side panel per agent: documents, review, runbook, files</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>A Chromium browser docked beside each agent (macOS)</span></li>
+              <li><svg class="i"><use href="#i-check"/></svg><span>Cockpit Chat: one agent read as a conversation</span></li>
               <li><svg class="i"><use href="#i-check"/></svg><span>Buttons, hover cards, right-click menus, <kbd>⌘</kbd> keys</span></li>
             </ul>
             <a class="button" href="desktop.html">Explore the app <svg class="i"><use href="#i-arrow"/></svg></a>
@@ -273,7 +343,7 @@
     </div>
   </section>
 
-  <section class="section" id="install">
+  <section class="section alt" id="install">
     <div class="wrap install">
       <div>
         <span class="eyebrow">Install</span>
@@ -311,7 +381,7 @@
     </div>
   </section>
 
-  <section class="section alt" id="faq">
+  <section class="section" id="faq">
     <div class="wrap">
       <div class="section-head">
         <span class="eyebrow">FAQ</span>

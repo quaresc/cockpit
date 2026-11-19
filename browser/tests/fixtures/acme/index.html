@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>acme web — orders</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 32px; color: #1f1e1c; background: #faf9f6; }
+      .card { border: 1px solid #dedbd5; border-radius: 10px; padding: 16px; margin: 0 0 12px; background: #fff; }
+      .tall { height: 1600px; }
+      button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid #2f6f4f; background: #2f6f4f; color: #fff; }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">Orders</h1>
+    <form class="card" id="search">
+      <label for="q">Customer</label>
+      <input id="q" name="q" placeholder="Maya, Sam, Priya…" />
+      <button id="find" type="submit">Find orders</button>
+      <output id="result"></output>
+    </form>
+    <section class="card" data-testid="order" id="order-412">
+      <h2>ENG-412 · Maya</h2>
+      <p class="status">Shipped to <a id="link" href="second.html">the second page</a></p>
+    </section>
+    <div class="tall card" id="tall">A long page, to scroll.</div>
+    <script src="page.js"></script>
+  </body>
+</html>

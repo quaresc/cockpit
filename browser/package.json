@@ -1,0 +1,7 @@
+{
+  "name": "cockpit-browser",
+  "productName": "Cockpit Browser",
+  "private": true,
+  "type": "module",
+  "main": "main/index.js"
+}

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src https: http: data:" />
+    <title>Cockpit Browser</title>
+    <link rel="stylesheet" href="toolbar.css" />
+  </head>
+  <body>
+    <header id="bar">
+      <div id="tabs" role="tablist"></div>
+      <div id="row">
+        <button id="back" class="icon" title="Back (⌘[)" aria-label="Back"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" /></svg></button>
+        <button id="forward" class="icon" title="Forward (⌘])" aria-label="Forward"><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" /></svg></button>
+        <button id="reload" class="icon" title="Reload (⌘R)" aria-label="Reload"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 3v3h-3" /></svg></button>
+        <form id="where">
+          <button id="profile" type="button" class="chip" title="Profile"></button>
+          <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="Search or enter an address" aria-label="Address" />
+        </form>
+        <form id="finder" hidden>
+          <input id="find" type="text" spellcheck="false" placeholder="Find in page" aria-label="Find in page" />
+          <span id="found"></span>
+          <button type="button" id="find-prev" class="icon" title="Previous" aria-label="Previous match"><svg viewBox="0 0 16 16"><path d="m4 10 4-4 4 4" /></svg></button>
+          <button type="button" id="find-next" class="icon" title="Next" aria-label="Next match"><svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg></button>
+          <button type="button" id="find-close" class="icon" title="Close" aria-label="Close find"><svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" /></svg></button>
+        </form>
+        <button id="viewport" class="icon" title="Page size" aria-label="Page size"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="8" height="10" rx="1.5" /><rect x="11" y="6" width="3.5" height="7" rx="1" /></svg></button>
+        <button id="grab" class="icon" title="Pick an element for the agent (⇧⌘C)" aria-label="Pick an element"><svg viewBox="0 0 16 16"><path d="M3 3l4.5 10 1.5-4 4-1.5z" /></svg></button>
+        <button id="annotate" class="icon" title="Notes for the agent (⇧⌘A)" aria-label="Notes for the agent"><svg viewBox="0 0 16 16"><path d="M3 3h10v7H8l-3 3v-3H3z" /></svg><b id="notes" hidden></b></button>
+        <button id="devtools" class="icon" title="DevTools (⌥⌘I)" aria-label="DevTools"><svg viewBox="0 0 16 16"><path d="m6 5-3 3 3 3M10 5l3 3-3 3" /></svg></button>
+        <button id="more" class="icon" title="More" aria-label="More"><svg viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="12.5" cy="8" r="1" /></svg></button>
+      </div>
+    </header>
+    <ul id="suggestions" hidden></ul>
+    <form id="draft" hidden>
+      <div id="draft-label"></div>
+      <textarea id="draft-comment" rows="3" maxlength="2000" placeholder="What should change here?" aria-label="Note"></textarea>
+      <div class="line">
+        <select id="draft-intent" aria-label="Intent"></select>
+        <select id="draft-priority" aria-label="Priority"></select>
+        <span class="grow"></span>
+        <button type="button" id="draft-cancel" class="text">Cancel</button>
+        <button type="submit" id="draft-save" class="text primary">Add note</button>
+      </div>
+    </form>
+    <section id="recap" hidden aria-label="Notes for the agent">
+      <header>Notes for the agent</header>
+      <ol id="recap-list"></ol>
+      <label class="line"><input id="recap-details" type="checkbox" /> Include page details (box, styles, HTML)</label>
+      <div class="line">
+        <button type="button" id="recap-add" class="text">Add a note</button>
+        <button type="button" id="recap-copy" class="text">Copy</button>
+        <button type="button" id="recap-clear" class="text">Clear</button>
+        <span class="grow"></span>
+        <button type="button" id="recap-send" class="text primary">Send</button>
+      </div>
+    </section>
+    <form id="rename" hidden><input id="rename-name" type="text" maxlength="60" aria-label="Profile name" /></form>
+    <script src="toolbar.js"></script>
+  </body>
+</html>

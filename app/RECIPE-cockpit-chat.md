@@ -54,8 +54,8 @@ Left to right, then top to bottom. Colours come from the layout's own theme (`co
 - **Tab** (⌘⌥T): the space's real panes, for when the terminal is what you want — a `show` pane, a diff, a page in
   terminal-browser.
 - **Side panel** (⌘⌥B), 420px on the right of both: the `show` tool's views with their charts, tables and diagrams,
-  the review screen, the focused agent's runbook, Herdr's files and changes, and the activity rail that switches
-  between them (⌃⌘1–5).
+  the review screen, the focused agent's runbook, Herdr's files and changes, the Chromium side browser when it is
+  turned on, and the activity rail that switches between them (⌃⌘1–5).
 
 ## How it behaves
 

@@ -242,6 +242,16 @@
                               "background": "background"
                             }
                           }
+                        },
+                        {
+                          "id": "web",
+                          "type": "block",
+                          "content": {
+                            "mod": "cockpit",
+                            "props": {
+                              "app": "web"
+                            }
+                          }
                         }
                       ]
                     },

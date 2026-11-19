@@ -1,17 +1,18 @@
 ---
 name: side-browser
-description: Use the browser pane beside this conversation (terminal-browser in herdr or the Herdr app) to check a front change end to end against the local dev server, on mobile, tablet and desktop sizes, reproduce a bug on a page, read the page the person is looking at, or prepare a review on GitHub for the person to submit. Use it whenever a task needs a real browser and this session runs in herdr or the Herdr app; it falls back to Claude in Chrome when terminal-browser is missing or the person set E2E tests to run in Chrome.
+description: Use the browser beside this conversation (terminal-browser in herdr or the Herdr app, or cockpit's own Chromium window docked in the Herdr app) to check a front change end to end against the local dev server, on mobile, tablet and desktop sizes, reproduce a bug on a page, read the page the person is looking at, or prepare a review on GitHub for the person to submit. Use it whenever a task needs a real browser and this session runs in herdr or the Herdr app; it falls back to Claude in Chrome when terminal-browser is missing or the person set E2E tests to run in Chrome.
 ---
 
 The person sees this browser beside the conversation and it keeps their sign-ins, so they watch what you do and the pages
 you open are already logged in.
 
 <!-- agent: claude-code -->
-**Which browser?** Run `command -v terminal-browser; echo "$HERDR_PANE_ID $HC_TERMINAL_ID"; jq -r '.e2eBrowser // .checksBrowser // "terminal-browser"'
-~/.config/cockpit/config.json`. Use Claude in Chrome (the `claude-in-chrome` skill) instead, and skip the rest of this
-skill, when terminal-browser is missing, there is neither a herdr pane id nor a Herdr app terminal id, the setting says
-`chrome`, or the person asks for Chrome.
-The person flips the setting with `/cockpit e2e chrome` or `/cockpit e2e terminal-browser`.
+**Which browser?** Run `command -v terminal-browser; echo "$HERDR_PANE_ID $HC_TERMINAL_ID"; jq -r '.e2eBrowser // .checksBrowser // "terminal-browser", .sideBrowser // "terminal-browser"'
+~/.config/cockpit/config.json`. With `sideBrowser` at `chromium`, in the Herdr app on macOS, the browser is cockpit's own
+Chromium window docked in the side panel: it needs no terminal-browser, and every command below is the same. Use Claude in Chrome (the `claude-in-chrome` skill) instead, and skip the rest of this
+skill, when terminal-browser is missing and the side browser is not Chromium, there is neither a herdr pane id nor a
+Herdr app terminal id, the first setting says `chrome`, or the person asks for Chrome.
+The person flips the settings with `/cockpit e2e chrome|terminal-browser` and `/cockpit browser chromium|terminal-browser`.
 <!-- /agent -->
 
 <!-- agent: claude-code -->
@@ -24,33 +25,34 @@ person asked for a page, or the command starts with `COCKPIT_SHOW_FALLBACK="<wha
 `localhost:<port>` or an absolute path to an HTML file all work. It opens the page as a tab of the browser already beside
 you, or brings the tab to the front when that page is already open, or splits a new pane right of yours sized so herdr
 draws it fast (in the Herdr app, a terminal split right of yours, which Cockpit Chat shows in its side panel beside the
-conversation). The keyboard stays with the conversation. `--size 0.6` asks for a wider pane, `--reload` reloads the page
-when it is already open. When it cannot place the browser it says why and opens the page in the default browser.
+conversation). In the Chromium window it opens as a tab of your own browser, in the side panel: each session has its
+browser, which the person sees while your session is in front. The keyboard stays with the conversation. `--size 0.6` asks for a wider pane,
+`--reload` reloads the page when it is already open. When it cannot place the browser it says why and opens the page in
+the default browser.
 
-**Drive it** with `terminal-browser action -- <command>`, which targets the active tab of the browser beside you (the
-`terminal-browser` skill has the full command list). terminal-browser only knows herdr's panes: in the Herdr app
-(`$HC_TERMINAL_ID` set), name the browser on every call, `terminal-browser action --browser <key> -- <command>` and
-`terminal-browser new-tab --browser <key> <url>`, with the key `sh ~/.config/cockpit/herdr/browse.sh --beside` prints.
-
-<!-- agent: claude-code -->
-There it also needs `HERDR_PANE_ID` and `HERDR_SOCKET_PATH`, which cockpit sets for this session. Should a call still
-fail on Ghostty, start it with `eval "$(sh ~/.config/cockpit/herdr/browse.sh --env)";` rather than guessing a pane.
-<!-- /agent -->
+**Drive it** with `sh ~/.config/cockpit/herdr/browse.sh action -- <command>`, which targets the active tab of the browser
+beside you, whichever browser it is, and names it for you in the Herdr app. The commands are agent-browser's (the
+`terminal-browser` skill has the full list). In the Chromium window, `tab list`, `tab new <url>`, `tab t2` and
+`tab close` act on your browser's tabs, and what would leave or end the browser (`close`, `connect`, `--cdp`) is refused.
 
 `snapshot -i` lists the elements with refs, then `click @e12`,
 `fill @e3 "text"`, `press Enter`, `get text @e5`, `eval "document.title"`, `wait --load networkidle`,
-`screenshot <path>` to look at the result. Run `terminal-browser action done` after your last action, which clears the
-"agent in control" banner the person sees.
+`screenshot <path>` to look at the result. Run `sh ~/.config/cockpit/herdr/browse.sh action done` after your last
+action, which clears the "agent in control" banner terminal-browser shows the person.
 
 **Checking a front change**: make sure the dev server runs, open its local URL, walk the flow the change touches, take
 a screenshot at each state that matters and compare it with the Figma frame when the ticket has one. Say what you checked
 and what you saw, with the screenshot paths.
 
 **Mobile, tablet and desktop**: emulation sticks to the tab it is set on, so give it a tab of its own:
-`terminal-browser new-tab <url>`, then `terminal-browser action -- set device "iPhone 16"` (also `iPad`, `iPad Pro`,
-`Pixel 9`, `Galaxy S25`) or `set viewport 1440 900` for a desktop width, `reload`, and `screenshot` at each size. Close
-that tab with `terminal-browser action -- tab close` when done, so the
-person's tabs keep their own size.
+`sh ~/.config/cockpit/herdr/browse.sh action -- tab new <url>`, then `… action -- set device "iPhone 16"` (also `iPad`,
+`iPad Pro`, `Pixel 9`, `Galaxy S25`) or `set viewport 1440 900` for a desktop width, `reload`, and `screenshot` at each
+size. Close that tab with `… action -- tab close` when done, so the person's tabs keep their own size.
+
+**Elements the person picks for you**: in the Chromium window the person can point at elements of your page (Pick for
+one, Notes for several) and send them to you. They arrive as your next prompt, headed `## Design Feedback`, each
+with its selector, its source file when the page is a React dev build, the person's note and the path of a cropped
+picture: open those pictures, then change the code the selectors and sources point to.
 
 <!-- agent: claude-code -->
 **Before and after, for a PR description**: `sh ~/.config/cockpit/herdr/shots.sh <url> <dir>` screenshots a page at

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>cockpit preview</title>
+<!-- The Herdr gallery's picture, app/preview.png: this page at 1600 by 1000. -->
+<style>
+  :root { --bg: #f3efe6; --ink: #17171a; --muted: #55524c; --orange: #d4541c; --line: #ddd6c8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1600px; height: 1000px; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+  .left { position: absolute; left: 64px; top: 88px; width: 452px; }
+  .brand { display: flex; align-items: center; gap: 16px; font-size: 44px; font-weight: 800; letter-spacing: -0.03em; }
+  .brand img { width: 64px; height: 64px; }
+  h1 { margin: 44px 0 0; font-size: 52px; line-height: 1.06; letter-spacing: -0.035em; font-weight: 800; }
+  h1 span { color: var(--orange); display: block; }
+  ol { list-style: none; margin: 44px 0 0; padding: 0; display: grid; gap: 26px; }
+  li { display: grid; grid-template-columns: 44px 1fr; column-gap: 16px; }
+  .n { width: 44px; height: 44px; border-radius: 50%; background: var(--orange); color: #fff; font-weight: 800; font-size: 22px;
+    display: grid; place-items: center; }
+  li b { display: block; font-size: 25px; letter-spacing: -0.015em; line-height: 1.2; }
+  li p { margin: 5px 0 0; font-size: 20px; line-height: 1.35; color: var(--muted); }
+  .shot { position: absolute; left: 556px; top: 156px; width: 1000px; height: 625px; border-radius: 16px; overflow: hidden;
+    background: #101010; box-shadow: 0 2px 6px rgb(0 0 0 / 0.08), 0 40px 90px -24px rgb(80 40 10 / 0.45); outline: 1px solid rgb(0 0 0 / 0.5); }
+  .shot img { width: 100%; height: 100%; display: block; }
+  .mark { position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: var(--orange); color: #fff;
+    font-weight: 800; font-size: 23px; display: grid; place-items: center; border: 3px solid #fff; box-shadow: 0 4px 14px rgb(0 0 0 / 0.45); }
+  .also { position: absolute; left: 556px; top: 824px; width: 1000px; font-size: 21px; line-height: 1.5; color: var(--muted); }
+  .also b { color: var(--ink); }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .chips span { border: 1px solid var(--line); background: #fbf9f4; border-radius: 999px; padding: 6px 16px; font-size: 19px; color: var(--ink); }
+</style></head>
+<body>
+  <div class="left">
+    <div class="brand"><img src="../logo.svg" alt="">cockpit</div>
+    <h1>Every coding agent in one window. <span>Answer it, then check its work.</span></h1>
+    <ol>
+      <li><div class="n">1</div><div><b>Their questions, in the sidebar</b><p>Pick an answer and the agent goes on. No hunting for its tab.</p></div></li>
+      <li><div class="n">2</div><div><b>Any agent Herdr runs</b><p>Claude Code, Codex and the others, each with its ticket, PR and CI.</p></div></li>
+      <li><div class="n">3</div><div><b>A real browser beside it</b><p>Click what is wrong on the page. The agent gets the element and your note.</p></div></li>
+    </ol>
+  </div>
+  <div class="shot"><img src="../app/browser-dark.png" alt=""></div>
+  <div class="mark" style="left:556px;top:438px">1</div>
+  <div class="mark" style="left:1090px;top:202px">2</div>
+  <div class="mark" style="left:1404px;top:546px">3</div>
+  <div class="also"><b>Also in the layout</b>
+    <div class="chips"><span>Home</span><span>Inbox</span><span>Mail</span><span>Runbooks</span><span>Meetings</span><span>Release monitor</span><span>Routines</span><span>Cockpit Chat</span></div>
+  </div>
+</body></html>

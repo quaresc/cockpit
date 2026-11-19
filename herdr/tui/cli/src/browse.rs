@@ -3,23 +3,27 @@
 //! already open beside the pane comes to the front instead of opening twice, and the keyboard stays where it was. In
 //! the Herdr app the browser is a terminal split right of the agent's, found again by its tty, and every terminal-browser
 //! call gets that session's pane and the app's socket. A listing or a herdr call that does not answer is an error, never
-//! taken for "no browser there".
+//! taken for "no browser there". With `sideBrowser: chromium`, in the Herdr app on macOS, the same commands go to
+//! cockpit's own Chromium window instead (`crate::browser::side`).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use cockpit_core::browser::{self as chromium, Engine};
 use cockpit_core::frontend::{self, Frontend};
 use serde_json::{Value, json};
 
+use crate::browser::side;
 use crate::proc::{self, Out, dumps, fail, open_url, quote};
 
-const USAGE: &str = "Opens a page in terminal-browser, split right of a pane, else in the default browser.
+const USAGE: &str = "Opens a page in the side browser (terminal-browser split right of a pane, or cockpit's Chromium window), else in the default browser.
 
     cockpit browse [--size <fraction>] [--reload] <url> [<session id>]          beside the session's pane, else the calling one
     cockpit browse --beside [<session id>]                                      the browser beside it, as JSON ({} when none)
     cockpit browse --external [<session id>]                                    its page, opened in the default browser
     cockpit browse --browsers [<session id>]                                    every browser beside it, as JSON
-    cockpit browse --env [<session id>]                                         in the Herdr app, the variables terminal-browser needs, as exports";
+    cockpit browse --env [<session id>]                                         in the Herdr app, the variables terminal-browser needs, as exports
+    cockpit browse action [--session <session id>] [--] <command>               an agent-browser command (snapshot -i, click @e3, ...) on the page beside it; `action done` ends a run";
 
 /// herdr sends a picture of at most 16 MiB through a file, a larger one inline through the terminal, which is far slower.
 const MAX_FRAME: f64 = 16.0 * 1024.0 * 1024.0;
@@ -31,6 +35,25 @@ const STARTS: usize = 20;
 pub fn main(args: &[String]) {
     let mut args: Vec<String> = args.to_vec();
     let or_fail = |why: String| -> ! { fail(&format!("browse: {why}")) };
+    // Asked silently here: only opening a page says why Chromium was wanted and is not used.
+    let side_browser = chromium::engine_for(&cockpit_core::files::config(), frontend::current(), cockpit_core::options::CHROMIUM_HERE).0;
+    if args.first().is_some_and(|a| a == "action") {
+        let asked = action_args(&args[1..]);
+        match side_browser {
+            Engine::Chromium => side::action(&asked.command, asked.session.as_deref()),
+            Engine::Terminal => terminal_action(&asked),
+        }
+    }
+    if side_browser == Engine::Chromium {
+        let session = args.get(1).map(String::as_str);
+        match args.first().map(String::as_str) {
+            Some("--beside") => return println!("{}", side::beside_line(session)),
+            Some("--browsers") => return println!("{}", side::browsers(session)),
+            Some("--external") => return side::external(session),
+            Some("--env") => return,
+            _ => {}
+        }
+    }
     match args.first().map(String::as_str) {
         Some("--beside") => {
             println!("{}", beside_json(&beside(args.get(1).map(String::as_str)).unwrap_or_else(|why| or_fail(why))));
@@ -71,6 +94,10 @@ pub fn main(args: &[String]) {
     let Some(url) = args.first() else { fail(USAGE) };
     let session = args.get(1).map(String::as_str);
     let not_beside = match terminal_browser() {
+        _ if chromium::engine() == Engine::Chromium => match side::open(url, session, reload) {
+            Ok(()) => return,
+            Err(why) => why,
+        },
         Some(bin) => {
             let place = place_of(session).unwrap_or_else(|why| or_fail(why));
             match open_at(&tb_at(bin, &place), &place, url, size, reload).unwrap_or_else(|why| or_fail(why)) {
@@ -82,6 +109,54 @@ pub fn main(args: &[String]) {
     };
     eprintln!("browse: {not_beside}: opening the page in the default browser");
     open_url(&if url.starts_with('/') { format!("file://{url}") } else { url.clone() });
+}
+
+/// What `cockpit browse action` was given: the session it names, terminal-browser's own flags, and the command.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Action {
+    session: Option<String>,
+    flags: Vec<String>,
+    command: Vec<String>,
+}
+
+/// The words after `action`, split at `--`: a session and terminal-browser's flags before it, the command after.
+fn action_args(args: &[String]) -> Action {
+    let mut asked = Action::default();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--" => break,
+            "--session" => asked.session = words.next().cloned(),
+            "--browser" | "--tab" | "--target" => asked.flags.extend([Some(word.clone()), words.next().cloned()].into_iter().flatten()),
+            "--follow" => asked.flags.push(word.clone()),
+            _ => {
+                asked.command.push(word.clone());
+                break;
+            }
+        }
+    }
+    asked.command.extend(words.cloned());
+    asked
+}
+
+/// The command in the terminal-browser beside the session: its browser is named for it in the Herdr app, where
+/// terminal-browser cannot tell which one is meant.
+fn terminal_action(asked: &Action) -> ! {
+    let Some(bin) = terminal_browser() else { fail("browse action: terminal-browser is not installed") };
+    let place = place_of(asked.session.as_deref()).unwrap_or_else(|why| fail(&format!("browse action: {why}")));
+    let tb = tb_at(bin, &place);
+    let mut args: Vec<String> = vec!["action".into()];
+    args.extend(asked.flags.iter().cloned());
+    if matches!(place, Place::App(_)) && !asked.flags.iter().any(|f| f == "--browser") {
+        let key = browsers_at(&tb, &place).ok().and_then(|b| b.first().map(|b| field(b, "key"))).filter(|k| !k.is_empty());
+        args.extend(key.into_iter().flat_map(|k| ["--browser".to_string(), k]));
+    }
+    if asked.command != ["done"] {
+        args.push("--".into());
+    }
+    args.extend(asked.command.iter().cloned());
+    let status = std::process::Command::new(&tb.bin).args(&args).env("PATH", proc::path()).envs(tb.env.iter().map(|(k, v)| (k.as_str(), v.as_str()))).status();
+    std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1))
 }
 
 pub fn run(argv: &[&str], timeout: Duration) -> Result<Out, String> {
@@ -525,6 +600,16 @@ mod tests {
         let terminals = [("t2".to_string(), 500), ("t3".to_string(), 700)];
         assert_eq!(nearest(&terminals, &[900, 700, 500, 1]), Some("t3".into()));
         assert_eq!(nearest(&terminals, &[900, 800]), None);
+    }
+
+    #[test]
+    fn an_action_is_split_into_its_session_its_flags_and_its_command() {
+        let words = |line: &str| line.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+        let asked = action_args(&words("--session s-412 --browser b1 --follow -- click @e3 --new-tab"));
+        assert_eq!(asked, Action { session: Some("s-412".into()), flags: words("--browser b1 --follow"), command: words("click @e3 --new-tab") });
+        assert_eq!(action_args(&words("snapshot -i")).command, words("snapshot -i"));
+        assert_eq!(action_args(&words("done")).command, ["done"]);
+        assert_eq!(action_args(&words("-- eval --session")).command, words("eval --session"), "what follows -- is the command's own");
     }
 
     #[test]

@@ -165,6 +165,8 @@ export type Config = {
   notifications: boolean
   // Where an agent runs its E2E tests of a front change: terminal-browser beside it, or Claude in Chrome.
   e2eBrowser: 'terminal-browser' | 'chrome'
+  // The browser beside an agent: terminal-browser in a pane, or cockpit's Chromium window docked in the Herdr app (macOS).
+  sideBrowser: 'terminal-browser' | 'chromium'
   // A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; 0 keeps it.
   browserIdleMinutes: number
   herdrPluginRoot: string
@@ -331,6 +333,7 @@ const DEFAULTS: Config = {
   brief: { enabled: true, at: '08:30', weekends: false },
   notifications: true,
   e2eBrowser: 'terminal-browser',
+  sideBrowser: 'terminal-browser',
   browserIdleMinutes: 60,
   herdrPluginRoot: '',
   spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],

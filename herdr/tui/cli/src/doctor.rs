@@ -180,6 +180,7 @@ pub fn main(args: &[String]) {
     doctor.spaces();
     doctor.notifications();
     doctor.terminal_browser();
+    doctor.chromium_browser();
     doctor.connectors();
     if as_json {
         let report = doctor.report(&checks());
@@ -1058,6 +1059,72 @@ impl Doctor {
                     ),
                 );
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // The Chromium side browser, when config.json asks for it: cockpit's own window, in the Herdr app on macOS
+
+    fn chromium_browser(&self) {
+        use cockpit_core::{browser, options};
+
+        use crate::browser::install;
+        let config = self.config.as_ref().unwrap_or(&Value::Null);
+        if config["sideBrowser"] != options::CHROMIUM {
+            return;
+        }
+        if !options::CHROMIUM_HERE {
+            warn("browser.engine", &format!("{} → cockpit options set sideBrowser terminal-browser", browser::MAC_ONLY))
+                .run("cockpit options set sideBrowser terminal-browser");
+            return;
+        }
+        ok("browser.engine", "the side browser is cockpit's Chromium window, docked in the Herdr app (herdr's panes keep terminal-browser)");
+        let pins = match install::pins() {
+            Ok(pins) => pins,
+            Err(why) => {
+                fail("browser.chromium.installed", &format!("the Chromium side browser's files are not where cockpit looks: {why}"));
+                return;
+            }
+        };
+        let (electron, agent) = install::installed(&pins);
+        if electron {
+            ok("browser.chromium.installed", &format!("Electron {} for the Chromium side browser", pins.electron.version));
+        } else {
+            fail(
+                "browser.chromium.installed",
+                &format!("Electron {} is not installed: pages open in the default browser → cockpit browser install", pins.electron.version),
+            )
+            .run("cockpit browser install");
+        }
+        if agent {
+            ok("browser.chromium.agent", &format!("agent-browser {} drives its pages", pins.agent.version));
+        } else {
+            fail(
+                "browser.chromium.agent",
+                &format!("agent-browser {} is not installed: agents cannot drive its pages → cockpit browser install", pins.agent.version),
+            )
+            .run("cockpit browser install");
+        }
+        let Ok(status) = browser::request(&serde_json::json!({"op": "status"}), std::time::Duration::from_secs(3)) else {
+            ok("browser.chromium.running", "not running: the next page an agent opens starts it");
+            return;
+        };
+        let tabs: u64 = status["browsers"].as_array().into_iter().flatten().map(|w| w["tabs"].as_u64().unwrap_or(0)).sum();
+        let how = if status["docked"] == true { "docked" } else { "in a window of its own" };
+        ok("browser.chromium.running", &format!("running {how}: {tabs} tabs, Chromium {}", status["versions"]["chrome"].as_str().unwrap_or("?")));
+        // Agents' tools reach the pages through Chromium's debugging port: it must listen on this machine only.
+        let port = status["port"].as_u64().unwrap_or(0);
+        let listening = self.output(&["lsof", "-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN"]);
+        let open =
+            listening.lines().skip(1).filter_map(|l| l.split_whitespace().rev().nth(1)).any(|at| !(at.starts_with("127.0.0.1:") || at.starts_with("[::1]:")));
+        if port == 0 || open {
+            warn(
+                "browser.chromium.port",
+                "the Chromium side browser's debugging port is not bound to this machine alone → cockpit browser quit, then open a page again",
+            )
+            .run("cockpit browser quit");
+        } else {
+            ok("browser.chromium.port", &format!("its debugging port {port} listens on this machine only"));
         }
     }
 

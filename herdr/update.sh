@@ -33,6 +33,10 @@ fi
 # reconnects at once) starts the new binary.
 pkill -f "(^|/)cockpit hub$"
 
+# The Chromium side browser, when it is the one in use: what the new version pins is installed, and the running one
+# ends, so the next page opens in the new one with its tabs back.
+sh "$root/cockpit.sh" browser refresh >/dev/null 2>&1 &
+
 # The Herdr app takes the new layout and mod (it reloads a mod on its own), when it has them.
 [ -f "$app_home/layouts/cockpit.json" ] && sh "$root/cockpit.sh" app install >/dev/null
 

@@ -492,9 +492,15 @@ pub fn remove_worktree(ctx: &mut Ctx, args: &[Value]) -> Res {
         }
         return Err(format!("kept {path}: {}", cleanup::said(&seen.blockers)));
     }
+    // The folder as the side browser names it, read while it is still there.
+    let named = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     let removed = git(&seen.repo, &["worktree", "remove", &path]);
     if !removed.ok() {
         return Err(format!("git did not remove {path}: {}", removed.stderr.trim()));
+    }
+    // The Chromium side browser closes the tabs it kept for this worktree, when it is running.
+    if cockpit_core::browser::connect().is_some() {
+        let _ = cockpit_core::browser::request(&json!({"op": "worktree.forget", "worktree": named}), std::time::Duration::from_secs(5));
     }
     // Its space closes once the folder is gone, not before git agreed.
     if let Some(open) = inbox::space_on(&path) {

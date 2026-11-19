@@ -346,7 +346,7 @@ mod tests {
         let mut shown = updated();
         shown["update"]["shown"] = json!(true);
         assert!(!worth_showing(&shown));
-        assert!(!worth_showing(&json!({"update": {"from": "1.0.0", "to": "1.0.1", "notes": [], "shown": false}})));
+        assert!(!worth_showing(&json!({"update": {"from": options::NEXT, "to": "9.0.0", "notes": [], "shown": false}})));
         assert!(!worth_showing(&json!({})));
     }
 

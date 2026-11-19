@@ -11,7 +11,7 @@ and which of them are waiting for an answer. Your reviews, mail, runbooks, meeti
 <a href="https://quaresc.github.io/cockpit/terminal.html">Herdr TUI</a> ·
 <a href="https://github.com/quaresc/cockpit/releases">Changelog</a></p>
 
-<p align="center"><img src="app/preview.png" width="100%" alt="cockpit in the Herdr app: the agents list and Home"></p>
+<p align="center"><img src="app/preview.png" width="100%" alt="cockpit in the Herdr app: agents' questions in the sidebar, an agent at work, and its page in a browser beside it"></p>
 
 ## Install
 
@@ -56,11 +56,14 @@ foot of the sidebar has every option, the version you run and the published one,
 - Tickets, CI, meetings, mail and deploys come from MCP servers you already use. Setup knows Linear, Jira, GitHub,
   GitLab, CircleCI, Datadog, Sentry, Gmail and Google Calendar, and your agent maps any other.
 - Agents draw charts, tables and diagrams beside their session with the `show` tool.
+- Agents check pages in a browser beside them: terminal-browser in a pane, or in the Herdr app on macOS a Chromium
+  window in the side panel, with a browser per agent session, DevTools, and elements you point at for that agent.
 
 </details>
 
 ## More
 
 [Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [Show blocks](docs/show.md) ·
+[The Chromium side browser](docs/browser.md) ·
 [Troubleshooting](docs/troubleshooting.md) · [Changelog](https://github.com/quaresc/cockpit/releases) ·
 [Contributing](CONTRIBUTING.md) · MIT ([notices](THIRD_PARTY_NOTICES.md))

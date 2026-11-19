@@ -276,6 +276,14 @@ fn setup(io: &mut Io) {
         spaces.push("review");
     }
     values.push(("e2eBrowser", if on('5') { "terminal-browser" } else { "chrome" }.into()));
+    // cockpit's own Chromium window is for the Herdr app on a Mac; herdr's panes keep terminal-browser either way.
+    let chromium = on('5')
+        && cockpit_core::options::CHROMIUM_HERE
+        && app.is_some()
+        && io.yes("\nIn the Herdr app, show pages in cockpit's own Chromium window, docked in the side panel (downloads Electron once, about 130 MB)?", false);
+    if chromium {
+        values.push(("sideBrowser", cockpit_core::options::CHROMIUM.into()));
+    }
     match files::load(&files::config_dir().join("config.json")).map(|c| c["spaces"].clone()).filter(|s| !s.is_null()) {
         None => values.push(("spaces", json!(spaces))),
         // Spaces already chosen stay as they are; picking mail or the review space adds its space.
@@ -321,6 +329,12 @@ fn setup(io: &mut Io) {
     }
     if on('5') && proc::which("terminal-browser").is_none() {
         println!("terminal-browser is not installed → brew install --cask terminal-browser, then terminal-browser config set render.transport auto");
+    }
+    if chromium {
+        match crate::browser::install::pins().and_then(|pins| crate::browser::install::install(&pins, &mut |line| println!("{line}"))) {
+            Ok(()) => println!("The Chromium side browser is installed."),
+            Err(why) => println!("The Chromium side browser is not installed yet ({why}) → cockpit browser install"),
+        }
     }
 
     let exe = std::env::current_exe().unwrap_or_default();

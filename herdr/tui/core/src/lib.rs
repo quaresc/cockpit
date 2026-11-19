@@ -9,6 +9,7 @@ pub mod acts;
 pub mod agent;
 pub mod anim;
 pub mod bridge;
+pub mod browser;
 pub mod cleanup;
 pub mod deliver;
 pub mod dialog;

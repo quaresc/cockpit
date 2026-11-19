@@ -1,5 +1,6 @@
-//! `cockpit shots`: screenshots of a page at phone, tablet and desktop sizes, taken in the terminal-browser beside a
-//! pane. Each size gets a tab of its own, closed afterwards, so the person's tabs keep their size.
+//! `cockpit shots`: screenshots of a page at phone, tablet and desktop sizes, taken in the side browser beside a pane
+//! (terminal-browser, or cockpit's Chromium window). Each size gets a tab of its own, closed afterwards, so the
+//! person's tabs keep their size.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -63,6 +64,9 @@ pub fn main(args: &[String]) {
     let [url, out] = rest.as_slice() else { fail(USAGE) };
     let out = std::path::absolute(out).unwrap_or_else(|_| PathBuf::from(out));
     let session = session.as_deref();
+    if cockpit_core::browser::engine() == cockpit_core::browser::Engine::Chromium {
+        return chromium_shots(url, &out, &sizes, full, session);
+    }
     let place = place_of(session).unwrap_or_else(|why| fail(&why));
     let Some(bin) = terminal_browser().filter(|_| place.is_placed()) else {
         eprintln!("terminal-browser is not beside a pane in herdr or the Herdr app: take these screenshots in Chrome instead");
@@ -104,6 +108,58 @@ pub fn main(args: &[String]) {
         shots.push((size, Value::from(path.to_string_lossy().into_owned())));
     }
     let _ = tb.run(&["action", "--browser", &key, "done"], Duration::from_secs(10));
+    println!("{}", dumps(&shots));
+}
+
+/// The screenshots taken in cockpit's Chromium window: a background tab per size in the session's browser, closed after.
+fn chromium_shots(url: &str, out: &std::path::Path, sizes: &[&str], full: bool, session: Option<&str>) {
+    use cockpit_core::browser;
+    use serde_json::json;
+
+    use crate::browser::{agent, side};
+    let owner = side::owner(session).unwrap_or_else(|why| fail(&why));
+    let ask = |request: Value| browser::request(&request, Duration::from_secs(20));
+    if browser::connect().is_none()
+        && let Err(why) = side::open(url, session, false)
+    {
+        fail(&format!("could not open the side browser: {why}"));
+    }
+    if let Err(err) = std::fs::create_dir_all(out) {
+        fail(&format!("{}: {err}", out.display()));
+    }
+    let mut shots = Vec::new();
+    for size in sizes {
+        let opened = ask(json!({"op": "open", "owner": owner, "url": url, "background": true, "fresh": true}))
+            .unwrap_or_else(|why| fail(&format!("could not open a tab for {size}: {why}")));
+        let tab = opened["tab"].as_str().unwrap_or_default().to_string();
+        let path = out.join(format!("{size}.png"));
+        let taken = agent::pinned(&owner, Some(&tab), "-shots").and_then(|pinned| {
+            let step = |command: &[&str], secs: u64| match pinned.run(command, Duration::from_secs(secs)) {
+                Ok(done) if done.ok() => Ok(()),
+                Ok(done) => Err(format!(
+                    "{}: {}",
+                    command[0],
+                    if done.stderr.is_empty() { done.stdout } else { done.stderr }.trim().chars().take(200).collect::<String>()
+                )),
+                Err(why) => Err(format!("{}: {why}", command[0])),
+            };
+            let device = SIZES.iter().find(|(name, _)| name == size).map(|(_, command)| *command).unwrap_or_default();
+            step(device, 30)?;
+            step(&["reload"], 30)?;
+            step(&["wait", "--load", "networkidle"], 60)?;
+            let file = path.to_string_lossy();
+            let mut command = vec!["screenshot", &file];
+            if full {
+                command.push("--full");
+            }
+            step(&command, 60)
+        });
+        let _ = ask(json!({"op": "tab.close", "owner": owner, "tab": tab}));
+        if let Err(err) = taken {
+            fail(&err);
+        }
+        shots.push((*size, Value::from(path.to_string_lossy().into_owned())));
+    }
     println!("{}", dumps(&shots));
 }
 

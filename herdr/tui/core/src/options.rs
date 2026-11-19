@@ -8,10 +8,16 @@ use serde_json::{Value, json};
 use crate::{agent, files, jsonedit};
 
 /// The version the options below arrive in: the one number to change at release.
-pub const NEXT: &str = "1.0.0";
+pub const NEXT: &str = "1.1.0";
+
+/// The side browser that is cockpit's own Chromium window, which only the Herdr app on macOS shows.
+pub const CHROMIUM: &str = "chromium";
+
+/// Whether this machine can run the Chromium side browser.
+pub const CHROMIUM_HERE: bool = cfg!(target_os = "macos");
 
 /// The layout an update offers to try, once, to a window on another layout, and the version that brought it.
-pub const LAYOUT: (&str, &str) = ("cockpit-chat", NEXT);
+pub const LAYOUT: (&str, &str) = ("cockpit-chat", "1.0.0");
 
 /// The values a choice takes, each with its name in words.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,7 +164,7 @@ pub const ALL: &[Setting] = &[
             "A prompt you queue for an agent goes by itself once the agent rests; off, you send each one.",
             true,
         ),
-        NEXT,
+        "1.0.0",
     ),
     brought(
         toggle(
@@ -168,7 +174,7 @@ pub const ALL: &[Setting] = &[
             "A failed CI run on an agent's pull request is queued to that agent, once per commit.",
             true,
         ),
-        NEXT,
+        "1.0.0",
     ),
     toggle(
         "github.reviewBots",
@@ -187,7 +193,7 @@ pub const ALL: &[Setting] = &[
              account.",
             false,
         ),
-        NEXT,
+        "1.0.0",
     ),
     text(
         "chat.nextStepsModel",
@@ -301,10 +307,45 @@ pub const ALL: &[Setting] = &[
         "browserIdleMinutes",
         "Apps",
         "Minutes before an idle browser closes",
-        "A browser pane whose space stayed out of view this long closes; 0 keeps it.",
+        "A browser pane whose space stayed out of view this long closes, and a Chromium tab out of view this long sleeps; 0 keeps them.",
         60,
         (0, 10_080, "min"),
     ),
+    brought(
+        choice(
+            "sideBrowser",
+            "Apps",
+            "Side browser",
+            "The browser beside an agent: terminal-browser in a pane, or a Chromium window docked in the Herdr app's side panel on macOS.",
+            "terminal-browser",
+            &[("terminal-browser", "In a terminal pane"), (CHROMIUM, "Chromium, docked")],
+        ),
+        NEXT,
+    ),
+    toggle(
+        "browser.dock",
+        "Apps",
+        "Dock the Chromium browser",
+        "The Chromium browser sits in the side panel and follows the window; off, it is a window of its own.",
+        true,
+    ),
+    choice(
+        "browser.profileScope",
+        "Apps",
+        "Browser profiles",
+        "The sign-ins a worktree's Chromium browser starts with: one profile for all, one per repo, or one per worktree.",
+        "shared",
+        &[("shared", "One for all"), ("repo", "One per repo"), ("worktree", "One per worktree")],
+    ),
+    choice(
+        "browser.popups",
+        "Apps",
+        "Pop-up windows",
+        "A page's pop-up opens as a tab of the Chromium browser, or is blocked.",
+        "tab",
+        &[("tab", "Open as a tab"), ("block", "Block")],
+    ),
+    text("browser.downloads", "Apps", "Downloads folder", "Where the Chromium browser saves what you download.", "", Check::Folder, Some("~/Downloads")),
 ];
 
 /// What config.json holds that no switch or field sets: its key and one line, in the order it is listed.
@@ -360,8 +401,16 @@ pub fn default_of(setting: &Setting) -> Value {
 
 /// The values a choice takes with their names, the installed agents read now; empty for another kind.
 pub fn choices(setting: &Setting) -> Vec<(String, String)> {
+    offered(setting, CHROMIUM_HERE)
+}
+
+/// The values a choice takes on a machine that can, or cannot, run the Chromium side browser.
+fn offered(setting: &Setting, chromium: bool) -> Vec<(String, String)> {
     match setting.kind {
-        Kind::Choice(Choices::Fixed(values)) => values.iter().map(|(value, label)| (value.to_string(), label.to_string())).collect(),
+        Kind::Choice(Choices::Fixed(values)) => {
+            let here = |value: &str| chromium || !(setting.key == "sideBrowser" && value == CHROMIUM);
+            values.iter().filter(|(value, _)| here(value)).map(|(value, label)| (value.to_string(), label.to_string())).collect()
+        }
         Kind::Choice(Choices::Agents) => std::iter::once((String::new(), "The first installed".to_string()))
             .chain(agent::all().into_iter().filter(agent::Agent::installed).map(|a| (a.id, a.name)))
             .collect(),
@@ -771,12 +820,21 @@ mod tests {
         let order: Vec<usize> = ALL.iter().map(|s| SECTIONS.iter().position(|name| *name == s.section).unwrap()).collect();
         assert!(order.windows(2).all(|w| w[0] <= w[1]), "the options are listed section by section");
         assert!(SECTIONS.iter().all(|name| ALL.iter().any(|s| s.section == *name)), "no empty section");
-        assert_eq!(since("0.40.3").iter().map(|s| s.key).collect::<Vec<_>>(), ["queue.drain", "ci.tellAgents", "chat.nextSteps"]);
+        assert_eq!(since("0.40.3").iter().map(|s| s.key).collect::<Vec<_>>(), ["queue.drain", "ci.tellAgents", "chat.nextSteps", "sideBrowser"]);
+        assert_eq!(since("1.0.1").iter().map(|s| s.key).collect::<Vec<_>>(), ["sideBrowser"]);
         assert_eq!(get("chat.nextSteps").map(|s| s.default), Some(Def::Off));
         assert!(get("nope").is_none());
         for (key, line) in IN_FILE {
             assert!(!key.is_empty() && line.ends_with('.'), "{key}");
         }
+    }
+
+    #[test]
+    fn chromium_is_offered_only_where_it_runs() {
+        let side = get("sideBrowser").unwrap();
+        assert_eq!(offered(side, true).iter().map(|(v, _)| v.as_str()).collect::<Vec<_>>(), ["terminal-browser", CHROMIUM]);
+        assert_eq!(offered(side, false).iter().map(|(v, _)| v.as_str()).collect::<Vec<_>>(), ["terminal-browser"]);
+        assert_eq!(offered(get("browser.popups").unwrap(), false).len(), 2);
     }
 
     #[test]
@@ -1111,7 +1169,7 @@ mod tests {
             (&names["section"], &names["kind"], &names["since"], &names["seen"], &names["new"]),
             (&json!("Agents"), &json!("toggle"), &Value::Null, &json!(true), &json!(false))
         );
-        assert_eq!(option("queue.drain")["since"], NEXT);
+        assert_eq!((&option("queue.drain")["since"], &option("sideBrowser")["since"]), (&json!("1.0.0"), &json!(NEXT)));
         let pace = option("agents.pace");
         assert_eq!(pace["choices"], json!([{"value": "week", "label": "Whole week"}, {"value": "weekdays", "label": "Weekdays"}]));
         let every = option("refresh.github");

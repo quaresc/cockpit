@@ -3,6 +3,7 @@
 
 mod folder;
 mod install;
+pub mod pinned;
 mod release;
 mod watch;
 
