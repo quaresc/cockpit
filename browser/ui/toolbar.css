@@ -284,7 +284,7 @@ button.text {
 }
 #draft {
   position: absolute;
-  width: 320px;
+  width: 348px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -323,7 +323,7 @@ button.text {
   flex: 1;
 }
 #draft select {
-  min-width: 0;
+  flex: none;
   height: 26px;
   border: 1px solid var(--line);
   border-radius: 6px;

@@ -235,7 +235,7 @@ function openDraft(asked) {
   options($("draft-intent"), asked.intents, "change");
   options($("draft-priority"), asked.priorities, asked.priority);
   draft.hidden = false;
-  draft.style.left = `${Math.max(8, Math.min(asked.x, innerWidth - 336))}px`;
+  draft.style.left = `${Math.max(8, Math.min(asked.x, innerWidth - 364))}px`;
   draft.style.top = `${Math.max(84, Math.min(asked.y + 8, innerHeight - draft.offsetHeight - 8))}px`;
   setOpen();
   $("draft-comment").focus();
