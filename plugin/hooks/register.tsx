@@ -33,6 +33,8 @@ const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 let turn = freshTurn()
 // The turn of each running subagent, by agent id, from its own brief.
 const agentTurns = new Map<string, Turn>()
+// The files this session published as artifacts: publishing one again updates it.
+const publishedArtifacts = new Set<string>()
 
 // The session's timers: a /clear starts a new session in the same process, and the old one's must not tick on beside it.
 let timers: { cancel: () => void }[] = []
@@ -163,14 +165,19 @@ export const register: Register = on => {
     return commands.length > 0 ? { decision: 'ask', reason: `The pane will run, again and again: ${commands.join(' ; ')}` } : { decision: 'allow' }
   })
 
-  // Results are drawn with show: opening a hand-made HTML page beside the session, or publishing an artifact, is held back.
+  // Results are drawn with show: opening a hand-made HTML page beside the session, or publishing a new artifact, is held back.
   on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
     const reason = pageRefusal(String((e.input as { command?: unknown } | undefined)?.command ?? ''), agentTurn(e.agentId))
     return reason ? { decision: 'deny', reason } : next(e)
   })
   on('tool.check', { tool: 'Artifact' }, async ($, e, next) => {
-    const reason = artifactRefusal((e.input ?? {}) as Record<string, unknown>, agentTurn(e.agentId))
+    const reason = artifactRefusal((e.input ?? {}) as Record<string, unknown>, agentTurn(e.agentId), publishedArtifacts)
     return reason ? { decision: 'deny', reason } : next(e)
+  })
+  on('tool.call', { tool: 'Artifact' }, async ($, e, next) => {
+    const done = await next(e)
+    if ((e.action ?? 'publish') === 'publish' && !done.deny && !done.isError && e.file_path) publishedArtifacts.add(e.file_path)
+    return done
   })
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
@@ -238,6 +245,7 @@ export const register: Register = on => {
       await update($, links, () => null)
       await update($, views, () => [])
       await update($, sidePage, () => null)
+      publishedArtifacts.clear()
     }
     const here = await herdrHere($).catch(() => undefined)
     if (here) void clearRows($, here.pane)
