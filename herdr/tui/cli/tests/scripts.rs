@@ -1,7 +1,7 @@
 //! The plugin's shell scripts that start the binary: app.sh and cockpit.sh find it, fetch-apps.sh installs it from a
 //! release (served here by a small HTTP server) or has a binary do it, update.sh stops the spaces' supervisors, their
 //! apps and the hub, pin-spaces.sh orders the spaces, browse.sh and shots.sh hand their arguments to the cockpit command,
-//! and palette.sh opens the palette popup over the pane in view.
+//! palette.sh opens the palette popup over the pane in view, and whats-new.sh the popup after an update.
 
 mod common;
 
@@ -134,6 +134,27 @@ fn palette_opens_its_popup_told_of_the_pane_below() {
 }
 
 // ---------------------------------------------------------------------------
+// whats-new.sh
+
+#[test]
+fn whats_new_opens_its_popup_only_while_an_update_waits_to_be_shown() {
+    for (pending, opened) in [(0, true), (1, false)] {
+        let sandbox = Sandbox::new();
+        for name in ["whats-new.sh", "lib.sh", "cockpit.sh"] {
+            sandbox.copy_script(name);
+        }
+        executable(&sandbox.root.join("herdr/bin/cockpit"), &common::fake("cockpit", &sandbox.log(), &[("options pending", &format!("    exit {pending}"))]));
+        sandbox.herdr(&[]);
+        assert_eq!(sandbox.sh("whats-new.sh", &[], &[]).status.code(), Some(0));
+        let mut expected = vec!["cockpit options pending".to_string()];
+        if opened {
+            expected.push("herdr plugin pane open --plugin cockpit --entrypoint whats-new --placement popup".into());
+        }
+        assert_eq!(sandbox.calls(), expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // update.sh
 
 /// The pattern update.sh hands `pkill -f` on the line naming what it stops.
@@ -146,14 +167,10 @@ fn killed(what: &str) -> regex::Regex {
 #[test]
 fn update_stops_every_space_app_and_nothing_else() {
     let apps = killed("cockpit-space");
-    for line in [
-        "/x/herdr/bin/cockpit inbox cockpit-space",
-        "/x/herdr/bin/cockpit runbook cockpit-space",
-        "/x/herdr/tui/target/release/cockpit meetings cockpit-space",
-        "cockpit todo cockpit-space",
-        "/x/herdr/bin/cockpit monitor cockpit-space",
-        "/x/herdr/bin/cockpit routines cockpit-space",
-    ] {
+    for app in cockpit_core::SPACE_APPS {
+        assert!(apps.is_match(&format!("/x/herdr/bin/cockpit {app} cockpit-space")), "{app}");
+    }
+    for line in ["/x/herdr/tui/target/release/cockpit meetings cockpit-space", "cockpit todo cockpit-space"] {
         assert!(apps.is_match(line), "{line}");
     }
     for line in ["/x/herdr/bin/cockpit show demo", "/x/herdr/bin/cockpit hub", "/x/herdr/bin/cockpit actions sidebar", "/x/herdr/bin/cockpit space inbox"] {
@@ -164,14 +181,10 @@ fn update_stops_every_space_app_and_nothing_else() {
 #[test]
 fn update_stops_every_spaces_supervisor_and_nothing_else() {
     let supervisors = killed("cockpit space");
-    for line in [
-        "/x/herdr/bin/cockpit space inbox",
-        "/x/herdr/tui/target/release/cockpit space meetings",
-        "cockpit space todo",
-        "/x/cockpit space runbook",
-        "/x/herdr/bin/cockpit space monitor",
-        "/x/herdr/bin/cockpit space routines",
-    ] {
+    for app in cockpit_core::SPACE_APPS {
+        assert!(supervisors.is_match(&format!("/x/herdr/bin/cockpit space {app}")), "{app}");
+    }
+    for line in ["/x/herdr/tui/target/release/cockpit space meetings", "cockpit space todo", "/x/cockpit space runbook"] {
         assert!(supervisors.is_match(line), "{line}");
     }
     for line in ["/x/herdr/bin/cockpit inbox cockpit-space", "/x/herdr/bin/cockpit space inbox extra", "/x/herdr/bin/cockpit hub", "/x/notcockpit space inbox"]
@@ -492,4 +505,74 @@ fn fetch_before_the_release_has_the_binary_copies_the_earlier_install_in() {
     assert_eq!(std::fs::read_to_string(new.join("bin/.version")).unwrap(), "9.9.9\n");
     assert_eq!(stdout(&Command::new(new.join("bin/cockpit")).output().unwrap()), "released\n");
     assert_eq!(listing(new), ["bin", "fetch-apps.sh", "herdr-plugin.toml"]);
+}
+
+// ---------------------------------------------------------------------------
+// Hubs started on a demo HOME
+
+/// A hub a script starts on its own HOME (the sandbox, the screenshots) fetches nothing and asks no agent of this
+/// machine for its models: every one that turns the feed off turns the model listings off too.
+#[test]
+fn every_script_that_starts_a_demo_hub_asks_no_agent_for_its_models() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(repo.join("docs/screenshots")).unwrap().flatten().map(|e| e.path()).collect();
+    files.extend(std::fs::read_dir(repo.join("scripts")).unwrap().flatten().map(|e| e.path()));
+    let mut checked = 0;
+    for file in files.iter().filter(|f| f.extension().is_some_and(|e| e == "py" || e == "sh")) {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        if text.contains("COCKPIT_HUB_FEED") {
+            checked += 1;
+            assert!(text.contains("COCKPIT_HUB_MODELS"), "{} starts a hub that asks this machine's agents for their models", file.display());
+        }
+    }
+    assert!(checked >= 4, "the sandbox and the screenshot scripts: {checked}");
+}
+
+// the GUI sandbox's hc
+
+/// The hc a sandbox's hub runs refuses to type into a terminal, which would run on the real HOME, unless asked to.
+#[test]
+fn the_sandbox_s_hc_refuses_to_type_a_line_unless_allowed() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let log = root.path().join("hc.log");
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    executable(&home.join(".local/bin/hc"), &format!("#!/bin/sh\necho \"$HOME|$HC_SESSION|$*\" >> {}\n", log.display()));
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/sandbox.sh");
+    let wrapper = root.path().join("box/hc.sh");
+    std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    let write = |allow: &str| {
+        let out = Command::new("sh")
+            .arg(&script)
+            .args(["hc-wrapper", &wrapper.to_string_lossy()])
+            .env("HOME", &home)
+            .env("COCKPIT_SANDBOX", root.path().join("box"))
+            .env("SANDBOX_ALLOW_SEND", allow)
+            .env_remove("HC_SESSION")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+    let run = |args: &[&str], allow: Option<&str>| {
+        let mut command = Command::new(&wrapper);
+        command.args(args).env("HOME", "/elsewhere").env_remove("SANDBOX_ALLOW_SEND");
+        if let Some(allow) = allow {
+            command.env("SANDBOX_ALLOW_SEND", allow);
+        }
+        command.output().unwrap()
+    };
+    write("");
+    let refused = run(&["send", "--force", "--json", "--", "t1", "terminal-browser config set render.fps 60"], None);
+    assert_eq!(refused.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&refused.stderr), "sandbox: typing into a terminal with the real HOME is refused\n");
+    assert!(!log.exists(), "nothing reached hc");
+    // Anything else goes to hc on the HOME and the session the sandbox was started with: the folder's name by default.
+    assert!(run(&["ls"], None).status.success());
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), format!("{}|box|ls\n", home.display()));
+    // Allowed when it runs, or when it was written.
+    assert!(run(&["send", "t1", "ls"], Some("1")).status.success());
+    write("1");
+    assert!(run(&["send", "t1", "pwd"], None).status.success());
+    let lines = std::fs::read_to_string(&log).unwrap();
+    assert!(lines.contains("|box|send t1 ls\n") && lines.contains("|box|send t1 pwd\n"), "{lines}");
 }

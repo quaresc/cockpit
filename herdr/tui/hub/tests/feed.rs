@@ -1,5 +1,5 @@
 //! The hub's feed against a fake GitHub (and Linear) served on a local port: the inbox and CI caches it writes, what it
-//! keeps of the mod's, its notifications, and a rate limit it waits out.
+//! keeps of the mod's, its notifications, a rate limit it waits out, and how fresh it says each source is.
 
 mod common;
 
@@ -19,7 +19,7 @@ const LINEAR_TOKEN: &str = "lin_api_feedtest";
 type Seen = Arc<Mutex<Vec<(String, String, String)>>>;
 type Route = dyn Fn(&str, &str, &str) -> (u16, Vec<(String, String)>, String) + Send + Sync;
 
-/// Serves each request with `route`, one per connection, and returns its base URL.
+/// Serves each request with `route`, one per connection, and returns its base URL; status 0 hangs up.
 fn serve(route: Box<Route>) -> (String, Seen) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -51,6 +51,10 @@ fn serve(route: Box<Route>) -> (String, Seen) {
             reader.read_exact(&mut body).unwrap();
             let (status, headers, answer) = route(&method, &path, &auth);
             log.lock().unwrap().push((method, path, auth));
+            // Status 0 hangs up without an answer, as a network that drops the connection.
+            if status == 0 {
+                continue;
+            }
             let mut stream = stream;
             let extra: String = headers.iter().map(|(k, v)| format!("{k}: {v}\r\n")).collect();
             let _ = write!(
@@ -207,4 +211,90 @@ fn the_calendar_address_fills_meetings_json_and_keeps_what_was_notified() {
     assert_eq!(seen.lock().unwrap().len(), 1);
     let text = std::fs::read_to_string(cache.join("meetings.json")).unwrap();
     assert!(!text.contains("private-feedtest"), "the secret address leaked into meetings.json");
+}
+
+#[test]
+fn each_source_says_how_fresh_it_is_and_recovers_without_a_restart() {
+    let mode = Arc::new(Mutex::new("ok"));
+    let shared = mode.clone();
+    let (base, _) = serve(Box::new(move |method, path, auth| {
+        let mode = *shared.lock().unwrap();
+        let answer = |status: u16, message: &str| (status, vec![], json!({"message": message}).to_string());
+        match (mode, method, path) {
+            (_, "POST", "/graphql") if auth == LINEAR_TOKEN => answer(401, "Bad credentials"),
+            ("ok", "POST", "/graphql") => (200, vec![], fixture("github.json")),
+            ("ok", "GET", _) => (200, vec![], json!({"steps": []}).to_string()),
+            ("offline", ..) => (0, vec![], String::new()),
+            ("missing", ..) => answer(404, "Not Found"),
+            ("down", ..) => answer(502, "Bad Gateway"),
+            ("limited", ..) => (429, vec![("retry-after".to_string(), "3600".to_string())], json!({"message": "slow down"}).to_string()),
+            _ => answer(404, "Not Found"),
+        }
+    }));
+    let sandbox = Sandbox::new(
+        &json!({}),
+        &json!({"ci": {"enabled": true, "name": "GitHub", "server": "", "imageJob": "docker_build"},
+        "tickets": {"enabled": true, "name": "Linear", "server": "claude.ai Linear", "token": LINEAR_TOKEN}}),
+    );
+    let cache = sandbox.home().join(".cache/cockpit");
+    let hub = Hub::start(&sandbox, &[("COCKPIT_HUB_FEED", "on"), ("GH_TOKEN", TOKEN), ("COCKPIT_GITHUB_API", &base), ("COCKPIT_LINEAR_API", &base)]);
+    hub.request(&json!({"op": "ping"}));
+    let fresh = |doc: &Value, source: &str| doc["hub"]["fresh"][source].clone();
+    let kind = |doc: &Value, source: &str| doc["hub"]["fresh"][source]["error"]["kind"].as_str().unwrap_or("").to_string();
+
+    // GitHub answers, Linear refuses its token: one fresh, one to sign in again.
+    let inbox = wait_for(&cache.join("inbox.json"), |v| fresh(v, "github")["state"] == "fresh" && kind(v, "tickets") == "auth");
+    let github = fresh(&inbox, "github");
+    assert_eq!((&github["label"], &github["every"]), (&json!("GitHub"), &json!(30_000)));
+    assert_eq!(github["login"], "cockpit reads GitHub with GH_TOKEN: replace that token where it is set, then refresh", "gh's login is not what it reads");
+    assert!(github["next"].as_u64() > github["at"].as_u64(), "{github}");
+    let tickets = fresh(&inbox, "tickets");
+    assert_eq!(
+        (&tickets["label"], &tickets["error"]["message"], &tickets["login"]),
+        (&json!("Linear"), &json!("HTTP 401: token refused"), &json!("cockpit setup"))
+    );
+    let ci = wait_for(&cache.join("ci.json"), |v| fresh(v, "ci")["state"] == "fresh");
+    assert_eq!(fresh(&ci, "ci")["label"], "CI", "GitHub's checks are read with it");
+
+    // Offline, a missing page, a server error, then a rate limit with its reset: each its own kind, recovered in place.
+    let ask = || std::fs::write(cache.join("refresh-request"), "1").unwrap();
+    for (now, expected) in [("offline", "network"), ("missing", "not_found"), ("down", "server"), ("ok", ""), ("limited", "rate")] {
+        *mode.lock().unwrap() = now;
+        ask();
+        let inbox = wait_for(&cache.join("inbox.json"), |v| kind(v, "github") == expected && (expected.is_empty() == (fresh(v, "github")["state"] == "fresh")));
+        if expected == "network" {
+            let ci = wait_for(&cache.join("ci.json"), |v| kind(v, "ci") == "network");
+            assert!(ci["error"].is_string(), "the runs stay, with their error: {ci}");
+            assert!(fresh(&inbox, "github")["error"]["message"].as_str().unwrap().starts_with("unreachable:"), "{inbox}");
+        }
+        if expected.is_empty() {
+            assert_eq!(fresh(&inbox, "github")["error"], Value::Null, "recovered without a restart");
+            assert!(!inbox["errors"].as_array().unwrap().iter().any(|e| e.as_str().unwrap().starts_with("GitHub")), "{inbox}");
+            wait_for(&cache.join("ci.json"), |v| fresh(v, "ci")["state"] == "fresh");
+        }
+        if expected == "rate" {
+            let next = fresh(&inbox, "github")["next"].as_u64().unwrap();
+            let in_an_hour = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 + 3_590_000;
+            assert!(next > in_an_hour, "the next read waits for the reset: {next}");
+        }
+    }
+    assert_eq!(kind(&read(&cache.join("inbox.json")), "tickets"), "auth", "Linear still refuses");
+
+    // The config stops reading tickets: their chip and error line leave the inbox with no restart.
+    let config = sandbox.home().join(".config/cockpit/config.json");
+    edit(&config, |c| c["tickets"]["enabled"] = json!(false));
+    ask();
+    let inbox = wait_for(&cache.join("inbox.json"), |v| v["hub"]["fresh"].get("tickets").is_none() && v["hub"]["fresh"].get("github").is_some());
+    let linear = |list: &Value| list.as_array().unwrap().iter().any(|e| e.as_str().unwrap().starts_with("Linear"));
+    assert!(!linear(&inbox["hub"]["errors"]) && !linear(&inbox["errors"]), "{inbox}");
+    assert!(inbox["errors"].as_array().unwrap().iter().any(|e| e.as_str().unwrap().starts_with("GitHub")), "the other source's line stays: {inbox}");
+
+    // Rate limited, CI keeps its runs with an error; once the config stops reading CI, its document drops the error too.
+    wait_for(&cache.join("ci.json"), |v| kind(v, "ci") == "rate" && v["error"].is_string());
+    edit(&config, |c| c["ci"]["enabled"] = json!(false));
+    ask();
+    let ci = wait_for(&cache.join("ci.json"), |v| v["hub"]["fresh"].get("ci").is_none());
+    assert_eq!(ci["error"], Value::Null, "{ci}");
+    let inbox = read(&cache.join("inbox.json"));
+    assert!(!inbox["errors"].as_array().unwrap().iter().any(|e| e.as_str().unwrap().starts_with("CI")), "{inbox}");
 }

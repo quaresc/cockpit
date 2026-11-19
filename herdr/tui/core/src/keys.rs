@@ -4,11 +4,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// The verbs on the same key in every app that has them, each with the labels its buttons show.
-pub const VERBS: [(char, &[&str]); 13] = [
+pub const VERBS: [(char, &[&str]); 14] = [
     ('a', &["add"]),
     ('e', &["edit"]),
     ('x', &["done", "reopen", "dismiss"]),
-    ('D', &["delete"]),
+    ('D', &["delete", "remove worktree"]),
+    ('L', &["sign in again"]),
     ('o', &["open", "go"]),
     ('r', &["run", "rerun", "redo", "review"]),
     ('R', &["refresh"]),

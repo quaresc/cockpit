@@ -11,15 +11,16 @@ use cockpit_core::anim::{self, Effects};
 use cockpit_core::bridge::Bridge;
 use cockpit_core::dialog::Dialog;
 use cockpit_core::files::{self, Density};
-use cockpit_core::focus;
 use cockpit_core::hub::{self, Docs};
 use cockpit_core::input::Input;
 use cockpit_core::palette::Palette;
+use cockpit_core::pointed::Pointed;
 use cockpit_core::seen::Seen;
 use cockpit_core::term;
 use cockpit_core::theme::base;
 use cockpit_core::toast::{Kind as Toast, Toasts};
 use cockpit_core::widgets::filter_line;
+use cockpit_core::{focus, header};
 use crossterm::event::{Event, KeyEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -40,9 +41,17 @@ use crate::select::{self, Picked};
 use crate::sessions::Local;
 use crate::tree::{Paint, Tree};
 
-/// The documents' revision and the muted list's time at the last rebuild, and the 30 s period it fell in: the ages move
-/// every period.
-type Stamp = (u64, Option<SystemTime>, u64);
+/// The documents' revision, the muted list's and start work's runs' times at the last rebuild, the 30 s period it fell in
+/// (the ages move every period), and where the worktrees stand.
+type Stamp = (u64, Option<SystemTime>, u64, Option<SystemTime>, u64);
+
+/// The tag a batch's queued calls come back with.
+const QUEUED: &str = "queued";
+
+/// Where the worktrees stand: a change any process said, and the background scans that finished since.
+fn worktrees_seen() -> u64 {
+    crate::worktrees::generation().wrapping_add(cockpit_core::cleanup::generation())
+}
 
 pub(crate) enum Command {
     Act(String, usize),
@@ -50,6 +59,7 @@ pub(crate) enum Command {
     Refresh,
     Regroup,
     Filter,
+    Start,
 }
 
 /// What a dialog's answer runs.
@@ -60,6 +70,14 @@ pub(crate) enum Asked {
     Batch(String, Vec<(Call, Option<String>)>),
     /// A batch whose action asks where first: each picked row's calls, one per choice.
     BatchPicks(String, Vec<Vec<Call>>),
+}
+
+/// A batch's calls still to send, and what came of those sent.
+pub(crate) struct Queue {
+    pub label: String,
+    pub left: std::collections::VecDeque<(Call, Option<String>)>,
+    pub done: usize,
+    pub refused: Vec<String>,
 }
 
 pub struct App {
@@ -84,6 +102,8 @@ pub struct App {
     pub(crate) palette: Palette,
     pub(crate) commands: Vec<Command>,
     pub(crate) dialog: Option<(Dialog, Asked)>,
+    /// The Start work form, over the tree while it is open.
+    pub(crate) start: Option<crate::start::Form>,
     pub(crate) toasts: Toasts,
     pub(crate) buttons: Vec<(Rect, usize)>,
     pub(crate) filter: Input,
@@ -94,9 +114,14 @@ pub struct App {
     /// A toast shows, which goes on its own.
     toasting: bool,
     snapshot: Option<Snapshot>,
+    pub(crate) queue: Option<Queue>,
+    /// No row to show: the inbox is empty, or not read yet.
+    bare: bool,
     details: Details,
     history: History,
     focus_seen: SystemTime,
+    /// The row a focus request selected: its keys wait for the person's move.
+    pub pointed: Pointed,
     /// What changed since you last looked at the inbox.
     looked: Seen,
 }
@@ -127,6 +152,7 @@ impl App {
             palette,
             commands: Vec::new(),
             dialog: None,
+            start: None,
             toasts: Toasts::default(),
             buttons: Vec::new(),
             filter: Input::default(),
@@ -136,9 +162,12 @@ impl App {
             animating: false,
             toasting: false,
             snapshot: None,
+            queue: None,
+            bare: true,
             details: Details::new(live),
             history: History::new(live, series),
             focus_seen: SystemTime::now(),
+            pointed: Pointed::default(),
             looked: Seen::fixture(0, Vec::new()),
         }
     }
@@ -155,6 +184,11 @@ impl App {
         app.looked = Seen::start("inbox");
         app.reload(true);
         app
+    }
+
+    /// The rows as drawn, for tests.
+    pub fn tree(&self) -> &Tree {
+        &self.tree
     }
 
     /// The app on given data, for tests: nothing read, watched or fetched.
@@ -191,7 +225,8 @@ impl App {
 
     fn stamp(&self) -> Stamp {
         let muted = std::fs::metadata(files::config_dir().join("muted.json")).and_then(|m| m.modified()).ok();
-        (self.docs.as_ref().map_or(0, |d| d.revision), muted, period())
+        let starts = std::fs::metadata(files::cache().join("start-runs.json")).and_then(|m| m.modified()).ok();
+        (self.docs.as_ref().map_or(0, |d| d.revision), muted, period(), starts, worktrees_seen())
     }
 
     /// Reads the caches again when they changed or the ages moved; true when it did.
@@ -214,6 +249,11 @@ impl App {
         let ctx = Ctx { config: &self.config, by_status: self.by_status, compact: self.compact, series: self.history.series() };
         let (head, top) = model::model(&self.inputs, &ctx, &mut self.local);
         self.head = head;
+        self.bare = top.iter().all(|row| row.children.is_empty());
+        if self.bare {
+            // Nothing to show: the doctor's report says what is left of getting started.
+            cockpit_core::started::refresh();
+        }
         self.tree.replace(top);
         self.picked.keep_known(&self.tree);
         let Some(data) = model::usable(&self.inputs) else {
@@ -236,12 +276,23 @@ impl App {
         let mut force = false;
         while let Ok(reply) = self.bridge.replies.try_recv() {
             self.in_flight = self.in_flight.saturating_sub(1);
+            force = true;
+            if reply.tag == QUEUED {
+                if let Some(q) = &mut self.queue {
+                    match reply.error {
+                        Some(error) => q.refused.push(error),
+                        None => q.done += 1,
+                    }
+                }
+                self.requests.merge(&reply.pending);
+                self.next_queued();
+                continue;
+            }
             if let Some(error) = reply.error {
                 self.toasts.push(error, Toast::Bad);
             }
             self.toasts.push(reply.note, Toast::Good);
             self.requests.merge(&reply.pending);
-            force = true;
         }
         if self.history.pump() {
             self.rebuild();
@@ -249,6 +300,14 @@ impl App {
         }
         changed |= self.details.pump();
         changed |= self.looked.pump();
+        if let Some(form) = &mut self.start {
+            changed |= form.pump();
+            if let Some(note) = form.finished() {
+                self.start = None;
+                self.toasts.push(note, Toast::Good);
+                changed = true;
+            }
+        }
         if !self.live {
             return changed;
         }
@@ -269,7 +328,7 @@ impl App {
             self.focus(&target);
             changed = true;
         }
-        if force || files_changed || pushed || self.seen.as_ref().is_none_or(|s| s.2 != period()) {
+        if force || files_changed || pushed || self.seen.as_ref().is_none_or(|s| s.2 != period() || s.4 != worktrees_seen()) {
             changed |= self.reload(force);
         }
         changed
@@ -286,6 +345,7 @@ impl App {
             self.clear_filter();
         }
         self.tree.go_to(node);
+        self.pointed.point();
         self.effects.start(&key, anim::tone("focus"));
     }
 
@@ -295,7 +355,33 @@ impl App {
         self.tree.set_filter("");
     }
 
+    /// Sends the batch's next call, or says what came of them all once none is left.
+    pub(crate) fn next_queued(&mut self) {
+        let Some(q) = &mut self.queue else { return };
+        match q.left.pop_front() {
+            Some((call, armed)) => {
+                self.in_flight += 1;
+                let app = if call.function.starts_with("routines:") { "routines" } else { "inbox" };
+                self.bridge.call(QUEUED, app, call.function.trim_start_matches("routines:"), call.args, armed);
+            }
+            None => {
+                let q = self.queue.take().expect("matched above");
+                let said = match q.refused.len() {
+                    0 => format!("{}: {} done", q.label, q.done),
+                    n => format!("{}: {} done, {n} refused: {}", q.label, q.done, q.refused.join("; ")),
+                };
+                self.toasts.push(said, if q.refused.is_empty() { Toast::Good } else { Toast::Bad });
+            }
+        }
+    }
+
     pub(crate) fn call(&mut self, call: Call, armed: Option<String>) {
+        // A start's row opens the form on its run, here rather than in the hub.
+        if call.function == "start_open" {
+            let id = call.args.first().and_then(|a| a.as_str()).unwrap_or_default().to_string();
+            self.start = Some(crate::start::Form::attach(&id, self.live));
+            return;
+        }
         // A `run` call is a plain command: its argv runs here, off the keys' thread, without the hub.
         if call.function == "run" {
             let argv: Vec<String> = call.args.first().and_then(|a| a.as_array()).into_iter().flatten().filter_map(|a| a.as_str().map(str::to_string)).collect();
@@ -306,7 +392,15 @@ impl App {
             return;
         }
         self.in_flight += 1;
-        self.bridge.call(call.function, "inbox", call.function, call.args, armed);
+        // Fix ci reads the failing logs first, which takes a while.
+        if call.function == "fix_ci" {
+            self.toasts.push("fetching the CI log…".to_string(), Toast::Note);
+        }
+        // `routines:<action>` is the routines space's own action, a run marked read from Today.
+        match call.function.strip_prefix("routines:") {
+            Some(action) => self.bridge.call(call.function, "routines", action, call.args, armed),
+            None => self.bridge.call(call.function, "inbox", call.function, call.args, armed),
+        }
     }
 
     /// The panel's lines and buttons: the picked rows' summary and shared actions, else the highlighted row's details.
@@ -347,6 +441,11 @@ impl App {
         self.tree.current().map(|n| self.tree.nodes[n].path.clone())
     }
 
+    /// Whether it runs on the hub's data, not a fixture's.
+    pub(crate) fn live(&self) -> bool {
+        self.live
+    }
+
     pub(crate) fn row_acts(&self) -> Vec<Act> {
         self.tree.current().map(|n| self.tree.nodes[n].row.acts.iter().map(|a| a.act.clone()).collect()).unwrap_or_default()
     }
@@ -360,7 +459,7 @@ fn period() -> u64 {
 impl term::App for App {
     /// Idle only: `?` must type into the filter or a dialog when one is open.
     fn help(&self) -> Option<(String, Vec<cockpit_core::acts::Act>)> {
-        let busy = self.editing || self.tree.filtering() || self.dialog.is_some() || self.palette.is_open;
+        let busy = self.editing || self.tree.filtering() || self.dialog.is_some() || self.palette.is_open || self.start.is_some();
         (!busy).then(|| ("the inbox".to_string(), Vec::new()))
     }
 
@@ -368,9 +467,21 @@ impl term::App for App {
         let area = frame.area();
         frame.render_widget(Block::new().style(base()), area);
         let mut head = self.head.clone();
+        // The header's lines: the title, and the source chips below it when they do not fit beside it.
+        let mut title_lines = 1;
+        if let (Some(title), Some(data)) = (head.first().cloned(), model::usable(&self.inputs)) {
+            let sources = header::sources(&[data, &self.inputs.ci]);
+            let lines = header::lines(title, &sources, area.width.saturating_sub(2) as usize);
+            title_lines = lines.len();
+            head.splice(0..1, lines);
+        }
+        if self.bare {
+            // What is left of getting started, from the doctor's last report.
+            head.extend(cockpit_core::started::lines(&cockpit_core::started::steps(&self.inputs.started), area.width.saturating_sub(2) as usize));
+        }
         let since = |ms: u64| crate::facts::clock(&Value::from(ms));
         if let Some(line) = self.looked.head(area.width.saturating_sub(2) as usize, since) {
-            head.insert(1.min(head.len()), line);
+            head.insert(title_lines.min(head.len()), line);
         }
         let head_height = panel::height(&head, area.width.saturating_sub(2)).max(1);
         let (info, acts) = if self.compact { (Vec::new(), Vec::new()) } else { self.panel_content() };
@@ -407,6 +518,9 @@ impl term::App for App {
         }
         if let Some((dialog, _)) = &self.dialog {
             dialog.render(frame, area);
+        }
+        if let Some(form) = &self.start {
+            form.render(frame, Rect { height: area.height.saturating_sub(1), ..area });
         }
         if self.palette.is_open {
             self.palette.render(frame, area);
@@ -448,7 +562,7 @@ impl term::App for App {
     fn timeout(&self) -> Duration {
         Duration::from_millis(if self.animating {
             33
-        } else if self.toasting || self.waiting() || self.in_flight > 0 {
+        } else if self.toasting || self.waiting() || self.in_flight > 0 || self.start.as_ref().is_some_and(crate::start::Form::busy) {
             100
         } else {
             1000

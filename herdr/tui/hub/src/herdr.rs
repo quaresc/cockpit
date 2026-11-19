@@ -19,6 +19,11 @@ pub fn run(args: &[&str]) -> Out {
     proc::run15(&argv(args))
 }
 
+/// A herdr call given at most `limit`, for a hub on its way out.
+pub fn run_within(args: &[&str], limit: std::time::Duration) -> Out {
+    proc::run(&argv(args), limit, None)
+}
+
 /// The `result` of a call that succeeded or not, the way a JSON parse of its output finds it.
 pub fn result_of(out: &Out) -> Option<Value> {
     serde_json::from_str::<Value>(&out.stdout).ok()?.get("result").cloned()
@@ -26,7 +31,12 @@ pub fn result_of(out: &Out) -> Option<Value> {
 
 /// herdr's spaces, each label stripped of its "[N] " prefix.
 pub fn spaces() -> Vec<Value> {
-    let listed = result_of(&run(&["workspace", "list"])).and_then(|r| r.get("workspaces").and_then(Value::as_array).cloned()).unwrap_or_default();
+    spaces_within(std::time::Duration::from_secs(15))
+}
+
+/// herdr's spaces, the call given at most `limit`.
+pub fn spaces_within(limit: std::time::Duration) -> Vec<Value> {
+    let listed = result_of(&run_within(&["workspace", "list"], limit)).and_then(|r| r.get("workspaces").and_then(Value::as_array).cloned()).unwrap_or_default();
     static PREFIX: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"^\[\d+\]\s*").expect("a valid pattern"));
     listed
         .into_iter()

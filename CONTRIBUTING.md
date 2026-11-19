@@ -46,8 +46,11 @@ sh scripts/sandbox.sh stop
 ```
 
 The sandbox runs on a fake HOME with its own hub and copies `app/` into its window on every save. Keep
-`COCKPIT_SANDBOX` short (macOS caps socket paths at 104 bytes); `HC_SESSION=<name>` gives it an empty herdr-core of its
-own, so none of your terminals shows in it. The top of `scripts/sandbox.sh` lists every command.
+`COCKPIT_SANDBOX` short (macOS caps socket paths at 104 bytes). It gets an empty herdr-core of its own (`HC_SESSION`,
+by default the sandbox folder's name), so none of your terminals shows in it. That herdr-core runs with your real HOME:
+the sandbox's `hc` refuses to type a line into its terminals (a fix's command, a runbook step, a prompt) unless
+`SANDBOX_ALLOW_SEND=1`, and a fix in the sandbox's Cockpit settings shows its command rather than running it. The top
+of `scripts/sandbox.sh` lists every command.
 
 ### The plugins
 

@@ -7,12 +7,12 @@
 //! - `search` {query}: {entries: [{app, kind, title, help, target}]} across inbox, runbook, show, to-do and meetings.
 //! - `go` {target}: focuses the target's space and asks its app to bring it into view (see `focus`).
 //! - `fetch` {kind, args}: details on demand, cached: `ci_log`, `failed_tests`, `review_threads`, `pr_files`.
-//! - `history` {kind, key}: {values: [...]}, oldest first: `ci_duration` (repo/branch), `ticket_cost` (ticket id).
+//! - `history` {kind, key}: {values: [...]}, oldest first: `ci_duration` (repo/branch), `ticket_estimate` (ticket id).
 //! - `store.get`, `store.put` {value}, `store.patch` {fields}, `store.past` {since} on a shared document by `name`
-//!   (inbox, ci, meetings, brief, monitor, routines), each answered {value} or {versions}; `store.lease` {name, holder, ttl,
-//!   renew} answered {granted}, and `store.release` {name, holder}.
+//!   (inbox, ci, meetings, brief, monitor, routines; `queue` is read only), each answered {value} or {versions};
+//!   `store.lease` {name, holder, ttl, renew} answered {granted}, and `store.release` {name, holder}.
 //! - `subscribe` {docs, keepalive}: the connection then carries {doc, value} lines, one per document at once and per new
-//!   version after, and an empty line every half minute. With `keepalive` (seconds) the client promises a line at least
+//!   version after, and an empty line every ten seconds. With `keepalive` (seconds) the client promises a line at least
 //!   that often, and the hub ends a subscription quiet for three of them. A subscriber that stops reading is ended too.
 //! - `events` {since, app, limit}: {events: [{at, doc, app, key, title}]}, newest first: what changed in the shared
 //!   documents over the last week, each with the app and row key it touched.
@@ -47,9 +47,21 @@ fn binary() -> PathBuf {
     std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("cockpit"))).unwrap_or_else(|| "cockpit".into())
 }
 
+/// Written by `cockpit hub stop` and taken away by `cockpit hub start` alone: while it is there, nothing starts a hub.
+pub fn stopped_file() -> PathBuf {
+    files::cache().join("hub.stopped")
+}
+
+/// What a request says when the hub was stopped on purpose and is not started again on its behalf.
+pub const STOPPED: &str = "the cockpit hub was stopped: run cockpit hub start";
+
 fn connect(timeout: Duration) -> Option<UnixStream> {
     if let Ok(stream) = UnixStream::connect(socket()) {
         return Some(stream);
+    }
+    // Stopped by a person: a command, a notification or a tool asks, and is told, rather than starting it again.
+    if stopped_file().exists() {
+        return None;
     }
     // No hub yet: start one, detached, at most every few seconds, and wait for its socket.
     static STARTED: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
@@ -86,7 +98,10 @@ fn connect(timeout: Duration) -> Option<UnixStream> {
 
 /// One request and its answer; an error when the hub cannot be reached or answers with `error`.
 pub fn request(req: &Value, timeout: Duration) -> Result<Value, String> {
-    let mut stream = connect(timeout).ok_or("the cockpit hub did not start; what it said is in ~/.cache/cockpit/hub.log")?;
+    let mut stream = connect(timeout).ok_or_else(|| match stopped_file().exists() {
+        true => STOPPED.to_string(),
+        false => "the cockpit hub did not start; what it said is in ~/.cache/cockpit/hub.log".to_string(),
+    })?;
     stream.set_read_timeout(Some(timeout)).ok();
     stream.set_write_timeout(Some(timeout)).ok();
     writeln!(stream, "{req}").map_err(|e| e.to_string())?;

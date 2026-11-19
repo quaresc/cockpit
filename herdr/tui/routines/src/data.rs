@@ -3,7 +3,8 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, Utc};
+use chrono::{FixedOffset, NaiveDateTime, Utc};
+use cockpit_core::routines::Zone;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -26,6 +27,8 @@ pub struct Routine {
     pub agent_set: String,
     pub cwd: String,
     pub model: String,
+    /// The models its agent takes, its default first (""): the hub's list, empty for a script.
+    pub models: Vec<String>,
     pub tools: Vec<String>,
     pub mode: String,
     /// Dollars a week, and what its runs of the last seven days cost, as Claude Code estimates them.
@@ -46,6 +49,11 @@ pub struct Routine {
     pub worktree: bool,
     /// Minutes a run missed while the hub was down may still start late.
     pub catch_up: Option<u64>,
+    /// The shell command run first, which skips the run when it exits non-zero.
+    pub precheck: String,
+    /// `tz` as its file says it, and the time zone it names (empty for the machine's).
+    pub tz: String,
+    pub zone: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -56,6 +64,14 @@ pub struct Running {
     pub why: String,
     pub session: String,
     pub stopping: Option<u64>,
+    /// "precheck" while its precheck runs, before the run itself.
+    pub phase: String,
+}
+
+impl Running {
+    pub fn is_checking(&self) -> bool {
+        self.phase == "precheck"
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -79,6 +95,15 @@ pub struct Run {
     /// Seen in the run inbox, or opened.
     pub read: bool,
     pub worktree: Option<Worktree>,
+    /// What skipped it ("precheck"): nothing was to do.
+    pub skipped: Option<String>,
+    /// How it went wrong, as a word, and in the plain sentence every surface shows.
+    pub kind: Option<String>,
+    pub reason: Option<String>,
+    /// Skips in a row it stands for, the first one's start, and whether its precheck passed before it ran.
+    pub times: Option<u64>,
+    pub since: Option<u64>,
+    pub checked: bool,
 }
 
 /// The git worktree a run worked in: kept while it holds commits or changes, removed otherwise.
@@ -115,9 +140,11 @@ impl Run {
         self.session.as_deref().filter(|s| !s.is_empty())
     }
 
-    /// How it ended, in a word: ok, failed, missed, stopped.
+    /// How it ended, in a word: ok, skipped, failed, missed, stopped.
     pub fn word(&self) -> &'static str {
-        if self.ok {
+        if self.skipped.is_some() {
+            "skipped"
+        } else if self.ok {
             "ok"
         } else if self.missed {
             "missed"
@@ -131,12 +158,25 @@ impl Run {
     pub fn took(&self) -> String {
         duration(self.ended.saturating_sub(self.started))
     }
+
+    /// The sentence saying how it went wrong or why it skipped.
+    pub fn reason(&self) -> Option<&str> {
+        self.reason.as_deref().filter(|r| !r.is_empty())
+    }
+
+    /// "12 times since 08:00": the skips in a row it stands for.
+    pub fn repeats(&self, clock: &Clock) -> Option<String> {
+        let times = self.times.filter(|t| *t > 1)?;
+        Some(format!("{times} times since {}", clock.when(self.since.unwrap_or(self.started))))
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
 struct Queued {
     slug: String,
+    /// Asked for by hand: it does not wait for the machine to settle.
+    hand: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -150,6 +190,7 @@ struct Raw {
     queued: Vec<Queued>,
     runs: HashMap<String, Vec<Run>>,
     agents: Agents,
+    settling: bool,
 }
 
 /// The agents a routine can run on, as the hub has them: the default first, then the others installed.
@@ -158,7 +199,7 @@ struct Raw {
 pub struct Agents {
     /// The default agent's id; empty from a hub that predates agents, whose routines all ran Claude Code.
     pub default: String,
-    /// {id, name} of each agent installed that runs headless.
+    /// {id, name, models} of each agent installed that runs headless, `models` its default first ("").
     pub installed: Vec<Value>,
 }
 
@@ -171,6 +212,21 @@ impl Agents {
         let name = self.installed.iter().find(|a| a["id"] == self.default.as_str()).and_then(|a| a["name"].as_str()).unwrap_or(&self.default);
         (name.to_string(), self.default == "claude")
     }
+
+    /// The models the default agent takes, its default first; none from a hub that lists none, as the app's form has.
+    pub fn default_models(&self) -> Vec<String> {
+        self.models_for("")
+    }
+
+    /// The selected agent's models, using the default when its id is empty.
+    pub fn models_for(&self, id: &str) -> Vec<String> {
+        let id = if id.is_empty() { self.default.as_str() } else { id };
+        let listed = self.installed.iter().find(|a| a["id"] == id).and_then(|a| a["models"].as_array());
+        match listed {
+            Some(list) => list.iter().filter_map(|m| m.as_str().map(str::to_string)).collect(),
+            None => Vec::new(),
+        }
+    }
 }
 
 /// How a routine stands, for its glyph and colour.
@@ -182,7 +238,10 @@ pub enum State {
     Over,
     Paused,
     Failed,
+    /// Its last run was stopped by hand: nothing to look at.
+    Stopped,
     Missed,
+    Skipped,
     Ok,
     Never,
 }
@@ -197,6 +256,10 @@ pub struct Doc {
     pub queued: Vec<String>,
     pub runs: HashMap<String, Vec<Run>>,
     pub agents: Agents,
+    /// The machine just woke: the runs it queued on their own wait until it settles.
+    pub settling: bool,
+    /// The routines whose queued run waits for the machine to settle, not for a free slot.
+    pub held: Vec<String>,
 }
 
 impl Doc {
@@ -208,9 +271,11 @@ impl Doc {
             inbox_from: raw.inbox_from.unwrap_or(u64::MAX),
             routines: raw.routines,
             running: raw.running,
+            held: raw.queued.iter().filter(|q| raw.settling && !q.hand).map(|q| q.slug.clone()).collect(),
             queued: raw.queued.into_iter().map(|q| q.slug).collect(),
             runs: raw.runs,
             agents: raw.agents,
+            settling: raw.settling,
         })
     }
 
@@ -255,8 +320,10 @@ impl Doc {
             State::Over
         } else {
             match self.last(&r.slug) {
+                Some(run) if run.skipped.is_some() => State::Skipped,
                 Some(run) if run.ok => State::Ok,
                 Some(run) if run.missed => State::Missed,
+                Some(run) if run.stopped => State::Stopped,
                 Some(_) => State::Failed,
                 None => State::Never,
             }
@@ -295,12 +362,21 @@ impl Clock {
         Self { now: Utc::now().timestamp_millis() as u64, zone: None }
     }
 
+    /// The clock times show on: the fixed offset tests give, else the machine's.
+    pub fn zone(&self) -> Zone {
+        self.zone.map_or(Zone::Local, Zone::Fixed)
+    }
+
+    /// The clock a routine's `tz` reads its times on: the zone it names, else the one times show on.
+    pub fn of(&self, tz: &str) -> Result<Zone, String> {
+        Ok(match Zone::parse(tz)? {
+            Zone::Local => self.zone(),
+            zone => zone,
+        })
+    }
+
     pub fn local(&self, ms: u64) -> NaiveDateTime {
-        let at = DateTime::<Utc>::from_timestamp_millis(ms as i64).unwrap_or_default();
-        match self.zone {
-            Some(zone) => at.with_timezone(&zone).naive_local(),
-            None => at.with_timezone(&Local).naive_local(),
-        }
+        self.zone().local(ms)
     }
 
     /// "09:00" today, "Thu 09:00" this week, "3 Nov 09:00" later.
@@ -345,6 +421,7 @@ impl Clock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::DateTime;
     use serde_json::json;
 
     #[test]
@@ -357,8 +434,25 @@ mod tests {
         .unwrap();
         let states: Vec<State> = doc.routines.iter().map(|r| doc.state(r)).collect();
         assert_eq!(states, [State::Running, State::Waiting, State::Paused, State::Broken, State::Failed, State::Ok]);
+        let skipped = Doc::parse(&json!({"version": 1, "routines": [{"slug": "s"}], "runs": {"s": [
+            {"id": "4", "ok": true, "skipped": "precheck", "summary": "no PR waits", "reason": "Skipped: its precheck found nothing to do (exit 1).",
+             "times": 3, "since": 1_000, "started": 9_000}]}}))
+        .unwrap();
+        let run = skipped.last("s").unwrap();
+        assert_eq!(
+            (skipped.state(&skipped.routines[0]), run.word(), run.reason()),
+            (State::Skipped, "skipped", Some("Skipped: its precheck found nothing to do (exit 1)."))
+        );
         assert_eq!(doc.last("f").unwrap().took(), "38 s");
         assert!(Doc::parse(&json!({"version": 2})).is_none());
+    }
+
+    #[test]
+    fn an_agent_the_hub_lists_no_models_for_offers_none_as_in_the_app() {
+        let none = Agents { default: "claude".into(), installed: vec![] };
+        assert!(none.default_models().is_empty() && none.models_for("claude").is_empty());
+        let listed = Agents { default: "claude".into(), installed: vec![serde_json::json!({"id": "claude", "models": ["", "opus"]})] };
+        assert_eq!(listed.default_models(), ["", "opus"]);
     }
 
     #[test]

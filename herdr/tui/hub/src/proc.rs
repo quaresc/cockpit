@@ -24,11 +24,30 @@ impl Out {
 
 /// Runs argv to its end; a failure to start or a timeout reads as exit code 1 with the reason on stderr.
 pub fn run(argv: &[String], timeout: Duration, cwd: Option<&Path>) -> Out {
+    run_as(argv, timeout, cwd, false, |_| {})
+}
+
+/// Runs argv to its end in a process group of its own, whose id `started` is told once it runs, so the group can be
+/// ended from elsewhere; a timeout ends the whole group.
+pub fn run_grouped(argv: &[String], timeout: Duration, cwd: Option<&Path>, started: impl FnOnce(u32)) -> Out {
+    run_as(argv, timeout, cwd, true, started)
+}
+
+/// Ends a process group `run_grouped` started.
+pub fn end_group(pgid: u32) {
+    // SAFETY: a negative pid sends the signal to that group alone, one this process started.
+    unsafe { libc::kill(-(pgid as i32), libc::SIGKILL) };
+}
+
+fn run_as(argv: &[String], timeout: Duration, cwd: Option<&Path>, grouped: bool, started: impl FnOnce(u32)) -> Out {
     let Some((program, args)) = argv.split_first() else {
         return Out { started: false, code: 1, stdout: String::new(), stderr: "no command".into() };
     };
     let mut command = Command::new(program);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if grouped {
+        command.process_group(0);
+    }
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -39,6 +58,7 @@ pub fn run(argv: &[String], timeout: Duration, cwd: Option<&Path>) -> Out {
         }
     };
     let pid = child.id();
+    started(pid);
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         let _ = tx.send(child.wait_with_output());
@@ -52,8 +72,8 @@ pub fn run(argv: &[String], timeout: Duration, cwd: Option<&Path>) -> Out {
         },
         Ok(Err(err)) => Out { started: false, code: 1, stdout: String::new(), stderr: err.to_string() },
         Err(_) => {
-            // SAFETY: kill only sends a signal to the child this function started and still owns.
-            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+            // SAFETY: kill only sends a signal to the child this function started and still owns, or to its group.
+            unsafe { libc::kill(if grouped { -(pid as i32) } else { pid as i32 }, libc::SIGKILL) };
             Out { started: false, code: 1, stdout: String::new(), stderr: format!("Command '{program}' timed out after {} seconds", timeout.as_secs()) }
         }
     }

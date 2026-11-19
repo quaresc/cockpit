@@ -10,7 +10,7 @@ APPS = os.path.join(HERE, "..", "..", "herdr")
 OUT = os.path.join(HERE, "..")
 COCKPIT = os.path.join(APPS, "tui", "target", "release", "cockpit")
 env = {"HOME": HOME, "TERM": "xterm-256color", "HERDR_BIN_PATH": "/usr/bin/true", "COCKPIT_HERDR_DIR": APPS,
-       "COCKPIT_HUB_IDLE_SECS": "120", "COCKPIT_HUB_FEED": "off"}
+       "COCKPIT_HUB_IDLE_SECS": "120", "COCKPIT_HUB_FEED": "off", "COCKPIT_HUB_MODELS": "off"}
 # app: (columns, rows, keys, seconds per step). The inbox: down the tree, a filter typed and kept, then the palette
 # searching every app through the hub.
 SHOTS = {

@@ -40,6 +40,12 @@ pub struct Line {
 
 pub struct File {
     pub path: String,
+    /// The path it had before, when git says it was renamed.
+    pub old_path: Option<String>,
+    /// Git compares it as bytes: it has no lines to show.
+    pub binary: bool,
+    /// Its size in bytes as the working tree has it, when it is binary and there: `with_sizes` fills it.
+    pub size: Option<u64>,
     pub added: usize,
     pub removed: usize,
     pub lines: Vec<Line>,
@@ -51,8 +57,8 @@ impl File {
     }
 }
 
-/// Files of a unified diff: their path, counts and lines. A hunk's own counts say where it ends, so a removed `-- x`
-/// or an added `++ x` line is not taken for a file header, and what sits between hunks (`Binary files … differ`) is a note.
+/// Files of a unified diff: their path (and the old one of a rename), counts and lines, or that they are binary. A hunk's
+/// own counts say where it ends, so a removed `-- x` or an added `++ x` line is not taken for a file header.
 pub fn parse_patch(patch: &str) -> Vec<File> {
     let (mut files, mut old, mut new): (Vec<File>, usize, usize) = (Vec::new(), 0, 0);
     let (mut old_left, mut new_left) = (0usize, 0usize);
@@ -78,13 +84,14 @@ pub fn parse_patch(patch: &str) -> Vec<File> {
         }
         if let Some(rest) = raw.strip_prefix("diff --git ") {
             let path = rest.split_once(" b/").map_or(rest, |(_, b)| b).to_string();
-            files.push(File { path, added: 0, removed: 0, lines: Vec::new() });
+            files.push(File { path, old_path: None, binary: false, size: None, added: 0, removed: 0, lines: Vec::new() });
             continue;
         }
         // A plain `diff -u` has no `diff --git` line: its `--- ` starts the file.
         if raw.starts_with("--- ") && files.last().is_none_or(|f| !f.lines.is_empty()) {
             let path = raw[4..].split('\t').next().unwrap_or_default();
-            files.push(File { path: path.strip_prefix("a/").unwrap_or(path).to_string(), added: 0, removed: 0, lines: Vec::new() });
+            let path = path.strip_prefix("a/").unwrap_or(path).to_string();
+            files.push(File { path, old_path: None, binary: false, size: None, added: 0, removed: 0, lines: Vec::new() });
             continue;
         }
         if raw.starts_with('\\') {
@@ -102,9 +109,21 @@ pub fn parse_patch(patch: &str) -> Vec<File> {
             let number = |i: usize, default: usize| m.get(i).map_or(default, |g| g.as_str().parse().unwrap_or(0));
             (old, old_left, new, new_left) = (number(1, 0), number(2, 1), number(3, 0), number(4, 1));
             current.push(Kind::Hunk, None, None, raw);
+        } else if let Some(path) = raw.strip_prefix("rename from ").or_else(|| raw.strip_prefix("copy from ")) {
+            current.old_path = Some(path.to_string());
+        } else if raw.starts_with("Binary files ") && raw.ends_with(" differ") {
+            current.binary = true;
         } else if !raw.is_empty() && !SKIPPED.iter().any(|s| raw.starts_with(s)) {
             current.push(Kind::Note, None, None, raw);
         }
+    }
+    files
+}
+
+/// The binary files' sizes, read from the repo's working tree.
+pub fn with_sizes(mut files: Vec<File>, repo: &str) -> Vec<File> {
+    for file in files.iter_mut().filter(|f| f.binary) {
+        file.size = std::fs::metadata(std::path::Path::new(repo).join(&file.path)).ok().map(|m| m.len());
     }
     files
 }
@@ -267,6 +286,35 @@ pub fn git_diff(repo: &str, base: Option<&str>) -> Result<String, String> {
     Ok(patch + &extra)
 }
 
+/// About 1 MB of diff: 30 files of 10 hunks, then one file of 1500 small hunks.
+#[cfg(test)]
+pub(crate) fn large_patch() -> String {
+    let mut out = String::new();
+    for f in 0..30 {
+        out += &format!("diff --git a/src/mod_{f}.py b/src/mod_{f}.py\n--- a/src/mod_{f}.py\n+++ b/src/mod_{f}.py\n");
+        for h in 0..10 {
+            let at = 1 + h * 100;
+            out += &format!("@@ -{at},36 +{at},40 @@ def quota_{h}(plan):\n");
+            for k in 0..32 {
+                out += &format!(" ctx_{k} = compute_daily_limit(plan, used, grace={k}) + remaining_calls_{h}\n");
+            }
+            for k in 0..4 {
+                out += &format!("-    old_limit_{k} = limits[plan] * {k} + offset_for(plan, {h})\n");
+                out += &format!("+    new_limit_{k} = limits[plan] * {k} + offset_for(plan, {h}) + GRACE\n");
+            }
+            for k in 0..4 {
+                out += &format!("+    extra_{k} = audit(plan, used, {k})\n");
+            }
+        }
+    }
+    out += "diff --git a/src/big.py b/src/big.py\n--- a/src/big.py\n+++ b/src/big.py\n";
+    for h in 0..1500 {
+        let at = 1 + h * 20;
+        out += &format!("@@ -{at},5 +{at},5 @@\n a = {h}\n b = {h}\n-c = old_value_{h}\n+c = new_value_{h}\n d = {h}\n e = {h}\n");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,6 +329,16 @@ mod tests {
         assert_eq!((files.len(), files[0].path.as_str(), files[0].added, files[0].removed), (1, "src/a.rs", 1, 1));
         let numbers: Vec<(Option<usize>, Option<usize>)> = files[0].lines.iter().map(|l| (l.old, l.new)).collect();
         assert_eq!(numbers, vec![(None, None), (Some(1), Some(1)), (Some(2), None), (None, Some(2)), (Some(3), Some(3))]);
+    }
+
+    #[test]
+    fn a_rename_keeps_its_old_path_and_a_binary_file_has_no_lines() {
+        let patch = "diff --git a/docs/quotas.md b/docs/limits.md\nsimilarity index 100%\nrename from docs/quotas.md\nrename to docs/limits.md\ndiff --git a/logo.png b/logo.png\nnew file mode 100644\nindex 0000000..1111111\nBinary files /dev/null and b/logo.png differ\n";
+        let files = parse_patch(patch);
+        assert_eq!((files[0].path.as_str(), files[0].old_path.as_deref(), files[0].binary), ("docs/limits.md", Some("docs/quotas.md"), false));
+        assert_eq!((files[1].path.as_str(), files[1].binary, files[1].lines.len()), ("logo.png", true, 0));
+        let copied = parse_patch("diff --git a/lib/quota.ex b/lib/limit.ex\nsimilarity index 90%\ncopy from lib/quota.ex\ncopy to lib/limit.ex\n");
+        assert_eq!((copied[0].path.as_str(), copied[0].old_path.as_deref()), ("lib/limit.ex", Some("lib/quota.ex")), "a copy names where it came from");
     }
 
     #[test]

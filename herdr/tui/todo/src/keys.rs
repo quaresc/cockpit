@@ -6,6 +6,7 @@ use cockpit_core::dialog::Answer;
 use cockpit_core::input::Edit;
 use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
+use cockpit_core::pointed::MOVE_FIRST;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
@@ -169,6 +170,11 @@ impl App {
         if keys::is_quit(&key) {
             return true;
         }
+        // An item a focus request selected takes no key that acts until the person moves to it; space toggles here.
+        if self.pointed.holds(&key) || (self.pointed.is_on() && key.code == KeyCode::Char(' ')) {
+            self.toasts.push(MOVE_FIRST, cockpit_core::toast::Kind::Note);
+            return false;
+        }
         if let Some(to) = keys::movement(&key) {
             match to {
                 Move::By(n) => self.move_sel(n),
@@ -231,6 +237,8 @@ impl App {
     }
 
     fn click(&mut self, at: Position) {
+        // A click is the person's own: whatever it lands on is theirs.
+        self.pointed.clear();
         if let Some(i) = hit(&self.hits.buttons, at) {
             let cmd = self.hits.buttons[i].1.clone();
             self.commit_edit();

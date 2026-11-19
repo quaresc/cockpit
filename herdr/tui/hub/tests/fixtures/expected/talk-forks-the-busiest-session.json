@@ -55,7 +55,7 @@
         "pane",
         "run",
         "wT:p1",
-        "claude --resume s-main --fork-session 'This is a fork of your session on ENG-401, opened to talk it over. Per the inbox now: ENG-401 \"Sign in with Google\" (https://linear.app/acme/issue/ENG-401/sign-in) is In Progress; PR https://github.com/acme/api/pull/4 on branch me/eng-401-login (base main): changes requested, CI FAILURE, failing lint, test; api#2 is live in production; web#5 is not in production yet, prod runs v9.0; preview pv-eng-401 runs api me/eng-401-login; its runbook is <BOX>/home/.config/cockpit/runbooks/eng-401.md. Catch up on what changed since (the ticket'\"'\"'s comments, the PRs'\"'\"' reviews and CI), sum it up in a few lines, then wait for my questions. Change nothing (no edits, commits, pushes or ticket updates) unless I ask.'"
+        "sh <BOX>/home/.cache/cockpit/prompts/talk-eng-401-<R>.sh"
       ],
       "cmd": "herdr",
       "stdin": null
@@ -68,7 +68,9 @@
       "review web#9": "w9:p1",
       "talk eng-401": "wT:p1",
       "talk eng-403": "w9:p4"
-    }
+    },
+    "home/.cache/cockpit/prompts/talk-eng-401-<R>.prompt": "This is a fork of your session on ENG-401, opened to talk it over. Per the inbox now: ENG-401 \"Sign in with Google\" (https://linear.app/acme/issue/ENG-401/sign-in) is In Progress; PR https://github.com/acme/api/pull/4 on branch me/eng-401-login (base main): changes requested, CI FAILURE, failing lint, test; api#2 is live in production; web#5 is not in production yet, prod runs v9.0; preview pv-eng-401 runs api me/eng-401-login; its runbook is <BOX>/home/.config/cockpit/runbooks/eng-401.md. Catch up on what changed since (the ticket's comments, the PRs' reviews and CI), sum it up in a few lines, then wait for my questions. Change nothing (no edits, commits, pushes or ticket updates) unless I ask.",
+    "home/.cache/cockpit/prompts/talk-eng-401-<R>.sh": "# An agent on a prompt read from a file: nothing of it is typed into a shell.\nP=<BOX>/home/.cache/cockpit/prompts/talk-eng-401-<R>.prompt\nexec claude --resume s-main --fork-session ''\"$(cat \"$P\")\"''\n"
   },
   "note": "started \"talk eng-401\" in the actions space",
   "pending": {},

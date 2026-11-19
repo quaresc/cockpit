@@ -33,16 +33,6 @@ pub fn prepare(ctx: &mut Ctx, args: &[Value]) -> Res {
     Ok(())
 }
 
-/// The brief's file side of opening it: a meeting with no brief yet and none on the way gets one prepared; the app
-/// folds and unfolds the brief itself.
-pub fn toggle_brief(ctx: &mut Ctx, args: &[Value]) -> Res {
-    let id = s(arg(args, 0)?, "id")?;
-    if brief_path(&id, ".md").exists() || brief_path(&id, ".pending").exists() {
-        return Ok(());
-    }
-    prepare(ctx, args)
-}
-
 pub fn open_url(ctx: &mut Ctx, args: &[Value]) -> Res {
     inbox::open_url(ctx, args)
 }

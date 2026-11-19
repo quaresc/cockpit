@@ -28,19 +28,19 @@ expression: "render(&mut app(false), width, HEIGHT)"
  └─ ▶  2 muted repos
  ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  ├─ ▼ ● Usage limits  4
- │  ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know more" button to the quota banners   $0.88
+ │  ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know more" button to the quota banners   ~$0.88
  │  │  └─ ▼   web#1866                feat(quota): link the quota banners to the help center […                   22h
  │  │     ├─    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides when dismissed
  │  │     └─    translations
- │  ├─ ▼    ENG-413   to merge      [Frontend] - Show the export preview on demand               $23.91
+ │  ├─ ▼    ENG-413   to merge      [Frontend] - Show the export preview on demand               ~$23.91
  │  │  └─ ▼   web#1864                feat(settings): show the export preview on demand [ENG-4…  preview         22h
  │  │     └─ ▼   web#1866                feat(quota): link the quota banners to the help cente…                   22h
  │  │        ├─    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hides when dismissed
  │  │        └─    translations
- │  ├─ ▼    ENG-415   to review     [Backend] - Ask again when a shared contact changes          ▁▃▅█ $11.58
+ │  ├─ ▼    ENG-415   to review     [Backend] - Ask again when a shared contact changes          ▁▃▅█ ~$11.58
  │  │  └─ ▼   api#2224                feat: ask again when a shared contact changes [ENG-415]    image           18h
  │  │     └─     api#2223                feat: remove the old export redirect [ENG-412]          image           18h
- │  └─ ▼    ENG-412   to merge      [Backend] - Count exports in the daily quota                 ▁▂▅▇█ $17.29
+ │  └─ ▼    ENG-412   to merge      [Backend] - Count exports in the daily quota                 ▁▂▅▇█ ~$17.29
  │     ├─     api#2223                feat: remove the old export redirect [ENG-412]             image           18h
  │     └─ ▼   api#2219                feat: count exports in the daily quota [ENG-412]           image           19h
  │        └─ ▼   api#2224                feat: ask again when a shared contact changes [ENG-41…  image           18h
@@ -48,8 +48,8 @@ expression: "render(&mut app(false), width, HEIGHT)"
  ├─ ▼ Maintenance  1
  │  └─      ENG-405   in progress   Re-import the supplier catalogue monthly
  ├─ ▼ Bugs  2
- │  └─ ▼    ENG-420   to review     Delete the legacy filter for all clients                     $38.53
- │     └─ ▼    ENG-421   to review     Legacy filter removal C: drop it from the backend         $2.22
+ │  └─ ▼    ENG-420   to review     Delete the legacy filter for all clients                     ~$38.53
+ │     └─ ▼    ENG-421   to review     Legacy filter removal C: drop it from the backend         ~$2.22
  │        ├─     api#2207                chore: drop the legacy filter columns [ENG-421]         image           24h
  │        ├─     search#897              chore: drop the legacy filter columns                   image           25h
  │        └─     scrubber#88             chore: remove legacy filter fields                                       25h

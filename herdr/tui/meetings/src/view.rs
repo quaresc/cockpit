@@ -3,10 +3,10 @@
 
 use cockpit_core::acts::{self, Act};
 use cockpit_core::files::Density;
-use cockpit_core::sources;
 use cockpit_core::text::{fit, width, wrap};
 use cockpit_core::theme::{FG, GREEN, LINE, ORANGE, PANEL, RED, base, bold, dim, fg};
 use cockpit_core::widgets;
+use cockpit_core::{header, sources};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -50,7 +50,7 @@ impl App {
         let comfortable = self.density == Density::Comfortable;
         let info = if comfortable { self.info(inner_w) } else { Vec::new() };
         let panel_h = if comfortable && !info.is_empty() { (2 + info.len() + usize::from(!acts.is_empty())).min(PANEL_MAX) as u16 } else { 0 };
-        let head = self.head_lines();
+        let head = self.head_lines(inner_w);
         let banner = self.banner();
         let [head_area, banner_area, list, panel, footer] = Layout::vertical([
             Constraint::Length(head.len() as u16 + 1),
@@ -79,7 +79,7 @@ impl App {
         }
     }
 
-    fn head_lines(&self) -> Vec<Line<'static>> {
+    fn head_lines(&self, cells: usize) -> Vec<Line<'static>> {
         let mut spans = vec![Span::styled(format!("{ICON_CALENDAR}  "), fg(ORANGE)), Span::styled("Meetings", bold(ORANGE))];
         let at = self.week.as_ref().and_then(|w| w.at).and_then(chrono::DateTime::from_timestamp_millis);
         match at {
@@ -95,8 +95,10 @@ impl App {
         if self.week_view {
             spans.push(Span::styled("   week view", fg(ORANGE)));
         }
-        let mut lines = vec![Line::from(spans)];
-        if let Some(error) = self.week.as_ref().and_then(|w| w.error.clone()) {
+        let told = self.week.as_ref().map(|w| w.sources.clone()).unwrap_or_default();
+        let mut lines = header::lines(Line::from(spans), &told, cells);
+        // The calendar's chip says how it fails, when the hub reads it.
+        if let Some(error) = self.week.as_ref().filter(|_| !header::has(&told, "calendar")).and_then(|w| w.error.clone()) {
             lines.push(Line::styled(error, fg(RED)));
         }
         lines
@@ -331,7 +333,7 @@ impl App {
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
         let view = if self.week_view { "list" } else { "week" };
         // q first: the footer drops hints from the end when the pane is narrow, and how to leave must survive.
-        let keys = [("q", "quit"), ("o", "open"), ("m", "join"), ("b", "brief"), ("p", "prepare"), ("w", view)];
+        let keys = [("q", "quit"), ("o", "open"), ("m", "join"), ("b", "brief"), ("p", "prepare"), ("w", view), ("R", "refresh")];
         let mut spans = Vec::new();
         for (key, what) in keys {
             spans.push(Span::styled(format!(" {key}"), bold(ORANGE)));

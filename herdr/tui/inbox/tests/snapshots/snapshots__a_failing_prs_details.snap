@@ -28,19 +28,19 @@ expression: "render(&mut app, 90, HEIGHT)"
  └─ ▶  2 muted repos
  ▼   Work   8 tickets · 7 in progress · 8 PRs · by feature (w)
  ├─ ▼ ● Usage limits  4
- │  ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know mo… $0.88
+ │  ├─ ▼    ENG-414   to review     [Frontend] - Add a "Know mo… ~$0.88
  │  │  └─ ▼   web#1866                feat(quota): link the qu…                   22h
  │  │     ├─    test · 2 failing: QuotaBanner links to the help center, QuotaBanner hi
  │  │     └─    translations
- │  ├─ ▼    ENG-413   to merge      [Frontend] - Show the expor… $23.91
+ │  ├─ ▼    ENG-413   to merge      [Frontend] - Show the expor… ~$23.91
  │  │  └─ ▼   web#1864                feat(settings): show the…  preview         22h
  │  │     └─ ▼   web#1866               feat(quota): link the …                   22h
  │  │        ├─    test · 2 failing: QuotaBanner links to the help center, QuotaBanner
  │  │        └─    translations
- │  ├─ ▼    ENG-415   to review     [Backend] - Ask again when … ▁▃▅█ $11.58
+ │  ├─ ▼    ENG-415   to review     [Backend] - Ask again when … ▁▃▅█ ~$11.58
  │  │  └─ ▼   api#2224                feat: ask again when a s…  image           18h
  │  │     └─     api#2223               feat: remove the old e…  image           18h
- │  └─ ▼    ENG-412   to merge      [Backend] - Count exports i… ▁▂▅▇█ $17.29
+ │  └─ ▼    ENG-412   to merge      [Backend] - Count exports i… ▁▂▅▇█ ~$17.29
  │     ├─     api#2223                feat: remove the old exp…  image           18h
  │     └─ ▼   api#2219                feat: count exports in t…  image           19h
  │        └─ ▼   api#2224               feat: ask again when a…  image           18h

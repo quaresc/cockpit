@@ -1,20 +1,18 @@
-//! Tabs and spaces named after their work: a tab takes its agent's task (the session's own title, else a few words from
-//! haiku while Claude Code is installed), a space its agents' shared ticket, else its repo. Only names still at their
-//! default or set here earlier ever change, and `names: false` in the config turns it off.
+//! Tabs and spaces named after their work: a tab takes the name the agents view gives its agent (`cockpit_core::names`:
+//! the session's own title, else its first prompt in a few words), a space its agents' shared ticket, else its repo.
+//! Only a label that is a placeholder or the one given here last ever changes, so a name the person typed, or another
+//! tool gave, stays; `names: false` in the config turns it off.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use cockpit_core::transcripts::{self, Transcripts};
-use cockpit_core::{agent, files, frontend};
+use cockpit_core::{frontend, names};
 use serde_json::{Value, json};
 
 use crate::config;
 
 const EVERY: Duration = Duration::from_secs(20);
-const TAB_MAX: usize = 32;
 
 pub fn start() {
     static STARTED: std::sync::Once = std::sync::Once::new();
@@ -24,7 +22,7 @@ pub fn start() {
     STARTED.call_once(|| {
         std::thread::spawn(|| {
             loop {
-                if config::load().0["names"] != false {
+                if names::on(&config::load().0) {
                     round();
                 }
                 std::thread::sleep(EVERY);
@@ -33,37 +31,28 @@ pub fn start() {
     });
 }
 
-fn dir() -> PathBuf {
-    files::cache().join("names")
-}
-
-/// What this gave each tab and space last, by id: a name still equal to it is ours to change again.
-fn given() -> HashMap<String, String> {
-    files::load(&dir().join("given.json")).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
-}
-
 fn round() {
     let agents = crate::views::build("agents", &json!({}));
-    let facts = crate::store::global().get("agents");
     let inbox = crate::store::global().get("inbox");
     let rows: Vec<Value> = agents["agents"].as_array().cloned().unwrap_or_default();
     if rows.is_empty() {
         return;
     }
-    let mut given = given();
+    let mut given = names::given();
     let mut changed = false;
-    // Tabs: the first agent in each with a task name.
-    let mut tabs: HashMap<String, (String, String, String)> = HashMap::new();
+    // Tabs: the name of the first agent in each that has more to say than its agent's name.
+    let mut tabs: HashMap<String, (String, String, String, names::Source)> = HashMap::new();
     for r in &rows {
-        let (Some(tab), Some(frontend)) = (r["tab"]["id"].as_str(), r["frontend"].as_str()) else { continue };
-        if tabs.contains_key(tab) {
+        let (Some(tab), Some(frontend)) = (r["tab"]["id"].as_str().filter(|t| !t.is_empty()), r["frontend"].as_str()) else { continue };
+        let source = source_of(&r["title_source"]);
+        if tabs.get(tab).is_some_and(|(_, _, _, s)| *s != names::Source::Default) {
             continue;
         }
-        let Some(task) = task_of(r, &facts[r["terminal"].as_str().unwrap_or_default()]) else { continue };
-        tabs.insert(tab.to_string(), (frontend.to_string(), r["tab"]["name"].as_str().unwrap_or_default().to_string(), task));
+        let (label, name) = (r["tab"]["name"].as_str().unwrap_or_default(), r["title"].as_str().unwrap_or_default());
+        tabs.insert(tab.to_string(), (frontend.to_string(), label.to_string(), name.to_string(), source));
     }
-    for (id, (frontend, now, name)) in &tabs {
-        if now != name && is_default_tab(now, frontend, given.get(id)) && rename_tab(frontend, id, name) {
+    for (id, (frontend, label, name, source)) in &tabs {
+        if names::writes(label, given.get(id).map(String::as_str), name, *source) && rename_tab(frontend, id, name) {
             given.insert(id.clone(), name.clone());
             changed = true;
         }
@@ -71,7 +60,7 @@ fn round() {
     // Spaces: one ticket for every agent in it, else one repo.
     let mut spaces: HashMap<String, Vec<&Value>> = HashMap::new();
     for r in &rows {
-        if let Some(space) = r["space"]["id"].as_str() {
+        if let Some(space) = r["space"]["id"].as_str().filter(|s| !s.is_empty()) {
             spaces.entry(space.to_string()).or_default().push(r);
         }
     }
@@ -88,16 +77,18 @@ fn round() {
         }
     }
     if changed {
-        let _ = std::fs::create_dir_all(dir());
-        let _ = files::write(&dir().join("given.json"), &json!(given));
+        names::keep(&given);
     }
 }
 
-/// A tab name nobody chose: empty, its number, the program's (a shell or an agent), or the one this gave it.
-fn is_default_tab(now: &str, frontend: &str, ours: Option<&String>) -> bool {
-    let now = now.trim();
-    let program = || ["zsh", "bash", "fish", "sh"].contains(&now) || agent::of_program(now).is_some();
-    now.is_empty() || now.chars().all(|c| c.is_ascii_digit()) || ours.is_some_and(|o| o == now) || (frontend == "tui" && program())
+/// Where a row's name comes from, as the agents view says it.
+fn source_of(word: &Value) -> names::Source {
+    match word.as_str() {
+        Some("person") => names::Source::Person,
+        Some("agent") => names::Source::Agent,
+        Some("prompt") => names::Source::Prompt,
+        _ => names::Source::Default,
+    }
 }
 
 /// A space name nobody chose: empty, its folder's, or the one this gave it; never a pinned space.
@@ -110,104 +101,21 @@ fn is_default_space(now: &str, folder: &str, pinned: &[String], ours: Option<&St
     bare.is_empty() || bare == base || ours.is_some_and(|o| o == now)
 }
 
-/// The agent's task in a few words: the session's own title, else haiku's.
-fn task_of(row: &Value, facts: &Value) -> Option<String> {
-    let session = row["session"].as_str().or(facts["session"].as_str())?;
-    // The facts' path follows the checkout the session works in, not always the folder Claude keeps it under.
-    let cwd = row["cwd"].as_str().unwrap_or_default();
-    let found = || transcripts::find(Transcripts::Claude, session, cwd);
-    let Some(transcript) = facts["transcript"].as_str().map(PathBuf::from).filter(|p| p.is_file()).or_else(found) else {
-        // Another agent's session: the title its own transcript gives.
-        let (kind, path) = transcripts::locate(session, cwd, None)?;
-        return transcripts::read(kind, &path).map(|t| tidy(&t.title)).filter(|t| !t.is_empty());
-    };
-    if let Some(title) = session_title(&transcript) {
-        return Some(tidy(&title));
-    }
-    named_by_haiku(session, &transcript).map(|t| tidy(&t))
-}
-
-/// The newest title Claude Code wrote into the transcript: the person's own (/rename) over its generated one.
-fn session_title(path: &Path) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
-    let (mut custom, mut ai) = (None, None);
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if !line.contains("-title\"") {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-        match v["type"].as_str() {
-            Some("custom-title") => custom = v["customTitle"].as_str().map(str::to_string),
-            Some("ai-title") => ai = v["aiTitle"].as_str().map(str::to_string),
-            _ => {}
-        }
-    }
-    custom.or(ai).filter(|t| !t.trim().is_empty())
-}
-
-/// "e2e-test-cockpit-herdr" → "E2e test cockpit herdr", cut to a tab's width.
-fn tidy(title: &str) -> String {
-    let words = title.replace(['-', '_'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut out: String = words.chars().take(TAB_MAX).collect();
-    if words.chars().count() > TAB_MAX {
-        out = out.trim_end().to_string() + "…";
-    }
-    let mut chars = out.chars();
-    chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default()
-}
-
-/// A few words from haiku for a session Claude Code has not titled: once per session, cached, on its first prompt only,
-/// with no tools, MCP servers, settings or skills. Its transcripts are Claude Code's, so only it is asked.
-fn named_by_haiku(session: &str, transcript: &Path) -> Option<String> {
-    let claude = agent::get("claude").filter(agent::Agent::installed)?.path();
-    let cache = dir().join(format!("{session}.json"));
-    if let Some(v) = files::load(&cache) {
-        return v["name"].as_str().map(str::to_string);
-    }
-    let first = first_prompt(transcript)?;
-    let _ = std::fs::create_dir_all(dir());
-    // Written before the run, so a slow or failed one is never asked again.
-    let _ = files::write(&cache, &json!({"name": null}));
-    let prompt = format!("Name this coding task in 2 to 5 plain words, no quotes, no punctuation:\n\n{}", first.chars().take(1500).collect::<String>());
-    let out = std::process::Command::new(claude)
-        .args(["-p", &prompt, "--model", "haiku", "--output-format", "json", "--tools", "", "--no-session-persistence", "--strict-mcp-config"])
-        .args(["--setting-sources", "", "--disable-slash-commands", "--system-prompt", "You name tasks in a few words."])
-        .env_remove("CLAUDECODE")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    let reply: Value = serde_json::from_slice(&out.stdout).ok()?;
-    let name = reply["result"].as_str()?.lines().next()?.trim().trim_matches(['"', '.', '\'']).to_string();
-    if name.is_empty() || name.len() > 60 {
-        return None;
-    }
-    let _ = files::write(&cache, &json!({"name": name}));
-    Some(name)
-}
-
-fn first_prompt(path: &Path) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
-    BufReader::new(file).lines().map_while(Result::ok).find_map(|line| {
-        let v: Value = serde_json::from_str(&line).ok()?;
-        (v["type"] == "user").then(|| v["message"]["content"].as_str().map(str::to_string)).flatten().filter(|t| !t.starts_with('<'))
-    })
-}
-
 /// "ENG-412 · Store and enforce" when every agent there is on one ticket, else their one repo.
 fn space_name(members: &[&Value], inbox: &Value) -> Option<String> {
     let one = |key: &str| -> Option<String> {
         let first = members[0][key].as_str().or(members[0][key]["key"].as_str()).filter(|v| !v.trim().is_empty())?.to_string();
         members.iter().all(|m| m[key].as_str().or(m[key]["key"].as_str()) == Some(first.as_str())).then_some(first)
     };
-    if let Some(ticket) = one("ticket") {
+    // The tracker's and git's words become a name in the window: cleaned like any title (`names::clean`).
+    if let Some(ticket) = one("ticket").map(|t| names::cap(&names::clean(&t), 24)).filter(|t| !t.is_empty()) {
         let title = members[0]["ticket"]["title"].as_str().map(str::to_string).or_else(|| {
             inbox["tickets"].as_array().into_iter().flatten().find(|t| t["id"] == ticket.as_str()).and_then(|t| t["title"].as_str()).map(str::to_string)
         });
-        let short: String = title.unwrap_or_default().split_whitespace().take(3).collect::<Vec<_>>().join(" ");
-        return Some(if short.is_empty() { ticket } else { format!("{ticket} · {short}") });
+        let short: String = names::clean(&title.unwrap_or_default()).split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+        return Some(names::cap(&if short.is_empty() { ticket } else { format!("{ticket} · {short}") }, 48));
     }
-    one("repo")
+    one("repo").map(|r| names::cap(&names::clean(&r), 48)).filter(|r| !r.is_empty())
 }
 
 fn rename_tab(frontend: &str, id: &str, name: &str) -> bool {
@@ -229,23 +137,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_title_reads_as_words() {
-        assert_eq!(tidy("e2e-test-cockpit-herdr"), "E2e test cockpit herdr");
-        assert_eq!(tidy("a-very-long-session-title-that-goes-on-and-on"), "A very long session title that g…");
-    }
-
-    #[test]
-    fn only_names_nobody_chose_change() {
-        let ours = "Fix quotas".to_string();
-        assert!(is_default_tab("", "app", None));
-        assert!(is_default_tab("2", "app", None));
-        assert!(is_default_tab("zsh", "tui", None));
-        assert!(is_default_tab("Fix quotas", "app", Some(&ours)));
-        assert!(!is_default_tab("my tab", "app", Some(&ours)));
+    fn only_space_names_nobody_chose_change() {
         let pinned = vec!["inbox".to_string()];
         assert!(is_default_space("api", "/r/api", &pinned, None));
         assert!(!is_default_space("[1]  inbox", "/r", &pinned, None));
         assert!(!is_default_space("Release prep", "/r/api", &pinned, None));
+    }
+
+    #[test]
+    fn a_row_says_where_its_name_comes_from() {
+        assert_eq!(source_of(&json!("agent")), names::Source::Agent);
+        assert_eq!(source_of(&json!("prompt")), names::Source::Prompt);
+        assert_eq!(source_of(&json!("person")), names::Source::Person);
+        assert_eq!(source_of(&Value::Null), names::Source::Default);
     }
 
     #[test]
@@ -258,5 +162,9 @@ mod tests {
         assert_eq!(space_name(&[&c, &c], &Value::Null).as_deref(), Some("api"));
         let blank = json!({"ticket": null, "repo": ""});
         assert_eq!(space_name(&[&blank, &blank], &Value::Null), None, "no empty name");
+        let hostile = json!({"ticket": {"key": "ENG-7\u{202e}", "title": "Store\u{200b} and\u{1b}[2J enforce quotas"}, "repo": "api"});
+        assert_eq!(space_name(&[&hostile, &hostile], &Value::Null).as_deref(), Some("ENG-7 · Store and enforce"), "the tracker's words, cleaned");
+        let long = json!({"ticket": null, "repo": "a".repeat(200)});
+        assert_eq!(space_name(&[&long, &long], &Value::Null).map(|n| n.chars().count()), Some(48));
     }
 }

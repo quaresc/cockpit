@@ -16,6 +16,8 @@ use crate::files;
 /// The most of one message kept: a pasted log or a long answer says what it is in far less.
 const MESSAGE_CAP: usize = 16 * 1024;
 const TITLE_CAP: usize = 100;
+/// The most of a tool call's line kept.
+const SUMMARY_CAP: usize = 120;
 /// Longer lines hold tool output or pictures: skipped without being read into memory.
 const LINE_CAP: usize = 4 << 20;
 /// How much of a transcript's end `usage` reads.
@@ -33,6 +35,30 @@ pub struct Message {
     pub text: String,
     /// RFC 3339, as the agent wrote it; empty when it did not.
     pub at: String,
+    /// The tool it called in place of words, when the read asked for them.
+    pub tool: Option<Tool>,
+}
+
+/// A tool call, as a chat shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tool {
+    /// What the agent calls it: `Bash`, `Edit`, `Read`.
+    pub name: String,
+    /// The command, path or pattern it was given, on one line.
+    pub summary: String,
+    /// Whether it worked, when the transcript says.
+    pub ok: Option<bool>,
+}
+
+/// How much of a transcript a read keeps. Tool calls cost a second pass over records the other readers skip, so only
+/// what draws a conversation asks for them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Detail {
+    #[default]
+    Words,
+    Tools,
+    /// What names the session alone: no messages are kept, so a transcript followed for its name stays small.
+    Names,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -69,16 +95,26 @@ pub struct Transcript {
     pub first: String,
     pub last: String,
     pub model: Option<String>,
+    /// The effort level its last turn ran with, where the transcript says.
+    pub effort: Option<String>,
+    /// The speed its last reply was served at ("fast", "standard"), where the transcript says.
+    pub speed: Option<String>,
     pub branch: Option<String>,
     pub messages: Vec<Message>,
     pub usage: Usage,
+    /// The name the person gave the session in the agent itself (Claude Code's `/rename`), when any.
+    pub named: Option<String>,
+    /// The title the agent gave the session, when any.
+    pub titled: Option<String>,
+    /// The first thing the person typed, a slash command as "name args".
+    pub opening: Option<String>,
 }
 
 impl Transcript {
     /// Its messages' words, one message per line, up to `cap` bytes (cut on a character).
     pub fn text(&self, cap: usize) -> String {
         let mut out = String::new();
-        for m in &self.messages {
+        for m in self.messages.iter().filter(|m| m.tool.is_none()) {
             keep(&mut out, &m.text, cap);
         }
         out
@@ -89,7 +125,8 @@ impl Transcript {
 pub type Stamp = (u64, u128);
 
 /// Every format with a reader.
-pub const KINDS: [Transcripts; 6] = [Transcripts::Claude, Transcripts::Codex, Transcripts::Pi, Transcripts::Omp, Transcripts::Qwen, Transcripts::Copilot];
+pub const KINDS: [Transcripts; 7] =
+    [Transcripts::Claude, Transcripts::Codex, Transcripts::Pi, Transcripts::Omp, Transcripts::Qwen, Transcripts::Copilot, Transcripts::Gemini];
 
 impl Transcripts {
     /// The agent that writes this format (its id in `agent::all()`), for resuming a session found in it.
@@ -102,6 +139,7 @@ impl Transcripts {
             Transcripts::Omp => "omp",
             Transcripts::Qwen => "qwen",
             Transcripts::Copilot => "copilot",
+            Transcripts::Gemini => "gemini",
         }
     }
 }
@@ -139,6 +177,8 @@ pub fn root(kind: Transcripts) -> Option<PathBuf> {
         }
         Transcripts::Qwen => Some(env_dir("QWEN_RUNTIME_DIR").or_else(|| env_dir("QWEN_HOME")).unwrap_or_else(|| files::home().join(".qwen")).join("projects")),
         Transcripts::Copilot => Some(env_dir("COPILOT_HOME").unwrap_or_else(|| files::home().join(".copilot")).join("session-state")),
+        // `GEMINI_CLI_HOME` stands for the home folder (gemini-cli `utils/paths.ts`).
+        Transcripts::Gemini => Some(env_dir("GEMINI_CLI_HOME").unwrap_or_else(files::home).join(".gemini/tmp")),
     }
 }
 
@@ -150,12 +190,18 @@ fn layered(kind: Transcripts, root: &Path) -> Vec<PathBuf> {
         Transcripts::Pi | Transcripts::Omp => children(root).iter().flat_map(|d| children(d)).filter(jsonl).collect(),
         Transcripts::Qwen => children(root).iter().flat_map(|d| children(&d.join("chats"))).filter(jsonl).collect(),
         Transcripts::Copilot => children(root).into_iter().map(|d| d.join("events.jsonl")).filter(|p| p.is_file()).collect(),
+        // A subagent's file sits in a folder of its parent's under chats/: left out.
+        Transcripts::Gemini => children(root).iter().flat_map(|d| children(&d.join("chats"))).filter(jsonl).collect(),
         _ => Vec::new(),
     }
 }
 
-/// The folder a session of a layered format says it ran in, from its first records.
+/// The folder a session of a layered format says it ran in, from its first records; Gemini CLI's project folder from the
+/// `.project_root` file it keeps beside `chats`.
 fn header_cwd(kind: Transcripts, path: &Path) -> Option<String> {
+    if kind == Transcripts::Gemini {
+        return gemini_root(path);
+    }
     let mut lines = lines_of(path)?;
     for _ in 0..5 {
         let v: Value = serde_json::from_slice(lines.next()?).unwrap_or(Value::Null);
@@ -306,6 +352,11 @@ pub fn id_of(kind: Transcripts, path: &Path) -> Option<String> {
         Transcripts::Qwen => Some(stem.to_string()),
         // session-state/<id>/events.jsonl
         Transcripts::Copilot => path.parent()?.file_name()?.to_str().map(str::to_string),
+        // session-<time>-<first 8 of the id>.jsonl: the whole id is in its first line.
+        Transcripts::Gemini => {
+            let first: Value = serde_json::from_slice(lines_of(path)?.next()?).ok()?;
+            first["sessionId"].as_str().filter(|id| !id.is_empty()).map(str::to_string)
+        }
     }
 }
 
@@ -372,15 +423,21 @@ fn codex_titles() -> HashMap<String, String> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Reading
 
-/// The session in a transcript; None when it holds nothing the person typed, or cannot be read.
+/// The session in a transcript, its words alone; None when it holds nothing the person typed, or cannot be read.
 pub fn read(kind: Transcripts, path: &Path) -> Option<Transcript> {
+    read_detail(kind, path, Detail::Words)
+}
+
+/// The same, keeping the tool calls between the messages when `detail` asks for them.
+pub fn read_detail(kind: Transcripts, path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = match kind {
         Transcripts::None => return None,
-        Transcripts::Claude => read_claude(path)?,
-        Transcripts::Codex => read_codex(path)?,
-        Transcripts::Pi | Transcripts::Omp => read_pi(path)?,
-        Transcripts::Qwen => read_qwen(path)?,
-        Transcripts::Copilot => read_copilot(path)?,
+        Transcripts::Claude => read_claude(path, detail)?,
+        Transcripts::Codex => read_codex(path, detail)?,
+        Transcripts::Pi | Transcripts::Omp => read_pi(path, detail)?,
+        Transcripts::Qwen => read_qwen(path, detail)?,
+        Transcripts::Copilot => read_copilot(path, detail)?,
+        Transcripts::Gemini => read_gemini(path, detail)?,
     };
     t.kind = kind;
     t.path = path.to_path_buf();
@@ -388,6 +445,9 @@ pub fn read(kind: Transcripts, path: &Path) -> Option<Transcript> {
         t.id = id_of(kind, path)?;
     }
     t.title = tidy(&t.title);
+    if detail == Detail::Names {
+        t.messages.clear();
+    }
     Some(t)
 }
 
@@ -422,6 +482,10 @@ pub fn usage(kind: Transcripts, path: &Path) -> Option<Usage> {
             let v: Value = serde_json::from_slice(l).ok()?;
             Some(Usage { context: v["data"]["currentTokens"].as_u64(), window: v["data"]["tokenLimit"].as_u64(), ..Usage::default() })
         }),
+        Transcripts::Gemini => lines.filter(|l| contains(l, b"\"tokens\"")).find_map(|l| {
+            let v: Value = serde_json::from_slice(l).ok()?;
+            (v["type"] == "gemini").then(|| Usage { context: v["tokens"]["input"].as_u64(), ..Usage::default() })
+        }),
     }
 }
 
@@ -432,6 +496,8 @@ pub enum Turn {
     /// Waiting on the person: an approval or a question, when the format records it.
     Blocked,
     Done,
+    /// The person stopped the turn: Claude Code's "[Request interrupted…]", Codex's `turn_aborted`.
+    Interrupted,
 }
 
 /// Whether the agent is in a turn, from the last turn event its transcript holds: for agents that report no status to
@@ -441,17 +507,21 @@ pub fn turn(kind: Transcripts, path: &Path) -> Option<Turn> {
         // Claude Code closes a turn with a `turn_duration` line; the bookkeeping it writes after says nothing.
         Transcripts::Claude => {
             let tail = tail(path, TAIL)?;
-            tail.split(|b| *b == b'\n').rev().find_map(|l| {
-                let v: Value = serde_json::from_slice(l).ok()?;
+            // From the end: a closed turn ended interrupted when its last message is the interruption.
+            let mut closed = false;
+            for l in tail.split(|b| *b == b'\n').rev() {
+                let Ok(v) = serde_json::from_slice::<Value>(l) else { continue };
                 if v["isSidechain"] == true {
-                    return None;
+                    continue;
                 }
-                match (v["type"].as_str()?, v["subtype"].as_str().unwrap_or_default()) {
-                    ("system", "turn_duration") => Some(Turn::Done),
-                    ("assistant" | "user", _) => Some(Turn::Working),
-                    _ => None,
+                match (v["type"].as_str().unwrap_or_default(), v["subtype"].as_str().unwrap_or_default()) {
+                    ("system", "turn_duration") => closed = true,
+                    ("user", _) if interruption(&v["message"]["content"]) => return Some(Turn::Interrupted),
+                    ("assistant" | "user", _) => return Some(if closed { Turn::Done } else { Turn::Working }),
+                    _ => {}
                 }
-            })
+            }
+            closed.then_some(Turn::Done)
         }
         Transcripts::Codex => {
             let tail = tail(path, TAIL)?;
@@ -459,13 +529,24 @@ pub fn turn(kind: Transcripts, path: &Path) -> Option<Turn> {
                 let v: Value = serde_json::from_slice(l).ok()?;
                 match v["payload"]["type"].as_str()? {
                     "task_started" => Some(Turn::Working),
-                    "task_complete" | "turn_aborted" => Some(Turn::Done),
+                    "task_complete" => Some(Turn::Done),
+                    "turn_aborted" => Some(Turn::Interrupted),
                     t if t.ends_with("_approval_request") || t == "request_user_input" => Some(Turn::Blocked),
                     _ => None,
                 }
             })
         }
         _ => None,
+    }
+}
+
+/// Claude Code's note that the person stopped the turn, as a user message's text.
+fn interruption(content: &Value) -> bool {
+    let said = |t: &str| t.trim_start().starts_with("[Request interrupted");
+    match content {
+        Value::String(t) => said(t),
+        Value::Array(blocks) => blocks.iter().any(|b| b["type"] == "text" && b["text"].as_str().is_some_and(said)),
+        _ => false,
     }
 }
 
@@ -507,12 +588,34 @@ fn is_typed(text: &str) -> bool {
     !text.is_empty() && !tagged && !text.starts_with("[Request interrupted") && !text.starts_with("# AGENTS.md instructions")
 }
 
+/// A slash command the person ran, as its transcript wraps it (`<command-name>/review</command-name>
+/// <command-args>412</command-args>`): "review 412".
+fn command_of(text: &str) -> Option<String> {
+    let inside = |tag: &str| -> Option<String> {
+        let open = format!("<{tag}>");
+        let from = text.find(&open)? + open.len();
+        let to = text[from..].find(&format!("</{tag}>"))? + from;
+        Some(text[from..to].trim().to_string())
+    };
+    let name = inside("command-name")?.trim_start_matches('/').to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let args = inside("command-args").unwrap_or_default();
+    Some(if args.is_empty() { name } else { format!("{name} {args}") })
+}
+
+/// A tool call where a message would be: `summary` is already one line.
+fn tool_message(at: &str, name: &str, summary: String, ok: Option<bool>) -> Message {
+    Message { role: Role::Assistant, text: String::new(), at: at.to_string(), tool: Some(Tool { name: name.to_string(), summary, ok }) }
+}
+
 fn message(role: Role, text: &str, at: &str) -> Message {
     let mut end = text.len().min(MESSAGE_CAP);
     while !text.is_char_boundary(end) {
         end -= 1;
     }
-    Message { role, text: text[..end].to_string(), at: at.to_string() }
+    Message { role, text: text[..end].to_string(), at: at.to_string(), tool: None }
 }
 
 /// Adds the text on a line of its own, up to the cap, cut on a character boundary.
@@ -589,6 +692,7 @@ struct ClaudeLine {
     is_meta: Option<bool>,
     is_sidechain: Option<bool>,
     is_compact_summary: Option<bool>,
+    effort: Option<String>,
     message: Option<ClaudeMessage>,
 }
 
@@ -598,8 +702,8 @@ struct ClaudeMessage {
     id: Option<String>,
     model: Option<String>,
     usage: Option<ClaudeUsage>,
-    #[serde(deserialize_with = "texts")]
-    content: Vec<String>,
+    #[serde(deserialize_with = "chunks")]
+    content: Vec<Chunk>,
 }
 
 #[derive(Deserialize, Default)]
@@ -609,12 +713,50 @@ struct ClaudeUsage {
     output_tokens: u64,
     cache_read_input_tokens: u64,
     cache_creation_input_tokens: u64,
+    speed: Option<String>,
 }
 
-/// A message's text: the content when it is a string, else its `text` blocks (tool calls, results and thinking dropped).
-fn texts<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
-    struct Texts;
-    struct Block(Option<String>);
+/// A content block, kept only where it says something: words, a tool call, or how one ended.
+enum Chunk {
+    Text(String),
+    Call { id: String, name: String, summary: String },
+    Result { id: String, ok: bool },
+}
+
+/// The telling fields of a tool call's input; the rest is skipped unread.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ToolInput {
+    command: Option<String>,
+    file_path: Option<String>,
+    path: Option<String>,
+    pattern: Option<String>,
+    url: Option<String>,
+    description: Option<String>,
+    prompt: Option<String>,
+}
+
+impl ToolInput {
+    /// The first of its fields that says what the call did.
+    fn summary(self) -> Option<String> {
+        [self.command, self.file_path, self.path, self.pattern, self.url, self.description, self.prompt].into_iter().flatten().find(|s| !s.trim().is_empty())
+    }
+}
+
+/// A tool call on one line: the command it ran, the file it touched, else nothing.
+fn tool_line(text: &str) -> String {
+    let mut out: String = text.trim().lines().next().unwrap_or_default().chars().take(SUMMARY_CAP).collect();
+    if out.len() < text.trim().len() {
+        out.push('…');
+    }
+    out
+}
+
+/// A message's content: the words when it is a string, else its blocks. Thinking is dropped; tool calls and their
+/// results are kept, and `read_*` decides whether to show them.
+fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
+    struct Chunks;
+    struct Block(Option<Chunk>);
     impl<'de> Deserialize<'de> for Block {
         fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
             struct Fields;
@@ -624,51 +766,117 @@ fn texts<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
                     f.write_str("a content block")
                 }
                 fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Block, A::Error> {
-                    let (mut kind, mut text) = (None::<String>, None::<String>);
+                    let (mut kind, mut text, mut name) = (None::<String>, None::<String>, None::<String>);
+                    let (mut id, mut used, mut error, mut summary) = (None::<String>, None::<String>, false, None::<String>);
                     while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
                             "type" => kind = Some(map.next_value()?),
                             "text" => text = map.next_value()?,
+                            "name" => name = map.next_value()?,
+                            "id" => id = map.next_value()?,
+                            "tool_use_id" => used = map.next_value()?,
+                            "is_error" => error = map.next_value::<Option<bool>>()?.unwrap_or(false),
+                            "input" => summary = map.next_value::<ToolInput>()?.summary(),
                             _ => {
                                 map.next_value::<IgnoredAny>()?;
                             }
                         }
                     }
-                    Ok(Block(text.filter(|_| kind.as_deref() == Some("text"))))
+                    Ok(Block(match kind.as_deref() {
+                        Some("text") => text.map(Chunk::Text),
+                        Some("tool_use") => Some(Chunk::Call {
+                            id: id.unwrap_or_default(),
+                            name: name.unwrap_or_default(),
+                            summary: summary.map(|s| tool_line(&s)).unwrap_or_default(),
+                        }),
+                        Some("tool_result") => used.map(|id| Chunk::Result { id, ok: !error }),
+                        _ => None,
+                    }))
                 }
             }
             d.deserialize_any(Fields)
         }
     }
-    impl<'de> Visitor<'de> for Texts {
-        type Value = Vec<String>;
+    impl<'de> Visitor<'de> for Chunks {
+        type Value = Vec<Chunk>;
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("a string or a list of content blocks")
         }
-        fn visit_str<E>(self, s: &str) -> Result<Vec<String>, E> {
-            Ok(vec![s.to_string()])
+        fn visit_str<E>(self, s: &str) -> Result<Vec<Chunk>, E> {
+            Ok(vec![Chunk::Text(s.to_string())])
         }
-        fn visit_unit<E>(self) -> Result<Vec<String>, E> {
+        fn visit_unit<E>(self) -> Result<Vec<Chunk>, E> {
             Ok(Vec::new())
         }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<String>, A::Error> {
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Chunk>, A::Error> {
             let mut out = Vec::new();
-            while let Some(Block(text)) = seq.next_element::<Block>()? {
-                out.extend(text);
+            while let Some(Block(chunk)) = seq.next_element::<Block>()? {
+                out.extend(chunk);
             }
             Ok(out)
         }
     }
-    d.deserialize_any(Texts)
+    d.deserialize_any(Chunks)
 }
 
-fn read_claude(path: &Path) -> Option<Transcript> {
-    let mut t = Transcript::default();
-    let (mut prompt, mut summary, mut named, mut ai_title) = (None::<String>, None, None, None);
-    let mut counted: Option<String> = None;
+fn read_claude(path: &Path, detail: Detail) -> Option<Transcript> {
+    let mut fold = ClaudeFold::new(detail);
     let mut lines = lines_of(path)?;
     while let Some(line) = lines.next() {
-        let Ok(line) = serde_json::from_slice::<ClaudeLine>(line) else { continue };
+        fold.feed(line);
+    }
+    let title = fold.title()?;
+    fold.t.title = title;
+    fold.name();
+    Some(fold.t)
+}
+
+/// A Claude transcript folded one line at a time, so a reader following it feeds only the lines added since.
+struct ClaudeFold {
+    t: Transcript,
+    detail: Detail,
+    prompt: Option<String>,
+    summary: Option<String>,
+    named: Option<String>,
+    ai_title: Option<String>,
+    opening: Option<String>,
+    counted: Option<String>,
+    /// Where each tool call landed in the messages, so its result can say whether it worked.
+    calls: HashMap<String, usize>,
+}
+
+impl ClaudeFold {
+    fn new(detail: Detail) -> Self {
+        ClaudeFold {
+            t: Transcript::default(),
+            detail,
+            prompt: None,
+            summary: None,
+            named: None,
+            ai_title: None,
+            opening: None,
+            counted: None,
+            calls: HashMap::new(),
+        }
+    }
+
+    /// Lays what names the session on the transcript: the person's rename, the agent's title, the opening words.
+    fn name(&mut self) {
+        let given = |t: &Option<String>| t.clone().filter(|t| !t.trim().is_empty());
+        self.t.named = given(&self.named);
+        self.t.titled = given(&self.ai_title).or_else(|| given(&self.summary));
+        self.t.opening = self.opening.clone();
+    }
+
+    /// Its title: the name given to it, its summary, the agent's own, else the first thing typed. None before that.
+    fn title(&self) -> Option<String> {
+        let prompt = self.prompt.clone()?;
+        Some(self.named.clone().or_else(|| self.summary.clone()).or_else(|| self.ai_title.clone()).unwrap_or(prompt))
+    }
+
+    fn feed(&mut self, line: &[u8]) {
+        let Ok(line) = serde_json::from_slice::<ClaudeLine>(line) else { return };
+        let t = &mut self.t;
         let at = line.timestamp.filter(|t| !t.is_empty()).unwrap_or_default();
         if !at.is_empty() {
             if t.first.is_empty() {
@@ -690,21 +898,27 @@ fn read_claude(path: &Path) -> Option<Transcript> {
             t.branch = Some(b);
         }
         match line.kind.as_str() {
-            "summary" => summary = line.summary.or(summary),
-            "custom-title" => named = line.custom_title.or(named),
-            "ai-title" => ai_title = line.ai_title.or(ai_title),
+            "summary" => self.summary = line.summary.or(self.summary.take()),
+            "custom-title" => self.named = line.custom_title.or(self.named.take()),
+            "ai-title" => self.ai_title = line.ai_title.or(self.ai_title.take()),
             "user" | "assistant" if ![line.is_sidechain, line.is_compact_summary, line.is_meta].contains(&Some(true)) => {
-                let Some(m) = line.message else { continue };
+                let Some(m) = line.message else { return };
                 let role = if line.kind == "user" { Role::User } else { Role::Assistant };
                 if role == Role::Assistant {
                     if let Some(model) = m.model.filter(|m| !m.is_empty() && !m.starts_with('<')) {
                         t.model = Some(model);
                     }
+                    if let Some(effort) = line.effort.filter(|e| !e.is_empty()) {
+                        t.effort = Some(effort);
+                    }
+                    if let Some(speed) = m.usage.as_ref().and_then(|u| u.speed.clone()).filter(|s| !s.is_empty()) {
+                        t.speed = Some(speed);
+                    }
                     // A reply streamed over several lines repeats its usage on each.
                     if let Some(u) = m.usage
-                        && (m.id.is_none() || m.id != counted)
+                        && (m.id.is_none() || m.id != self.counted)
                     {
-                        counted = m.id.clone();
+                        self.counted = m.id.clone();
                         t.usage.input += u.input_tokens;
                         t.usage.output += u.output_tokens;
                         t.usage.cache_read += u.cache_read_input_tokens;
@@ -712,22 +926,152 @@ fn read_claude(path: &Path) -> Option<Transcript> {
                         t.usage.context = Some(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens);
                     }
                 }
-                for text in m.content {
-                    if role == Role::User && !is_typed(&text) {
-                        continue;
+                for chunk in m.content {
+                    match chunk {
+                        Chunk::Text(text) => {
+                            if role == Role::User && !is_typed(&text) {
+                                if self.opening.is_none() {
+                                    self.opening = command_of(&text);
+                                }
+                                continue;
+                            }
+                            if role == Role::User && self.prompt.is_none() {
+                                self.prompt = Some(text.clone());
+                                self.opening.get_or_insert_with(|| text.clone());
+                            }
+                            if self.detail != Detail::Names {
+                                t.messages.push(message(role, &text, &at));
+                            }
+                        }
+                        Chunk::Call { id, name, summary } if self.detail == Detail::Tools => {
+                            self.calls.insert(id, t.messages.len());
+                            t.messages.push(tool_message(&at, &name, summary, None));
+                        }
+                        Chunk::Result { id, ok } if self.detail == Detail::Tools => {
+                            if let Some(tool) = self.calls.get(&id).and_then(|i| t.messages.get_mut(*i)).and_then(|m| m.tool.as_mut()) {
+                                tool.ok = Some(ok);
+                            }
+                        }
+                        _ => {}
                     }
-                    if role == Role::User && prompt.is_none() {
-                        prompt = Some(text.clone());
-                    }
-                    t.messages.push(message(role, &text, &at));
                 }
             }
             _ => {}
         }
     }
-    let prompt = prompt?;
-    t.title = named.or(summary).or(ai_title).unwrap_or(prompt);
-    Some(t)
+}
+
+/// A transcript read as it grows: a Claude one folds only the lines written since the last read, any other format is
+/// read again whole only when its file changed.
+pub struct Follow {
+    kind: Transcripts,
+    path: PathBuf,
+    detail: Detail,
+    stamp: Option<Stamp>,
+    /// Which file it was (device and inode): one put in its place is read again from the start, never as grown.
+    ident: Option<(u64, u64)>,
+    /// Where the next unread line of a Claude transcript starts.
+    offset: u64,
+    fold: Option<ClaudeFold>,
+    /// Any other format's transcript, as last read whole.
+    read: Option<Transcript>,
+}
+
+impl Follow {
+    pub fn new(kind: Transcripts, path: &Path, detail: Detail) -> Self {
+        Follow { kind, path: path.to_path_buf(), detail, stamp: None, ident: None, offset: 0, fold: None, read: None }
+    }
+
+    /// The transcript as the file now holds it, as `read_detail` gives it; None when it cannot be read or holds
+    /// nothing typed yet.
+    pub fn read(&mut self) -> Option<&Transcript> {
+        let meta = std::fs::metadata(&self.path).ok()?;
+        let now = stamp(&meta);
+        let ident = identity(&meta);
+        if self.ident != ident {
+            (self.ident, self.stamp) = (ident, None);
+        }
+        if self.stamp != Some(now) {
+            self.update(now)?;
+        }
+        match self.kind {
+            Transcripts::Claude => self.fold.as_ref().filter(|f| f.prompt.is_some() && !f.t.id.is_empty()).map(|f| &f.t),
+            _ => self.read.as_ref(),
+        }
+    }
+
+    fn update(&mut self, now: Stamp) -> Option<()> {
+        // A file that only grew is read on from where the last read stopped; anything else is read again.
+        let grown = self.stamp.is_some_and(|(len, _)| now.0 >= len);
+        self.stamp = None;
+        if self.kind != Transcripts::Claude {
+            self.read = read_detail(self.kind, &self.path, self.detail);
+            self.stamp = Some(now);
+            return Some(());
+        }
+        if !grown || self.fold.is_none() {
+            (self.offset, self.fold) = (0, Some(ClaudeFold::new(self.detail)));
+        }
+        let fold = self.fold.as_mut()?;
+        self.offset = feed_from(&self.path, self.offset, fold)?;
+        fold.name();
+        if let Some(title) = fold.title() {
+            fold.t.title = tidy(&title);
+            fold.t.kind = Transcripts::Claude;
+            fold.t.path = self.path.clone();
+            if fold.t.id.is_empty() {
+                fold.t.id = id_of(Transcripts::Claude, &self.path).unwrap_or_default();
+            }
+        }
+        self.stamp = Some(now);
+        Some(())
+    }
+}
+
+/// A file's device and inode, where the system has them.
+fn identity(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some((meta.dev(), meta.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        None
+    }
+}
+
+/// Feeds the fold every whole line from `offset` on, too long ones skipped unread as `Lines` does, and says where the
+/// first unfinished line starts.
+fn feed_from(path: &Path, offset: u64, fold: &mut ClaudeFold) -> Option<u64> {
+    let mut file = std::fs::File::open(path).ok()?;
+    file.seek(SeekFrom::Start(offset)).ok()?;
+    let mut reader = BufReader::new(file);
+    let (mut at, mut start, mut line, mut too_long) = (offset, offset, Vec::new(), false);
+    loop {
+        let buf = match reader.fill_buf() {
+            Ok(buf) if !buf.is_empty() => buf,
+            // A line still being written waits for its end.
+            _ => return Some(start),
+        };
+        let end = buf.iter().position(|&b| b == b'\n');
+        let chunk = &buf[..end.unwrap_or(buf.len())];
+        too_long |= line.len() + chunk.len() > LINE_CAP;
+        if !too_long {
+            line.extend_from_slice(chunk);
+        }
+        let used = chunk.len() + usize::from(end.is_some());
+        reader.consume(used);
+        at += used as u64;
+        if end.is_some() {
+            if !too_long {
+                fold.feed(&line);
+            }
+            (start, too_long) = (at, false);
+            line.clear();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -752,7 +1096,7 @@ fn codex_usage(info: &Value) -> Option<Usage> {
     })
 }
 
-fn read_codex(path: &Path) -> Option<Transcript> {
+fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let mut prompt: Option<String> = None;
     let mut window = None;
@@ -761,8 +1105,11 @@ fn read_codex(path: &Path) -> Option<Transcript> {
     while let Some(raw) = lines.next() {
         let first = std::mem::take(&mut first_line);
         // Most records are tool calls, their output and reasoning: left unparsed.
-        let wanted =
-            first || [&b"\"type\":\"message\""[..], b"token_count", b"turn_context", b"task_started", b"session_meta"].iter().any(|n| contains(raw, n));
+        let mut names: Vec<&[u8]> = vec![&b"\"type\":\"message\""[..], b"token_count", b"turn_context", b"task_started", b"session_meta"];
+        if detail == Detail::Tools {
+            names.push(b"function_call");
+        }
+        let wanted = first || names.iter().any(|n| contains(raw, n));
         if !wanted {
             continue;
         }
@@ -796,12 +1143,18 @@ fn read_codex(path: &Path) -> Option<Transcript> {
                 if let Some(m) = p["model"].as_str().filter(|m| !m.is_empty()) {
                     t.model = Some(m.to_string());
                 }
+                if let Some(e) = p["effort"].as_str().filter(|e| !e.is_empty()) {
+                    t.effort = Some(e.to_string());
+                }
             }
             ("event_msg", "task_started") => window = p["model_context_window"].as_u64().or(window),
             ("event_msg", "token_count") => {
                 if let Some(u) = codex_usage(&p["info"]) {
                     t.usage = u;
                 }
+            }
+            ("response_item", "function_call") if detail == Detail::Tools => {
+                t.messages.extend(json_call(p).as_ref().and_then(|c| chunk_message(c, &at)));
             }
             ("response_item", "message") => {
                 let role = match p["role"].as_str() {
@@ -830,7 +1183,9 @@ fn read_codex(path: &Path) -> Option<Transcript> {
     if t.id.is_empty() {
         t.id = id_of(Transcripts::Codex, path)?;
     }
-    t.title = codex_titles().remove(&t.id).unwrap_or(prompt);
+    t.titled = codex_titles().remove(&t.id);
+    t.opening = Some(prompt.clone());
+    t.title = t.titled.clone().unwrap_or(prompt);
     Some(t)
 }
 
@@ -842,16 +1197,57 @@ fn pi_context(u: &Value) -> u64 {
     ["input", "cacheRead", "cacheWrite"].iter().map(|k| u[*k].as_u64().unwrap_or(0)).sum()
 }
 
-/// A message's words: its content when a string, else its `text` blocks.
-fn block_texts(content: &Value) -> Vec<String> {
+/// A message's content as chunks: its words when a string, else its text blocks and the tool calls between them.
+fn json_chunks(content: &Value, detail: Detail) -> Vec<Chunk> {
     match content {
-        Value::String(s) => vec![s.clone()],
-        Value::Array(blocks) => blocks.iter().filter(|b| b["type"] == "text").filter_map(|b| b["text"].as_str().map(str::to_string)).collect(),
+        Value::String(s) => vec![Chunk::Text(s.clone())],
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| match b["type"].as_str().unwrap_or_default() {
+                "text" => b["text"].as_str().map(|s| Chunk::Text(s.to_string())),
+                "toolCall" | "tool_use" | "function_call" if detail == Detail::Tools => json_call(b),
+                _ => None,
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
 
-fn read_pi(path: &Path) -> Option<Transcript> {
+/// A tool call read from a JSON object, whichever field names the agent uses.
+fn json_call(v: &Value) -> Option<Chunk> {
+    let name = ["name", "toolName", "tool"].iter().find_map(|k| v[*k].as_str()).filter(|n| !n.is_empty())?;
+    let args = ["input", "arguments", "args", "parameters"].iter().map(|k| &v[*k]).find(|a| !a.is_null());
+    Some(Chunk::Call { id: String::new(), name: name.to_string(), summary: args.map(arg_line).unwrap_or_default() })
+}
+
+/// The telling field of a call's arguments, on one line; arguments written as a JSON string are read first.
+pub fn arg_line(args: &Value) -> String {
+    let parsed = args.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok());
+    let args = parsed.as_ref().unwrap_or(args);
+    for field in ["command", "cmd", "file_path", "path", "pattern", "url", "description", "prompt", "query"] {
+        match &args[field] {
+            Value::String(s) if !s.trim().is_empty() => return tool_line(s),
+            Value::Array(parts) => {
+                let joined = parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ");
+                if !joined.trim().is_empty() {
+                    return tool_line(&joined);
+                }
+            }
+            _ => {}
+        }
+    }
+    args.as_str().map(tool_line).unwrap_or_default()
+}
+
+/// A chunk as a message, when it is a call.
+fn chunk_message(chunk: &Chunk, at: &str) -> Option<Message> {
+    match chunk {
+        Chunk::Call { name, summary, .. } => Some(tool_message(at, name, summary.clone(), None)),
+        _ => None,
+    }
+}
+
+fn read_pi(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut named) = (None::<String>, None::<String>);
     let mut cost = 0.0;
@@ -893,21 +1289,27 @@ fn read_pi(path: &Path) -> Option<Transcript> {
                         cost += u["cost"]["total"].as_f64().unwrap_or(0.0);
                     }
                 }
-                for text in block_texts(&m["content"]) {
-                    if role == Role::User && !is_typed(&text) {
+                for chunk in json_chunks(&m["content"], detail) {
+                    let Chunk::Text(text) = &chunk else {
+                        t.messages.extend(chunk_message(&chunk, &at));
+                        continue;
+                    };
+                    if role == Role::User && !is_typed(text) {
                         continue;
                     }
                     if role == Role::User && prompt.is_none() {
                         prompt = Some(text.clone());
                     }
-                    t.messages.push(message(role, &text, &at));
+                    t.messages.push(message(role, text, &at));
                 }
             }
             _ => {}
         }
     }
     t.usage.cost = (cost > 0.0).then_some(cost);
-    t.title = named.filter(|n| !n.trim().is_empty()).or(prompt.clone())?;
+    t.titled = named.filter(|n| !n.trim().is_empty());
+    t.opening = prompt.clone();
+    t.title = t.titled.clone().or(prompt.clone())?;
     prompt.map(|_| t)
 }
 
@@ -919,7 +1321,7 @@ fn qwen_context(u: &Value) -> u64 {
     u["promptTokenCount"].as_u64().unwrap_or(0) + u["candidatesTokenCount"].as_u64().unwrap_or(0)
 }
 
-fn read_qwen(path: &Path) -> Option<Transcript> {
+fn read_qwen(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut named) = (None::<String>, None::<String>);
     let mut lines = lines_of(path)?;
@@ -968,7 +1370,13 @@ fn read_qwen(path: &Path) -> Option<Transcript> {
             t.usage.window = v["contextWindowSize"].as_u64().or(t.usage.window);
         }
         let parts = v["message"]["parts"].as_array().cloned().unwrap_or_default();
-        for text in parts.iter().filter(|p| p["thought"] != true).filter_map(|p| p["text"].as_str()) {
+        for part in parts.iter().filter(|p| p["thought"] != true) {
+            let Some(text) = part["text"].as_str() else {
+                if detail == Detail::Tools {
+                    t.messages.extend(json_call(&part["functionCall"]).as_ref().and_then(|c| chunk_message(c, &at)));
+                }
+                continue;
+            };
             if role == Role::User && !is_typed(text) {
                 continue;
             }
@@ -978,7 +1386,9 @@ fn read_qwen(path: &Path) -> Option<Transcript> {
             t.messages.push(message(role, text, &at));
         }
     }
-    t.title = named.filter(|n| !n.trim().is_empty()).or(prompt.clone())?;
+    t.named = named.filter(|n| !n.trim().is_empty());
+    t.opening = prompt.clone();
+    t.title = t.named.clone().or(prompt.clone())?;
     prompt.map(|_| t)
 }
 
@@ -986,7 +1396,7 @@ fn read_qwen(path: &Path) -> Option<Transcript> {
 // GitHub Copilot CLI: $COPILOT_HOME/session-state/<session>/events.jsonl, one event per line ({type, data, timestamp};
 // github/copilot-sdk's generated `session-events`)
 
-fn read_copilot(path: &Path) -> Option<Transcript> {
+fn read_copilot(path: &Path, detail: Detail) -> Option<Transcript> {
     let mut t = Transcript::default();
     let (mut prompt, mut named) = (None::<String>, None::<String>);
     let mut lines = lines_of(path)?;
@@ -1034,12 +1444,190 @@ fn read_copilot(path: &Path) -> Option<Transcript> {
                 if let Some(text) = d["content"].as_str().filter(|x| !x.trim().is_empty()) {
                     t.messages.push(message(Role::Assistant, text, &at));
                 }
+                if detail == Detail::Tools {
+                    for req in d["toolRequests"].as_array().into_iter().flatten() {
+                        t.messages.extend(json_call(req).as_ref().and_then(|c| chunk_message(c, &at)));
+                    }
+                }
                 t.model = d["model"].as_str().map(str::to_string).or(t.model.take());
             }
             _ => {}
         }
     }
-    t.title = named.filter(|n| !n.trim().is_empty()).or(prompt.clone())?;
+    t.titled = named.filter(|n| !n.trim().is_empty());
+    t.opening = prompt.clone();
+    t.title = t.titled.clone().or(prompt.clone())?;
+    prompt.map(|_| t)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Gemini replay is adapted from google-gemini/gemini-cli chatRecordingService.ts (Apache-2.0).
+// Source: https://github.com/google-gemini/gemini-cli; see THIRD_PARTY_NOTICES.md.
+// Gemini CLI: $GEMINI_CLI_HOME/.gemini/tmp/<project>/chats/session-<time>-<id start>.jsonl, a header, then each message
+// as a line, written again whole under the same `id` as it grows, and `$set`, `$rewindTo` and `$patch` lines
+// (google-gemini/gemini-cli `chatRecordingService.ts`, `chatRecordingTypes.ts`)
+
+/// The project folder Gemini CLI keeps in `<project>/.project_root`, beside the session's `chats`.
+fn gemini_root(path: &Path) -> Option<String> {
+    let project = path.parent()?.parent()?;
+    let text = std::fs::read_to_string(project.join(".project_root")).ok()?;
+    let cwd = text.trim();
+    (!cwd.is_empty()).then(|| cwd.to_string())
+}
+
+/// A message's words: its content when a string, else its text parts.
+fn gemini_text(content: &Value) -> String {
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// What the person typed: never a command (`/…`, `?`) or the context the CLI adds itself (gemini-cli `sessionUtils.ts`).
+fn gemini_typed(text: &str) -> bool {
+    let t = text.trim_start();
+    is_typed(t) && !t.starts_with(['/', '?']) && !t.starts_with("<session_context>") && !t.starts_with("<hook_context>")
+}
+
+/// Applies the mutable content and tool results of one Gemini message patch.
+fn gemini_patch(kept: &mut HashMap<String, Value>, patch: &Value) {
+    let Some(message) = patch["id"].as_str().and_then(|id| kept.get_mut(id)) else { return };
+    if let Some(content) = patch.get("content") {
+        message["content"] = content.clone();
+    }
+    for update in patch["toolCalls"].as_array().into_iter().flatten() {
+        if let Some(result) = update.get("result")
+            && let Some(call) = message["toolCalls"].as_array_mut().and_then(|calls| calls.iter_mut().find(|c| c["id"] == update["id"]))
+        {
+            call["result"] = result.clone();
+        }
+    }
+}
+
+/// Replaces the message checkpoint while preserving the order and latest version of each id.
+fn gemini_checkpoint(order: &mut Vec<String>, kept: &mut HashMap<String, Value>, messages: &[Value]) {
+    order.clear();
+    kept.clear();
+    for message in messages {
+        if let Some(id) = message["id"].as_str() {
+            if !kept.contains_key(id) {
+                order.push(id.to_string());
+            }
+            kept.insert(id.to_string(), message.clone());
+        }
+    }
+}
+
+fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
+    let mut t = Transcript { cwd: gemini_root(path).unwrap_or_default(), ..Transcript::default() };
+    let mut summary: Option<String> = None;
+    // Each message once, at its first place, as last written.
+    let mut order: Vec<String> = Vec::new();
+    let mut kept: HashMap<String, Value> = HashMap::new();
+    let mut lines = lines_of(path)?;
+    while let Some(raw) = lines.next() {
+        let Ok(v) = serde_json::from_slice::<Value>(raw) else { continue };
+        if let Some(set) = v.get("$set") {
+            if let Some(value) = set.get("summary") {
+                summary = value.as_str().map(str::to_string);
+            }
+            if let Some(messages) = set["messages"].as_array() {
+                gemini_checkpoint(&mut order, &mut kept, messages);
+            }
+            continue;
+        }
+        if let Some(to) = v.get("$rewindTo").and_then(Value::as_str) {
+            let at = order.iter().position(|id| id == to).unwrap_or(0);
+            for id in order.drain(at..) {
+                kept.remove(&id);
+            }
+            continue;
+        }
+        if let Some(patch) = v.get("$patch") {
+            gemini_patch(&mut kept, patch);
+            for update in patch["updates"].as_array().into_iter().flatten() {
+                gemini_patch(&mut kept, update);
+            }
+            for id in patch["removeIds"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                order.retain(|o| o != id);
+                kept.remove(id);
+            }
+            if let Some(ids) = patch["orderIds"].as_array() {
+                let mut suffix: Vec<String> = Vec::new();
+                for id in ids.iter().filter_map(Value::as_str).filter(|id| kept.contains_key(*id)) {
+                    if !suffix.iter().any(|s| s == id) {
+                        suffix.push(id.to_string());
+                    }
+                }
+                order.retain(|id| !suffix.contains(id));
+                order.extend(suffix);
+            }
+            continue;
+        }
+        let Some(id) = v["id"].as_str().map(str::to_string) else {
+            if t.id.is_empty() {
+                t.id = v["sessionId"].as_str().unwrap_or_default().to_string();
+            }
+            summary = v["summary"].as_str().map(str::to_string).or(summary);
+            if let Some(messages) = v["messages"].as_array() {
+                gemini_checkpoint(&mut order, &mut kept, messages);
+            }
+            continue;
+        };
+        if !kept.contains_key(&id) {
+            order.push(id.clone());
+        }
+        kept.insert(id, v);
+    }
+    let mut prompt: Option<String> = None;
+    for v in order.iter().filter_map(|id| kept.get(id)) {
+        let at = v["timestamp"].as_str().unwrap_or_default().to_string();
+        if !at.is_empty() {
+            if t.first.is_empty() {
+                t.first = at.clone();
+            }
+            t.last = at.clone();
+        }
+        let text = gemini_text(&v["content"]);
+        match v["type"].as_str().unwrap_or_default() {
+            "user" => {
+                if !gemini_typed(&text) {
+                    continue;
+                }
+                prompt.get_or_insert_with(|| text.clone());
+                t.messages.push(message(Role::User, &text, &at));
+            }
+            "gemini" => {
+                t.model = v["model"].as_str().map(str::to_string).or(t.model.take());
+                let u = &v["tokens"];
+                if u.is_object() {
+                    let n = |k: &str| u[k].as_u64().unwrap_or(0);
+                    t.usage.input += n("input").saturating_sub(n("cached"));
+                    t.usage.cache_read += n("cached");
+                    t.usage.output += n("output") + n("thoughts");
+                    t.usage.context = Some(n("input"));
+                }
+                if !text.trim().is_empty() {
+                    t.messages.push(message(Role::Assistant, &text, &at));
+                }
+                if detail == Detail::Tools {
+                    for call in v["toolCalls"].as_array().into_iter().flatten() {
+                        let summary = arg_line(&call["args"]);
+                        let ok = match call["status"].as_str() {
+                            Some("success") => Some(true),
+                            Some("error" | "cancelled") => Some(false),
+                            _ => None,
+                        };
+                        let name = call["displayName"].as_str().or(call["name"].as_str()).unwrap_or("tool");
+                        t.messages.push(tool_message(&at, name, summary, ok));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    t.title = summary.filter(|n| !n.trim().is_empty()).or(prompt.clone())?;
     prompt.map(|_| t)
 }
 
@@ -1101,7 +1689,8 @@ mod tests {
             &[
                 json!({"type": "user", "cwd": "/r/api", "sessionId": "c-1", "gitBranch": "me/eng-412-quotas", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Enforce the daily quota for ENG-412"}}),
                 json!({"type": "assistant", "timestamp": "2026-11-03T10:00:05Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": used(100, 1000), "content": [{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "Reading the limiter."}]}}),
-                json!({"type": "assistant", "timestamp": "2026-11-03T10:00:06Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": used(100, 1000), "content": [{"type": "tool_use", "name": "Bash", "input": {}}]}}),
+                json!({"type": "assistant", "timestamp": "2026-11-03T10:00:06Z", "message": {"id": "m1", "model": "claude-opus-4-5", "usage": used(100, 1000), "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "mix test\nand more"}}]}}),
+                json!({"type": "user", "timestamp": "2026-11-03T10:00:07Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": true, "content": "it failed"}]}}),
                 json!({"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "message": {"id": "m2", "model": "claude-opus-4-5", "usage": used(50, 3000), "content": [{"type": "text", "text": "Done: the limiter counts per day."}]}}),
                 json!({"type": "ai-title", "aiTitle": "Daily quota limiter"}),
             ],
@@ -1120,6 +1709,80 @@ mod tests {
         assert_eq!((t.usage.input, t.usage.output, t.usage.cache_read, t.usage.context), (150, 20, 4000, Some(3055)), "a streamed reply counts once");
         assert_eq!((t.first.as_str(), t.last.as_str()), ("2026-11-03T10:00:00Z", "2026-11-03T10:01:00Z"));
         assert_eq!(usage(Transcripts::Claude, &path).unwrap().context, Some(3055));
+
+        let told = read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        assert_eq!(
+            told.messages.iter().map(|m| (m.text.as_str(), m.tool.as_ref().map(|t| (t.name.as_str(), t.summary.as_str(), t.ok)))).collect::<Vec<_>>(),
+            [
+                ("Enforce the daily quota for ENG-412", None),
+                ("Reading the limiter.", None),
+                ("", Some(("Bash", "mix test…", Some(false)))),
+                ("Done: the limiter counts per day.", None)
+            ],
+            "the call sits where it was made, and its result says it failed"
+        );
+        assert_eq!(told.text(4096), t.text(4096), "a call is not words");
+    }
+
+    #[test]
+    fn a_followed_claude_transcript_reads_on_from_where_it_stopped_and_agrees_with_a_whole_read() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "-r-api/c-2.jsonl",
+            &[
+                json!({"type": "user", "cwd": "/r/api", "sessionId": "c-2", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Fix the export"}}),
+                json!({"type": "assistant", "timestamp": "2026-11-03T10:00:05Z", "message": {"id": "m1", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "mix test"}}]}}),
+            ],
+        );
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file).unwrap();
+        let mut follow = Follow::new(Transcripts::Claude, &path, Detail::Tools);
+        assert_eq!(follow.read().map(|t| t.messages.len()), Some(2));
+        // The call's result lands after the call was read, and a line is still being written.
+        writeln!(file, "{}", json!({"type": "user", "timestamp": "2026-11-03T10:00:07Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": false, "content": "ok"}]}})).unwrap();
+        file.write_all(br#"{"type": "assistant", "timestamp": "2026-11-03T10:00:09Z", "message": {"content": [{"type": "text", "text": "Fixed."}]"#).unwrap();
+        file.flush().unwrap();
+        let read = follow.read().unwrap();
+        assert_eq!(read.messages.len(), 2, "the unfinished line is not read yet");
+        assert_eq!(read.messages[1].tool.as_ref().and_then(|t| t.ok), Some(true), "a result reaches a call read before it");
+        writeln!(file, "}}}}").unwrap();
+        let read = follow.read().unwrap().clone();
+        assert_eq!(read.messages.last().map(|m| m.text.as_str()), Some("Fixed."));
+        assert_eq!(read, read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap(), "the same as reading it whole");
+        // Another file put in its place, longer than the first: read from its start, not on from the old offset.
+        let other = dir.path().join("other.jsonl");
+        let mut lines = String::new();
+        for n in 0..6 {
+            lines.push_str(&format!("{}\n", json!({"type": "user", "cwd": "/r/api", "sessionId": "c-2", "timestamp": "2026-11-03T11:00:00Z", "message": {"role": "user", "content": format!("Replaced {n}")}})));
+        }
+        std::fs::write(&other, lines).unwrap();
+        std::fs::rename(&other, &path).unwrap();
+        let read = follow.read().unwrap();
+        assert_eq!(read.messages.first().map(|m| m.text.as_str()), Some("Replaced 0"), "the new file, whole");
+        assert_eq!(read.messages.len(), 6);
+    }
+
+    #[test]
+    fn a_transcript_says_the_effort_and_speed_its_last_turn_ran_with() {
+        let dir = tempfile::tempdir().unwrap();
+        let reply = |id: &str, effort: &str, speed: &str| {
+            json!({"type": "assistant", "timestamp": "2026-11-03T10:00:05Z", "effort": effort, "message": {"id": id, "model": "claude-opus-5-5",
+                   "usage": {"input_tokens": 1, "output_tokens": 1, "speed": speed}, "content": [{"type": "text", "text": "Reading the limiter."}]}})
+        };
+        let typed = json!({"type": "user", "cwd": "/r/api", "sessionId": "c-2", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Enforce the quota"}});
+        let path = write(dir.path(), "-r-api/c-2.jsonl", &[typed, reply("m1", "high", "standard"), reply("m2", "xhigh", "fast")]);
+        let t = read(Transcripts::Claude, &path).unwrap();
+        assert_eq!((t.effort.as_deref(), t.speed.as_deref()), (Some("xhigh"), Some("fast")));
+        let id = "0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a6d";
+        let mut lines = codex_lines(id, "/r/api", "main");
+        for line in lines.iter_mut().filter(|l| l["type"] == "turn_context") {
+            line["payload"]["effort"] = json!("ultra");
+        }
+        let path = write(dir.path(), &format!("sessions/2026/11/03/rollout-2026-11-03T10-00-00-{id}.jsonl"), &lines);
+        let t = read(Transcripts::Codex, &path).unwrap();
+        assert_eq!((t.effort.as_deref(), t.speed.as_deref()), (Some("ultra"), None), "Codex's rollout names no speed");
     }
 
     #[test]
@@ -1144,6 +1807,18 @@ mod tests {
         working.truncate(9);
         let working = write(dir.path(), "sessions/2026/11/03/rollout-2026-11-03T11-00-00-0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5e.jsonl", &working);
         assert_eq!(turn(Transcripts::Codex, &working), Some(Turn::Working));
+        assert_eq!(turn(Transcripts::Claude, &path), None);
+        let mut aborted = codex_lines(id, "/r/api", "main");
+        aborted.truncate(9);
+        aborted.push(json!({"timestamp": "2026-11-03T11:02:00Z", "type": "event_msg", "payload": {"type": "turn_aborted", "reason": "interrupted"}}));
+        let aborted = write(dir.path(), "sessions/2026/11/03/rollout-2026-11-03T12-00-00-0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5f.jsonl", &aborted);
+        assert_eq!(turn(Transcripts::Codex, &aborted), Some(Turn::Interrupted));
+
+        let told = read_detail(Transcripts::Codex, &path, Detail::Tools).unwrap();
+        assert_eq!(
+            told.messages.iter().map(|m| (m.text.as_str(), m.tool.as_ref().map(|t| (t.name.as_str(), t.summary.as_str())))).collect::<Vec<_>>(),
+            [("Enforce the daily quota for ENG-412", None), ("", Some(("exec_command", "rg limiter"))), ("Done: the limiter counts per day.", None)]
+        );
     }
 
     #[test]
@@ -1160,6 +1835,12 @@ mod tests {
         let sidechain = json!({"type": "assistant", "isSidechain": true, "message": {"role": "assistant", "content": []}});
         let sub = write(dir.path(), "-r-api/c-4.jsonl", &[reply, ended, sidechain]);
         assert_eq!(turn(Transcripts::Claude, &sub), Some(Turn::Done), "a subagent still writing does not reopen the turn");
+        let stopped = json!({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]}});
+        let said = json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Running the tests."}]}});
+        let interrupted = write(dir.path(), "-r-api/c-5.jsonl", &[said.clone(), stopped.clone()]);
+        assert_eq!(turn(Transcripts::Claude, &interrupted), Some(Turn::Interrupted));
+        let closed = write(dir.path(), "-r-api/c-6.jsonl", &[said, stopped, json!({"type": "system", "subtype": "turn_duration", "durationMs": 900})]);
+        assert_eq!(turn(Transcripts::Claude, &closed), Some(Turn::Interrupted), "closed, it still ended interrupted");
     }
 
     pub(crate) fn codex_lines(id: &str, cwd: &str, branch: &str) -> Vec<Value> {
@@ -1233,7 +1914,7 @@ mod tests {
             json!({"type": "session", "version": 3, "id": "p-1", "timestamp": "2026-11-03T10:00:00.000Z", "cwd": cwd}),
             json!({"type": "message", "id": "a1", "parentId": null, "timestamp": "2026-11-03T10:00:01.000Z", "message": {"role": "user", "content": "Rename the quota module"}}),
             json!({"type": "message", "id": "a2", "parentId": "a1", "timestamp": "2026-11-03T10:00:09.000Z", "message": {"role": "assistant", "model": "acme-large", "usage": spent,
-                "content": [{"type": "thinking", "thinking": "hm"}, {"type": "toolCall", "name": "bash"}, {"type": "text", "text": "Renamed to limits."}]}}),
+                "content": [{"type": "thinking", "thinking": "hm"}, {"type": "toolCall", "name": "bash", "arguments": {"command": "git mv quota limits"}}, {"type": "text", "text": "Renamed to limits."}]}}),
             json!({"type": "session_info", "id": "a3", "timestamp": "2026-11-03T10:00:10.000Z", "name": "Quota rename"}),
         ])).unwrap();
         let qwen_home = dir.path().join("qwen");
@@ -1241,7 +1922,7 @@ mod tests {
         std::fs::create_dir_all(qwen.parent().unwrap()).unwrap();
         std::fs::write(&qwen, lines(&[
             json!({"uuid": "u1", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:00Z", "type": "user", "cwd": cwd, "gitBranch": "me/eng-412-quotas", "message": {"role": "user", "parts": [{"text": "Add tests for the limiter"}]}}),
-            json!({"uuid": "u2", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:07Z", "type": "assistant", "cwd": cwd, "model": "acme-coder", "message": {"role": "model", "parts": [{"text": "pondering", "thought": true}, {"text": "Added three tests."}]},
+            json!({"uuid": "u2", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:07Z", "type": "assistant", "cwd": cwd, "model": "acme-coder", "message": {"role": "model", "parts": [{"text": "pondering", "thought": true}, {"functionCall": {"name": "write_file", "args": {"file_path": "test/limiter_test.exs"}}}, {"text": "Added three tests."}]},
                 "usageMetadata": {"promptTokenCount": 9000, "candidatesTokenCount": 30, "cachedContentTokenCount": 8000}, "contextWindowSize": 90_300}),
             json!({"uuid": "u3", "sessionId": "q-1", "timestamp": "2026-11-03T10:00:08Z", "type": "system", "subtype": "custom_title", "cwd": cwd, "systemPayload": {"customTitle": "Limiter tests"}}),
         ])).unwrap();
@@ -1251,7 +1932,7 @@ mod tests {
         std::fs::write(&copilot, lines(&[
             json!({"id": "e1", "timestamp": "2026-11-03T10:00:00.000Z", "type": "session.start", "data": {"sessionId": "5c1e0000-0000-4000-8000-000000000412", "selectedModel": "acme-mini", "context": {"cwd": cwd, "branch": "main"}}}),
             json!({"id": "e2", "timestamp": "2026-11-03T10:00:01.000Z", "type": "user.message", "data": {"content": "Run the tests"}}),
-            json!({"id": "e3", "timestamp": "2026-11-03T10:00:05.000Z", "type": "assistant.message", "data": {"content": "All 42 pass.", "toolRequests": []}}),
+            json!({"id": "e3", "timestamp": "2026-11-03T10:00:05.000Z", "type": "assistant.message", "data": {"content": "All 42 pass.", "toolRequests": [{"name": "shell", "arguments": {"command": "mix test"}}]}}),
             json!({"id": "e4", "timestamp": "2026-11-03T10:00:05.100Z", "type": "assistant.usage", "data": {"model": "acme-mini", "inputTokens": 8000, "outputTokens": 120, "cacheReadTokens": 6000, "cacheWriteTokens": 0}}),
             json!({"id": "e5", "timestamp": "2026-11-03T10:00:05.200Z", "type": "session.usage_info", "data": {"tokenLimit": 64_000, "currentTokens": 16_000}}),
         ])).unwrap();
@@ -1277,6 +1958,93 @@ mod tests {
         assert_eq!(id_of(Transcripts::Copilot, &copilot).as_deref(), Some(c.id.as_str()));
         assert_eq!(locate(&c.id, "", None).map(|(k, _)| k), Some(Transcripts::Copilot));
         assert_eq!(all(Transcripts::Copilot).len(), 1);
+
+        let called = |kind, path: &Path| {
+            read_detail(kind, path, Detail::Tools).unwrap().messages.iter().filter_map(|m| m.tool.clone()).map(|t| (t.name, t.summary)).collect::<Vec<_>>()
+        };
+        assert_eq!(called(Transcripts::Pi, &pi), [("bash".to_string(), "git mv quota limits".to_string())]);
+        assert_eq!(called(Transcripts::Qwen, &qwen), [("write_file".to_string(), "test/limiter_test.exs".to_string())]);
+        assert_eq!(called(Transcripts::Copilot, &copilot), [("shell".to_string(), "mix test".to_string())]);
+        assert_eq!(p.messages.iter().filter(|m| m.tool.is_some()).count(), 0, "words alone by default");
+    }
+
+    /// Gemini CLI's session: a header, messages written again whole as they grow, a rewind and a summary.
+    #[test]
+    fn a_gemini_session_reads_each_message_once_as_last_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("api");
+        std::fs::create_dir_all(&work).unwrap();
+        let cwd = work.to_string_lossy().into_owned();
+        let home = dir.path().join("g");
+        let project = home.join(".gemini/tmp/api");
+        std::fs::create_dir_all(project.join("chats/9d2e0000-0000-4000-8000-000000000412")).unwrap();
+        std::fs::write(project.join(".project_root"), format!("{cwd}\n")).unwrap();
+        let id = "9d2e0000-0000-4000-8000-000000000412";
+        let path = project.join("chats/session-2026-11-03T10-00-9d2e0000.jsonl");
+        let used = json!({"input": 9000, "output": 40, "cached": 6000, "thoughts": 20, "tool": 0, "total": 9060});
+        let call = json!([{"id": "c1", "name": "run_shell_command", "displayName": "Shell", "args": {"command": "mix test"}, "status": "success", "timestamp": "2026-11-03T10:00:04Z"}]);
+        std::fs::write(&path, lines(&[
+            json!({"sessionId": id, "projectHash": "ab12", "startTime": "2026-11-03T10:00:00Z", "lastUpdated": "2026-11-03T10:00:00Z"}),
+            json!({"id": "m0", "timestamp": "2026-11-03T10:00:01Z", "type": "user", "content": "/model"}),
+            json!({"id": "m1", "timestamp": "2026-11-03T10:00:02Z", "type": "user", "content": [{"text": "Run the quota tests"}]}),
+            json!({"$set": {"lastUpdated": "2026-11-03T10:00:02Z"}}),
+            json!({"id": "m2", "timestamp": "2026-11-03T10:00:03Z", "type": "gemini", "content": "Running them.", "model": "gemini-acme-pro"}),
+            json!({"id": "m2", "timestamp": "2026-11-03T10:00:03Z", "type": "gemini", "content": "Running them.", "model": "gemini-acme-pro", "toolCalls": call, "tokens": used}),
+            json!({"id": "m3", "timestamp": "2026-11-03T10:00:05Z", "type": "gemini", "content": "One fails.", "model": "gemini-acme-pro"}),
+            json!({"$rewindTo": "m3"}),
+            json!({"id": "m4", "timestamp": "2026-11-03T10:00:06Z", "type": "gemini", "content": "All 42 pass.", "model": "gemini-acme-pro"}),
+            json!({"$set": {"summary": "Quota tests"}}),
+        ])).unwrap();
+        // A subagent's session is its parent's business.
+        std::fs::write(project.join(format!("chats/{id}/sub-1.jsonl")), lines(&[json!({"sessionId": "sub-1", "kind": "subagent"})])).unwrap();
+        let _homes = Homes::set(&[("GEMINI_CLI_HOME", &home)]);
+        let g = read(Transcripts::Gemini, &path).unwrap();
+        assert_eq!((g.id.as_str(), g.cwd.as_str(), g.title.as_str(), g.model.as_deref()), (id, cwd.as_str(), "Quota tests", Some("gemini-acme-pro")));
+        assert_eq!(
+            g.messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(),
+            ["Run the quota tests", "Running them.", "All 42 pass."],
+            "no command, no rewound answer"
+        );
+        assert_eq!((g.usage.input, g.usage.cache_read, g.usage.output), (3000, 6000, 60), "the message counted once, as last written");
+        assert_eq!(usage(Transcripts::Gemini, &path).unwrap().context, Some(9000));
+        let tools: Vec<(String, String, Option<bool>)> = read_detail(Transcripts::Gemini, &path, Detail::Tools)
+            .unwrap()
+            .messages
+            .into_iter()
+            .filter_map(|m| m.tool)
+            .map(|t| (t.name, t.summary, t.ok))
+            .collect();
+        assert_eq!(tools, [("Shell".to_string(), "mix test".to_string(), Some(true))]);
+        assert_eq!(id_of(Transcripts::Gemini, &path).as_deref(), Some(id));
+        assert_eq!((find(Transcripts::Gemini, id, "").as_deref(), kind_of(&path)), (Some(path.as_path()), Some(Transcripts::Gemini)));
+        let since = modified_ms(&path).saturating_sub(60_000);
+        assert_eq!(latest(Transcripts::Gemini, &cwd, since).as_deref(), Some(path.as_path()), "its folder from .project_root");
+        assert_eq!(all(Transcripts::Gemini).len(), 1, "the subagent's file is left out");
+    }
+
+    #[test]
+    fn gemini_replays_content_patches_checkpoints_and_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let user = json!({"id": "u1", "type": "user", "timestamp": "2026-11-03T10:00:00Z", "content": "Check the quota"});
+        let answer = |id: &str, text: &str| json!({"id": id, "type": "gemini", "timestamp": "2026-11-03T10:00:01Z", "content": text});
+        std::fs::write(
+            &path,
+            lines(&[
+                json!({"sessionId": "acme-gemini"}),
+                user.clone(),
+                answer("discarded", "A discarded answer"),
+                json!({"$set": {"messages": [user, answer("a1", "Old answer"), answer("a2", "Second answer")]}}),
+                json!({"$patch": {"id": "a1", "content": "Patched answer"}}),
+                json!({"$patch": {"updates": [{"id": "a2", "content": "Updated second answer"}], "orderIds": ["a2", "a1"]}}),
+            ]),
+        )
+        .unwrap();
+        let t = read(Transcripts::Gemini, &path).unwrap();
+        assert_eq!(t.messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["Check the quota", "Updated second answer", "Patched answer"]);
+        let mut kept = HashMap::from([("a1".into(), json!({"toolCalls": [{"id": "c1", "result": "old"}]}))]);
+        gemini_patch(&mut kept, &json!({"id": "a1", "toolCalls": [{"id": "c1", "result": [{"text": "new"}]}]}));
+        assert_eq!(kept["a1"]["toolCalls"][0]["result"], json!([{"text": "new"}]));
     }
 
     #[test]

@@ -1,0 +1,14 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 90, 10)"
+---
+   Review
+
+
+ No agent to review
+ Start an agent in a space at a git repository: its changes show here, to comment line
+ by line and send back to it. W picks among the agents' worktrees once there are
+ several.
+
+
+ q quit  R refresh  ? keys                                                    ▏^p palette

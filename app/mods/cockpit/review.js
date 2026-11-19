@@ -1,15 +1,33 @@
-// The review view: the focused agent's changes in one of three scopes (uncommitted, its branch against the base, its
-// pull request), commented line by line and sent back to that agent as one message (Submit review · N), or read as a
-// guided walkthrough: the hunks grouped into steps in reading order, each explained, written by an agent run headless in the
-// background through the hub.
+// The review view: the followed agent's changes in one of three scopes (uncommitted, its branch against the base, its
+// pull request), commented line by line and sent as one message (Submit review · N) to any agent working in that
+// repository, a driven session among them, or a new agent; or read as a guided walkthrough: the hunks grouped into steps
+// in reading order, each explained, written by an agent run headless in the background through the hub.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { focused, panes, agents, layout, props, shared, setShared } from "herdr";
+import { focused, panes, layout, props, shared, setShared } from "herdr";
 import * as hub from "./hub.js";
+import { take } from "./person.js";
+import { sharing } from "./feed.js";
 import { openCode } from "./code.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Tabs, Empty, Toaster, Spinner, Overline } from "./ui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Tabs, Empty, Toaster, Spinner, Overline, openMenu } from "./ui.js";
 import { DiffView } from "./diff.js";
+import { CHOICES, SUBJECT, agentsIn, isRow, menuItems, nameOf, newAgentRequest, plainError, recipient, recipientLabel } from "./sendto.js";
+import { layoutName } from "./screens.js";
+
+/** The shared key of the repos whose review started a new agent once already: the first one asks first. */
+const NEW_OK = "review.new-ok";
+
+// The agents, Home and queue views, followed once per window whichever copies ask (feed.js).
+const following = sharing(hub.subscribe);
+
+/**
+ * Has the review panel follow an agent rather than the focused terminal: `handle` as the agents view names it (`app:t3`,
+ * `claude:<id>`), `cwd` its folder. A view calls it for the agent it shows; `followInReview(null)` follows the focus.
+ */
+export function followInReview(handle, cwd = null) {
+  setShared(SUBJECT, handle ? { handle, cwd } : null);
+}
 
 const SCOPES = [
   { value: "uncommitted", label: "Uncommitted" },
@@ -34,9 +52,18 @@ function shown() {
 }
 
 export default class Review {
-  /** A file of the diff opens beside the agent, in cockpit's editor. */
+  /** A file of the diff opens beside the agent, in cockpit's editor; a large file's lines are read once asked for. */
   withOpen(diff) {
     diff.onOpen = (path) => this.repo && openCode(`${this.repo}/${path}`, { terminal: this.terminal ?? undefined });
+    diff.onLoad = (path) => {
+      this.loaded.add(path);
+      // Asked for, it shows: a folded file opens.
+      diff.folded.delete(path);
+      this.fresh = true;
+      this.next = 0;
+      // A read already on its way does not hold this one back: it goes as soon as that one lands.
+      if (this.loading) this.again = true;
+    };
     return diff;
   }
 
@@ -54,6 +81,15 @@ export default class Review {
     this.step = 0;
     this.width = 480;
     this.toasts = new Toaster();
+    this.rows = [];
+    this.loaded = new Set();
+    this.fresh = false;
+    this.sending = false;
+    this.sub = following(cx, { views: ["agents"] }, (m, cx) => {
+      if (m.view !== "agents") return;
+      this.rows = m.value?.agents ?? [];
+      cx.notify();
+    });
     this.handle = cx.focus_handle();
     this.input = InputState.new({ placeholder: "Leave a comment…" });
     this.input.on("submit", (_e, cx) => {
@@ -64,12 +100,19 @@ export default class Review {
     });
     this.diff = this.withOpen(new DiffView("review", this.input));
     this.walkModel = "haiku";
-    cx.timer.every(1000, (cx) => this.tick(cx));
   }
 
-  close() {}
+  close() {
+    this.sub?.stop();
+  }
 
+  /** The agent to follow: the one a view handed over (`followInReview`), else the focused terminal and its folder. */
   focusFacts() {
+    const subject = shared(SUBJECT);
+    if (subject?.handle) {
+      const row = this.rows.find((r) => isRow(r, subject.handle));
+      return { terminal: subject.handle, cwd: subject.cwd ?? row?.cwd ?? null };
+    }
     const f = focused();
     const terminal = f?.terminal ?? null;
     return { terminal, cwd: terminal ? f.cwd ?? panes().find((x) => x.terminal === terminal)?.cwd ?? null : null };
@@ -88,6 +131,7 @@ export default class Review {
       this.repo = cwd;
       this.model = null;
       this.error = null;
+      this.loaded = new Set();
       this.diff = this.withOpen(new DiffView("review", this.input));
       this.next = 0;
       cx.timer.after(0, (cx) => this.load(cx));
@@ -105,27 +149,46 @@ export default class Review {
     const scope = this.scope, repo = this.repo;
     cx.spawn(async (cx) => {
       try {
-        const m = await hub.view("review", { repo, scope, since: this.model?.scope === scope ? this.model?.hash ?? null : null });
+        // A large file asked for is read again in full: the changes did not move, what is sent did.
+        const since = this.model?.scope === scope && !this.fresh ? this.model?.hash ?? null : null;
+        this.fresh = false;
+        const load = this.diff.whole(this.loaded);
+        // Which agents work in this repo is git's to say, by each folder's toplevel: the view answers with their handles.
+        const agents = this.rows.filter((r) => r.cwd).map((r) => ({ handle: r.terminal, cwd: r.cwd }));
+        const m = await hub.view("review", { repo, scope, since, load, agents });
         if (repo === this.repo && scope === this.scope) {
           if (m?.error && !m.files) {
             this.error = m.error;
             this.model = null;
           } else if (m?.same) {
+            // The same changes as before an error: the hub answers again, so the error goes.
+            this.error = null;
             this.model.walkthrough = m.walkthrough ?? this.model.walkthrough;
+            this.model.here = m.here ?? this.model.here;
           } else {
             this.error = null;
             this.model = m;
             this.diff.set(m);
-            this.applyStep();
           }
           if (m?.walkthrough && this.model) this.model.walkthrough = m.walkthrough;
+          // A walkthrough that finished over the same changes shows its step's hunks alone at once.
+          if (this.model) this.applyStep();
+          // A choice made before the repo was known is kept now that git named it.
+          const pending = this.pendingChoice;
+          if (this.model && pending) {
+            this.pendingChoice = null;
+            if (pending.repo === this.model.repo || pending.repo === repo) this.choose(pending.handle, this.model.repo);
+          }
         }
       } catch (e) {
         this.error = String(e?.message ?? e);
       }
       this.loading = false;
-      this.next = Date.now() + (this.scope === "pr" ? 20000 : this.model?.walkthrough?.status === "running" ? 2000 : 3000);
+      const again = this.again;
+      this.again = false;
+      this.next = again ? 0 : Date.now() + (this.scope === "pr" ? 20000 : this.model?.walkthrough?.status === "running" ? 2000 : 3000);
       cx.notify();
+      if (again) this.load(cx);
     });
   }
 
@@ -134,6 +197,7 @@ export default class Review {
     this.scope = scope;
     this.model = null;
     this.error = null;
+    this.loaded = new Set();
     this.diff = this.withOpen(new DiffView("review", this.input));
     this.step = 0;
     this.next = 0;
@@ -146,32 +210,105 @@ export default class Review {
     if (JSON.stringify(shared("badge.review") ?? null) !== JSON.stringify(value)) setShared("badge.review", value);
   }
 
-  agentName() {
-    const a = agents().find((x) => x.address === this.terminal);
-    return a ? a.tab_name || a.program?.name || a.address : this.terminal;
+  /** The repository reviewed, as git names it. */
+  reviewed() {
+    return this.model?.repo ?? this.repo;
   }
 
+  /** The handles of the agents working in the reviewed repo, as the review view lists them. */
+  here() {
+    return this.model?.here ?? [];
+  }
+
+  /** Who the comments go to now: the choice kept for this repo, else the agent followed, else a new agent. */
+  recipient() {
+    const chosen = (shared(CHOICES) ?? {})[this.reviewed()] ?? null;
+    return recipient(this.rows, this.here(), { chosen, followed: this.terminal });
+  }
+
+  /** The menu of who may get the comments: the repo's agents, then a new agent; a window command's takes a click only. */
+  openRecipients(clickOnly = false) {
+    openMenu(menuItems(this.rows, this.here(), this.recipient(), this.reviewed()), { width: 320, clickOnly });
+  }
+
+  /** Keeps who `repo`'s comments go to: an agent's handle, or "new". Every copy hears the command; only the one
+   * reviewing that repo keeps it, by git's name for it, once its model says what that is. */
+  choose(handle, repo = this.reviewed()) {
+    if (!this.model) {
+      this.pendingChoice = { handle, repo };
+      return;
+    }
+    if (!repo || repo !== this.reviewed()) return;
+    const row = this.rows.find((r) => isRow(r, handle));
+    const choices = { ...(shared(CHOICES) ?? {}) };
+    choices[repo] = handle === "new" ? "new" : { handle, name: row ? nameOf(row) : handle };
+    setShared(CHOICES, choices);
+  }
+
+  /** Sends the comments: to an agent through `review send` (deliver: a terminal or a driven session), or to a new agent
+   * Start work opens in the repo's checkout with the review as its prompt. */
   submit(cx) {
     const comments = this.diff.review();
-    if (!comments.length) return;
+    if (!comments.length || this.sending) return;
+    const to = this.recipient();
+    if (to.kind === "gone") {
+      this.toasts.push(cx, `${to.name} is no longer running here: pick who gets the review`, { kind: "error" });
+      return;
+    }
+    if (to.kind === "starting") {
+      this.toasts.push(cx, `${to.name} is still starting: the review goes once it runs`, { kind: "info" });
+      return;
+    }
+    if (to.kind === "new" && !this.confirmNew(cx)) return;
+    // What goes now: a comment written while it is on its way stays.
+    const sending = this.diff.comments.filter((c) => !c.stale);
+    const review = { scope: this.scope, repo: this.reviewed(), comments };
+    this.sending = true;
     cx.spawn(async (cx) => {
       try {
-        const r = await hub.act("review", "send", [this.terminal ?? "", { scope: this.scope, repo: this.repo, comments }]);
-        if (r.error) this.toasts.push(cx, r.error, { kind: "error" });
+        let r;
+        if (to.kind === "agent") {
+          r = await hub.act("review", "send", [to.row.terminal, { ...review, to: nameOf(to.row) }]);
+        } else {
+          const p = await hub.view("review", { prompt: review });
+          const request = p?.error ? null : newAgentRequest(review.repo, p.prompt, Date.now());
+          r = request ? await hub.act("start", "work", [request]) : { error: p.error };
+          // A new agent is picked once: the next review goes to the agent this one started.
+          if (!r.error) setShared(CHOICES, { ...(shared(CHOICES) ?? {}), [review.repo]: { space: request.label, name: "the review agent", at: Date.now() } });
+        }
+        if (r.error) this.toasts.push(cx, plainError(r.error), { kind: "error" });
         else {
-          const kept = this.diff.comments;
-          this.diff.comments = [];
-          this.toasts.push(cx, r.note || "Review sent", {
+          this.diff.comments = this.diff.comments.filter((c) => !sending.includes(c));
+          const note = String(r.note || `Review sent to ${recipientLabel(to)}`);
+          this.toasts.push(cx, `${note[0].toUpperCase()}${note.slice(1)}`, {
             kind: "success",
-            action: { label: "Undo", onClick: () => (this.diff.comments = kept) },
+            action: { label: "Restore comments", onClick: () => (this.diff.comments = [...this.diff.comments, ...sending]) },
           });
         }
       } catch (e) {
-        this.toasts.push(cx, String(e?.message ?? e), { kind: "error" });
+        this.toasts.push(cx, plainError(e?.message ?? e), { kind: "error" });
       }
+      this.sending = false;
       this.badge();
       cx.notify();
     });
+  }
+
+  /** The first new agent a repo's review starts asks first: a second Submit within a few seconds starts it. */
+  confirmNew(cx) {
+    const repo = this.reviewed();
+    const ok = shared(NEW_OK) ?? {};
+    if (ok[repo]) return true;
+    const armed = this.armedNew;
+    if (armed?.repo === repo && Date.now() - armed.at < 8000) {
+      this.armedNew = null;
+      setShared(NEW_OK, { ...ok, [repo]: true });
+      return true;
+    }
+    this.armedNew = { repo, at: Date.now() };
+    const name = this.model?.name ?? repo;
+    this.toasts.push(cx, `This starts a new agent in ${name} on your comments: Submit again to start it`, { kind: "info" });
+    return false;
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -250,12 +387,18 @@ export default class Review {
   // -------------------------------------------------------------------------------------------------------------------
   // Keys and commands
 
-  command(c, cx) {
+  command(c, cx, key = null) {
     if (c === "focus" || c === "show:review") this.handle.focus();
     const [scope, action, ...rest] = c.split(":");
     const arg = rest.join(":");
     if (scope === "review") {
-      if (action === "open" && arg.startsWith("/")) {
+      // Who gets the comments, and sending them, come from the person: a window command only opens the menu of who.
+      if (action === "to" && arg && take(c, key)) {
+        const [handle, repo] = arg.split("|");
+        this.choose(handle, repo || this.reviewed());
+      } else if (action === "to") this.openRecipients(!take(c, key));
+      else if (action === "follow") followInReview(arg || null);
+      else if (action === "open" && arg.startsWith("/")) {
         // Another view (the palette, show's diff) asks for a repo's review: it stays on it until the focus moves.
         this.repo = arg;
         this.seen = this.focusFacts();
@@ -266,13 +409,25 @@ export default class Review {
         this.load(cx);
       } else if (action === "scope") this.setScope(arg, cx);
       else if (action === "mode") this.setMode(arg, cx);
-      else if (action === "submit") this.submit(cx);
+      else if (action === "submit" && take(c, key)) this.submit(cx);
     }
     cx.notify();
   }
 
   key(e, cx) {
     const key = e.keystroke;
+    // A key pressed from outside the window (a sandbox's test) types into the open composer, which takes no other.
+    if (e.injected && this.diff.composer && key !== "escape") {
+      if (key === "enter") {
+        this.diff.commit();
+        this.badge();
+      } else {
+        // A character, never a key's name: "shift-a" types "A", "tab" types nothing.
+        const typed = key === "space" ? " " : key.length === 1 ? key : /^shift-.$/.test(key) ? key.slice(-1).toUpperCase() : "";
+        this.input.set_value(this.input.value() + typed);
+      }
+      return true;
+    }
     if (this.diff.key(e)) return true;
     // While a comment is being written, letters are its text: no shortcut takes them.
     if (this.diff.composer) return false;
@@ -280,6 +435,7 @@ export default class Review {
       case "1": case "2": case "3": this.setScope(SCOPES[Number(key) - 1].value, cx); return true;
       case "w": this.setMode(this.mode === "walk" ? "diff" : "walk", cx); return true;
       case "shift-s": case "ctrl-enter": this.submit(cx); return true;
+      case "shift-t": this.openRecipients(); return true;
       case "left": case "h": this.moveStep(-1); return true;
       case "right": case "l": this.moveStep(1); return true;
       case "r": this.next = 0; this.load(cx); return true;
@@ -344,23 +500,44 @@ export default class Review {
 
   footer(k, narrow) {
     const n = this.diff.review().length;
-    const who = this.terminal ? this.agentName() : null;
+    const to = this.recipient();
+    const who = recipientLabel(to);
+    // A narrow panel keeps the To button to a few words, so Clear and Submit stay in view; the tooltip names it whole.
+    const max = narrow ? (n > 0 ? 14 : 22) : 26;
+    const cut = (text, m) => (text.length > m ? `${text.slice(0, m - 1)}…` : text);
+    const short = to.kind === "gone" ? `${cut(to.name, max - 6)} (gone)` : cut(who, max);
+    const none = to.kind === "new" && !agentsIn(this.rows, this.here()).length;
     const hints = this.diff.composer ? [["⏎", "add"], ["esc", "cancel"]] : [["j/k", "line"], ["c", "comment"], ["e", "edit file"], ["s", "split"], ["w", "walkthrough"]];
+    // Cockpit puts its keys on the buttons; Cockpit Chat keeps them in the tooltips alone.
+    const chat = layoutName() === "cockpit-chat";
+    const withKey = (text, key) => (chat ? `${text}  ${key}` : text);
     return h_flex().h(48).flex_none().px(12).gap(10).items_center().border_t_1().border_color(k.border)
-      .when(!narrow, (e) => e.children(hints.map(([key, what]) => h_flex().flex_none().gap(4).items_center().text_size(TEXT.xs).text_color(k.mutedFg).child(Kbd(key)).child(what))))
+      .when(!narrow && !chat, (e) => e.children(hints.map(([key, what]) => h_flex().flex_none().gap(4).items_center().text_size(TEXT.xs).text_color(k.mutedFg).child(Kbd(key)).child(what))))
       .child(div().flex_1())
-      .when(n > 0, (e) => e.child(Button("review-clear", { label: "Clear", size: "sm", variant: "ghost", onClick: (_e, cx) => {
+      .when(n > 0, (e) => e.child(Button("review-clear", { label: "Clear", icon: narrow ? "trash" : undefined, size: narrow ? "icon-sm" : "sm", variant: "ghost", tooltip: narrow ? "Clear the comments" : undefined, onClick: (_e, cx) => {
         const kept = this.diff.comments;
         this.diff.comments = [];
         this.toasts.push(cx, `${kept.length} comment${kept.length === 1 ? "" : "s"} cleared`, { action: { label: "Undo", onClick: () => (this.diff.comments = kept) } });
         this.badge();
       } })))
-      .child(Button("review-submit", {
-        label: n ? `Submit review · ${n}` : "Submit review",
-        icon: "send",
+      .child(Button("review-to", {
+        label: `To ${short}`,
+        iconRight: "chevron-down",
+        variant: to.kind === "gone" ? "destructive" : "outline",
         size: "sm",
-        disabled: !n || !who,
-        tooltip: who ? `Send the comments to ${who} as one message (⇧S)` : "Focus the agent to send it to",
+        kbd: chat || narrow ? undefined : "⇧T",
+        tooltip: none
+          ? "No agent works in this repository: the review starts a new one here"
+          : to.kind === "gone" ? `${who}: pick who gets the review` : withKey(`${who} gets the comments: pick an agent working here, or a new one`, "⇧T"),
+        onClick: () => this.openRecipients(),
+      }))
+      .child(Button("review-submit", {
+        label: to.kind === "new" ? (n ? `Start an agent · ${n}` : "Start an agent") : n ? `Submit review · ${n}` : "Submit review",
+        icon: to.kind === "new" ? "plus" : "send",
+        size: "sm",
+        kbd: chat || narrow ? undefined : "⇧S",
+        disabled: !n || this.sending || to.kind === "gone" || to.kind === "starting",
+        tooltip: to.kind === "new" ? withKey("Start a new agent here on the comments", "⇧S") : withKey(`Send the comments to ${who} as one message`, "⇧S"),
         onClick: (_e, cx) => this.submit(cx),
       }));
   }

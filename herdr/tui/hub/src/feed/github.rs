@@ -36,8 +36,8 @@ pub fn forget_token() {
     }
 }
 
-const PR_BASE: &str = "number title url isDraft updatedAt headRefName baseRefName repository { name nameWithOwner } \
-  author { __typename login ... on User { name } } reviewDecision";
+const PR_BASE: &str = "number title url isDraft updatedAt headRefName baseRefName headRefOid isCrossRepository \
+  headRepositoryOwner { login } repository { name nameWithOwner } author { __typename login ... on User { name } } reviewDecision";
 
 /// Review requests only need the rollup: listing the checks of every one makes the query too heavy for GitHub (HTTP 502).
 /// My own PRs list their checks, which give both the failing names and the CI runs.
@@ -53,7 +53,7 @@ pub fn query(org: &str, merged_since: &str) -> String {
       ... on CheckRun {{ databaseId name status conclusion detailsUrl checkSuite {{ workflowRun {{ databaseId }} }} }}
       ... on StatusContext {{ context state targetUrl }} }} }} }} }} }} }} }} }} }}
   merged: search(query: "is:pr is:merged author:@me{scope} merged:>={merged_since}", type: ISSUE, first: 50) {{
-    nodes {{ ... on PullRequest {{ number url headRefName createdAt mergedAt repository {{ name nameWithOwner }} mergeCommit {{ oid }} }} }} }}
+    nodes {{ ... on PullRequest {{ number url headRefName headRefOid createdAt mergedAt repository {{ name nameWithOwner }} mergeCommit {{ oid }} }} }} }}
 }}"#
     )
 }
@@ -122,10 +122,15 @@ fn to_pr(node: &Value, direct: &[&str]) -> Value {
     if let Some(threads) = node["reviewThreads"]["nodes"].as_array() {
         pr["threads"] = json!(threads.iter().filter(|t| t["isResolved"] != true).count());
     }
-    for (field, key) in [("branch", "headRefName"), ("base", "baseRefName")] {
+    for (field, key) in [("branch", "headRefName"), ("base", "baseRefName"), ("headOid", "headRefOid")] {
         if let Some(value) = node[key].as_str() {
             pr[field] = json!(value);
         }
+    }
+    // Start work fetches a fork's PR apart from your own branches.
+    if let Some(cross) = node["isCrossRepository"].as_bool() {
+        pr["isCrossRepository"] = json!(cross);
+        pr["headOwner"] = node["headRepositoryOwner"]["login"].clone();
     }
     pr
 }
@@ -152,6 +157,8 @@ pub fn parse(data: &Value) -> Github {
                     "number": or(&n["number"], json!(0)),
                     "branch": n["headRefName"],
                     "mergeSha": or(&n["mergeCommit"]["oid"], json!("")),
+                    // The branch's last commit as merged: a worktree past it holds work the merge did not take.
+                    "headSha": or(&n["headRefOid"], json!("")),
                     "mergedAt": or(&n["mergedAt"], json!("")),
                 });
                 if let Some(created) = n["createdAt"].as_str() {
@@ -211,7 +218,7 @@ mod tests {
         assert_eq!(
             github.merged,
             [json!({"repo": "api", "slug": "acme/api", "url": "https://github.com/acme/api/pull/2", "number": 2, "branch": "me/eng-400-sso",
-                "mergeSha": "abc123", "mergedAt": "2026-10-20T09:00:00Z"})]
+                "mergeSha": "abc123", "headSha": "def456", "mergedAt": "2026-10-20T09:00:00Z"})]
         );
     }
 

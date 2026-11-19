@@ -54,6 +54,9 @@ impl App {
         if let Some(form) = &self.form {
             form.render(frame, area, &self.clock);
         }
+        if let Some(picker) = &self.picker {
+            picker.render(frame, area);
+        }
         if let Some((dialog, _, _)) = &self.dialog {
             dialog.render(frame, area);
         }
@@ -75,7 +78,12 @@ impl App {
         if !doc.queued.is_empty() {
             facts.push(format!("{} waiting", doc.queued.len()));
         }
-        let today = doc.runs.values().flatten().filter(|r| self.clock.local(r.started).date() == self.clock.local(self.clock.now).date()).count();
+        let today = doc
+            .runs
+            .values()
+            .flatten()
+            .filter(|r| r.skipped.is_none() && self.clock.local(r.started).date() == self.clock.local(self.clock.now).date())
+            .count();
         facts.push(format!("{} today", plural(today, "run")));
         let cost: f64 = doc.runs.values().flatten().filter(|r| self.clock.now.saturating_sub(r.started) < 7 * 86_400_000).filter_map(|r| r.cost).sum();
         if cost > 0.0 {
@@ -85,7 +93,8 @@ impl App {
             facts.pop();
         }
         spans.push(Span::styled(format!("   {}", facts.join(" · ")), dim()));
-        let mut lines = vec![Line::from(spans)];
+        // The shared header: no source of its own, so no chip.
+        let mut lines = cockpit_core::header::lines(Line::from(spans), &[], cells);
         lines.extend(self.looked.head(cells, |ms| self.clock.when(ms)));
         lines
     }
@@ -180,7 +189,9 @@ impl App {
             State::Over => ("\u{f155}".into(), ORANGE),
             State::Paused => ("\u{f04c}".into(), DIM),
             State::Failed => ("\u{f00d}".into(), RED),
+            State::Stopped => ("\u{f04d}".into(), DIM),
             State::Missed => ("\u{f05e}".into(), ORANGE),
+            State::Skipped => ("\u{f051}".into(), DIM),
             State::Ok => ("\u{f00c}".into(), GREEN),
             State::Never => ("\u{f10c}".into(), DIM),
         }
@@ -190,7 +201,7 @@ impl App {
     fn routine_cells(&self, doc: &Doc, r: &Routine, room: usize) -> Vec<Span<'static>> {
         let state = doc.state(r);
         let (glyph, color) = match state {
-            State::Ok | State::Never | State::Failed if !r.problems.is_empty() => ("\u{f071}".to_string(), ORANGE),
+            State::Ok | State::Never | State::Failed | State::Stopped | State::Skipped if !r.problems.is_empty() => ("\u{f071}".to_string(), ORANGE),
             _ => self.glyph(state),
         };
         let name_w = self.name_w();
@@ -198,7 +209,11 @@ impl App {
         let name_style = if r.paused { dim() } else { bold(FG) };
         let mut spans = vec![Span::styled(format!("{glyph} "), fg(color)), Span::styled(cell(&r.name, name_w), name_style)];
         let when_style = if r.error.is_some() { fg(RED) } else { dim() };
-        let when = if r.error.is_some() { "when?".to_string() } else { r.when.clone() };
+        let when = match &r.error {
+            Some(err) if err.starts_with("tz: ") => "time zone?".to_string(),
+            Some(_) => "when?".to_string(),
+            None => r.when.clone(),
+        };
         spans.push(Span::styled(cell(&when, when_w), when_style));
         let mut left = room.saturating_sub(2 + name_w + when_w);
         if left >= COST + LAST {
@@ -208,8 +223,11 @@ impl App {
         }
         let (last, last_style) = match (doc.running.get(&r.slug), doc.last(&r.slug)) {
             (None, _) if r.over && !r.paused => ("over its weekly budget".into(), fg(ORANGE)),
+            (Some(run), _) if run.is_checking() => ("checking its precheck".into(), fg(ORANGE)),
             (Some(run), _) => (format!("running {}", duration(self.clock.now.saturating_sub(run.started))), fg(ORANGE)),
+            (None, _) if doc.held.contains(&r.slug) => ("waiting: the machine woke".into(), fg(ORANGE)),
             (None, _) if doc.queued.contains(&r.slug) => ("waiting its turn".into(), fg(ORANGE)),
+            (None, Some(run)) if run.skipped.is_some() => (format!("skipped {}", self.clock.ago(run.ended.max(run.started))), dim()),
             (None, Some(run)) => (format!("{} {}", if run.ok { "ran" } else { "failed" }, self.clock.ago(run.started)), if run.ok { dim() } else { fg(RED) }),
             (None, None) => ("never ran".into(), dim()),
         };
@@ -230,7 +248,14 @@ impl App {
         if let Some(problem) = r.problems.first().filter(|_| left > 8) {
             spans.push(Span::styled(fit(problem, left), fg(ORANGE)));
         } else if let Some(run) = doc.last(&r.slug).filter(|_| left > 8 && !doc.running.contains_key(&r.slug)) {
-            spans.push(Span::styled(fit(&run.summary, left), if run.ok { fg(FG) } else { fg(RED) }));
+            let style = if run.skipped.is_some() {
+                dim()
+            } else if run.ok {
+                fg(FG)
+            } else {
+                fg(RED)
+            };
+            spans.push(Span::styled(fit(&run.summary, left), style));
         }
         spans
     }
@@ -239,17 +264,22 @@ impl App {
     fn run_cells(&self, run: &Run, room: usize) -> Vec<Span<'static>> {
         let (glyph, color) = match run.word() {
             "ok" => ("\u{f00c}", GREEN),
+            "skipped" => ("\u{f051}", DIM),
             "missed" => ("\u{f05e}", ORANGE),
             "stopped" => ("\u{f04d}", DIM),
             _ => ("\u{f00d}", RED),
         };
         let when = self.clock.when(run.started);
         let cost = run.cost.map(estimate).unwrap_or_default();
-        let facts = format!("{:<12}{:<8}{:<9}", when, run.took(), cost);
+        let took = if run.skipped.is_some() { "skipped".to_string() } else { run.took() };
+        let facts = format!("{:<12}{:<8}{:<9}", when, took, cost);
         let used = 2 + width(&facts);
         let rest = room.saturating_sub(used);
-        let text = if run.why.is_empty() { run.summary.clone() } else { format!("{} · {}", run.summary, run.why) };
-        vec![Span::styled(format!("{glyph} "), fg(color)), Span::styled(facts, dim()), Span::styled(fit(&text, rest), fg(FG))]
+        let parts: Vec<String> =
+            [Some(run.summary.clone()), run.repeats(&self.clock), Some(run.why.clone())].into_iter().flatten().filter(|p| !p.is_empty()).collect();
+        let text = parts.join(" · ");
+        let style = if run.skipped.is_some() { dim() } else { fg(FG) };
+        vec![Span::styled(format!("{glyph} "), fg(color)), Span::styled(facts, dim()), Span::styled(fit(&text, rest), style)]
     }
 
     /// The selected row's details for the panel: settings, prompt and the output of the run in question, `room` lines
@@ -269,18 +299,27 @@ impl App {
                     title.push(Span::styled("  ·  paused", fg(ORANGE)));
                 }
                 lines.push(Line::from(title));
-                if let Some(err) = &r.error {
-                    lines.push(Line::styled(format!("when \"{}\": {err}", r.when_text), fg(RED)));
+                match (&r.error, r.error.as_deref().and_then(|e| e.strip_prefix("tz: "))) {
+                    (Some(_), Some(err)) => lines.push(Line::styled(format!("tz \"{}\": {err}", r.tz), fg(RED))),
+                    (Some(err), None) => lines.push(Line::styled(format!("when \"{}\": {err}", r.when_text), fg(RED))),
+                    _ => {}
                 }
                 for problem in &r.problems {
                     lines.push(Line::styled(format!("\u{f071} {problem}"), fg(ORANGE)));
                 }
                 lines.push(Line::styled(settings(&r), dim()));
+                if !r.precheck.is_empty() {
+                    lines.push(Line::styled(format!("\u{f132} precheck, runs only when it exits 0: {}", r.precheck), dim()));
+                }
                 let first = r.prompt.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string();
                 lines.push(Line::styled(fit(&first, cells), fg(FG)));
                 if let Some(running) = doc.running.get(&r.slug) {
-                    let how = format!("running for {} · {}", duration(self.clock.now.saturating_sub(running.started)), running.why);
+                    let what = if running.is_checking() { "running its precheck" } else { "running" };
+                    let how = format!("{what} for {} · {}", duration(self.clock.now.saturating_sub(running.started)), running.why);
                     lines.push(Line::styled(how, fg(ORANGE)));
+                    None
+                } else if doc.held.contains(&r.slug) {
+                    lines.push(Line::styled("waiting: the machine just woke, and runs start once it has been awake 2 min", fg(ORANGE)));
                     None
                 } else {
                     doc.last(&r.slug).cloned()
@@ -291,31 +330,44 @@ impl App {
         if let Some(run) = run {
             let (word, color) = match run.word() {
                 "ok" => ("ran", GREEN),
+                "skipped" => ("skipped", DIM),
                 "missed" => ("missed", ORANGE),
                 "stopped" => ("stopped", DIM),
                 _ => ("failed", RED),
             };
-            let mut facts = vec![format!("{word} {}", self.clock.ago(run.started)), format!("took {}", run.took())];
+            // A stretch of skips reads by its last one.
+            let at = if run.skipped.is_some() { run.ended.max(run.started) } else { run.started };
+            let mut facts = vec![format!("{word} {}", self.clock.ago(at))];
+            if run.skipped.is_none() && !run.missed {
+                facts.push(format!("took {}", run.took()));
+            }
             if let Some(cost) = run.cost {
                 facts.push(estimate(cost));
             }
-            if let Some(code) = run.code.filter(|c| *c != 0) {
+            if let Some(code) = run.code.filter(|c| *c != 0 && run.reason.is_none()) {
                 facts.push(format!("exit {code}"));
             }
+            if run.checked {
+                facts.push("its precheck passed".into());
+            }
+            facts.extend(run.repeats(&self.clock));
             facts.push(run.why.clone());
             lines.push(Line::styled(facts.join(" · "), fg(color)));
+            if let Some(reason) = run.reason() {
+                lines.push(Line::styled(reason.to_string(), if run.skipped.is_some() { fg(FG) } else { fg(color) }));
+            }
             if let Some(wt) = run.worktree.as_ref().filter(|w| w.kept()) {
                 lines.push(Line::styled(format!("\u{e725} worktree kept: {} · b opens it", wt.describe()), fg(ORANGE)));
             }
             let left = room.saturating_sub(lines.len());
-            let output = self.output(&r.slug, &run.id);
+            let output = self.output(&r.slug, &run.id, run.ended);
             let mut shown = Vec::new();
             for line in output.iter().filter(|l| !l.trim().is_empty()) {
                 for part in wrap(line, cells) {
                     shown.push(part);
                 }
             }
-            if shown.is_empty() {
+            if shown.is_empty() && run.reason() != Some(run.summary.as_str()) {
                 shown.push(run.summary.clone());
             }
             let more = shown.len() > left;

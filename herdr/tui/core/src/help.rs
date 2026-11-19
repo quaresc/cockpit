@@ -1,6 +1,6 @@
-//! The keys overlay every space opens with `?`: the actions the row under the cursor offers, how to move, and the
-//! chords that jump between spaces. Built from the app's own actions and herdr's config, never from a hand-written
-//! list, so it cannot drift from what the keys actually do — and it lists no verb the app does not have.
+//! The keys overlay every space opens with `?`: the actions the row under the cursor offers, what fixes a failing source,
+//! how to move, and the chords that jump between spaces. Built from the app's own actions and herdr's config, never from
+//! a hand-written list, so it cannot drift from what the keys actually do — and it lists no verb the app does not have.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -23,6 +23,11 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 
 pub fn is_open() -> bool {
     OPEN.load(Ordering::Relaxed)
+}
+
+/// Closes the overlay: a key it lists acted.
+pub fn close() {
+    OPEN.store(false, Ordering::Relaxed);
 }
 
 /// `?` opens the overlay; in it, `m` hands the mouse to the terminal and back, and any other key closes it. True
@@ -63,10 +68,14 @@ pub fn lines(app: &str, acts: &[Act]) -> Vec<Line<'static>> {
     spaces.sort_by(|a, b| a.1.cmp(&b.1));
     spaces.push(("^p".into(), "everything this app can do".into()));
 
-    let col = [&own, &moving, &spaces].iter().flat_map(|rows| rows.iter()).map(|(k, _)| width(k)).max().unwrap_or(3);
+    let sources = crate::header::help_rows();
+    let col = [&own, &sources, &moving, &spaces].iter().flat_map(|rows| rows.iter()).map(|(k, _)| width(k)).max().unwrap_or(3);
     let mut lines = vec![Line::from(Span::styled(format!("Keys in {app}"), bold(FG)))];
     if !own.is_empty() {
         lines.extend(section("This row", &own, col));
+    }
+    if !sources.is_empty() {
+        lines.extend(section("Sources", &sources, col));
     }
     lines.extend(section("Moving", &moving, col));
     let mouse =

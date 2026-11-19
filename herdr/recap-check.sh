@@ -1,7 +1,7 @@
 #!/bin/sh
 # On each focus change: coming back to a tab after a while, where its agent finished something, opens the recap popup.
 . "$(dirname "$0")/lib.sh"
-[ "$(jq -r '.recap.enabled // true' "$SETTINGS" 2>/dev/null)" = true ] || exit 0
+[ "$(jq -r '.recap.enabled != false' "$SETTINGS" 2>/dev/null)" = true ] || exit 0
 STATE="$HOME/.cache/cockpit/focus.json"
 [ -s "$STATE" ] || echo '{"current": "", "left": {}}' > "$STATE"
 tab=$("$H" tab list | jq -r '.result.tabs[] | select(.focused) | .tab_id')

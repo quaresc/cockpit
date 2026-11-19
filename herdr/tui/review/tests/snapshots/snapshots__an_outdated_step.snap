@@ -1,0 +1,44 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut app, 100, 40)"
+---
+   Review   To Daily quotas: enforce limits · api · me/eng-412-daily-quotas       updated 10:42:07
+  1 Uncommitted   2 Branch   3 PR   walkthrough   → main · 2 commits
+
+ Calls past a plan's daily limit are refused
+ A plan that used its daily calls gets a 429 instead of an answer, and the remaining count never
+ goes below zero.
+
+ ENFORCING THE LIMIT
+    1  Refuse calls past the limit  key
+ ▸  2  Tests for the limit  outdated
+
+    ·  Not covered
+
+ ─────────────────────────────────────────────────────────────────────────────────────────────────
+ ‹ 2 / 3 ›  Tests for the limit   h l steps
+ Two tests pin the floor at zero and the refusal at the limit.
+ 1 of this step's hunks changed since it was written.
+ The changes moved on since this was written · r writes it again
+ haiku · $0.002
+
+ 1 file  +13 −0   unified · s side by side
+
+  ▼ tests/test_quotas.py   +13 −0
+  @@ -0,0 +1,13 @@
+ ▌      1 + from src.quotas import QuotaExceeded, enforce, remaining
+        2 +
+        3 +
+        4 + def test_remaining_never_goes_below_zero():
+        5 +     assert remaining("free", 150) == 0
+        6 +
+        7 +
+        8 + def test_enforce_refuses_past_the_limit():
+        9 +     try:
+       10 +         enforce("free", 100)
+       11 +     except QuotaExceeded:
+       12 +         return
+       13 +     raise AssertionError("expected QuotaExceeded")
+
+
+ q quit  h/l step  n/p hunk  c comment  S send  w diff  ? keys                          ▏^p palette

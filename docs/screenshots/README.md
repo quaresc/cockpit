@@ -19,6 +19,10 @@ python3 notifications.py           # the notifications and their buttons
 .venv/bin/python overall.py        # the whole cockpit at once, animated
 ```
 
+Every source in the demo world reads as fresh but the calendar, a little stale. `COCKPIT_DEMO_SOURCES=failing python3
+demo_data.py home` writes the failing set instead: Linear refusing its token, CI offline and mail rate-limited, each with
+its chip and its fix; the sandbox takes it the same way (`COCKPIT_DEMO_SOURCES=failing FRESH=1 sh scripts/sandbox.sh start`).
+
 `compose_anim.py` and `overall.py` read the fake app's screenshots, which a Claude session in herdr takes:
 
 ```sh

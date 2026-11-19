@@ -57,6 +57,32 @@ pub fn row_target(action: &str) -> String {
     action.to_string()
 }
 
+/// The targets that only bring something into view: a space, a tab, an app's row.
+const VIEWS: [&str; 10] = ["workspace:", "tab:", "space:", "runbook:", "meeting:", "monitor:", "routine:", "mail:", "inbox:", "todo:"];
+
+/// Whether a click on `target` only brings something into view (a web page, a space, an app's row), `herdr-app:`
+/// before it or not: never an act, an update or a resume.
+pub fn navigation(target: &str) -> bool {
+    let bare = target.strip_prefix(IN_APP).unwrap_or(target);
+    bare.starts_with("https://") || bare.starts_with("http://") || VIEWS.iter().any(|v| bare.len() > v.len() && bare.starts_with(v))
+}
+
+/// A target as one from outside cockpit's own threads may have it: what only brings something into view stays, a
+/// button's act becomes the row it is about, where the person acts themselves, and anything else is dropped.
+pub fn to_view(target: &str) -> String {
+    let bare = target.strip_prefix(IN_APP).unwrap_or(target);
+    if navigation(bare) {
+        return target.to_string();
+    }
+    let row = match bare.strip_prefix("act:").and_then(|r| r.split_once(':')) {
+        Some(("routine", slug)) => format!("routine:{slug}"),
+        Some(("plan", id)) => format!("inbox:{id}"),
+        Some((_, rest)) => row_target(rest),
+        None => String::new(),
+    };
+    if navigation(&row) { format!("{}{row}", &target[..target.len() - bare.len()]) } else { String::new() }
+}
+
 /// "https://github.com/acme/api/pull/4" out of that PR's URL or one of its pages (`/checks`, `/files`).
 fn pr_url(s: &str) -> Option<String> {
     let at = s.find("/pull/")? + "/pull/".len();
@@ -220,6 +246,27 @@ mod tests {
             for_app("https://github.com/acme/api/pull/4/checks", &["Why?=act:ci:https://github.com/acme/api/pull/4".into(), "Docs=https://x.dev".into()]);
         assert_eq!(action, "herdr-app:inbox:https://github.com/acme/api/pull/4");
         assert_eq!(buttons, ["Why?=herdr-app:act:ci:https://github.com/acme/api/pull/4", "Docs=https://x.dev"]);
+    }
+
+    #[test]
+    fn a_target_from_outside_only_brings_something_into_view() {
+        for kept in ["space:inbox", "inbox:https://github.com/acme/api/pull/4", "herdr-app:runbook:eng-4:a,b", "https://status.acme.dev", "tab:w3:t2"] {
+            assert!(navigation(kept), "{kept}");
+            assert_eq!(to_view(kept), kept);
+        }
+        for (act, row) in [
+            ("act:merge:https://github.com/acme/api/pull/4", "inbox:https://github.com/acme/api/pull/4"),
+            ("herdr-app:act:review:https://github.com/acme/web/pull/9", "herdr-app:inbox:https://github.com/acme/web/pull/9"),
+            ("act:plan:ENG-2", "inbox:ENG-2"),
+            ("act:routine:triage", "routine:triage"),
+        ] {
+            assert!(!navigation(act), "{act}");
+            assert_eq!(to_view(act), row, "{act}");
+        }
+        for dropped in ["update", "resume", "act:rerun:nowhere", "space:", "file:///etc/passwd", "herdr-app:update", ""] {
+            assert!(!navigation(dropped), "{dropped}");
+            assert_eq!(to_view(dropped), "", "{dropped}");
+        }
     }
 
     #[test]

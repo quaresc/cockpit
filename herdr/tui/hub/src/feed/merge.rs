@@ -18,6 +18,8 @@ pub struct InboxPart {
     /// The deploys of tickets waiting for production and my previews, when the hub reaches the platform itself.
     pub platform: Option<(Value, Value)>,
     pub errors: Vec<String>,
+    /// How fresh the inbox's sources are (`hub.fresh`), when the feed knows.
+    pub fresh: Value,
 }
 
 const GITHUB_FIELDS: [&str; 5] = ["direct", "team", "botRepos", "mine", "merged"];
@@ -60,6 +62,9 @@ pub fn merge_inbox(file: &Value, part: &InboxPart, now: u64) -> Value {
     }
     hub["at"] = json!(now);
     hub["errors"] = json!(part.errors);
+    if part.fresh.as_object().is_some_and(|f| !f.is_empty()) {
+        hub["fresh"] = part.fresh.clone();
+    }
     inbox["errors"] = json!(theirs.into_iter().chain(part.errors.iter().map(|e| json!(e))).collect::<Vec<_>>());
     inbox["hub"] = hub;
     inbox
@@ -102,6 +107,7 @@ mod tests {
             tickets: None,
             platform: None,
             errors: errors.iter().map(|e| e.to_string()).collect(),
+            fresh: Value::Null,
         }
     }
 
@@ -138,6 +144,17 @@ mod tests {
         let part = InboxPart { platform: Some((json!({"ENG-1": [{"isLive": true}]}), json!([{"id": "p1"}]))), ..InboxPart::default() };
         let inbox = merge_inbox(&Value::Null, &part, 7);
         assert_eq!((&inbox["deploys"]["ENG-1"][0]["isLive"], &inbox["previews"][0]["id"], &inbox["hub"]["platform"]), (&json!(true), &json!("p1"), &json!(7)));
+    }
+
+    #[test]
+    fn the_sources_freshness_rides_in_the_hubs_record() {
+        let fresh = json!({"github": {"source": "github", "at": 7, "error": null}});
+        let inbox = merge_inbox(&Value::Null, &InboxPart { fresh: fresh.clone(), ..InboxPart::default() }, 7);
+        assert_eq!(inbox["hub"]["fresh"], fresh);
+        let again = merge_inbox(&inbox, &InboxPart::default(), 9);
+        assert_eq!(again["hub"]["fresh"], fresh, "a round that read none of them keeps what was known");
+        let mods = mod_inbox(&again, json!({"version": 1, "tickets": []}).as_object().unwrap());
+        assert_eq!(mods["hub"]["fresh"], fresh, "the mod's part leaves it alone");
     }
 
     #[test]

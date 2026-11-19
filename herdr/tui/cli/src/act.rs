@@ -54,23 +54,28 @@ fn press(args: &[String]) -> Result<String, String> {
     }
 }
 
-const HUB_USAGE: &str = "cockpit hub act review send|walkthrough|stop_walkthrough <JSON list of arguments>";
+const HUB_USAGE: &str = "cockpit hub act review|runbook <action> <JSON list of arguments> [armed]";
 
-/// `cockpit hub act review <action> <args>`: a remote desk's review action, run on the runner through Herdr's machine
-/// connection and handed to the hub on its unix socket, `{note}` printed as JSON.
-pub fn hub_review(args: &[String]) {
-    match runner_review(args) {
+/// `cockpit hub act <app> <action> <args> [armed]`: a remote desk's review or runbook action, run on the runner through
+/// Herdr's machine connection and handed to the hub on its unix socket, `{note}` printed as JSON.
+pub fn hub_act(args: &[String]) {
+    match runner_act(args) {
         Ok(note) => println!("{}", json!({ "note": note })),
         Err(message) => crate::proc::fail(&message),
     }
 }
 
-/// Only the review panel's own actions, with the arguments it sends: everything else stays out of reach.
-fn runner_review(args: &[String]) -> Result<String, String> {
-    let [app, action, list] = args else { return Err(HUB_USAGE.into()) };
-    let parsed: Vec<Value> = serde_json::from_str(list).map_err(|_| format!("review {action} takes a JSON list of arguments, not {list}"))?;
+/// Only the review panel's and the runbook's own actions, with the arguments they send: everything else stays out of reach.
+fn runner_act(args: &[String]) -> Result<String, String> {
+    let (app, action, list, armed) = match args {
+        [app, action, list] => (app, action, list, None),
+        [app, action, list, armed] => (app, action, list, Some(armed.clone())),
+        _ => return Err(HUB_USAGE.into()),
+    };
+    let parsed: Vec<Value> = serde_json::from_str(list).map_err(|_| format!("{app} {action} takes a JSON list of arguments, not {list}"))?;
     let repo = |v: &Value| v.as_str().is_some_and(|p| p.starts_with('/'));
     let scope = |v: &Value| matches!(v.as_str(), Some("uncommitted" | "branch" | "pr"));
+    let text = |v: &Value| v.is_string();
     let fits = match (app.as_str(), action.as_str(), parsed.as_slice()) {
         // An app terminal's own address (t7): never a handle or another machine's terminal.
         ("review", "send", [terminal, review]) => {
@@ -78,13 +83,24 @@ fn runner_review(args: &[String]) -> Result<String, String> {
         }
         ("review", "walkthrough", [path, s, model]) => repo(path) && scope(s) && model.is_string(),
         ("review", "stop_walkthrough", [path, s]) => repo(path) && scope(s),
-        ("review", "send" | "walkthrough" | "stop_walkthrough", _) => false,
+        ("runbook", "done", [steps]) => {
+            steps.as_array().is_some_and(|pairs| pairs.iter().all(|p| p.as_array().is_some_and(|p| p.len() == 2 && p.iter().all(text))))
+        }
+        ("runbook", "set", [slug, n, column, value]) => [slug, n, column, value].into_iter().all(text),
+        ("runbook", "add", [slug, after, step, place, command]) => [slug, step, place, command].into_iter().all(text) && (after.is_null() || text(after)),
+        ("runbook", "undo", []) => true,
+        ("runbook", "run_step", [book, step]) => {
+            text(&book["$book"])
+                && ["n", "step", "where", "status", "command"].iter().all(|k| step[k].is_string())
+                && armed.as_deref().is_none_or(|a| a.starts_with("run-"))
+        }
+        ("review", "send" | "walkthrough" | "stop_walkthrough", _) | ("runbook", "done" | "set" | "add" | "undo" | "run_step", _) => false,
         _ => return Err(HUB_USAGE.into()),
     };
     if !fits {
-        return Err(format!("review {action} does not take {list}"));
+        return Err(format!("{app} {action} does not take {list}"));
     }
-    act(app, action, parsed, None)
+    act(app, action, parsed, armed)
 }
 
 /// The hub's action of that app, its note as the answer.

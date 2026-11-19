@@ -3,6 +3,7 @@
 use cockpit_core::acts::Act;
 use cockpit_core::keys::{self, Move};
 use cockpit_core::palette::{Entry, Outcome};
+use cockpit_core::pointed::MOVE_FIRST;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Position;
 
@@ -68,7 +69,10 @@ impl App {
             Event::Mouse(mouse) => {
                 let at = Position::new(mouse.column, mouse.row);
                 match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) if !self.palette.is_open => self.click(at),
+                    MouseEventKind::Down(MouseButton::Left) if !self.palette.is_open => {
+                        self.pointed.clear();
+                        self.click(at);
+                    }
                     MouseEventKind::ScrollDown if self.hits.list.contains(at) => self.scroll_by(3),
                     MouseEventKind::ScrollUp if self.hits.list.contains(at) => self.scroll_by(-3),
                     _ => {}
@@ -107,6 +111,11 @@ impl App {
         if keys::is_quit(&key) {
             return true;
         }
+        // A meeting a focus request selected takes no key that acts until the person moves to it.
+        if self.pointed.holds(&key) {
+            self.toasts.push(MOVE_FIRST, cockpit_core::toast::Kind::Note);
+            return false;
+        }
         if let Some(to) = keys::movement(&key) {
             match to {
                 Move::By(n) => self.move_sel(n),
@@ -119,6 +128,7 @@ impl App {
         }
         match key.code {
             KeyCode::Char('w') => self.run(Cmd::Week),
+            KeyCode::Char('R') => self.run(Cmd::Refresh),
             KeyCode::Esc if self.week_view => self.week_view = false,
             KeyCode::Enter => {
                 let acts = self.acts();

@@ -3,10 +3,10 @@ import html, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = [
-    ("📥 Inbox", "👀 Review requested: web#1840 Quota copy", "the PR", ["Review"]),
-    ("🔁 CircleCI", "🔴 CI failed: web me/eng-413-quota-ui", "the PR's checks", ["Why?", "Rerun"]),
+    ("📥 Inbox", "👀 Review requested: web#1840 Quota copy", "the PR", ["Open PR"]),
+    ("🔁 CircleCI", "🔴 CI failed: web me/eng-413-quota-ui", "the PR's checks", ["Show run"]),
     ("✓ quota-ui", "Checked on phone, tablet and desktop", "back to that agent's space", []),
-    ("📥 Inbox", "🎫 Assigned: ENG-420 Quota emails", "the ticket", ["Plan"]),
+    ("📥 Inbox", "🎫 Assigned: ENG-420 Quota emails", "the ticket", ["Open ticket"]),
     ("📅 Meeting", "Quotas design review in 5 min", "its brief", ["Join"]),
     ("⏸ invoice-csv", "Claude is waiting for you", "the agent that needs you", []),
 ]
@@ -31,7 +31,7 @@ def logo(x, y, size):
 
 def buttons_svg(buttons, y):
     """The notification's buttons, stacked at its right edge as macOS draws them."""
-    out, bw, bh = [], 64, 24
+    out, bw, bh = [], 84, 24
     top = y + (BH - len(buttons) * bh - (len(buttons) - 1) * 6) / 2
     for n, label in enumerate(buttons):
         by = top + n * (bh + 6)
@@ -64,7 +64,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewB
 <defs><linearGradient id="desk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B1B24"/><stop offset="1" stop-color="#0F0F12"/></linearGradient></defs>
 <style>text{{font-family:{SANS}}}{style}@media (prefers-reduced-motion:reduce){{g{{animation:none!important;opacity:1!important}}}}</style>
 <rect width="100%" height="100%" rx="12" fill="url(#desk)" stroke="#2C2C30"/>
-<text x="28" y="{H - 22}" fill="#707070" font-size="12">macOS notifications from cockpit: a click leads somewhere useful, a button acts</text>
+<text x="28" y="{H - 22}" fill="#707070" font-size="12">macOS notifications from cockpit: a click or a button leads to where you act</text>
 {"".join(groups)}
 </svg>'''
 open(os.path.join(HERE, "..", "notifications.svg"), "w").write(svg)

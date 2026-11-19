@@ -442,10 +442,11 @@ dependencies = [
 
 [[package]]
 name = "cockpit-agents"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
+ "libc",
  "regex",
  "serde_json",
  "tempfile",
@@ -453,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-cli"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-agents",
@@ -465,6 +466,7 @@ dependencies = [
  "cockpit-meetings",
  "cockpit-monitor",
  "cockpit-palette",
+ "cockpit-review",
  "cockpit-routines",
  "cockpit-runbook",
  "cockpit-show",
@@ -483,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-connectors"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -497,10 +499,12 @@ dependencies = [
 
 [[package]]
 name = "cockpit-core"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "crossterm",
+ "libc",
  "notify",
  "nucleo-matcher",
  "ratatui",
@@ -514,10 +518,11 @@ dependencies = [
 
 [[package]]
 name = "cockpit-hub"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "cockpit-agents",
  "cockpit-connectors",
  "cockpit-core",
  "cockpit-update",
@@ -532,6 +537,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "signal-hook",
  "tantivy",
  "tempfile",
  "tokenizers",
@@ -540,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-inbox"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-agents",
@@ -558,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-mail"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "ammonia",
  "chrono",
@@ -574,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-meetings"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -591,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-monitor"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -604,9 +610,10 @@ dependencies = [
 
 [[package]]
 name = "cockpit-palette"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
+ "cockpit-agents",
  "cockpit-core",
  "crossterm",
  "insta",
@@ -618,8 +625,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cockpit-review"
+version = "1.0.1"
+dependencies = [
+ "chrono",
+ "cockpit-core",
+ "cockpit-show",
+ "crossterm",
+ "insta",
+ "ratatui",
+ "serde_json",
+]
+
+[[package]]
 name = "cockpit-routines"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -632,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-runbook"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -650,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-show"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -699,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-todo"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "cockpit-core",
@@ -715,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-update"
-version = "0.40.3"
+version = "1.0.1"
 dependencies = [
  "cockpit-core",
  "flate2",

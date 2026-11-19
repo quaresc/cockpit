@@ -17,6 +17,13 @@ pub enum Failure {
 
 pub type Fetched<T = Value> = Result<T, Failure>;
 
+/// How a failure to reach the service at all begins, so it reads as being offline.
+pub const UNREACHABLE: &str = "unreachable:";
+
+fn unreachable(err: ureq::Error) -> Failure {
+    Failure::Other(format!("{UNREACHABLE} {err}"))
+}
+
 /// An API's base URL: the env variable's when set, else the real one; never with a trailing slash.
 pub fn base(var: &str, default: &str) -> String {
     std::env::var(var).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string()).trim_end_matches('/').to_string()
@@ -48,7 +55,7 @@ pub fn text(url: &str, headers: &[(&str, &str)]) -> Fetched<String> {
     for (name, value) in headers {
         request = request.header(*name, *value);
     }
-    let mut response = request.call().map_err(|err| Failure::Other(err.to_string()))?;
+    let mut response = request.call().map_err(unreachable)?;
     let status = response.status().as_u16();
     if status == 429 {
         let after = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_string);
@@ -61,7 +68,7 @@ pub fn text(url: &str, headers: &[(&str, &str)]) -> Fetched<String> {
 }
 
 fn finish(result: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Fetched {
-    let mut response = result.map_err(|err| Failure::Other(err.to_string()))?;
+    let mut response = result.map_err(unreachable)?;
     let status = response.status().as_u16();
     let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
     let retry = Retry {
@@ -106,7 +113,12 @@ pub fn judge(status: u16, retry: &Retry, body: Value) -> Fetched {
     let errors = body["errors"].as_array().cloned().unwrap_or_default();
     let is_limit_error =
         errors.iter().any(|e| e["type"] == "RATE_LIMITED" || e["extensions"]["code"] == "RATELIMITED" || e["extensions"]["type"] == "ratelimited");
-    if status == 429 || (status == 403 && (retry.is_exhausted() || retry.after.is_some())) || is_limit_error {
+    // GitHub's secondary limit: a 403 that says so in words, without a header saying when.
+    let says_limit = status == 403 && {
+        let m = message(&body).to_ascii_lowercase();
+        m.contains("rate limit") || m.contains("abuse")
+    };
+    if status == 429 || (status == 403 && (retry.is_exhausted() || retry.after.is_some())) || is_limit_error || says_limit {
         return Err(Failure::Limited(retry.until()));
     }
     if status >= 400 {
@@ -144,6 +156,14 @@ mod tests {
         assert_eq!(judge(200, &retry("0", reset), body), Err(Failure::Limited(reset)));
         let linear = json!({"errors": [{"message": "Rate limit exceeded", "extensions": {"code": "RATELIMITED"}}]});
         assert!(matches!(judge(400, &Retry::default(), linear), Err(Failure::Limited(at)) if at >= now_secs() + 59));
+    }
+
+    #[test]
+    fn a_secondary_rate_limit_waits_a_minute() {
+        let body = json!({"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."});
+        assert!(matches!(judge(403, &Retry::default(), body), Err(Failure::Limited(at)) if at >= now_secs() + 59));
+        let abuse = json!({"message": "You have triggered an abuse detection mechanism."});
+        assert!(matches!(judge(403, &Retry::default(), abuse), Err(Failure::Limited(_))));
     }
 
     #[test]

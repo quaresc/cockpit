@@ -10,7 +10,7 @@ use crossterm::event::{self, DisableFocusChange, DisableMouseCapture, EnableFocu
 use crossterm::execute;
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::help;
+use crate::{header, help};
 
 pub trait App {
     fn draw(&mut self, frame: &mut Frame);
@@ -95,8 +95,23 @@ pub fn run(app: &mut impl App) -> std::io::Result<()> {
                 // Only `?`, and whatever closes the overlay, reach it — `app.help()` builds the row's actions, so it
                 // is asked about that one key rather than on every keystroke.
                 if let Event::Key(key) = &event {
-                    let pressed = key.kind != crossterm::event::KeyEventKind::Release;
-                    let asking = help::is_open() || key.code == crossterm::event::KeyCode::Char('?');
+                    use crossterm::event::{KeyCode, KeyEventKind};
+                    // Held down, the sign-in and refresh keys would open a tab or ask the hub again on every repeat.
+                    if key.kind == KeyEventKind::Repeat && matches!(key.code, KeyCode::Char(header::SIGN_IN | header::REFRESH)) {
+                        continue;
+                    }
+                    let pressed = key.kind != KeyEventKind::Release;
+                    // The header's sign-in key, the same in every space, while the app is idle; the overlay lists it.
+                    if key.kind == KeyEventKind::Press
+                        && key.code == KeyCode::Char(header::SIGN_IN)
+                        && (help::is_open() || app.help().is_some())
+                        && header::key(key)
+                    {
+                        help::close();
+                        redraw = true;
+                        continue;
+                    }
+                    let asking = help::is_open() || key.code == KeyCode::Char('?');
                     if pressed && asking && (help::is_open() || app.help().is_some()) && help::key(key) {
                         redraw = true;
                         continue;

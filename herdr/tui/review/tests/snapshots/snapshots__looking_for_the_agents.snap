@@ -1,0 +1,12 @@
+---
+source: review/tests/snapshots.rs
+expression: "render(&mut new_app(), 90, 8)"
+---
+   Review   looking for your agents…
+
+
+ Looking for your agents…
+
+
+
+ q quit  R refresh  ? keys                                                    ▏^p palette

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { answerText, blueprintName, collectAnswers, isBlueprintFile, viewError } from '../hooks/show'
+import { answerText, blueprintName, collectAnswers, isBlueprintFile, viewError, viewOwner } from '../hooks/show'
 import { SHOW_CASES } from './fixtures/show-cases'
 
 const HOME = '/home/me'
@@ -80,4 +80,13 @@ test('a blueprint is one Mermaid flowchart per view, named after its session', a
 test('a click on a blueprint box reads as a change request about it', async () => {
   const ask = { block: 0, type: 'blueprint', value: { node: 'B', label: 'Count calls', text: 'count per org, not per user' }, label: 'Count calls' }
   expect(answerText('blueprint-3f2a1c9d', ask, { type: 'blueprint' })).toBe('In the blueprint, about «Count calls» (box B): count per org, not per user')
+})
+
+test("a view is its app terminal's, else the driven session's whose key its environment holds", async () => {
+  const withEnv = (key: string | undefined) => ({ env: { get: async (name: string) => (name === 'COCKPIT_SESSION_KEY' ? key : undefined) } }) as unknown as Parameters<typeof viewOwner>[0]
+  const app = { frontend: 'app', terminal: 't42', paneId: 'p1' } as unknown as Parameters<typeof viewOwner>[1]
+  expect(await viewOwner(withEnv('claude:1794-0'), app)).toBe('t42')
+  expect(await viewOwner(withEnv('claude:1794-0'), undefined)).toBe('claude:1794-0')
+  expect(await viewOwner(withEnv('claude:1794-0/../x'), undefined)).toBe(undefined)
+  expect(await viewOwner(withEnv(undefined), undefined)).toBe(undefined)
 })

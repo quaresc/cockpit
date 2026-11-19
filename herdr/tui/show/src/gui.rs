@@ -2,6 +2,7 @@
 //! data of a block that runs something: a diff read, a log, a command's rows) and the answers written back for the
 //! plugin to hand to the session, the same `<name>.<block>.answer` files the TUI app writes.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use cockpit_core::files;
@@ -15,6 +16,8 @@ use crate::value::{at, axes, cell, number, rows, rows_of, text};
 
 /// Past this many lines a diff's rest is counted, not sent: the mod draws what it gets in one go.
 const SENT_LINES: usize = 6000;
+/// A file with more lines than this is a large diff: the review sends its lines once asked to load them.
+pub const LARGE_LINES: usize = 1500;
 /// How many views of a terminal the panel lists.
 const LISTED: usize = 8;
 /// How many log lines are kept when the block does not say.
@@ -34,7 +37,7 @@ fn valid(name: &str) -> bool {
 }
 
 /// `{name}`: that view; `{terminal}`: the views that terminal's session showed, newest first, with the newest (or
-/// `{pick}`) in full; nothing: every recent view the same way.
+/// `{pick}`) in full, none when it showed none or the terminal is empty; nothing: every recent view the same way.
 pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     let caches = Caches::read();
     if let Some(name) = args["name"].as_str() {
@@ -51,7 +54,7 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     json!({"views": views, "view": view})
 }
 
-/// The views in the folder, newest first: the terminal's own when it showed any, else every one.
+/// The views in the folder, newest first: a terminal's own when one is named, never another session's; else every one.
 fn listed(dir: &Path, terminal: Option<&str>) -> Vec<(String, Value)> {
     let mut all: Vec<(String, Value)> = std::fs::read_dir(dir)
         .into_iter()
@@ -64,11 +67,8 @@ fn listed(dir: &Path, terminal: Option<&str>) -> Vec<(String, Value)> {
         .filter(|(_, s)| s["placement"] != "browser")
         .collect();
     all.sort_by(|a, b| b.1["at"].as_f64().unwrap_or(0.0).total_cmp(&a.1["at"].as_f64().unwrap_or(0.0)));
-    if let Some(terminal) = terminal.filter(|t| !t.is_empty()) {
-        let mine: Vec<(String, Value)> = all.iter().filter(|(_, s)| s["terminal"].as_str() == Some(terminal)).cloned().collect();
-        if !mine.is_empty() {
-            all = mine;
-        }
+    if let Some(terminal) = terminal {
+        all.retain(|(_, s)| !terminal.is_empty() && s["terminal"].as_str() == Some(terminal));
     }
     all.truncate(LISTED);
     all
@@ -345,14 +345,24 @@ pub fn log_lines(output: &str, keep: usize) -> Vec<Value> {
 /// A patch as the mod draws it: per file its path, counts, hunks (stable ids) and lines `[kind, old, new, pieces]`, a
 /// piece `[text, class, changed]` with class a syntax role (`k`eyword, `s`tring, `f`unction, `t`ype, `c`omment, `p`aram).
 pub fn diff_model(patch: &str, since: Option<&str>) -> Value {
+    diff_model_with(patch, since, None, None)
+}
+
+/// The same, a large file's lines held back unless `load` names it, and the binary files' sizes read from `repo`.
+pub fn diff_model_with(patch: &str, since: Option<&str>, load: Option<&HashSet<String>>, repo: Option<&str>) -> Value {
     let hash = format!("{:016x}", fnv(patch));
     if since == Some(hash.as_str()) {
         return json!({"same": true, "hash": hash});
     }
     let files = prepare(patch);
+    let files = match repo {
+        Some(repo) => crate::patch::with_sizes(files, repo),
+        None => files,
+    };
     let (mut sent, mut out) = (0usize, Vec::new());
     for file in &files {
-        out.push(file_model(file, &mut sent));
+        let held = load.is_some_and(|load| file.lines.len() > LARGE_LINES && !load.contains(&file.path));
+        out.push(file_model(file, &mut sent, held));
     }
     let (added, removed) = files.iter().fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
     json!({"hash": hash, "files": out, "added": added, "removed": removed})
@@ -372,20 +382,23 @@ fn kind_mark(kind: Kind) -> &'static str {
 /// move; byte-identical hunks in one file are told apart by occurrence.
 pub fn hunk_ids(file: &File) -> Vec<(usize, usize, String)> {
     let mut out: Vec<(usize, usize, String)> = Vec::new();
+    let mut seen: HashMap<u64, usize> = HashMap::new();
     let starts: Vec<usize> = file.lines.iter().enumerate().filter(|(_, l)| l.kind == Kind::Hunk).map(|(i, _)| i).collect();
     for (k, &start) in starts.iter().enumerate() {
         let end = starts.get(k + 1).copied().unwrap_or(file.lines.len());
         let body: String = file.lines[start + 1..end].iter().map(|l| format!("{}{}\n", kind_mark(l.kind), l.text)).collect();
-        let digest = format!("{:08x}", fnv(&body) & 0xffff_ffff);
-        let id = format!("{}:{digest}", file.path);
-        let seen = out.iter().filter(|(_, _, i)| i.starts_with(&id)).count();
-        out.push((start, end, if seen > 0 { format!("{id}-{}", seen + 1) } else { id }));
+        let digest = fnv(&body) & 0xffff_ffff;
+        let id = format!("{}:{digest:08x}", file.path);
+        let times = seen.entry(digest).or_default();
+        *times += 1;
+        out.push((start, end, if *times > 1 { format!("{id}-{times}") } else { id }));
     }
     out
 }
 
-fn file_model(file: &File, sent: &mut usize) -> Value {
-    let room = SENT_LINES.saturating_sub(*sent);
+/// A file as the mod draws it; `held`, a large file's lines are left out until it is loaded.
+fn file_model(file: &File, sent: &mut usize, held: bool) -> Value {
+    let room = if held { 0 } else { SENT_LINES.saturating_sub(*sent) };
     let shown = file.lines.len().min(room);
     *sent += shown;
     let lines: Vec<Value> = file.lines[..shown]
@@ -401,7 +414,10 @@ fn file_model(file: &File, sent: &mut usize) -> Value {
         .collect();
     let hunks: Vec<Value> =
         hunk_ids(file).into_iter().map(|(start, end, id)| json!({"id": id, "at": start, "end": end, "header": file.lines[start].text})).collect();
-    json!({"path": file.path, "added": file.added, "removed": file.removed, "hunks": hunks, "lines": lines, "more": file.lines.len() - shown})
+    json!({
+        "path": file.path, "old_path": file.old_path, "binary": file.binary, "size": file.size, "large": held, "total": file.lines.len(),
+        "added": file.added, "removed": file.removed, "hunks": hunks, "lines": lines, "more": if held { 0 } else { file.lines.len() - shown },
+    })
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -418,6 +434,8 @@ pub fn act_in(dir: &Path, action: &str, args: &[Value]) -> Option<Result<String,
 }
 
 fn answer(dir: &Path, name: &str, args: &[Value]) -> Result<String, String> {
+    // A view's answer is the person's: an agent's tools neither answer their own question nor comment for another's.
+    cockpit_core::peer::person("a view is answered by a person, not by an agent's tools")?;
     if !valid(name) {
         return Err(format!("no view named {name:?}"));
     }
@@ -553,6 +571,27 @@ mod tests {
     }
 
     #[test]
+    fn a_large_file_waits_to_be_loaded_and_renames_and_binaries_say_what_they_are() {
+        let table: String = (0..LARGE_LINES + 1).map(|i| format!("+row {i}\n")).collect();
+        let patch = format!(
+            "diff --git a/docs/quotas.md b/docs/limits.md\nsimilarity index 100%\nrename from docs/quotas.md\nrename to docs/limits.md\ndiff --git a/logo.png b/logo.png\nnew file mode 100644\nBinary files /dev/null and b/logo.png differ\ndiff --git a/table.py b/table.py\n--- /dev/null\n+++ b/table.py\n@@ -0,0 +1,{} @@\n{table}",
+            LARGE_LINES + 1
+        );
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("logo.png"), [0u8; 12_288]).unwrap();
+        let root = repo.path().to_string_lossy().into_owned();
+        let m = diff_model_with(&patch, None, Some(&HashSet::new()), Some(&root));
+        let files = m["files"].as_array().unwrap();
+        assert_eq!((files[0]["old_path"].as_str(), files[0]["path"].as_str()), (Some("docs/quotas.md"), Some("docs/limits.md")));
+        assert_eq!((files[1]["binary"].as_bool(), files[1]["size"].as_u64()), (Some(true), Some(12_288)));
+        assert_eq!((files[2]["large"].as_bool(), files[2]["total"].as_u64(), files[2]["lines"].as_array().map(Vec::len)), (Some(true), Some(1502), Some(0)));
+        let loaded: HashSet<String> = ["table.py".to_string()].into();
+        let m = diff_model_with(&patch, None, Some(&loaded), Some(&root));
+        assert_eq!((m["files"][2]["large"].as_bool(), m["files"][2]["lines"].as_array().map(Vec::len)), (Some(false), Some(1502)));
+        assert_eq!(diff_model(&patch, None)["files"][2]["large"], false, "a show block sends every line, as before");
+    }
+
+    #[test]
     fn logs_lose_their_colours_and_keep_the_last_lines() {
         let lines = log_lines("\x1b[31merror: x\x1b[0m\nok\nwarning: y\n", 2);
         assert_eq!(lines, vec![json!(["ok", ""]), json!(["warning: y", "warn"])]);
@@ -560,6 +599,7 @@ mod tests {
 
     #[test]
     fn answers_are_written_once_and_not_twice_at_a_time() {
+        cockpit_core::peer::trusted();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         files::write(&dir.join("q.json"), &json!({"title": "Q", "blocks": [{"type": "choice", "options": [{"label": "a"}, {"label": "b"}]}]})).unwrap();
@@ -573,6 +613,7 @@ mod tests {
 
     #[test]
     fn a_blueprint_draws_its_file_and_takes_change_requests() {
+        cockpit_core::peer::trusted();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let spec = json!({"title": "Plan", "at": 1, "blocks": [{"type": "blueprint", "text": "flowchart TD\n A --> B"}]});
@@ -591,14 +632,33 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_lists_its_own_views_newest_first() {
+    fn an_agent_answers_no_view_its_own_or_another_s() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        files::write(&dir.join("ship.json"), &json!({"title": "Ship", "blocks": [{"type": "confirm", "summary": "Deploy?"}, {"type": "diff", "patch": ""}]}))
+            .unwrap();
+        for who in [cockpit_core::peer::Who::Agent("app:t3".into()), cockpit_core::peer::Who::Unplaced("unknown".into())] {
+            cockpit_core::peer::adopt(cockpit_core::peer::Sender::Placed(who));
+            assert!(act_in(dir, "answer", &[json!("ship"), json!(0), json!("confirm"), json!(true), json!("yes")]).unwrap().is_err(), "its own confirm");
+            let comment = json!({"path": "a.rs", "line": 1, "text": "rm -rf"});
+            assert!(act_in(dir, "answer", &[json!("ship"), json!(1), json!("comment"), comment, json!("a.rs")]).unwrap().is_err(), "a comment");
+        }
+        assert!(!dir.join("ship.0.answer").exists() && !dir.join("ship.1.answer").exists(), "nothing written");
+    }
+
+    #[test]
+    fn a_terminal_lists_its_own_views_newest_first_and_never_another_sessions() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         files::write(&dir.join("a.json"), &json!({"title": "A", "at": 1, "terminal": "t1", "blocks": []})).unwrap();
         files::write(&dir.join("b.json"), &json!({"title": "B", "at": 2, "terminal": "t2", "blocks": []})).unwrap();
         files::write(&dir.join("c.json"), &json!({"title": "C", "at": 3, "terminal": "t1", "blocks": []})).unwrap();
+        files::write(&dir.join("d.json"), &json!({"title": "D", "at": 4, "blocks": []})).unwrap();
         let names = |t: Option<&str>| listed(dir, t).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
         assert_eq!(names(Some("t1")), ["c", "a"]);
-        assert_eq!(names(Some("t9")), ["c", "b", "a"]);
+        assert_eq!(names(Some("t2")), ["b"], "a plain shell's own view, from `cockpit show` in it");
+        assert!(names(Some("t9")).is_empty(), "a tab that showed nothing lists nothing of the others'");
+        assert!(names(Some("")).is_empty(), "an empty panel subject lists no documents, including unowned ones");
+        assert_eq!(names(None), ["d", "c", "b", "a"], "following no terminal, every recent view");
     }
 }

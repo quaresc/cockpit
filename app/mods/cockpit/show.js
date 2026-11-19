@@ -1,13 +1,15 @@
 // The show view: what an agent session shows beside itself through the MCP `show` tool, block by block, drawn natively
 // (markdown, figure tiles, sortable tables, charts with hover (line, area, bars, donuts), flow and Mermaid diagrams, sequence charts, pictures, before/after
 // compares, diffs with line comments, live logs, CI runs, questions, the session's living blueprint). As a pane (`props.name`) it shows that view; in
-// the right panel it follows the focused agent's views, one tab each. Answers go back through the hub.
+// the right panel it lists the views of the session in view (`followed`), one tab each. Answers go back through the hub.
 
 import { div, image, PathBuilder } from "gpui-kit";
 import { h_flex, v_flex, v_virtual_list, Scrollbar, InputState, Input, TextView } from "gpui-base";
 import { exec, appHome, focused, panes, run, layout, shared, setShared, props, settings, window as win } from "herdr";
 import * as hub from "./hub.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
+import { take } from "./person.js";
+import { layoutName, frontAgent, CHAT_SUBJECT } from "./screens.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, ChoiceKey, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
 import { Chart, Figures, zoomed, compact } from "./plot.js";
 import { parseFlowchart, flowGraph, laidOut, Graph, graphSize, Sequence, sequenceSize, fit } from "./diagram.js";
 import { DiffView } from "./diff.js";
@@ -38,6 +40,17 @@ function dots(k, height) {
   return window.paint_path(grid.build(), alpha(k.foreground, 0.1)).absolute().inset_0();
 }
 
+/**
+ * The terminal whose views the right panel lists: the chat's subject in the reading layout, else the agent in view, else
+ * the focused pane's (a shell's own views); null when nothing is in view.
+ */
+export function followed() {
+  const subject = layoutName() === "cockpit-chat" ? shared(CHAT_SUBJECT) : null;
+  if (subject) return String(subject).replace(/^app:/, "");
+  const f = focused();
+  return frontAgent(f) ?? f?.shown ?? f?.terminal ?? null;
+}
+
 /** Whether the layout shows the block holding `app` (a pane copy, outside the layout, always is). */
 function shownInLayout(app) {
   const walk = (node, ok) => {
@@ -61,9 +74,13 @@ export default class Show {
     this.data = null;
     this.status = "connecting";
     this.pick = this.remembered();
-    this.terminal = null;
+    // The panel asks for the session in view from the start, so another session's views never show first.
+    this.terminal = this.panel ? followed() : null;
     this.first = 0;
     this.focus = null;
+    // The block in focus was put there from outside the window (`show:go`, a hub focus): its keys answer nothing until the
+    // person moves to it or clicks it.
+    this.pointed = false;
     this.ui = new Map();
     this.live = new Map();
     this.diffs = new Map();
@@ -89,7 +106,6 @@ export default class Show {
       if (n !== null && text) this.answer(cx, n, "choice", text, text);
     });
     this.subscribe(cx);
-    cx.timer.every(1000, (cx) => this.tick(cx));
     if (this.name) {
       // A pane split from the agent's is focused for a moment: that is how this copy learns which pane it is.
       const learn = () => {
@@ -103,6 +119,7 @@ export default class Show {
   }
 
   close() {
+    this.subscription = (this.subscription ?? 0) + 1;
     this.sub?.stop();
   }
 
@@ -120,16 +137,19 @@ export default class Show {
       if (this.panel) localStorage.setItem("show.pick", this.pick ?? "");
     } catch {}
     this.sub?.stop();
-    const args = this.name ? { name: this.name } : { terminal: this.terminal, pick: this.pick };
+    const args = this.name ? { name: this.name } : { terminal: this.terminal ?? "", pick: this.pick };
+    const subscription = this.subscription = (this.subscription ?? 0) + 1;
     this.sub = hub.subscribe(
       cx,
       { views: [{ name: "show", args }], focus: this.panel ? "show" : null },
       (m, cx) => {
+        if (this.subscription !== subscription) return;
         if (m.view === "show") this.take(m.value, cx);
         if (m.focus === "show") this.goTo(m.target?.key ?? m.target, cx);
         cx.notify();
       },
       (state, cx) => {
+        if (this.subscription !== subscription) return;
         this.status = state;
         cx.notify();
       },
@@ -147,7 +167,7 @@ export default class Show {
       if (this.pendingGo?.startsWith(`${view.name}#`)) {
         const go = this.pendingGo;
         this.pendingGo = null;
-        this.goTo(go, cx);
+        this.goTo(go, cx, this.pendingPerson);
       }
       if (before && before.name === view.name) this.toasts.push(cx, "The view was updated", { kind: "info", ms: 1800 });
     }
@@ -332,13 +352,15 @@ export default class Show {
     this.toasts.push(cx, `Copied ${b.title ?? "the table"} as CSV`, { kind: "success" });
   }
 
-  goTo(key, cx) {
+  /** A view's block brought into view; `person` false (a window command, a hub focus) leaves its keys unarmed. */
+  goTo(key, cx, person = false) {
     if (typeof key !== "string") return;
     const [name, block] = key.split("#");
     if (this.panel && name && name !== this.view()?.name) {
       // The block is found once that view arrives.
       this.pick = name;
       this.pendingGo = block ? key : null;
+      this.pendingPerson = person;
       this.subscribe(cx);
       return;
     }
@@ -347,16 +369,17 @@ export default class Show {
     const n = view && block ? Math.max(0, view.blocks.findIndex((b) => String(b.n) === block || (b.id ?? null) === block || b.title === block)) : 0;
     this.first = n;
     this.focus = view && this.interactive(view.blocks[n] ?? {}) ? n : null;
+    this.pointed = !person;
     this.handle.focus();
   }
 
-  command(c, cx) {
+  command(c, cx, key = null) {
     if (c === "focus" || c === "show:show") this.handle.focus();
     const [scope, action, ...rest] = c.split(":");
     if (scope !== "show") return;
     const arg = rest.join(":");
     if (action === "hide" && arg === this.name) this.hide();
-    else if (action === "go") this.goTo(arg, cx);
+    else if (action === "go") this.goTo(arg, cx, take(c, key));
     else if (action === "copy") {
       const b = this.view()?.blocks?.[Number(arg)];
       if (b) this.copyCsv(cx, b);
@@ -410,6 +433,7 @@ export default class Show {
     if (!stops.length) return;
     const at = stops.indexOf(this.focus);
     this.focus = stops[(at < 0 ? (by > 0 ? 0 : stops.length - 1) : at + by + stops.length) % stops.length];
+    this.pointed = false;
     if (this.focus < this.first) this.first = this.focus;
   }
 
@@ -490,6 +514,7 @@ export default class Show {
         const opts = b.options ?? [];
         if (key === "j" || key === "down") st.at = Math.min(opts.length - 1, (st.at ?? -1) + 1);
         else if (key === "k" || key === "up") st.at = Math.max(0, (st.at ?? 0) - 1);
+        else if (this.pointed && (key === "enter" || /^[1-9]$/.test(key))) return this.unarmed(cx), true;
         else if (key === "enter" && st.at !== undefined) this.answer(cx, b.n, "choice", opts[st.at].label, opts[st.at].label);
         else if (/^[1-9]$/.test(key) && Number(key) <= opts.length) this.answer(cx, b.n, "choice", opts[Number(key) - 1].label, opts[Number(key) - 1].label);
         else return false;
@@ -498,6 +523,7 @@ export default class Show {
       case "confirm": {
         if (st.sent || b.answered) return false;
         if (key === "left" || key === "right") st.yes = !st.yes;
+        else if (this.pointed && (key === "enter" || key === "y")) return this.unarmed(cx), true;
         else if (key === "enter") this.answer(cx, b.n, "confirm", Boolean(st.yes), st.yes ? b.confirm_label : "cancelled");
         else if (key === "y") this.answer(cx, b.n, "confirm", true, b.confirm_label);
         else return false;
@@ -507,11 +533,16 @@ export default class Show {
     return false;
   }
 
+  /** A key on a block put in focus from outside the window: it answers nothing, and says how to. */
+  unarmed(cx) {
+    this.toasts.push(cx, "Click it to answer, or move to it first (tab)", { kind: "info" });
+  }
+
   paletteItems() {
     const view = this.view();
     const items = [];
     for (const b of view?.blocks ?? []) {
-      items.push({ label: `Go to: ${b.title ?? b.type}`, run: () => { this.first = b.n; this.focus = this.interactive(b) ? b.n : null; } });
+      items.push({ label: `Go to: ${b.title ?? b.type}`, run: () => { this.first = b.n; this.focus = this.interactive(b) ? b.n : null; this.pointed = false; } });
       if (b.type === "table" && !b.live) items.push({ label: `Copy as CSV: ${b.title ?? "table"}`, run: (cx) => this.copyCsv(cx, b) });
       if (b.type === "blueprint") for (const node of parseFlowchart(b.text).nodes.values()) items.push({ label: `Ask for a change: ${node.title}`, run: (cx) => this.askAbout(b, node, cx) });
     }
@@ -535,15 +566,32 @@ export default class Show {
   // -------------------------------------------------------------------------------------------------------------------
   // Drawing
 
-  render(cx) {
-    const k = tokens();
+  /** Changes the panel's subscription with its subject and clears the previous session before drawing. */
+  follow(cx) {
     if (this.panel) {
-      const f = focused();
-      if (f?.terminal && f.terminal !== this.terminal) {
-        this.terminal = f.terminal;
-        cx.timer.after(0, (cx) => this.subscribe(cx));
+      const terminal = followed();
+      if (terminal !== this.terminal) {
+        this.terminal = terminal;
+        this.subscription = (this.subscription ?? 0) + 1;
+        this.sub?.stop();
+        this.data = null;
+        this.pick = null;
+        this.focus = null;
+        this.asking = null;
+        this.pendingGo = null;
+        this.first = 0;
+        setShared("badge.show", null);
+        const subscription = this.subscription;
+        cx.timer.after(0, (cx) => {
+          if (this.subscription === subscription) this.subscribe(cx);
+        });
       }
     }
+  }
+
+  render(cx) {
+    const k = tokens();
+    this.follow(cx);
     const view = this.view();
     const narrow = this.width < 520;
     let root = v_flex().id("show-root").size_full().relative().bg(k.background).text_color(k.foreground).track_focus(this.handle)
@@ -608,7 +656,7 @@ export default class Show {
     let col = v_flex().id(`show-body-${view.name}-${this.first}`).flex_1().min_h(0).overflow_y_scrollbar().p(narrow ? 8 : 12).gap(12);
     if (this.first > 0) {
       col = col.child(h_flex().id("show-above").h(28).px(10).gap(6).items_center().rounded(RADIUS.md).cursor_pointer().bg(k.muted).text_size(TEXT.sm).text_color(k.mutedFg)
-        .hover((s) => s.text_color(k.foreground)).on_click((_e, cx) => { this.first = Math.max(0, this.first - 1); cx.notify(); })
+        .hover((s) => s.text_color(k.foreground)).tooltip("The block above  k").on_click((_e, cx) => { this.first = Math.max(0, this.first - 1); cx.notify(); })
         .child(Icon("chevron-up", { size: 14 })).child(`${this.first} block${this.first === 1 ? "" : "s"} above`).child(div().flex_1()).child(Kbd("k")));
     }
     return col.children(blocks.map((b) => this.card(k, b, cx, inner - (narrow ? 16 : 32), narrow)));
@@ -634,8 +682,9 @@ export default class Show {
     return v_flex().id(`show-card-${b.n}`).flex_none().gap(10).p(narrow ? 10 : 14).rounded(RADIUS.lg).border_1()
       .border_color(focused ? k.ring : k.border).bg(k.card).when(focused, (e) => e.shadow_sm())
       .on_mouse_down("left", (_e, cx) => {
-        if (this.interactive(b) && this.focus !== b.n) {
+        if (this.interactive(b) && (this.focus !== b.n || this.pointed)) {
           this.focus = b.n;
+          this.pointed = false;
           this.handle.focus();
           cx.notify();
         }
@@ -1073,7 +1122,7 @@ export default class Show {
             .border_color(on ? k.ring : k.border).bg(on ? alpha(k.ring, 0.08) : k.card).hover((s) => s.bg(k.accent))
             .on_hover((h, cx) => { if (h && st.at !== i) { st.at = i; cx.notify(); } })
             .on_click(pick(o))
-            .child(i < 9 ? Kbd(String(i + 1)) : div().w(20))
+            .child(i < 9 ? ChoiceKey(i + 1) : div().w(20))
             .child(div().flex_1().min_w(0).text_size(TEXT.base).child(o.label))
             .child(Icon("corner-down-left", { size: 14, color: on ? k.ring : k.dim }));
         }))
@@ -1095,7 +1144,7 @@ export default class Show {
       .when(Boolean(done), (e) => e.child(this.answeredRow(k, done, done !== "cancelled")))
       .when(!done, (e) => e.child(h_flex().gap(8).justify_end()
         .child(Button(`show-no-${b.n}`, { label: "Cancel", variant: "outline", onClick: (_e, cx) => this.answer(cx, b.n, "confirm", false, "cancelled") }))
-        .child(Button(`show-yes-${b.n}`, { label: b.confirm_label ?? "Confirm", variant: "destructive", kbd: "y", onClick: (_e, cx) => this.answer(cx, b.n, "confirm", true, b.confirm_label ?? "Confirm") }))));
+        .child(Button(`show-yes-${b.n}`, { label: b.confirm_label ?? "Confirm", variant: "destructive", kbd: this.pointed && this.focus === b.n ? undefined : "y", onClick: (_e, cx) => this.answer(cx, b.n, "confirm", true, b.confirm_label ?? "Confirm") }))));
   }
 
   // Footer and palette -------------------------------------------------------------------------------------------------
@@ -1119,6 +1168,8 @@ export default class Show {
     const hints = typing ? [["⏎", this.asking ? "send to the session" : "add the comment"], ["esc", "cancel"]]
       : b ? [...(by[b.type] ?? []), ["esc", "leave"]]
       : [["j/k", "blocks"], ["tab", "focus"], ["^P", "commands"], ...(view.url ? [["o", "page"]] : []), ...(this.name ? [["q", "hide"]] : [])];
+    // Cockpit Chat keeps keys to tooltips: there the hints line goes.
+    if (layoutName() === "cockpit-chat") return div();
     return h_flex().h(30).flex_none().px(12).gap(12).items_center().border_t_1().border_color(k.border).overflow_hidden().text_size(TEXT.xs).text_color(k.mutedFg)
       .children(hints.map(([key, what]) => h_flex().flex_none().gap(4).items_center().child(Kbd(key)).child(what)));
   }

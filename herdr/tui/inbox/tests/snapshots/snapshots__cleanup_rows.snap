@@ -1,0 +1,7 @@
+---
+source: inbox/tests/snapshots.rs
+expression: section
+---
+ ▼   To clean up   2
+ ├─      accounts-web dev/eng-399-bump-ui: merged, nothing keeps it
+ └─      accounts-web dev/eng-399-remove-icon-workaround: kept by 2 uncommitted changes, Claude Code still runs in it

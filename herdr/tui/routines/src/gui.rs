@@ -4,9 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{Datelike, Duration, Local, NaiveDateTime, TimeZone};
+use chrono::{Datelike, Duration};
 use cockpit_core::files::{self, Density};
-use cockpit_core::routines::{TRIGGERS, When};
+use cockpit_core::routines::{self, TEMPLATES, TRIGGERS, When};
 use serde_json::{Value, json};
 
 use crate::app::{App, Cmd};
@@ -40,28 +40,26 @@ pub fn act(action: &str, _args: &[Value]) -> Option<Result<String, String>> {
     }
 }
 
-/// `routines-when {when}`: what the schedule means, its next three runs, or why it does not read.
+/// `routines-when {when, tz}`: what the schedule means in that time zone, its next three runs, or why it does not read.
 pub fn when_view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
-    preview(args["when"].as_str().unwrap_or_default(), Clock::system())
+    preview(args["when"].as_str().unwrap_or_default(), args["tz"].as_str().unwrap_or_default(), Clock::system())
 }
 
 pub fn no_act(_action: &str, _args: &[Value]) -> Option<Result<String, String>> {
     None
 }
 
-fn ms_of(clock: &Clock, at: NaiveDateTime) -> Option<u64> {
-    match clock.zone {
-        Some(zone) => zone.from_local_datetime(&at).earliest().map(|t| t.timestamp_millis() as u64),
-        None => Local.from_local_datetime(&at).earliest().map(|t| t.timestamp_millis() as u64),
-    }
-}
-
-pub fn preview(text: &str, clock: Clock) -> Value {
+/// What `when` means read on `tz`'s clock, its next three runs and how soon they are, or why either does not read.
+pub fn preview(text: &str, tz: &str, clock: Clock) -> Value {
+    let zone = match clock.of(tz) {
+        Ok(zone) => zone,
+        Err(error) => return json!({"ok": false, "when": text, "tz": tz, "error": error}),
+    };
     match When::parse(text) {
         Ok(when) => {
-            let next: Vec<Value> = std::iter::successors(when.next_after(clock.local(clock.now)), |at| when.next_after(*at))
+            let next: Vec<Value> = std::iter::successors(when.next_after(zone.local(clock.now)), |at| when.next_after(*at))
                 .take(3)
-                .filter_map(|at| ms_of(&clock, at))
+                .filter_map(|at| zone.epoch_ms(at))
                 .map(|at| json!({"at": at, "text": clock.until(at)}))
                 .collect();
             let kind = match when {
@@ -70,7 +68,11 @@ pub fn preview(text: &str, clock: Clock) -> Value {
                 When::Cron(_) => "schedule",
                 When::On { .. } => "event",
             };
-            json!({"ok": true, "when": text, "kind": kind, "describe": when.describe(text), "next": next})
+            let mut describe = when.describe(text);
+            if kind == "schedule" && !zone.name().is_empty() {
+                describe.push_str(&format!(" in {}", zone.name()));
+            }
+            json!({"ok": true, "when": text, "kind": kind, "describe": describe, "next": next, "zone": zone.name()})
         }
         Err(error) => json!({"ok": false, "when": text, "error": error}),
     }
@@ -84,7 +86,9 @@ fn state_name(state: State) -> &'static str {
         State::Over => "over",
         State::Paused => "paused",
         State::Failed => "failed",
+        State::Stopped => "stopped",
         State::Missed => "missed",
+        State::Skipped => "skipped",
         State::Ok => "ok",
         State::Never => "never",
     }
@@ -103,6 +107,7 @@ fn call(cmd: &Cmd) -> Option<(&'static str, Vec<Value>)> {
         Cmd::Output(slug, id) => ("output", vec![json!(slug), run(id)]),
         Cmd::Talk(slug, id) => ("talk", vec![json!(slug), run(id)]),
         Cmd::Worktree(slug, id) => ("open_worktree", vec![json!(slug), json!(id)]),
+        Cmd::RemoveWorktree(slug, id) => ("cleanup", vec![json!(slug), json!(id)]),
         Cmd::Refresh => ("request_refresh", Vec::new()),
         Cmd::ReadAll => ("read_all", Vec::new()),
         Cmd::Cleanup => ("cleanup", Vec::new()),
@@ -137,6 +142,7 @@ fn run_model(tui: &App, doc: &Doc, clock: &Clock, r: &Routine, run: &Run, runs_d
         "when": clock.when(run.started), "ago": clock.ago(run.ended.max(run.started)), "took": if run.missed { String::new() } else { run.took() },
         "cost": run.cost.map(estimate), "costValue": run.cost, "ok": run.ok, "word": run.word(), "why": run.why, "summary": run.summary,
         "code": run.code, "session": run.session(), "late": run.late, "missed": run.missed, "timedOut": run.timed_out, "unread": doc.is_unread(run),
+        "skipped": run.skipped, "kind": run.kind, "reason": run.reason, "repeats": run.repeats(clock), "checked": run.checked,
         "worktree": worktree, "output": runs_dir.join(&r.slug).join(format!("{}.txt", run.id)),
         "acts": acts(tui, &Item::Run(r.slug.clone(), run.id.clone())),
     })
@@ -145,14 +151,17 @@ fn run_model(tui: &App, doc: &Doc, clock: &Clock, r: &Routine, run: &Run, runs_d
 fn routine_model(tui: &App, doc: &Doc, clock: &Clock, r: &Routine, runs_dir: &Path) -> Value {
     let runs = doc.runs(&r.slug);
     let running = doc.running.get(&r.slug).map(|run| {
-        json!({"id": run.id, "started": run.started, "for": duration(clock.now.saturating_sub(run.started)), "why": run.why, "stopping": run.stopping.is_some()})
+        json!({
+            "id": run.id, "started": run.started, "for": duration(clock.now.saturating_sub(run.started)), "why": run.why,
+            "stopping": run.stopping.is_some(), "checking": run.is_checking(),
+        })
     });
     let history: Vec<Value> =
         runs.iter().take(HISTORY).rev().map(|run| json!({"id": run.id, "word": run.word(), "when": clock.when(run.started), "summary": run.summary})).collect();
     let next_runs: Vec<Value> = r.next_runs.iter().map(|at| json!({"at": at, "text": clock.until(*at)})).collect();
-    json!({
+    let mut model = json!({
         "key": r.slug, "slug": r.slug, "name": r.name, "state": state_name(doc.state(r)), "when": r.when, "whenText": r.when_text, "trigger": r.trigger,
-        "error": r.error, "problems": r.problems, "run": r.run, "agent": r.agent, "agentName": r.agent_name, "agentSet": r.agent_set, "model": r.model, "mode": r.mode, "tools": r.tools, "cwd": home_short(&r.cwd),
+        "error": r.error, "problems": r.problems, "run": r.run, "agent": r.agent, "agentName": r.agent_name, "agentSet": r.agent_set, "model": r.model, "models": r.models, "mode": r.mode, "tools": r.tools, "cwd": home_short(&r.cwd),
         "budget": r.budget, "spentWeek": r.spent_week, "spent": estimate(r.spent_week), "lastCost": r.last_cost.map(estimate), "over": r.over,
         "paused": r.paused, "prompt": r.prompt, "path": r.path, "notify": r.notify, "worktree": r.worktree, "catchUp": r.catch_up,
         "next": r.next, "nextText": r.next.filter(|_| !r.paused).map(|at| clock.until(at)), "nextRuns": next_runs,
@@ -160,7 +169,12 @@ fn routine_model(tui: &App, doc: &Doc, clock: &Clock, r: &Routine, runs_dir: &Pa
         "runs": runs.iter().map(|run| run_model(tui, doc, clock, r, run, runs_dir)).collect::<Vec<_>>(),
         "unread": runs.iter().filter(|run| doc.is_unread(run)).count(),
         "acts": acts(tui, &Item::Routine(r.slug.clone())),
-    })
+    });
+    let settling = doc.held.contains(&r.slug);
+    for (key, value) in [("precheck", json!(r.precheck)), ("tz", json!(r.tz)), ("zone", json!(r.zone)), ("settling", json!(settling))] {
+        model[key] = value;
+    }
+    model
 }
 
 /// The week's runs a day at a time, oldest day first: how many ended ok, failed or were missed, and what they cost.
@@ -174,7 +188,8 @@ fn days(doc: &Doc, clock: &Clock) -> Vec<Value> {
             let of = |word: &str| runs.iter().filter(|run| run.word() == word).count();
             json!({
                 "label": day.format("%a").to_string(), "date": day.format("%-d %b").to_string(), "today": back == 0, "ok": of("ok"),
-                "failed": of("failed") + of("stopped"), "missed": of("missed"), "cost": runs.iter().filter_map(|r| r.cost).sum::<f64>(), "weekday": day.weekday().num_days_from_monday(),
+                "failed": of("failed") + of("stopped"), "missed": of("missed"), "skipped": of("skipped"),
+                "cost": runs.iter().filter_map(|r| r.cost).sum::<f64>(), "weekday": day.weekday().num_days_from_monday(),
             })
         })
         .collect()
@@ -195,12 +210,14 @@ pub fn model(value: &Value, clock: Clock, since: Option<u64>, runs_dir: &Path) -
     let next = doc.routines.iter().filter(|r| !r.paused && r.error.is_none()).filter_map(|r| r.next.map(|at| (at, r))).min_by_key(|(at, _)| *at);
     let worktrees = doc.runs.values().flatten().filter(|run| run.worktree.as_ref().is_some_and(|w| w.kept())).count();
     let (spent, budget) = (doc.routines.iter().map(|r| r.spent_week).sum::<f64>(), doc.routines.iter().filter_map(|r| r.budget).sum::<f64>());
-    json!({
+    let mut view = json!({
         "ready": true, "at": doc.at, "since": since, "runsDir": runs_dir, "agents": {"default": doc.agents.default, "installed": doc.agents.installed},
+        "settling": doc.settling,
         "tiles": {
             "routines": doc.routines.len(), "active": doc.routines.iter().filter(|r| !r.paused).count(), "paused": of(State::Paused),
             "running": of(State::Running), "waiting": of(State::Waiting), "failing": of(State::Failed) + of(State::Broken) + of(State::Missed) + of(State::Over),
-            "weekRuns": week.len(), "weekOk": count("ok"), "weekFailed": count("failed") + count("stopped"), "weekMissed": count("missed"),
+            "weekRuns": week.len() - count("skipped"), "weekOk": count("ok"), "weekFailed": count("failed") + count("stopped"), "weekMissed": count("missed"),
+            "weekSkipped": count("skipped"),
             "weekCost": week.iter().filter_map(|r| r.cost).sum::<f64>(), "spent": estimate(spent),
             "budget": budget, "overBudget": budget > 0.0 && spent > budget,
             "next": next.map(|(at, r)| json!({"slug": r.slug, "name": r.name, "at": at, "text": clock.until(at)})),
@@ -210,6 +227,29 @@ pub fn model(value: &Value, clock: Clock, since: Option<u64>, runs_dir: &Path) -
         "inbox": inbox,
         "routines": routines,
         "triggers": TRIGGERS.iter().map(|(word, _, what)| json!({"word": word, "what": what})).collect::<Vec<_>>(),
+    });
+    let look: Vec<Value> = routines::needing_look(value).into_iter().map(|item| looked_at(item, &clock)).collect();
+    view["tiles"]["look"] = json!(look.len());
+    view["look"] = json!(look);
+    // As the default agent takes them: what only another agent understands is left out.
+    let agent = if doc.agents.default.is_empty() { "claude" } else { doc.agents.default.as_str() };
+    view["templates"] = TEMPLATES.iter().map(|t| template(&t.for_agent(agent))).collect();
+    view
+}
+
+/// What needs a look with when it happened, in words.
+fn looked_at(mut item: Value, clock: &Clock) -> Value {
+    let at = item["at"].as_u64().filter(|at| *at > 0);
+    item["when"] = json!(at.map(|at| clock.when(at)));
+    item["ago"] = json!(at.map(|at| clock.ago(at)));
+    item
+}
+
+/// A template as the form takes it.
+fn template(t: &routines::Template) -> Value {
+    json!({
+        "id": t.id, "name": t.name, "about": t.about, "when": t.when, "shell": t.shell, "model": t.model, "tools": t.tools, "mode": t.mode,
+        "precheck": t.precheck, "worktree": t.worktree, "notify": t.notify, "body": t.body,
     })
 }
 
@@ -247,15 +287,29 @@ mod tests {
         assert_eq!(view["days"].as_array().unwrap().len(), 7);
         assert_eq!(view["days"][6]["missed"], 1);
         assert_eq!(model(&Value::Null, clock(), None, Path::new("/runs"))["ready"], false);
+        let look = &view["look"][0];
+        assert_eq!((view["tiles"]["look"].as_u64(), look["key"].as_str(), look["word"].as_str()), (Some(1), Some("a/run/2"), Some("missed")));
+        assert_eq!((look["ago"].as_str(), view["templates"].as_array().map(Vec::len)), (Some("9 min ago"), Some(4)));
     }
 
     #[test]
     fn a_schedule_reads_back_with_its_next_runs() {
-        let p = preview("weekdays 09:00", clock());
+        let p = preview("weekdays 09:00", "", clock());
         assert_eq!((p["ok"].as_bool(), p["describe"].as_str()), (Some(true), Some("weekdays at 09:00")));
         let next: Vec<&str> = p["next"].as_array().unwrap().iter().map(|n| n["text"].as_str().unwrap()).collect();
         assert_eq!(next, ["Fri 09:00", "Mon 09:00", "Tue 09:00"]);
-        assert_eq!(preview("sometimes", clock())["ok"], false);
-        assert_eq!(preview("every 30m", clock())["kind"], "every");
+        assert_eq!(preview("sometimes", "", clock())["ok"], false);
+        assert_eq!(preview("every 30m", "", clock())["kind"], "every");
+    }
+
+    #[test]
+    fn a_schedule_in_another_time_zone_reads_back_on_the_viewers_clock() {
+        // 10:00 at UTC+1 is 05:00 in New York: its 09:00 is 14:00 here, today.
+        let p = preview("weekdays 09:00", "America/New_York", clock());
+        assert_eq!((p["describe"].as_str(), p["zone"].as_str()), (Some("weekdays at 09:00 in America/New_York"), Some("America/New_York")));
+        let next: Vec<&str> = p["next"].as_array().unwrap().iter().map(|n| n["text"].as_str().unwrap()).collect();
+        assert_eq!(next, ["14:00", "Fri 14:00", "Mon 15:00"], "New York leaves summer time on 1 November");
+        let bad = preview("weekdays 09:00", "New York", clock());
+        assert_eq!((bad["ok"].as_bool(), bad["error"].as_str()), (Some(false), Some("\"New York\" is not a time zone: a name like Europe/Paris, or local")));
     }
 }

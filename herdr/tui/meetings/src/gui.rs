@@ -53,7 +53,8 @@ pub fn model(data: Option<&Value>, clock: &Clock, brief_enabled: bool, brief: &d
     json!({
         "waiting": false,
         "updated": updated,
-        "error": week.error,
+        "error": week.error.clone().filter(|_| !cockpit_core::header::has(&week.sources, "calendar")),
+        "sources": cockpit_core::header::json(&week.sources, cockpit_core::header::now()),
         "now": clock.now.timestamp_millis(),
         "today": clock.today().to_string(),
         "banner": banner(&week, clock),

@@ -1,0 +1,8 @@
+{
+  "calls": [],
+  "error": "claude.plugin has no fix to run: /plugin install cockpit --marketplace quaresc/cockpit",
+  "files": {},
+  "note": "",
+  "pending": {},
+  "refreshing": []
+}

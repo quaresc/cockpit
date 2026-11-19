@@ -172,7 +172,7 @@ fn monitor(before: &Value, after: &Value) -> Vec<Value> {
     out
 }
 
-/// Each run that ended, by its routine's name.
+/// Each run that ended, by its routine's name; a stretch of skipped runs is one record, so only its first is an event.
 fn routines(before: &Value, after: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     for (slug, runs) in after["runs"].as_object().into_iter().flatten() {
@@ -180,10 +180,14 @@ fn routines(before: &Value, after: &Value) -> Vec<Value> {
         let name = list(&after["routines"]).iter().find(|r| s(r, "slug") == slug).map_or(slug.as_str(), |r| s(r, "name"));
         for run in list(runs).iter().rev().filter(|r| !known.contains(s(r, "id"))) {
             let summary = s(run, "summary");
+            // A sentence of cockpit's own already says how it failed.
+            let said_why = run["reason"].as_str().is_some_and(|r| r == summary);
             let (kind, line) = match run["ok"].as_bool() {
+                _ if run["skipped"].is_string() => ("routine_skipped", format!("⏭ {name} skipped: {summary}")),
                 Some(true) => ("routine_ok", format!("✅ {name}: {summary}")),
-                _ if run["missed"] == true => ("routine_missed", format!("⏭ {name} {summary}")),
+                _ if run["missed"] == true => ("routine_missed", format!("⏭ {name}: {summary}")),
                 _ if run["stopped"] == true => ("routine_failed", format!("⏹ {name} stopped")),
+                _ if said_why => ("routine_failed", format!("❌ {name}: {summary}")),
                 _ => ("routine_failed", format!("❌ {name} failed: {summary}")),
             };
             out.push(event("routines", kind, slug, line.trim_end_matches([':', ' ']).to_string()));
@@ -263,6 +267,23 @@ mod tests {
         let events = of("routines", &before, &after, &Value::Null);
         assert_eq!(titles(&events), ["⏹ gone stopped", "✅ Morning sweep: 3 PRs waiting", "❌ Morning sweep failed: exit 2"]);
         assert_eq!((&events[1]["app"], &events[1]["kind"], &events[1]["key"]), (&json!("routines"), &json!("routine_ok"), &json!("sweep")));
+    }
+
+    #[test]
+    fn a_skipped_run_is_one_event_for_its_whole_stretch_and_a_failure_cockpit_explains_reads_once() {
+        let skip = |times: u64| json!({"id": "4", "ok": true, "skipped": "precheck", "summary": "nothing waits for review", "times": times});
+        let doc = |runs: Value| json!({"version": 1, "routines": [{"slug": "digest", "name": "Review digest"}], "runs": {"digest": runs}});
+        let first = of("routines", &doc(json!([])), &doc(json!([skip(1)])), &Value::Null);
+        assert_eq!(titles(&first), ["⏭ Review digest skipped: nothing waits for review"]);
+        assert_eq!(first[0]["kind"], "routine_skipped");
+        assert!(of("routines", &doc(json!([skip(1)])), &doc(json!([skip(2)])), &Value::Null).is_empty(), "the stretch keeps its id");
+        let missed = json!({"id": "5", "ok": false, "missed": true, "summary": "Missed Sun 09:00: cockpit was not running then."});
+        let broken = json!({"id": "6", "ok": false, "summary": "Did not start: the folder /x does not exist.", "reason": "Did not start: the folder /x does not exist."});
+        let events = of("routines", &doc(json!([])), &doc(json!([broken, missed])), &Value::Null);
+        assert_eq!(
+            titles(&events),
+            ["⏭ Review digest: Missed Sun 09:00: cockpit was not running then.", "❌ Review digest: Did not start: the folder /x does not exist."]
+        );
     }
 
     #[test]

@@ -18,14 +18,16 @@ const USAGE: &str = "What a click on a cockpit notification does.
     cockpit focus runbook:<slug>[:<step>,<step>]    the runbook space, that runbook open and its steps played as done
     cockpit focus meeting:<event id>                the meetings space, that meeting's brief open
     cockpit focus monitor:<app>                     the monitor space, that app (its id or name) selected and unfolded
-    cockpit focus routine:<slug>                    the routines space, that routine selected
+    cockpit focus routine:<slug>[/run/<id>]         the routines space, that routine (or that run of it) selected
     cockpit focus mail:<message id>                 the mail space, that message open
     cockpit focus inbox:<PR url|ticket id>          the inbox space, that row selected
+    cockpit focus todo:<text>                       the to-do space, that item selected
     cockpit focus herdr-app:<target>                that target in the Herdr app (its notifications' clicks)
     cockpit focus update                            cockpit updated, in the background
     cockpit focus resume                            the agents a restart stopped, resumed where they were
     cockpit focus act:<review|ci|rerun|plan|merge|routine>:<ref>
-                                                    a notification button: cockpit act with that action, then the terminal
+                                                    a notification button: the row it is about (the PR, the ticket,
+                                                    the routine), where you act
     cockpit focus http(s)://…                       opened in the browser";
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -34,6 +36,11 @@ pub fn main(args: &[String]) {
     let [target] = args else { proc::fail(USAGE) };
     if let Some(rest) = target.strip_prefix(cockpit_core::notify::IN_APP) {
         return frontend::with(Some(frontend::Frontend::App), || main(&[rest.to_string()]));
+    }
+    // A button only navigates: what it names is done from its row, by the person.
+    if let Some(rest) = target.strip_prefix("act:") {
+        let Some(row) = act_row(rest) else { proc::fail(USAGE) };
+        return main(&[row]);
     }
     if target.starts_with("http://") || target.starts_with("https://") {
         proc::open_url(target);
@@ -71,8 +78,9 @@ pub fn main(args: &[String]) {
     } else if let Some(slug) = target.strip_prefix("routine:") {
         cockpit_core::focus::request("routines", &json!({"app": "routines", "key": slug}));
         space("routines");
-    } else if let Some(rest) = target.strip_prefix("act:") {
-        act(rest);
+    } else if let Some(text) = target.strip_prefix("todo:") {
+        cockpit_core::focus::request("todo", &json!({"app": "todo", "key": text}));
+        space("to-do");
     } else if let Some(id) = target.strip_prefix("workspace:") {
         match id.strip_prefix(frontend::APP) {
             Some(id) => app_select("space.select", id),
@@ -92,6 +100,25 @@ pub fn main(args: &[String]) {
         space("runbook");
     }
     terminal_forward();
+}
+
+/// The row a notification's button is about: the PR's for review, ci, rerun and merge, the ticket's for plan, the
+/// routine for routine.
+fn act_row(rest: &str) -> Option<String> {
+    let (kind, reference) = rest.split_once(':').filter(|(_, r)| !r.is_empty())?;
+    Some(match kind {
+        "review" | "ci" | "rerun" | "merge" => format!("inbox:{}", pr_of(reference)),
+        "plan" => format!("inbox:{}", reference.to_uppercase()),
+        "routine" => format!("routine:{reference}"),
+        _ => return None,
+    })
+}
+
+/// "https://github.com/acme/api/pull/4" out of that PR's URL or one of its pages, else the reference as given.
+fn pr_of(reference: &str) -> &str {
+    let Some(at) = reference.find("/pull/").map(|at| at + "/pull/".len()) else { return reference };
+    let digits = reference[at..].chars().take_while(char::is_ascii_digit).count();
+    if digits == 0 { reference } else { &reference[..at + digits] }
 }
 
 /// What a click asks of an app's view in the Herdr app: {app, key, ...}, as the palette's targets are.
@@ -128,7 +155,7 @@ fn herdr_bin() -> String {
 fn herdr(args: &[&str]) -> Option<proc::Out> {
     let bin = herdr_bin();
     let argv: Vec<&str> = std::iter::once(bin.as_str()).chain(args.iter().copied()).collect();
-    proc::run(&argv, &[], TIMEOUT)
+    proc::run(&argv, &[], TIMEOUT).ok()
 }
 
 /// A space or tab of the Herdr app selected, in the work area.
@@ -167,17 +194,6 @@ fn update() {
     let _ = command.spawn();
 }
 
-/// A notification button: `cockpit act <action> <ref>`, its output in act.log.
-fn act(rest: &str) {
-    let (action, reference) = (rest.split(':').next().unwrap_or(rest), rest.split_once(':').map_or(rest, |(_, r)| r));
-    let Ok(log) = std::fs::File::create(files::cache().join("act.log")) else { return };
-    let Ok(err) = log.try_clone() else { return };
-    let Ok(own) = std::env::current_exe() else { return };
-    let mut command = Command::new(own);
-    command.args(["act", action, reference]).env("COCKPIT_HERDR_DIR", files::herdr_dir()).env("COCKPIT_FRONTEND", frontend::current().name());
-    let _ = command.stdin(Stdio::null()).stdout(log).stderr(err).status();
-}
-
 /// The terminal app hosting herdr, as the last notification recorded it, brought forward on macOS: in Ghostty, the very
 /// window and tab where herdr runs, else the app.
 fn terminal_forward() {
@@ -187,7 +203,7 @@ fn terminal_forward() {
         return;
     }
     if frontend::current() == frontend::Frontend::App {
-        proc::run(&["open", "-a", "Herdr"], &[], TIMEOUT);
+        let _ = proc::run(&["open", "-a", "Herdr"], &[], TIMEOUT);
         return;
     }
     if terminal.is_empty() {
@@ -196,14 +212,14 @@ fn terminal_forward() {
     if terminal == GHOSTTY && herdr_tty().is_some_and(|tty| ghostty_focus(&tty)) {
         return;
     }
-    proc::run(&["open", "-b", terminal], &[], TIMEOUT);
+    let _ = proc::run(&["open", "-b", terminal], &[], TIMEOUT);
 }
 
 const GHOSTTY: &str = "com.mitchellh.ghostty";
 
 /// The terminal herdr's client draws in, as `/dev/ttys012`: its server runs detached, with none.
 fn herdr_tty() -> Option<String> {
-    let out = proc::run(&["ps", "-axo", "tty=,args="], &[], TIMEOUT)?;
+    let out = proc::run(&["ps", "-axo", "tty=,args="], &[], TIMEOUT).ok()?;
     client_tty(&out.stdout)
 }
 
@@ -220,12 +236,22 @@ fn client_tty(ps: &str) -> Option<String> {
 /// none is, or Ghostty says no.
 fn ghostty_focus(tty: &str) -> bool {
     let script = format!("tell application \"Ghostty\" to focus (first terminal whose tty is \"{tty}\")");
-    proc::run(&["osascript", "-e", &script], &[], TIMEOUT).is_some_and(|out| out.ok())
+    proc::run(&["osascript", "-e", &script], &[], TIMEOUT).is_ok_and(|out| out.ok())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_buttons_target_is_the_row_it_is_about() {
+        assert_eq!(act_row("merge:https://github.com/acme/api/pull/4/checks").as_deref(), Some("inbox:https://github.com/acme/api/pull/4"));
+        assert_eq!(act_row("rerun:https://github.com/acme/api/pull/4").as_deref(), Some("inbox:https://github.com/acme/api/pull/4"));
+        assert_eq!(act_row("plan:eng-2").as_deref(), Some("inbox:ENG-2"));
+        assert_eq!(act_row("routine:morning-sweep").as_deref(), Some("routine:morning-sweep"));
+        assert_eq!(act_row("deploy:prod"), None);
+        assert_eq!(act_row("merge:"), None);
+    }
 
     #[test]
     fn herdrs_client_is_the_one_on_a_terminal() {

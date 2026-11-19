@@ -1,0 +1,11 @@
+{"version": 1, "at": 1793611507779, "cockpit": "@VERSION@", "summary": {"pass": 1, "warn": 1, "fail": 2},
+ "checks": [
+  {"id": "tools.gh", "category": "tools", "status": "fail", "message": "gh not signed in", "fix": {"label": "gh auth login", "command": "gh auth login"}},
+  {"id": "tools.config", "category": "tools", "status": "pass", "message": "config.json", "fix": null},
+  {"id": "sources.cache.inbox", "category": "sources", "status": "warn", "message": "inbox: no data yet",
+   "fix": {"label": "open the inbox space: the hub fills it within a minute", "act": {"app": "sources", "action": "refresh", "args": []}}},
+  {"id": "claude.plugin", "category": "claude", "status": "fail", "message": "Claude plugin not installed", "fix": {"label": "/plugin install cockpit --marketplace quaresc/cockpit"}},
+  {"id": "tools.loop", "category": "tools", "status": "warn", "message": "a fix that fixes with a fix", "fix": {"label": "again", "act": {"app": "doctor", "action": "fix", "args": ["tools.loop", 1793611507779]}}},
+  {"id": "tools.gone", "category": "tools", "status": "warn", "message": "a fix this hub never had", "fix": {"label": "vanish", "act": {"app": "sources", "action": "vanish", "args": []}}}
+ ],
+ "getting_started": [], "agents": []}

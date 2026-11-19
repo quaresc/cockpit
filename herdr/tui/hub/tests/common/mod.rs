@@ -57,7 +57,7 @@ impl Sandbox {
         let root = dir.path().to_path_buf();
         let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis().to_string();
         let box_ = root.to_string_lossy().into_owned();
-        copy_tree(&fixtures().join("box"), &root, &|t| t.replace("@BOX@", &box_).replace("@NOW_MS@", &now_ms));
+        copy_tree(&fixtures().join("box"), &root, &|t| t.replace("@BOX@", &box_).replace("@NOW_MS@", &now_ms).replace("@VERSION@", env!("CARGO_PKG_VERSION")));
         let bin = root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         executable(&bin.join("herdr"), &std::fs::read_to_string(fixtures().join("herdr.sh")).unwrap());
@@ -114,6 +114,10 @@ impl Sandbox {
                 ("COCKPIT_PUBLISHED_URL".into(), "off".into()),
                 // Nor does the session index download its model.
                 ("COCKPIT_EMBED".into(), "off".into()),
+                // Nor does the usage thread write the sidebar's `$limits`, which its first pass clears.
+                ("COCKPIT_HUB_LIMITS".into(), "off".into()),
+                // Nor does it ask the agents installed on this machine which models they list.
+                ("COCKPIT_HUB_MODELS".into(), "off".into()),
             ])
             .collect()
     }
@@ -151,12 +155,104 @@ pub fn hub_command(sandbox: &Sandbox) -> Command {
     command
 }
 
+/// Set on a test's hub to place every sender in that agent's tree (a handle), else every sender is the person.
+pub const SENT_BY: &str = "COCKPIT_TEST_SENT_BY";
+
+/// Set on a test's hub to place every sender by its real line of parents, as the person's hub does (no agent known).
+pub const PLACE_REAL: &str = "COCKPIT_TEST_PLACE_REAL";
+
+/// Where a real process stands, the walk's verdict in the words a refusal carries.
+fn placed(pid: u32) -> cockpit_core::peer::Who {
+    use cockpit_agents::place::{System, Walk, table, walk};
+    use cockpit_core::peer::Who;
+    match walk(pid, &table(), &[], &[], std::process::id(), &System::default()) {
+        Walk::Front => Who::Person,
+        Walk::Agent(handle) => Who::Agent(handle),
+        Walk::Unwatched(_) => Who::Agent(String::new()),
+        Walk::Cockpit => Who::Unplaced("cockpit's own work".into()),
+        other => Who::Unplaced(format!("placed {other:?}")),
+    }
+}
+
 /// The hub, when this binary runs as one; nothing in the test run itself.
 #[test]
 fn hub_process() {
     if std::env::var_os(HUB_PROCESS).is_some() {
+        if std::env::var_os(PLACE_REAL).is_some() {
+            cockpit_core::peer::on_place(placed);
+        }
+        cockpit_core::peer::on_place(|_| match std::env::var(SENT_BY) {
+            Ok(handle) => cockpit_core::peer::Who::Agent(handle),
+            Err(_) => cockpit_core::peer::Who::Person,
+        });
         cockpit_hub::run();
     }
+}
+
+/// Set on this binary run again as a client: the request it sends, the socket, and where it writes the answer.
+pub const REQUEST: &str = "COCKPIT_TEST_REQUEST";
+pub const REQUEST_SOCKET: &str = "COCKPIT_TEST_REQUEST_SOCKET";
+pub const REQUEST_REPLY: &str = "COCKPIT_TEST_REQUEST_REPLY";
+
+/// A client of the hub, when this binary runs as one: it sends REQUEST and writes the answer where REQUEST_REPLY says.
+#[test]
+fn requester() {
+    if let (Ok(request), Some(socket), Some(reply)) = (std::env::var(REQUEST), std::env::var_os(REQUEST_SOCKET), std::env::var_os(REQUEST_REPLY)) {
+        let answer = request_on(Path::new(&socket), &serde_json::from_str(&request).unwrap());
+        std::fs::write(reply, answer.to_string()).unwrap();
+    }
+}
+
+/// Set on this binary run again as a program that only waits: how many seconds it waits.
+const WAIT: &str = "COCKPIT_TEST_WAIT";
+
+/// A program that only waits, when this binary runs as one.
+#[test]
+fn waiter() {
+    if let Some(secs) = std::env::var(WAIT).ok().and_then(|s| s.parse().ok()) {
+        std::thread::sleep(Duration::from_secs(secs));
+    }
+}
+
+/// This test binary linked (else copied) into `dir` as `name`, waiting `secs` seconds in `cwd`: a program of that name
+/// in that folder. A copy of a system program may not run under another name, as a multi-call coreutils refuses to.
+pub fn waiting(dir: &Path, name: &str, cwd: &Path, secs: u32) -> Child {
+    let program = dir.join(name);
+    if !program.exists() {
+        let exe = std::env::current_exe().unwrap();
+        if std::fs::hard_link(&exe, &program).is_err() {
+            std::fs::copy(&exe, &program).unwrap();
+        }
+    }
+    Command::new(&program)
+        .args(["common::waiter", "--exact", "--test-threads", "1"])
+        .env(WAIT, secs.to_string())
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap()
+}
+
+/// `request` sent by this test binary copied into `dir` as `cockpit` and run as `cockpit <word> …`: the hub's answer.
+pub fn sent_as_cockpit(dir: &Path, word: &str, socket: &Path, request: &Value) -> Value {
+    let copy = dir.join("cockpit");
+    if !copy.exists() {
+        std::fs::copy(std::env::current_exe().unwrap(), &copy).unwrap();
+    }
+    let reply = dir.join(format!("{word}.reply"));
+    // libtest takes `word` as one more name to match exactly, which no test has.
+    let ran = Command::new(&copy)
+        .args([word, "common::requester", "--exact", "--test-threads", "1"])
+        .env(REQUEST, request.to_string())
+        .env(REQUEST_SOCKET, socket)
+        .env(REQUEST_REPLY, &reply)
+        .stdout(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(ran.success(), "cockpit {word} did not run");
+    serde_json::from_str(&std::fs::read_to_string(&reply).unwrap()).unwrap()
 }
 
 pub struct Hub {
@@ -169,8 +265,9 @@ impl Hub {
         let child = hub_command(sandbox).envs(extra.iter().map(|(k, v)| (k.to_string(), v.to_string()))).spawn().unwrap();
         let socket = sandbox.socket();
         let start = Instant::now();
-        while UnixStream::connect(&socket).is_err() {
-            assert!(start.elapsed() < Duration::from_secs(5), "the hub never listened on {}", socket.display());
+        // Ready once it answers a ping: a stale socket file, or a hub still opening its store, takes connections it does not answer yet.
+        while !pings(&socket) {
+            assert!(start.elapsed() < Duration::from_secs(10), "the hub never answered on {}", socket.display());
             std::thread::sleep(Duration::from_millis(20));
         }
         Hub { child, socket }
@@ -190,6 +287,16 @@ impl Drop for Hub {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+fn pings(socket: &Path) -> bool {
+    let Ok(mut stream) = UnixStream::connect(socket) else { return false };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    if writeln!(stream, r#"{{"op": "ping"}}"#).is_err() {
+        return false;
+    }
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).is_ok() && serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ok"] == true)
 }
 
 pub fn request_on(socket: &Path, request: &Value) -> Value {

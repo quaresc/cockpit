@@ -6,13 +6,18 @@ import * as hub from "./hub.js";
 
 const APPS = { code: "Visual Studio Code", cursor: "Cursor", zed: "Zed", windsurf: "Windsurf", subl: "Sublime Text" };
 
-async function editor() {
-  try {
-    const { home } = await hub.install();
-    const text = await readTextFile(`${home}/.config/cockpit/config.json`);
-    const name = text ? JSON.parse(text).editor : null;
-    if (typeof name === "string" && name) return name;
-  } catch {}
+/**
+ * The config's `editor`, one command: from the resolved copy in the cache (plain JSON), else the file as written when it
+ * reads as plain JSON (one with comments has its copy); else VS Code's `code`.
+ */
+export async function editor() {
+  const { home, cache } = await hub.install().catch(() => ({}));
+  for (const path of [cache && `${cache}/config.json`, home && `${home}/.config/cockpit/config.json`].filter(Boolean)) {
+    try {
+      const name = JSON.parse((await readTextFile(path)) ?? "null")?.editor;
+      if (typeof name === "string" && name.trim() && !name.trim().startsWith("-")) return name.trim();
+    } catch {}
+  }
   return "code";
 }
 

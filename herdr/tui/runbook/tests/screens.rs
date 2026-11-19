@@ -267,3 +267,19 @@ fn done_by_hand_closes_the_running_handoff() {
     let handoff: serde_json::Value = serde_json::from_str(&fs::read_to_string(root.join("handoffs/eng-410-8.json")).unwrap()).unwrap();
     assert_eq!((handoff["state"].as_str(), handoff["message"].as_str()), (Some("done"), Some("marked done by hand")));
 }
+
+#[test]
+fn a_step_a_focus_request_selected_takes_no_key_that_acts_until_a_move() {
+    let (mut app, _) = open("focus", Density::Comfortable);
+    app.focus("eng-420#4d");
+    let before = app.selected;
+    for code in [KeyCode::Enter, KeyCode::Char('x'), KeyCode::Char('v'), KeyCode::Char('r')] {
+        press(&mut app, code);
+    }
+    assert!(app.pointed.is_on(), "still pointed at: nothing acted");
+    assert!(app.picked.is_empty(), "v picked nothing");
+    assert!(screen(&mut app, 90, 30).contains("Move to it first"));
+    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('k'));
+    assert_eq!((app.selected, app.pointed.is_on()), (before, false), "a move makes the step the person's");
+}

@@ -22,28 +22,56 @@ pub struct Inputs {
     pub worktrees: Vec<Value>,
     /// Seconds agents spent on each ticket this week, from the agent-time ledger.
     pub secs: HashMap<String, u64>,
+    /// The hub's routines document, for the runs Today says need a look.
+    pub routines: Option<Value>,
+    /// The doctor's last report, read while there is no inbox yet: what is left of getting started.
+    pub started: Value,
+    /// Start work's runs the hub keeps, for the ones still running or failed.
+    pub starts: Vec<Value>,
 }
 
 /// The documents the inbox follows through the hub.
-pub const DOCS: [&str; 3] = ["inbox", "ci", "brief"];
+pub const DOCS: [&str; 4] = ["inbox", "ci", "brief", "routines"];
 
 impl Inputs {
+    /// The TUI's inputs: the worktrees as last scanned, a new scan running off the keys' thread when due.
     pub fn read(docs: &Docs) -> Self {
-        Self::of(docs.get("inbox").cloned(), docs.get("ci").cloned(), docs.get("brief").cloned())
+        let routines = docs.get("routines").cloned();
+        let data = docs.get("inbox").cloned();
+        let worktrees = crate::worktrees::scan_later(&files::config(), merged(data.as_ref()));
+        Self { routines, ..Self::with(data, docs.get("ci").cloned(), docs.get("brief").cloned(), worktrees) }
     }
 
     /// The documents given, with what the inbox reads on disk beside them.
     pub fn of(data: Option<Value>, ci: Option<Value>, brief: Option<Value>) -> Self {
+        let worktrees = crate::worktrees::scan(&files::config(), merged(data.as_ref()));
+        Self::with(data, ci, brief, worktrees)
+    }
+
+    fn with(data: Option<Value>, ci: Option<Value>, brief: Option<Value>, worktrees: Vec<Value>) -> Self {
         Self {
             data,
             ci: ci.unwrap_or_else(|| json!({"runs": []})),
             brief,
             muted: muted(),
             costs: ticket_costs(),
-            worktrees: crate::worktrees::scan(&files::config()),
+            worktrees,
             secs: ticket_week(crate::worktrees::now_ms()),
+            routines: None,
+            started: cockpit_core::started::report(),
+            starts: starts(),
         }
     }
+}
+
+/// The code host's merged pull requests, from the inbox document.
+fn merged(data: Option<&Value>) -> &[Value] {
+    data.and_then(|d| d["merged"].as_array()).map_or(&[], Vec::as_slice)
+}
+
+/// Start work's runs as the hub keeps them in start-runs.json.
+pub fn starts() -> Vec<Value> {
+    files::load(&files::cache().join("start-runs.json")).and_then(|v| v["runs"].as_array().cloned()).unwrap_or_default()
 }
 
 /// Seconds agents spent on each ticket since Monday 00:00 local, from the agents' ledger.
@@ -59,16 +87,9 @@ fn muted() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// What each ticket cost, as the hub's count estimates it everywhere (`usage::ticket_estimates`).
 fn ticket_costs() -> HashMap<String, f64> {
-    let mut total = HashMap::new();
-    for path in json_files("costs") {
-        if let Some(Value::Object(spent)) = files::load(&path) {
-            for (ticket, usd) in spent {
-                *total.entry(ticket).or_insert(0.0) += usd.as_f64().unwrap_or(0.0);
-            }
-        }
-    }
-    total
+    cockpit_core::usage::ticket_estimates()
 }
 
 pub fn json_files(dir: &str) -> Vec<PathBuf> {
@@ -103,12 +124,12 @@ mod tests {
     }
 
     #[test]
-    fn ticket_costs_sum_every_session() {
-        let costs = crate::test_home::home().join(".cache/cockpit/costs");
-        std::fs::create_dir_all(&costs).unwrap();
-        std::fs::write(costs.join("a.json"), r#"{"ENG-1": 1.5, "ENG-2": 0.25}"#).unwrap();
-        std::fs::write(costs.join("b.json"), r#"{"ENG-1": 2.0}"#).unwrap();
-        std::fs::write(costs.join("notes.txt"), r#"{"ENG-1": 100}"#).unwrap();
-        assert_eq!(ticket_costs(), HashMap::from([("ENG-1".to_string(), 3.5), ("ENG-2".to_string(), 0.25)]));
+    fn ticket_costs_are_the_hub_s_estimates() {
+        let home = crate::test_home::home();
+        let cache = home.join(".cache/cockpit");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("estimates.json"), r#"{"at": 1, "sessions": {"s-a": 4.0}, "tickets": {"ENG-1": 3.0, "ENG-2": 1.0}}"#).unwrap();
+        let got = ticket_costs();
+        assert_eq!((got["ENG-1"], got["ENG-2"], got.len()), (3.0, 1.0, 2), "{got:?}");
     }
 }
