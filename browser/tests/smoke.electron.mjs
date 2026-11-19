@@ -279,6 +279,12 @@ test("the shell, end to end", { skip: electron ? false : "set COCKPIT_BROWSER_EL
     await toolbar.evaluate("document.querySelector('#recap-list li .x').click(); true");
     await until(async () => (await ask(socket, { op: "notes.list", owner: api })).notes.length === 1, "a note to go");
     await ask(socket, { op: "notes.clear", owner: api });
+    // A card left open when the picker stops goes with it.
+    await ask(socket, { op: "grab.start", owner: api, mode: "copy" });
+    await until(() => orders.evaluate("Boolean(window.__cockpitGrab)"), "the picker");
+    await pick(orders, "#find", card);
+    await ask(socket, { op: "grab.stop" });
+    await until(async () => !(await card()), "the card to go with the picker");
     // A pick: one element, one line, sent at once to the session the browser belongs to.
     await ask(socket, { op: "grab.start", owner: api, mode: "copy" });
     await until(() => orders.evaluate("Boolean(window.__cockpitGrab)"), "the picker");

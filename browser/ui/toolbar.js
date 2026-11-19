@@ -106,6 +106,8 @@ function draw() {
   if (state.focusAddress) (address.focus(), address.select());
   if (state.focusFind) (($("finder").hidden = false), ($("where").hidden = true), $("find").focus(), $("find").select());
   if (state.draft) openDraft(state.draft);
+  // A card whose pick the shell dropped (the picker stopped) goes with it.
+  else if (!state.drafting && !draft.hidden) ((draft.hidden = true), setOpen());
   if (state.rename) {
     $("rename").hidden = false;
     $("rename-name").value = state.rename.name;
@@ -224,7 +226,16 @@ $("rename-name").addEventListener("blur", () => !rename.hidden && endRename(true
 const draft = $("draft");
 const options = (select, values, picked) => select.replaceChildren(...values.map((value) => el("option", { value, ...(value === picked ? { selected: "" } : {}) }, [words[value] || value])));
 
-/** Shows the card a note is written in, under the picked element and inside the window. */
+/** Puts the card under the picked element and inside the window, again once the toolbar has grown over the page. */
+let drafted = null;
+function placeDraft() {
+  if (!drafted || draft.hidden) return;
+  draft.style.left = `${Math.max(8, Math.min(drafted.x, innerWidth - 364))}px`;
+  draft.style.top = `${Math.max(84, Math.min(drafted.y + 8, innerHeight - draft.offsetHeight - 8))}px`;
+}
+addEventListener("resize", placeDraft);
+
+/** Shows the card a note is written in. */
 function openDraft(asked) {
   $("draft-label").textContent = asked.label;
   $("draft-comment").value = "";
@@ -235,8 +246,8 @@ function openDraft(asked) {
   options($("draft-intent"), asked.intents, "change");
   options($("draft-priority"), asked.priorities, asked.priority);
   draft.hidden = false;
-  draft.style.left = `${Math.max(8, Math.min(asked.x, innerWidth - 364))}px`;
-  draft.style.top = `${Math.max(84, Math.min(asked.y + 8, innerHeight - draft.offsetHeight - 8))}px`;
+  drafted = asked;
+  placeDraft();
   setOpen();
   $("draft-comment").focus();
 }

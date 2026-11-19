@@ -696,6 +696,7 @@ export class Shell {
       grab: this.grab && this.grab.tab === tab?.id ? { mode: this.grab.mode } : null,
       notes: wt && this.design ? this.design.summaries(wt.owner) : [],
       details: Boolean(this.design?.details),
+      drafting: Boolean(this.design?.draft),
       find: this.find,
       suggestions: this.suggestions,
       downloads: this.downloadList().slice(0, 5),
