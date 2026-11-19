@@ -306,6 +306,26 @@ main { display: block; }
 .frame figcaption b { color: var(--text); }
 @media (max-width: 600px) { .frame { padding: 5px; border-radius: 14px; } .frame video, .frame img { border-radius: 10px; } }
 
+/* What sets cockpit apart: each reason beside its screenshot, sides alternating. */
+
+.rows { display: grid; gap: 80px; }
+.row { display: grid; gap: 48px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; }
+.row:nth-child(even) .row-text { order: 2; }
+.row.wide { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.row-text h3 { font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.2; margin-bottom: 14px; }
+.row-text p { color: var(--muted); font-size: 1.05rem; margin: 0 0 12px; }
+.row-text .fine { color: var(--faint); font-size: 0.9rem; }
+.row .frame { margin: 0; width: 100%; }
+.row .frame.narrow { max-width: 460px; justify-self: center; }
+/* A part of a screenshot at reading size: --z how wide the picture is drawn, --x and --y where it starts. */
+.frame .crop { position: relative; display: block; overflow: hidden; border-radius: 13px; aspect-ratio: var(--ar, 16 / 10); background: var(--shot-bg); }
+.frame .crop img { position: absolute; left: var(--x); top: var(--y); width: var(--z); max-width: none; height: auto; border-radius: 0; }
+@media (max-width: 860px) {
+  .rows { gap: 56px; }
+  .row, .row.wide { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .row:nth-child(even) .row-text { order: 0; }
+}
+
 /* Works-with strip */
 
 .works { padding: 64px 0 0; text-align: center; }

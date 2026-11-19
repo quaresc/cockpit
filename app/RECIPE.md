@@ -6,7 +6,8 @@ are one key away.
 
 ![Cockpit](preview.png)
 
-The preview shows the sidebar's agents list and Home's NEXT MOVE card, cropped from the real window on demo data.
+The preview shows the real window on demo data: agents' questions in the sidebar, an agent at work, and its page in
+the Chromium side browser with a note being written on it.
 
 Works with Claude Code, Codex and the other agents Herdr runs. The layout needs the
 [cockpit](https://github.com/quaresc/cockpit) app for its data; without it, Home shows how to install it.

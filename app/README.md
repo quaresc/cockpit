@@ -13,7 +13,7 @@ and which of them are waiting for an answer. Your reviews, mail, runbooks, meeti
 <a href="https://quaresc.github.io/cockpit/terminal.html">Herdr TUI</a> ·
 <a href="https://github.com/quaresc/cockpit/releases">Changelog</a></p>
 
-<p align="center"><img src="../app/preview.png" width="100%" alt="cockpit in the Herdr app: the agents list and Home"></p>
+<p align="center"><img src="../app/preview.png" width="100%" alt="cockpit in the Herdr app: agents' questions in the sidebar, an agent at work, and its page in a browser beside it"></p>
 
 ## Install
 

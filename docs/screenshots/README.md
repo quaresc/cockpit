@@ -33,4 +33,7 @@ sh ~/.config/cockpit/herdr/shots.sh http://localhost:5173/branch/ ~/.cache/cockp
 
 `docs/compare.png` is the session's `show` compare page of the mobile pair, screenshotted.
 
+`app/preview.png`, the Herdr gallery's picture, is `preview.html` screenshotted at 1600 by 1000; it shows
+`docs/app/browser-dark.png`.
+
 Needs FiraCode Nerd Font Mono in `~/Library/Fonts`; a subset of it is embedded in each SVG.
