@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.1.0 (2026-11-19)
 
 - New: a Chromium side browser for the Herdr app on macOS, docked in the side panel of both layouts, with tabs, an
   address bar with history, find, DevTools, phone and tablet sizes and downloads. Choose it in Cockpit settings, Apps,
