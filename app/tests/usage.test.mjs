@@ -241,3 +241,13 @@ test("space-tree terminal rows draw the agent logo as well as the status mark", 
   assert.ok(all.some((el) => el?.path === "icons/codex.svg"));
   assert.ok(all.includes("Codex"));
 });
+
+test("space-tree terminal rows lead with the tab's title, the program after it", async () => {
+  const f = drawing();
+  const u = await usage("./sidebar.js", f.natives, true);
+  const view = Object.create(u.default.prototype);
+  const p = { terminal: "t1", pane: "p1", tab: "tab-a", title: "Quota checks", program: { key: "codex", name: "Codex", icon: "icons/codex.svg", tint: false, agent: true }, status: "idle" };
+  const all = view.termRows({ foreground: "#eee", mutedFg: "#aaa", dim: "#888", accent: "#222" }, { tabs: [{ id: "tab-a" }] }, [p], new Map(), false).flatMap(f.flat);
+  const words = all.filter((w) => w === "Quota checks" || w === "Codex");
+  assert.deepEqual(words, ["Quota checks", "Codex"]);
+});
