@@ -67,6 +67,12 @@ export function within(cx, promise, ms, what) {
   return Promise.race([promise, late]).finally(() => timer?.cancel());
 }
 
+/**
+ * How often a subscription promises the hub a line, in seconds. A copy of the mod that Herdr reloads away keeps its
+ * sockets open but runs no more: the hub ends a subscription that breaks the promise three times over.
+ */
+const KEEPALIVE_SECS = 30;
+
 /** Waits `ms` on the context's timer (mods have no setTimeout). */
 export const sleep = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
 
@@ -658,7 +664,8 @@ export function subscribe(cx, { views = [], docs = [], notify = false, focus = n
           if (!current()) break;
           state.socket = socket;
           state.port = port;
-          await socket.write(JSON.stringify({ op: "subscribe", token, views, docs, notify }) + "\n");
+          await socket.write(JSON.stringify({ op: "subscribe", token, views, docs, notify, keepalive: KEEPALIVE_SECS }) + "\n");
+          let wrote = Date.now();
           state.connecting = false;
           state.answered = true;
           reached();
@@ -681,6 +688,11 @@ export function subscribe(cx, { views = [], docs = [], notify = false, focus = n
               deadline?.cancel();
             }
             if (line === null || !current()) break;
+            // The hub writes at least every 10 s, so answering a line keeps the promise of one every KEEPALIVE_SECS.
+            if (Date.now() - wrote >= (KEEPALIVE_SECS - 5) * 1000) {
+              await socket.write("\n");
+              wrote = Date.now();
+            }
             if (!line.trim()) continue;
             const message = JSON.parse(line);
             if (message.error) throw new Error(message.error);

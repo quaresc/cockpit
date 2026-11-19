@@ -13,6 +13,8 @@ use cockpit_core::peer::Who;
 use notify::{RecursiveMode, Watcher};
 use serde_json::{Value, json};
 
+use crate::outbox::Outbox;
+
 /// Reads a store document by name (null before anyone wrote it).
 pub type Doc<'a> = &'a dyn Fn(&str) -> Value;
 /// A view's own actions: Some(Ok(note)) or Some(Err(error)) when it knows the action, None when it does not.
@@ -82,7 +84,7 @@ enum Dirty {
 }
 
 struct Sub {
-    tx: Sender<String>,
+    tx: Outbox,
     /// Its connection was placed as the person's when it subscribed: views built for it may start work billed to them.
     person: bool,
     /// It shows the cockpit notifications (`subscribe {notify: true}`): one copy of the mod per window asks.
@@ -143,7 +145,7 @@ fn wanted(request: &Value) -> Vec<(String, Value)> {
 
 /// Sends the views now, then each new value of them, as {view, args, value} lines; also {focus, target} lines when
 /// the palette or a notification asks the view's app to bring something into view.
-pub fn subscribe(request: &Value, tx: Sender<String>) {
+pub fn subscribe(request: &Value, tx: Outbox) {
     let views: Vec<(String, Value, Value)> = wanted(request)
         .into_iter()
         .map(|(name, args)| {
@@ -324,6 +326,7 @@ pub fn prune() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::outbox::channel;
 
     fn counter(args: &Value, doc: Doc) -> Value {
         json!({"args": args, "inbox": doc("nope")})
@@ -373,7 +376,7 @@ mod tests {
     #[test]
     fn a_view_is_built_as_the_person_s_only_for_a_window_placed_as_theirs() {
         register(Def { name: "placed-view", docs: &[], dirs: Vec::new, build: placed, act: no_act });
-        let value = |rx: &std::sync::mpsc::Receiver<String>| -> Value {
+        let value = |rx: &crate::outbox::Lines| -> Value {
             let line = rx.iter().find(|l| !l.is_empty()).unwrap();
             serde_json::from_str::<Value>(&line).unwrap()["value"].clone()
         };
