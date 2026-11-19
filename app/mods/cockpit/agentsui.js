@@ -31,11 +31,11 @@ export function togglePinOf(terminal) {
   return next;
 }
 
-/** Each stage: its label, color token and mark. Whose move it is, yours first. */
+/** Each stage: its label, color token and mark. Active work comes first, followed by agents needing attention. */
 export const STAGES = {
+  working: { label: "Working", tone: "working" },
   needs_you: { label: "Needs you", tone: "blocked" },
   failed: { label: "Stopped with an error", tone: "destructive" },
-  working: { label: "Working", tone: "working" },
   done: { label: "Done", tone: "done" },
   fixing: { label: "Needs fixing", tone: "destructive" },
   idle: { label: "Idle", tone: "idle" },

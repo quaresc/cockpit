@@ -217,7 +217,7 @@ test("⌘⌥B opens a closed panel at the first press, even when the other layou
   assert.equal(f.node("panel").hidden, true);
 });
 
-test("the agent drawer lists working agents before a long idle list, after agents that need attention", async () => {
+test("the agent drawer lists working agents first, including before agents that need attention", async () => {
   const f = await fixture();
   f.node("sidebar").hidden = true;
   const drawer = Object.create(f.SidePeek.prototype);
@@ -236,6 +236,6 @@ test("the agent drawer lists working agents before a long idle list, after agent
   };
   visit(drawer.render());
   const groups = ids.filter((id) => id.startsWith("peek-stage-"));
-  assert.deepEqual(groups, ["peek-stage-needs_you", "peek-stage-working", "peek-stage-done", "peek-stage-idle"]);
+  assert.deepEqual(groups, ["peek-stage-working", "peek-stage-needs_you", "peek-stage-done", "peek-stage-idle"]);
   for (const agent of drawer.rows.agents) assert.ok(ids.includes(`peek-${agent.terminal}`), `${agent.address} stays listed`);
 });
