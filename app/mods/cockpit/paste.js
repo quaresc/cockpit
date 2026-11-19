@@ -51,3 +51,42 @@ export async function pasteImage(run = exec) {
     return { error: "the clipboard's image could not be read", detail: String(e?.message ?? e) };
   }
 }
+
+/** A whole line of a prompt that is an image's path, the way the box sends the files riding with it. */
+export const IMAGE_LINE = /^\/.*\.(png|jpe?g|gif|webp)$/i;
+
+/**
+ * Copies an image into the app's folder, the only place a mod draws pictures from, and prints its size: `sips` on
+ * macOS, `file` elsewhere. Copies untouched for a day go; exits non-zero when the image itself is gone.
+ */
+export const THUMB = `d=$(dirname "$1")
+mkdir -p "$d" && find "$d" -maxdepth 1 -type f -mtime +0 -exec rm -f {} + 2>/dev/null
+{ [ -s "$1" ] && touch "$1"; } || cp "$2" "$1" || exit 1
+if command -v sips >/dev/null 2>&1; then sips -g pixelWidth -g pixelHeight "$1"; else file -b "$1" || true; fi
+`;
+
+/** The app-relative path of an image's copy, named after where it came from so each image is copied once. */
+export function thumbPath(path) {
+  let h = 5381;
+  for (const c of String(path)) h = ((h << 5) + h + c.charCodeAt(0)) | 0;
+  return `data/cockpit/thumbs/${(h >>> 0).toString(36)}.${String(path).split(".").pop().toLowerCase()}`;
+}
+
+/** What a run of THUMB says: `{rel, w, h}` of the copy, or null when the image could not be read. */
+export function thumbed(r, rel) {
+  if (r?.code !== 0) return null;
+  const out = String(r.stdout ?? "");
+  const dims = [...out.matchAll(/(\d+) ?x ?(\d+)/g)].pop();
+  const w = Number(/pixelWidth: (\d+)/.exec(out)?.[1] ?? dims?.[1]), h = Number(/pixelHeight: (\d+)/.exec(out)?.[1] ?? dims?.[2]);
+  return { rel, w: w || 1, h: h || 1 };
+}
+
+/** An image's copy in the app's folder `home`: `{rel, w, h}`, or null when it is gone. */
+export async function thumbnail(path, home, run = exec) {
+  const rel = thumbPath(path);
+  try {
+    return thumbed(await run("sh", ["-c", THUMB, "sh", `${home}/${rel}`, path]), rel);
+  } catch {
+    return null;
+  }
+}

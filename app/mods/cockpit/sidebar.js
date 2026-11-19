@@ -30,6 +30,16 @@ export const APPS = {
 };
 const DEFAULT_SPACES = ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"];
 
+/** The fields of each app's view that appBadge reads: the hub sends these alone, and only when they move. */
+const BADGE_FIELDS = {
+  todo: ["open"],
+  inbox: ["counts"],
+  monitor: ["tiles"],
+  routines: ["tiles"],
+  meetings: ["meetings", "today", "banner"],
+  mail: ["counts"],
+};
+
 /** An app's bubble from its view: what waits on you there, {count, tone} or null. */
 function appBadge(app, v) {
   if (!v) return null;
@@ -112,7 +122,8 @@ export default class Sidebar {
     });
     // The sidebar is in every layout: it is where a page an agent opens brings the side panel to the browser.
     this.web = followBrowser(cx);
-    this.sub = hub.subscribe(cx, { views: ["todo", "inbox", "monitor", "routines", "meetings", "mail"], notify: true }, (m, cx) => {
+    const views = Object.entries(BADGE_FIELDS).map(([name, pick]) => ({ name, pick }));
+    this.sub = hub.subscribe(cx, { views, notify: true }, (m, cx) => {
       if (m.view) this.counts[m.view] = appBadge(m.view, m.value);
       if (m.notify) this.toast(m.notify, cx);
       cx.notify();
@@ -779,6 +790,8 @@ export default class Sidebar {
       // A shell's title is often `user@host:folder`: the folder says more.
       const title = (r?.title || p.title || "").replace(/^[^@\s]+@[^:\s]+:\s*/, "");
       const state = stage ? STAGES[stage]?.label ?? stage : null;
+      // What the tab is about leads, the program running it follows.
+      const named = Boolean(title) && title !== name && title !== p.terminal;
       return h_flex()
         .id(`term-${p.terminal}`)
         .h(22)
@@ -798,8 +811,8 @@ export default class Sidebar {
         })
         .child(h_flex().w(12).flex_none().justify_center().child(stage ? StageMark(`term-${p.terminal}`, stage, { size: 6, status: r?.status }) : Icon("terminal", { size: 11, color: k.dim })))
         .when(Boolean(r) || p.program?.agent, (e) => e.child(AgentLogo(r ? { ...r, program: p.program } : { program: p.program }, { size: 12, color: k.mutedFg })))
-        .child(div().flex_none().text_size(TEXT.sm).text_color(stage === "needs_you" ? k.blocked : k.mutedFg).child(name))
-        .when(Boolean(title) && title !== name && title !== p.terminal, (e) => e.child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(title)));
+        .child(div().min_w(0).truncate().text_size(TEXT.sm).text_color(stage === "needs_you" ? k.blocked : k.mutedFg).child(named ? title : name))
+        .when(named, (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(k.dim).child(name)));
     };
     const out = shown.map(line);
     if (terms.length > shown.length) out.push(h_flex().h(20).pl(pad + 18).items_center().text_size(TEXT.xs).text_color(k.dim).child(`+${terms.length - shown.length} more`));

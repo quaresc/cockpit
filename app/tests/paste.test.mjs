@@ -220,3 +220,23 @@ test("a held ⌘V pastes once; let go and pressed again, it pastes again", async
   assert.equal(runs.length, 2);
   assert.equal(chat.files.length, 2);
 });
+
+test("an image sent with a prompt is copied into the app's folder once, with its size, and a gone one is null", async () => {
+  const { paste } = await load(async () => null);
+  const home = scratch("paste-home-");
+  const src = join(scratch("paste-src-"), "shot one.png");
+  writeFileSync(src, "PNG");
+  const bin = tools({ sips: 'echo "  pixelWidth: 800"; echo "  pixelHeight: 400"' });
+  for (const tool of ["dirname", "mkdir", "cp", "touch"]) symlinkSync(spawnSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim(), join(bin, tool));
+  const run = async (cmd, args) => {
+    const r = spawnSync(cmd === "sh" ? "/bin/sh" : cmd, args, { encoding: "utf8", env: { PATH: bin } });
+    return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+  const got = await paste.thumbnail(src, home, run);
+  assert.deepEqual({ ...got }, { rel: paste.thumbPath(src), w: 800, h: 400 });
+  assert.match(got.rel, /^data\/cockpit\/thumbs\/\w+\.png$/);
+  assert.equal(readFileSync(join(home, got.rel), "utf8"), "PNG");
+  assert.equal(await paste.thumbnail(join(home, "gone.png"), home, run), null);
+  assert.ok(paste.IMAGE_LINE.test(src) && paste.IMAGE_LINE.test("/tmp/cockpit-paste.ab12/pasted.JPG"));
+  assert.ok(!paste.IMAGE_LINE.test("look at /tmp/a.png") && !paste.IMAGE_LINE.test("/tmp/notes.md"));
+});
