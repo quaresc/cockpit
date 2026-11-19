@@ -1,13 +1,13 @@
 // The conversation with the chat's subject (the agent in front, or the one `chat:open` named), read rather than watched:
 // what you said, one folded row for everything the agent did, the answer under a rule, and the box you answer in.
 
-import { div } from "gpui-kit";
+import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, Input, InputState, TextView } from "gpui-base";
 import * as base from "gpui-base";
 
 // A Herdr older than 0.1.15 has no ScrollHandle: the conversation still draws, it just does not follow its own end.
 const ScrollHandle = base.ScrollHandle ?? null;
-import { focused, run, exec, notify, shared, setShared, window as win } from "herdr";
+import { focused, run, exec, notify, shared, setShared, appHome, window as win } from "herdr";
 import * as hub from "./hub.js";
 import { take, testKeys } from "./person.js";
 import { openUrl } from "./hub.js";
@@ -22,7 +22,7 @@ import { ChatStart } from "./chatstart.js";
 import { modelName, pickChips } from "./picks.js";
 import { statusMark } from "./chat-top.js";
 import { hint, keyText } from "./commands.js";
-import { pasteImage } from "./paste.js";
+import { pasteImage, thumbnail, IMAGE_LINE } from "./paste.js";
 import { TOOK, boxTakesBack } from "./browser.js";
 import { tokens, TEXT, RADIUS, Icon, Spinner, Chip, Empty, Card, Button, HubDown, openMenu, AgentLogo } from "./ui.js";
 import { NEXT_KEYS, NextSteps, nextKey, nextShown } from "./next-steps.js";
@@ -359,6 +359,8 @@ export default class Chat {
     // Files to send with the next prompt, as paths, and why the last image pasted was not attached ({why, detail}).
     this.files = [];
     this.pasteNote = null;
+    // The copies drawn of image files, by path: null while copying, {rel, w, h}, or false when the image is gone.
+    this.thumbs = new Map();
     // What was typed for each subject, kept when another one comes in front: {text, files}.
     this.drafts = new Map();
     // Each subject's last send, {state: "sending" | "failed" | "unconfirmed" | "queued", why?, note?}, and the queued
@@ -1772,13 +1774,18 @@ export default class Chat {
   }
 
   said(row, k) {
+    // The images sent with it show as themselves above its words rather than as their paths.
+    const lines = String(row.text).split("\n");
+    const pics = lines.filter((l) => IMAGE_LINE.test(l) && this.thumbs.get(l) !== false);
+    const text = lines.filter((l) => !pics.includes(l)).join("\n").trim();
     return this.column(
       v_flex()
         .w_full()
         .py(10)
         .gap(4)
         .items_end()
-        .child(
+        .when(pics.length > 0, (e) => e.child(h_flex().flex_wrap().justify_end().gap(6).children(pics.map((p) => this.picture(p, 120, k)))))
+        .when(Boolean(text), (e) => e.child(
           v_flex()
             .max_w(READ_W * 0.78)
             .px(16)
@@ -1787,8 +1794,8 @@ export default class Chat {
             .bg(k.muted)
             .text_size(TEXT.base)
             .text_color(k.foreground)
-            .child(TextView.markdown(`chat-s${row.slot}`, row.text).selectable(true).text_size(TEXT.base)),
-        )
+            .child(TextView.markdown(`chat-s${row.slot}`, text).selectable(true).text_size(TEXT.base)),
+        ))
         // Sent to a session cockpit drives, not yet replayed by it.
         .when(Boolean(row.pending), (e) => e.child(h_flex().gap(5).items_center().text_size(TEXT.xs).text_color(k.dim).child(Spinner({ size: 10, color: k.dim })).child(div().child("Sending…")))),
     );
@@ -2075,19 +2082,46 @@ export default class Chat {
     ];
   }
 
-  /** The files riding with the next prompt. */
+  /** Copies image files into the app's folder, the only place a picture draws from, once each. */
+  thumbsFor(paths, cx) {
+    for (const path of paths) {
+      if (!IMAGE_LINE.test(path) || this.thumbs.has(path)) continue;
+      this.thumbs.set(path, null);
+      cx.spawn(async (cx) => {
+        this.thumbs.set(path, (await thumbnail(path, appHome())) ?? false);
+        cx.notify();
+      });
+    }
+  }
+
+  /** An image `height` high, its width cropped past three times that; an empty frame holds its place while it is copied. */
+  picture(path, height, k) {
+    const t = this.thumbs.get(path);
+    const w = t ? Math.round((height * t.w) / t.h) : height;
+    return div()
+      .w(Math.min(w, height * 3))
+      .h(height)
+      .flex_none()
+      .rounded(RADIUS.md)
+      .overflow_hidden()
+      .border_1()
+      .border_color(k.border)
+      .bg(k.muted)
+      .when(Boolean(t), (e) => e.child(image(t.rel).w(w).h(height)));
+  }
+
+  /** The files riding with the next prompt: an image as a small picture of itself, any other file by its name. */
   fileChips(k) {
-    return this.files.map((path, i) =>
-      Chip(String(path).split("/").pop(), {
-        id: `chat-file-${i}`,
-        icon: "file-text",
-        tooltip: `${path} — click to take it off`,
-        onClick: (_e, cx) => {
-          this.files = this.files.filter((f) => f !== path);
-          cx.notify();
-        },
-      }),
-    );
+    return this.files.map((path, i) => {
+      const off = (_e, cx) => {
+        cx.stop_propagation();
+        this.files = this.files.filter((f) => f !== path);
+        cx.notify();
+      };
+      if (IMAGE_LINE.test(path) && this.thumbs.get(path) !== false)
+        return this.picture(path, 44, k).id(`chat-file-${i}`).cursor_pointer().tooltip(`${path} — click to take it off`).on_click(off);
+      return Chip(String(path).split("/").pop(), { id: `chat-file-${i}`, icon: "file-text", tooltip: `${path} — click to take it off`, onClick: off });
+    });
   }
 
   /**
@@ -2370,6 +2404,7 @@ export default class Chat {
     const all = memo?.messages === messages && memo.length === messages.length && memo.shape === shape ? memo.rows : rowsOf(messages, { working, ...end });
     this.made = { messages, length: messages.length, shape, rows: all };
     const rows = this.drawn(all);
+    this.thumbsFor([...this.files, ...rows.flatMap((r) => (r.kind === "said" ? String(r.text).split("\n") : []))], cx);
     // A turn still running counts its own seconds, so the row is redrawn while nothing else moves: one redraw a second,
     // however often something else draws it. `ticking` is when it was armed: one that never fired is armed again.
     if (working && !(Date.now() - (this.ticking ?? 0) < 2000)) {
