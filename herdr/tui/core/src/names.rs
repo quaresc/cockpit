@@ -254,10 +254,11 @@ fn condensed(text: &str, max: usize, lead: bool) -> Option<String> {
     Some(first.to_uppercase().collect::<String>() + chars.as_str())
 }
 
-/// The first prompt as a name: its first line, a slash command without its slash, condensed; its leading verb stays when
-/// nothing but a number would be left without it ("/review 412").
+/// The first prompt as a name: its first line that is not a file sent with it, a slash command without its slash,
+/// condensed; its leading verb stays when nothing but a number would be left without it ("/review 412").
 pub fn opening(text: &str) -> Option<String> {
-    let line = clean(text.lines().map(str::trim).find(|l| !l.is_empty())?.trim_start_matches('/'));
+    let file = |l: &str| l.starts_with('/') && l.split_whitespace().next().is_some_and(|w| w[1..].contains('/'));
+    let line = clean(text.lines().map(str::trim).find(|l| !l.is_empty() && !file(l))?.trim_start_matches('/'));
     condense(&line, MAX).filter(|n| !placeholder(n)).or_else(|| condensed(&line, MAX, false).filter(|n| !placeholder(n)))
 }
 
@@ -434,6 +435,8 @@ mod tests {
         assert_eq!(opening("/review 412").as_deref(), Some("Review 412"), "the verb stays when only a number would be left");
         assert_eq!(opening("/deploy-preview api").as_deref(), Some("Deploy-preview api"));
         assert_eq!(opening("   "), None);
+        assert_eq!(opening("/tmp/cockpit-paste.ab12/pasted-ab12.png\nFix the quota banner").as_deref(), Some("Quota banner"), "a file sent first is skipped");
+        assert_eq!(opening("/Users/me/Desktop/Screen shot.png"), None);
     }
 
     #[test]

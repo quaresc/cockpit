@@ -786,6 +786,8 @@ export default class Sidebar {
       // A shell's title is often `user@host:folder`: the folder says more.
       const title = (r?.title || p.title || "").replace(/^[^@\s]+@[^:\s]+:\s*/, "");
       const state = stage ? STAGES[stage]?.label ?? stage : null;
+      // What the tab is about leads, the program running it follows.
+      const named = Boolean(title) && title !== name && title !== p.terminal;
       return h_flex()
         .id(`term-${p.terminal}`)
         .h(22)
@@ -805,8 +807,8 @@ export default class Sidebar {
         })
         .child(h_flex().w(12).flex_none().justify_center().child(stage ? StageMark(`term-${p.terminal}`, stage, { size: 6, status: r?.status }) : Icon("terminal", { size: 11, color: k.dim })))
         .when(Boolean(r) || p.program?.agent, (e) => e.child(AgentLogo(r ? { ...r, program: p.program } : { program: p.program }, { size: 12, color: k.mutedFg })))
-        .child(div().flex_none().text_size(TEXT.sm).text_color(stage === "needs_you" ? k.blocked : k.mutedFg).child(name))
-        .when(Boolean(title) && title !== name && title !== p.terminal, (e) => e.child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(title)));
+        .child(div().min_w(0).truncate().text_size(TEXT.sm).text_color(stage === "needs_you" ? k.blocked : k.mutedFg).child(named ? title : name))
+        .when(named, (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(k.dim).child(name)));
     };
     const out = shown.map(line);
     if (terms.length > shown.length) out.push(h_flex().h(20).pl(pad + 18).items_center().text_size(TEXT.xs).text_color(k.dim).child(`+${terms.length - shown.length} more`));
