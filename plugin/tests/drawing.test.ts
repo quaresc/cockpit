@@ -30,6 +30,14 @@ test('an artifact is published only when asked for or after show', async () => {
   expect(artifactRefusal({ file_path: `${S}/signups.html` }, { ...turn, shown: true })).toBe(undefined)
 })
 
+test('an update of an existing artifact goes through, a new one still waits for show', async () => {
+  const turn = freshTurn('The numbers look right now')
+  const page = `${S}/signups.html`
+  expect(artifactRefusal({ file_path: page, url: 'https://claude.ai/artifact/abc123' }, turn)).toBe(undefined)
+  expect(artifactRefusal({ file_path: page }, turn, new Set([page]))).toBe(undefined)
+  expect(artifactRefusal({ file_path: `${S}/churn.html` }, turn, new Set([page]))).toContain('publish with its url')
+})
+
 test('a subagent whose brief asks for an artifact may publish one, any other still waits for show', async () => {
   const parent = freshTurn('Run the CI report')
   const input = { file_path: `${S}/report.html` }

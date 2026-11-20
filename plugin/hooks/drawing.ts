@@ -52,12 +52,19 @@ export function pageRefusal(command: string, turn: Turn): string | undefined {
   )
 }
 
-/** The verdict on an Artifact call: only a publish is held back, as the fallback it is. */
-export function artifactRefusal(input: Record<string, unknown>, turn: Turn): string | undefined {
+/** The verdict on an Artifact call: a new publish is held back as the fallback it is, an update of an existing
+ * artifact goes through. */
+export function artifactRefusal(
+  input: Record<string, unknown>,
+  turn: Turn,
+  published: ReadonlySet<string> = new Set(),
+): string | undefined {
   const action = input.action ?? 'publish'
-  if (action !== 'publish' || input.asset === true || turn.artifact || turn.shown) return undefined
+  if (action !== 'publish' || input.asset === true || input.url || turn.artifact || turn.shown) return undefined
+  if (typeof input.file_path === 'string' && published.has(input.file_path)) return undefined
   return (
     `Draw results with ${SHOW_TOOL_FULL} in the pane beside the session, not as a claude.ai artifact. Publish one only ` +
-    'when the person asks for an artifact or a link to share, or for what no show block can draw, after showing what it can.'
+    'when the person asks for an artifact or a link to share, or for what no show block can draw, after showing what it can. ' +
+    'To update one, publish with its url.'
   )
 }
