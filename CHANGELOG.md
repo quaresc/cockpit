@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.2.1 (2026-11-20)
+
+- Drawing: artifactGuard: false lets every artifact through (#82)
+
 ## 1.2.0 (2026-11-20)
 
 - New: in Cockpit Chat, a running turn shows only the step the agent is on, as its terminal words it, with the rest one click away (#83)
