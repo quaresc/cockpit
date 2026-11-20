@@ -476,7 +476,18 @@ the agent did and thought, then the one thing it answers with — its last words
 separates the work from the answer. A turn still running keeps all its words in the fold and counts up to now; under
 it shows only the step the agent is on, as its terminal words it ("Reading the config" over `$ cat config.json`,
 read off the screen by the chat view's `task` and `detail`), else the transcript's last call, with "N more" opening
-the rest. The box's bar shows the mode a terminal agent runs in and its focus mode, from its footer and transcript.
+the rest. The box's bar shows the mode a terminal agent runs in and its focus mode, from its footer and transcript;
+where its agent has them (`cycle`, `focus` in its row of the table), the mode is a menu the hub sets by pressing the
+agent's own ⇧⇥ until its footer shows the mode picked (one that asks less going through the confirm), and Focus a click
+that types `/focus` once it rests.
+
+**Files and Changes** (`files.js`, `changes.js`, `projects.js`). In Cockpit Chat the side panel's Files and Changes are
+cockpit's, unless `chat.projectPanels` is off. The chat view's `session.repos` names the git repositories its agent
+works in, the latest first: its folder's own and those its calls changed or went into (a file written, a `cd`, a path
+under its folder in a command), never one only read. The chat shares them with its folder (`cockpit.panel.where`);
+Files lists the folder as a tree opened down to each of them, marked, with a repository outside the folder listed above
+it and every changed file coloured by its git status, and Changes shows their uncommitted changes one at a time, a
+switcher on top, with each file's diff and a commit of the one shown. Review follows the latest of them too.
 
 **The box** carries what the agent may do and which model answers it, both read from the session and set on it:
 `+` for a file, the permission mode, where it is, the model, and send. `/` completes the agent's own commands and

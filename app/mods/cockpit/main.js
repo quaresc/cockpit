@@ -26,6 +26,8 @@ import Queue from "./queue.js";
 import Recap from "./recap.js";
 import Show from "./show.js";
 import Review from "./review.js";
+import Files from "./files.js";
+import Changes from "./changes.js";
 import Monitor, { MonitorWindow } from "./monitor.js";
 import Routines from "./routines.js";
 import Mail from "./mail.js";
@@ -42,7 +44,7 @@ import Usage from "./usage.js";
 import Web from "./web.js";
 import { unkey, testKeys } from "./person.js";
 
-const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, mail: Mail, show: Show, review: Review, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader, update: Update, chat: Chat, "chat-top": ChatTop, "side-peek": SidePeek, "panel-peek": PanelPeek, needs: Needs, settings: Settings, diagnostics: Settings, usage: Usage, start: Start, web: Web };
+const VIEWS = { code: Code, reader: Reader, inbox: Inbox, monitor: Monitor, "monitor-window": MonitorWindow, routines: Routines, mail: Mail, show: Show, review: Review, files: Files, changes: Changes, recap: Recap, home: Home, status: Status, bell: Bell, activity: Activity, "agent-head": AgentHead, queue: Queue, runbook: Runbook, meetings: Meetings, todo: Todo, sidebar: Sidebar, palette: Palette, menu: Menu, kit: Kit, pane: PaneHeader, update: Update, chat: Chat, "chat-top": ChatTop, "side-peek": SidePeek, "panel-peek": PanelPeek, needs: Needs, settings: Settings, diagnostics: Settings, usage: Usage, start: Start, web: Web };
 
 export default class Cockpit extends View {
   init(p, cx) {

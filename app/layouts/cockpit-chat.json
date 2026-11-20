@@ -222,6 +222,26 @@
                           }
                         },
                         {
+                          "id": "project-files",
+                          "type": "block",
+                          "content": {
+                            "mod": "cockpit",
+                            "props": {
+                              "app": "files"
+                            }
+                          }
+                        },
+                        {
+                          "id": "project-changes",
+                          "type": "block",
+                          "content": {
+                            "mod": "cockpit",
+                            "props": {
+                              "app": "changes"
+                            }
+                          }
+                        },
+                        {
                           "id": "code",
                           "type": "block",
                           "content": {

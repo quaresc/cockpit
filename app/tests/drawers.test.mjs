@@ -211,7 +211,7 @@ test("⌘⌥B opens a closed panel at the first press, even when the other layou
   assert.equal(f.node("panel").hidden, false, "opened, not closed again");
   // On another child it switches to it; on the one it shows it closes.
   f.commands.togglePanel("files");
-  assert.equal(f.node("panel-body").active, "files");
+  assert.equal(f.node("panel-body").active, "project-files", "cockpit's Files, chat.projectPanels being on unless set off");
   assert.equal(f.node("panel").hidden, false);
   f.commands.togglePanel("files");
   assert.equal(f.node("panel").hidden, true);
