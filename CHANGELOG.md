@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.2.0 (2026-11-20)
+
+- Chat: a running turn shows the step its terminal is on, and the bar its mode (#83)
+
 ## 1.1.2 (2026-11-20)
 
 - Fix: in the Herdr app without herdr running, cockpit doctor and the settings no longer fail every pinned space (#80)
