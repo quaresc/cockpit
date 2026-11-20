@@ -413,13 +413,14 @@ doing, and for the providers' own logos.
   `cockpit.chat:start:new:<text>` gives the chat a start box of its own, whatever agent is in front, holding the text:
   with the palette's key ⏎ starts it, without one only a click on ↑ does.
 - `chat-top` draws the capsule tab bar, with a pill per session cockpit drives (the agents view's driven rows, a paused
-  one marked so), the active tab's pill lit only while the chat is not pinned elsewhere. A tab's pill, its "+N" menu
-  item and its restore bring in front what the tab holds (`showTab`): its agent's chat, the agent named to Herdr with
+  one marked so), the active tab's pill lit only while the chat is not pinned elsewhere. A tab's pill and its "+N" menu
+  item bring in front what the tab holds (`showTab`): its agent's chat, the agent named to Herdr with
   `agent.focus`, or its panes on the Tab screen when no agent runs there (a shell, a tab Herdr numbers "3"). Pills fit the bar from the
-  widths they were measured at (`fitPills`), the active one always; the rest, and the archived tabs, wait behind a
+  widths they were measured at (`fitPills`), the active one always; the rest wait behind a
   "+N" pill whose menu ⌘⇧A (`cockpit.tabs`) opens from the keyboard, under the pill, with its first item picked (a click
-  opens it there with nothing picked). The active pill's × archives its tab (`tab.settle`, the next tab brought in front
-  first) with a toast whose click runs `cockpit.tabs:restore:<id>`, which both layouts' runners take. A monochrome dot in the right capsule says whether the hub runs; down on this machine
+  opens it there with nothing picked). A pill names the tab by its agent's title while the
+  label is Herdr's number or the agent's own name (`tabName`). The active pill's × closes the tab (`tab.close`, the
+  next tab brought in front first), asking for a second click while its agent works or waits. A monochrome dot in the right capsule says whether the hub runs; down on this machine
   it reads "Hub stopped" or "Hub not running" and starts it on a click. Its last button shows the chat agent's terminal
   (`cockpit.terminal`), drawn with that agent's logo and named in its tooltip ("Show Claude Code's terminal"; a session
   cockpit drives asks before it moves to one), the terminal glyph only while no agent is in front. Each pill wears its
@@ -472,8 +473,10 @@ actions: a chat answers through `agents` and sends through `queue`.
 **How a turn draws** (`app/mods/cockpit/chat.js`, `rowsOf`). A turn is what you said, then one row for everything
 the agent did and thought, then the one thing it answers with — its last words. The work row says how long it took
 ("Worked for 2m 14s") and opens on a click to every call it made and everything it said on the way; a rule under it
-separates the work from the answer. A turn still running keeps all its words in the fold, counts up to now, and is
-open until it answers.
+separates the work from the answer. A turn still running keeps all its words in the fold and counts up to now; under
+it shows only the step the agent is on, as its terminal words it ("Reading the config" over `$ cat config.json`,
+read off the screen by the chat view's `task` and `detail`), else the transcript's last call, with "N more" opening
+the rest. The box's bar shows the mode a terminal agent runs in and its focus mode, from its footer and transcript.
 
 **The box** carries what the agent may do and which model answers it, both read from the session and set on it:
 `+` for a file, the permission mode, where it is, the model, and send. `/` completes the agent's own commands and
@@ -491,10 +494,11 @@ disables plugins, hooks, MCP servers and other customizations, user and project 
 removes read, write, shell and network tools, strict MCP configuration starts no servers, and session persistence is
 off. The person's own sign-in (claude.ai or an API key) serves the run. Modified
 command templates are unsupported too. A run forks its session where its row can (`run_fork`), else reads a fresh bounded digest of the
-conversation's last 12 KB, including a suffix of an oversized answer. It takes the session's own model unless
-`chat.nextStepsModel` names one (a name, or one per agent id such as `{"claude": "haiku"}`). Each run is billed to the
+conversation's last 12 KB, including a suffix of an oversized answer. It runs at the agent's lowest effort level, on
+`chat.nextStepsModel` when it names one (a name, or one per agent id such as `{"claude": "haiku"}`), else the agent's
+lightest model (`light`: Haiku for Claude Code), else the session's own. Each run is billed to the
 agent that writes them, the option's line says so (Claude Code writes them for an agent that cannot answer with no
-tools, billed to the person's Claude account), and the strip names it; a fork reads the whole conversation again. Only
+tools, billed to the person's Claude account); a fork reads the whole conversation again. Only
 the person's own look starts a run: the hub builds a view as the person's when a subscriber placed as theirs follows it
 (`peer::with`), and an agent's tools reading `chat` get only what is kept. One run at most per turn (a turn is keyed by its answer,
 kept in `~/.cache/cockpit/agents/next/<session>.json` across restarts), and a run for a turn the person has moved on
@@ -504,9 +508,9 @@ characters and a label of 48, text holding Unicode tag characters refused, escap
 private-use and bidi characters removed, a prompt that runs something on send dropped (`!` a shell line, `#` a memory
 note, in Claude Code, Codex and Gemini CLI), and a slash command dropped unless the session has it (a driven session's
 commands are known and the view says `commands: true`; a terminal's are not, so its `/` prompts go). The chat cleans it
-again and applies the same rules, and draws it above the box: a dim "Next", a button per suggestion (the prompt and its
-key in its tooltip), a dim "by <agent>" (its billing in the tooltip), and ✕; while the agent is asked, "Next steps by
-<agent>…". It
+again and applies the same rules, and draws it above the box as a list, one line per suggestion as the agent's own
+terminal shows them: the key that picks it in a small tag, then its words (the whole prompt in the tooltip), and "0
+Dismiss" last; while the agent is asked, "Next steps…". It
 is hidden while the agent works, during a question card, under the Full access confirm or a question under the header,
 and when the box holds text. 1, 2 and 3 (bindings of the chat's key context, active only while suggestions show and
 the chat is the person's, not pointed by a window command, so its digits type then) or a click put that prompt in the

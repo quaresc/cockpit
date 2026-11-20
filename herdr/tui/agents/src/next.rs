@@ -130,8 +130,8 @@ fn shown(kept: &Kept) -> Value {
 /// The chat view's `next` for its agent `row` and the conversation's latest `messages`: null when the option is off or
 /// there is nothing to show, `{turn, state: "loading", by}` while its run goes, `{turn, state: "ready", by, items}`
 /// after, `by` naming the agent that writes them. The person's first look at a turn starts its run, whose end calls
-/// `touch`; anyone else's (an agent reading `chat`) gets only what is kept. `model` is the session's own, used unless
-/// the config names another; with no agent able to answer it is `{turn, state: "unavailable", reason}`.
+/// `touch`; anyone else's (an agent reading `chat`) gets only what is kept. The model is the config's, else the agent's
+/// lightest, else `model`, the session's own; with no agent able to answer it is `{turn, state: "unavailable", reason}`.
 pub fn of(row: &Value, messages: &[Value], config: &Value, model: Option<&str>, touch: Option<fn()>) -> Value {
     if !on(config) {
         return Value::Null;
@@ -321,9 +321,11 @@ fn commands_of(row: &Value) -> Option<Vec<(String, String)>> {
     Some(list.iter().filter_map(|c| Some((c["name"].as_str()?.to_string(), c["description"].as_str().unwrap_or_default().to_string()))).collect())
 }
 
-/// The model the run takes: `chat.nextStepsModel` (a name, or one per agent id), else the session's own.
-fn model_for(config: &Value, agent: &agent::Agent, session_model: Option<&str>) -> Option<String> {
-    agent::model_in(&config["chat"]["nextStepsModel"], agent).or_else(|| session_model.filter(|m| !m.is_empty() && agent.takes_model(m)).map(str::to_string))
+/// The model the run takes: `chat.nextStepsModel` (a name, or one per agent id), else the agent's lightest, else the
+/// followed session's own when the agent answering is the one followed.
+fn run_model(config: &Value, agent: &agent::Agent, own: bool, session_model: Option<&str>) -> Option<String> {
+    let session = session_model.filter(|m| own && !m.is_empty() && agent.takes_model(m)).map(str::to_string);
+    agent::model_in(&config["chat"]["nextStepsModel"], agent).or_else(|| agent.light.clone().filter(|m| agent.takes_model(m))).or(session)
 }
 
 /// The agent that answers, whatever provider the followed one is: the followed agent where it runs with no tools (its
@@ -347,15 +349,16 @@ fn answerer(row: &Value, config: &Value) -> Result<(agent::Agent, bool), String>
 /// conversation's last turns; kept aside either way.
 fn command(row: &Value, messages: &[Value], config: &Value, session_model: Option<&str>) -> Result<Vec<String>, String> {
     let (agent, own) = answerer(row, config)?;
-    // Another agent reads the conversation as cockpit read it: not the followed session's model, fork or commands.
-    let model = if own { model_for(config, &agent, session_model) } else { agent::model_in(&config["chat"]["nextStepsModel"], &agent) };
+    // Another agent reads the conversation as cockpit read it: not the followed session's fork or commands.
+    let model = run_model(config, &agent, own, session_model);
     let commands = if own { commands_of(row) } else { None };
     let fork = row["session"].as_str().filter(|s| own && !s.is_empty() && !agent.run_fork.is_empty());
     let prompt = match fork {
         Some(_) => question(commands.as_deref(), None),
         None => question(commands.as_deref(), Some(&digest(messages).ok_or("nothing to read in the conversation")?)),
     };
-    let how = Headless { model: model.as_deref(), fork, aside: true, ..Default::default() };
+    // Suggesting what to do next is an errand: its lowest effort level is enough.
+    let how = Headless { model: model.as_deref(), effort: agent.efforts.first().map(String::as_str), fork, aside: true, ..Default::default() };
     agent.headless(&prompt, &how).ok_or_else(|| format!("{} has no headless mode", agent.name))
 }
 
@@ -552,6 +555,19 @@ mod tests {
         assert!(fresh.starts_with(FRESH));
         assert!(fresh.contains(&format!("<conversation>\nPerson: Write the quota copy\n\nAgent: {ANSWER}\n</conversation>")), "{fresh}");
         assert!(!fresh.contains("<commands>"));
+    }
+
+    #[test]
+    fn next_steps_run_on_the_agent_s_lightest_model_at_its_lowest_effort() {
+        let claude = agent::builtin().into_iter().find(|a| a.id == "claude").unwrap();
+        assert_eq!(run_model(&json!({}), &claude, true, Some("opus")).as_deref(), Some("haiku"));
+        assert_eq!(run_model(&json!({"chat": {"nextStepsModel": "sonnet"}}), &claude, true, Some("opus")).as_deref(), Some("sonnet"), "the config's first");
+        let codex = agent::builtin().into_iter().find(|a| a.id == "codex").unwrap();
+        assert_eq!(run_model(&json!({}), &codex, true, Some("gpt-6.2-sol")).as_deref(), Some("gpt-6.2-sol"), "none measured: the session's own");
+        assert_eq!(run_model(&json!({}), &codex, false, Some("gpt-6.2-sol")), None, "another agent's model is never taken");
+        let how = Headless { model: Some("haiku"), effort: claude.efforts.first().map(String::as_str), aside: true, ..Default::default() };
+        let argv = claude.headless("Next?", &how).unwrap();
+        assert!(argv.windows(2).any(|w| w == ["--effort", "low"]) && argv.windows(2).any(|w| w == ["--model", "haiku"]), "{argv:?}");
     }
 
     #[test]

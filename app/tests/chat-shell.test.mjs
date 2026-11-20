@@ -140,34 +140,30 @@ test("pills fit in order, the one on kept, room left for +N; all of them when th
   assert.equal(top.guessWidth("x".repeat(400)), top.guessWidth("y".repeat(300)), "a long name is cut");
 });
 
-test("closing the tab the chat reads archives it, the next one comes in front, and Undo brings it back", async () => {
+test("closing the tab the chat reads closes it for good, and the next one comes in front", async () => {
   const f = await fixture({ active: 2 });
   const { shown } = f.bar.layoutNow();
   const t = shown.find((p) => p.on).tab;
-  f.bar.archive(t, f.space.tabs.filter((x) => !x.settled));
-  eq(f.calls.slice(-2), [["tab.select", { id: "t3" }], ["tab.settle", { id: "t2" }]]);
-  const toast = f.notices.at(-1);
-  assert.match(toast.title, /Archived feature-branch-2/);
-  assert.match(toast.body, /undo/i);
-  assert.equal(toast.action.name, "cockpit.tabs:restore:t2", "the toast's click runs the bar's restore");
-  // Herdr settles it: the bar leaves it out and the +N menu offers it back.
-  f.space.tabs[1].settled = true;
-  f.space.tabs[1].active = false;
-  f.space.tabs[2].active = true;
-  const after = f.bar.layoutNow();
-  assert.ok(!keys(after.shown).includes("t2") && !keys(after.hidden).includes("t2"));
-  eq(after.archived.map((x) => x.id), ["t2"]);
-  f.bar.openTabs();
-  const items = f.menus().at(-1).props.items;
-  eq(items.slice(-2).map(bare), ["separator", { label: "feature-branch-2", icon: "archive", command: "tabs:restore:t2" }]);
-  f.bar.command(toast.action.name.slice("cockpit.".length), { notify() {} });
-  eq(f.calls.filter((c) => c[0].startsWith("tab.")).slice(-2), [["tab.unsettle", { id: "t2" }], ["tab.select", { id: "t2" }]]);
+  f.bar.closeTab(t, f.space.tabs);
+  eq(f.calls.slice(-2), [["tab.select", { id: "t3" }], ["tab.close", { id: "t2" }]]);
+  assert.ok(!f.calls.some((c) => c[0] === "tab.settle"), "nothing is put away to come back");
 });
 
-test("the archive toast's Undo brings the tab back in the Cockpit layout too", async () => {
-  const f = await fixture({ layoutName: "cockpit" });
-  assert.equal(f.commands.runCommand("tabs:restore:t2", { notify() {}, spawn() {} }, "cockpit", {}), true, "Cockpit's runner has it");
-  eq(f.calls.filter((c) => c[0].startsWith("tab.")), [["tab.unsettle", { id: "t2" }], ["tab.select", { id: "t2" }]]);
+test("a tab whose agent is at work closes on the second click only", async () => {
+  const f = await fixture({ active: 4 });
+  const busy = f.space.tabs[3];
+  f.bar.closeTab(busy, f.space.tabs);
+  assert.ok(!f.calls.some((c) => c[0] === "tab.close"), "the first click only asks");
+  f.bar.closeTab(busy, f.space.tabs);
+  eq(f.calls.at(-1), ["tab.close", { id: "t4" }]);
+});
+
+test("a tab put away elsewhere still has its pill: the bar holds no archive", async () => {
+  const f = await fixture({ tabs: 3, settled: ["t2"] });
+  const { shown, hidden } = f.bar.layoutNow();
+  eq(keys([...shown, ...hidden]), ["t1", "t2", "t3"]);
+  f.bar.openTabs();
+  assert.ok(!f.menus().at(-1).props.items.some((i) => i === "separator" || i.icon === "archive"));
 });
 
 test("pills fit with one gap between each, none spent before +N when no pill is on", async () => {
@@ -186,10 +182,10 @@ test("the +N menu picks its first item only when its key opened it, not a click"
   assert.equal(f.menus().at(-1).props.picked, 0);
 });
 
-test("the last tab open is archived in place, with nothing to bring in front", async () => {
-  const f = await fixture({ tabs: 2, active: 2, settled: ["t1"] });
-  f.bar.archive(f.space.tabs[1], f.space.tabs.filter((x) => !x.settled));
-  eq(f.calls.at(-1), ["tab.settle", { id: "t2" }]);
+test("the last tab open closes in place, with nothing to bring in front", async () => {
+  const f = await fixture({ tabs: 1, active: 1 });
+  f.bar.closeTab(f.space.tabs[0], f.space.tabs);
+  eq(f.calls.at(-1), ["tab.close", { id: "t1" }]);
   assert.ok(!f.calls.some((c) => c[0] === "tab.select"));
 });
 
@@ -213,12 +209,9 @@ test("a tab with no agent, like Herdr's numbered \"3\", shows its panes; a tab w
   // Two agents in one tab: the one in front there.
   click(pill("t5"));
   eq(f.calls.filter((c) => c[0] === "agent.focus").at(-1), ["agent.focus", { terminal: "t45" }]);
-  // The +N menu's pick and an archived tab brought back show what their tab holds too.
+  // The +N menu's pick shows what its tab holds too.
   f.bar.command("tabs:select:t3", { notify() {} });
   eq(screens().at(-1), "tab");
-  f.bar.command("tabs:restore:t2", { notify() {}, spawn() {} });
-  eq(f.calls.filter((c) => c[0].startsWith("tab.")).slice(-2), [["tab.unsettle", { id: "t2" }], ["tab.select", { id: "t2" }]]);
-  eq(screens().at(-1), "chat");
 });
 
 test("⌘⇧A opens the menu under the +N pill, its first item picked; with nothing hidden, every tab", async () => {
@@ -357,7 +350,7 @@ test("the terminal logo follows the tab in view, never Herdr's unrelated agent f
 });
 
 
-test("a tab still at Herdr's number shows the name of the agent in it; a label anyone gave stays", async () => {
+test("a tab still at Herdr's number or its agent's name shows the title of its work; a label anyone gave stays", async () => {
   const f = await fixture();
   const rows = [{ terminal: "app:t9", tab: { id: "t3" }, title: "Daily quota limiter" }];
   eq(f.top.tabName({ id: "t3", name: "3" }, rows), "Daily quota limiter");
@@ -365,4 +358,7 @@ test("a tab still at Herdr's number shows the name of the agent in it; a label a
   eq(f.top.tabName({ id: "t3", name: "quotas" }, rows), "quotas", "a name the person typed");
   eq(f.top.tabName({ id: "t4", name: "4" }, rows), "4", "no agent in it: its number");
   eq(f.top.tabName({ id: "t3", name: "3" }), "3", "no rows yet");
+  const agent = [{ ...rows[0], agent_name: "Claude Code", program: "claude-code" }];
+  eq(f.top.tabName({ id: "t3", name: "Claude Code" }, agent), "Daily quota limiter", "its agent's own name says nothing the bar does not");
+  eq(f.top.tabName({ id: "t3", name: "claude-code" }, agent), "Daily quota limiter");
 });

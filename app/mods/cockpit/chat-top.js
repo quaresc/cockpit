@@ -1,5 +1,5 @@
 // The reading layout's top bar: a capsule with a pill per tab of the space in front and per session cockpit drives, each
-// with the mark of what its agent is doing, and a "+N" pill for those that do not fit or were archived. Always shown,
+// with the mark of what its agent is doing, and a "+N" pill for those that do not fit. Always shown,
 // it runs the window's commands in this layout (commands.js).
 
 import { div } from "gpui-kit";
@@ -51,6 +51,9 @@ export function statusMark(raw, k) {
 function statusIcon(raw) {
   return { failed: "circle-x", working: "loader", done: "check", blocked: "hand" }[agentStatus(raw)] ?? "app-window";
 }
+
+/** How long a close asked of a tab whose agent is at work waits for the second click that confirms it. */
+const CONFIRM_MS = 4000;
 
 /** A pill's width before it was ever drawn: its mark, its agent's logo, its name (cut at 170 px), and the close button
  *  of the one on. */
@@ -225,9 +228,11 @@ export default class ChatTop {
       .child(div().max_w(170).truncate().child(name));
   }
 
-  /** A tab's pill; the one the chat reads has a close button, which archives it. */
+  /** A tab's pill; the one the chat reads has a close button, which closes the tab and what runs in it. */
   pill(t, on, k, open) {
     const waiting = agentStatus(t.status) === "blocked";
+    // A close asked while its agent works or waits takes a second click: the first only asks.
+    const asking = this.closing?.id === t.id && Date.now() - this.closing.at < CONFIRM_MS;
     // A tab whose agent is waiting says so from here: its name in the blocked colour, and how long it has waited.
     const age = waiting && t.changed_at ? dur(Date.now() - t.changed_at) : null;
     const agent = this.tabAgent(t);
@@ -261,45 +266,54 @@ export default class ChatTop {
         e.child(
           div()
             .id(`tab-close-${t.id}`)
-            .size(18)
+            .h(18)
+            .min_w(18)
+            .px(asking ? 6 : 0)
             .flex()
             .items_center()
             .justify_center()
             .rounded(9)
-            .text_color(k.dim)
-            .hover((s) => s.bg(k.accent).text_color(k.foreground))
-            .tooltip("Archive the tab: it keeps running")
+            .text_size(TEXT.xs)
+            .text_color(asking ? k.destructive : k.dim)
+            .hover((s) => s.bg(k.accent).text_color(asking ? k.destructive : k.foreground))
+            .tooltip(asking ? "Click again to close it, its agent with it" : "Close the tab and what runs in it")
             .on_click((_e, cx) => {
               cx.stop_propagation();
-              this.archive(t, open);
+              this.closeTab(t, open, cx);
               cx.notify();
             })
-            .child(Icon("x", { size: 12 })),
+            .child(asking ? div().child("Close?") : Icon("x", { size: 12 })),
         ),
       );
   }
 
   /**
-   * Puts a tab away on this screen (Herdr's settle): it keeps running, leaves the bar, and a toast brings it back. The
-   * next tab comes in front first, so the chat moves on with it.
+   * Closes a tab, and what runs in it, for good. One whose agent works or waits asks for a second click first; the next
+   * tab comes in front before, so the chat moves on with it.
    */
-  archive(t, open) {
+  closeTab(t, open, cx = null) {
+    const busy = ["working", "blocked"].includes(agentStatus(t.status));
+    const confirmed = this.closing?.id === t.id && Date.now() - this.closing.at < CONFIRM_MS;
+    if (busy && !confirmed) {
+      this.closing = { id: t.id, at: Date.now() };
+      // The question goes once its time is up.
+      cx?.timer?.after(CONFIRM_MS, (cx) => cx.notify());
+      return;
+    }
+    this.closing = null;
     const i = open.findIndex((x) => x.id === t.id);
     const next = open[i + 1] ?? open[i - 1];
     if (t.active && next) {
       pinChat(null);
       run("tab.select", { id: next.id });
     }
-    run("tab.settle", { id: t.id });
-    notify({ title: `Archived ${t.name}`, body: "Click to undo. It keeps running, folded away.", level: "info", timeout: 8000, action: { name: `cockpit.tabs:restore:${t.id}` } });
+    run("tab.close", { id: t.id });
   }
 
-  /** The bar's tabs and sessions as they stand: what shows, what the "+N" menu holds, and the archived tabs. */
+  /** The bar's tabs and sessions as they stand: what shows, and what the "+N" menu holds. */
   layoutNow() {
     const space = spaces().find((s) => s.active) ?? spaces()[0];
-    const tabs = space?.tabs ?? [];
-    const open = tabs.filter((t) => !t.settled);
-    const archived = tabs.filter((t) => t.settled);
+    const open = space?.tabs ?? [];
     // The chat on a session it was opened on: no tab is the one it reads, even the active one.
     const pinned = Boolean(shared(CHAT_PIN)?.key);
     const pills = [
@@ -317,34 +331,29 @@ export default class ChatTop {
     const fit = fitPills(pills, room);
     const shown = pills.filter((p) => fit.shown.includes(p.key));
     const hidden = pills.filter((p) => fit.hidden.includes(p.key));
-    return { open, archived, shown, hidden };
+    return { open, shown, hidden };
   }
 
   /**
-   * The "+N" menu, under its pill: what does not fit, then the archived tabs; with nothing hidden, every tab. Opened by
-   * its key, its first item is picked.
+   * The "+N" menu, under its pill: what does not fit; with nothing hidden, every tab. Opened by its key, its first item
+   * is picked.
    */
   openTabs(byKey = false) {
-    const { archived, shown, hidden } = this.layoutNow();
-    const all = hidden.length + archived.length === 0;
-    const list = all ? shown : hidden;
-    const items = [
-      ...list.map((p) =>
-        p.tab
-          ? { label: tabName(p.tab, this.rows), icon: p.on ? "check" : statusIcon(p.tab.status), command: `tabs:select:${p.tab.id}` }
-          : { label: drivenName(p.session), icon: "message-square", command: `tabs:open:${p.session.terminal}` },
-      ),
-      list.length && archived.length ? "separator" : null,
-      ...archived.map((t) => ({ label: t.name, icon: "archive", command: `tabs:restore:${t.id}` })),
-    ].filter(Boolean);
+    const { shown, hidden } = this.layoutNow();
+    const list = hidden.length ? hidden : shown;
+    const items = list.map((p) =>
+      p.tab
+        ? { label: tabName(p.tab, this.rows), icon: p.on ? "check" : statusIcon(p.tab.status), command: `tabs:select:${p.tab.id}` }
+        : { label: drivenName(p.session), icon: "message-square", command: `tabs:open:${p.session.terminal}` },
+    );
     if (!items.length) return;
-    const at = menuAnchor({ window: viewport(), bar: this.sizes.get("bar"), lights: lightsRoom(), left: this.sizes.get("left"), tabs: this.sizes.get("tabs"), more: hidden.length + archived.length ? this.sizes.get("more") : null });
+    const at = menuAnchor({ window: viewport(), bar: this.sizes.get("bar"), lights: lightsRoom(), left: this.sizes.get("left"), tabs: this.sizes.get("tabs"), more: hidden.length ? this.sizes.get("more") : null });
     openMenu(items, { width: 260, at, byKey });
   }
 
   /**
    * The window's commands, as the copy of this layout that is always shown, and the bar's own: its tabs menu only
-   * selects and opens tabs, and brings back archived ones through the runner, as Cockpit's does. `key` is the one a menu, the palette or a click sent the command with.
+   * selects and opens tabs. `key` is the one a menu, the palette or a click sent the command with.
    */
   command(c, cx, key = null) {
     if (c === "tabs") this.openTabs(true);
@@ -391,11 +400,11 @@ export default class ChatTop {
   render(_cx) {
     this.nativeAgents = agents();
     const k = tokens();
-    const { open, archived, shown, hidden } = this.layoutNow();
-    const more = hidden.length + archived.length;
+    const { open, shown, hidden } = this.layoutNow();
+    const more = hidden.length;
     const pills = shown.map((p) => (p.tab ? this.pill(p.tab, p.on, k, open) : this.driven(p.session, k)));
     if (more > 0) {
-      const parts = [hidden.length && `${hidden.length} more`, archived.length && `${archived.length} archived`].filter(Boolean).join(" · ");
+      const parts = `${hidden.length} more`;
       pills.push(
         h_flex()
           .id("chat-tabs-more")
@@ -475,11 +484,15 @@ export function terminalWords(a) {
   return name ? `Show ${name}'s terminal` : "Show its terminal";
 }
 
-/** What a tab's pill says: its label, or, while that is still Herdr's number, the name of the agent in it. */
+/**
+ * What a tab's pill says: the title of the work its agent does, while the tab's label is still Herdr's number or its
+ * agent's own name ("Claude Code"); a label the person gave stays.
+ */
 export function tabName(t, rows = []) {
-  const label = String(t?.name ?? "");
-  if (label.trim() && !/^\d+$/.test(label.trim())) return label;
-  return rows.find((r) => r.tab?.id && r.tab.id === t?.id && r.title)?.title || label;
+  const label = String(t?.name ?? "").trim();
+  const row = rows.find((r) => r.tab?.id && r.tab.id === t?.id && r.title);
+  const generic = !label || /^\d+$/.test(label) || [row?.agent_name, row?.program?.name, row?.program].some((n) => typeof n === "string" && n.toLowerCase() === label.toLowerCase());
+  return generic ? row?.title || label : label;
 }
 
 /** What a driven session's pill and menu item say: its title, else its folder. */

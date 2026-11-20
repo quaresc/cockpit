@@ -78,6 +78,9 @@ test("a turn still running keeps its words in the fold and counts up to now", as
   assert.equal(rows[1].done, false);
   assert.equal(rows[1].notes.length, 1);
   assert.equal(chat.workedFor(rows[1].secs, rows[1].done), "Working for 40s");
+  assert.equal(rows[1].steps.map(s => s.call?.name ?? s.note.text).join(" | "), "Looking at it. | Read | Bash", "its steps keep their order, the last one what it does now");
+  const done = chat.rowsOf(TURN);
+  assert.equal(done[1].steps.map(s => s.call?.name ?? s.note.text).join(" | "), "Looking at it. | Read | Bash", "the answer is not a step");
 });
 
 test("a turn you stopped keeps its words in the fold and ends on a stopped mark, not a bubble of yours", async () => {

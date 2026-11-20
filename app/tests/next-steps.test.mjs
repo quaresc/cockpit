@@ -181,7 +181,7 @@ test("the chat's key context takes 1, 2, 3 and 0 only while next steps show", as
   assert.ok(bindings.every((b, i) => b.context === `CockpitChat && chat_next${i % 2 ? " > Input" : ""}`), "anywhere in the chat, and in its box before the box's own");
 });
 
-test("the strip draws a button per suggestion with its prompt and key in the tooltip, and a way to put them away", async () => {
+test("the list draws a line per suggestion with the key that picks it, its prompt in the tooltip, and 0 to put them away", async () => {
   const { mod } = await fixture();
   const k = { dim: "#707070", border: "#333", mutedFg: "#a0a0a0", accent: "#2a2a2a", foreground: "#ededed" };
   const shown = mod.next.nextShown(READY, {});
@@ -191,8 +191,12 @@ test("the strip draws a button per suggestion with its prompt and key in the too
   assert.match(made, /"id","chat-next"/);
   const children = strip.made.filter((m) => m[0] === "children")[0][1];
   assert.equal(children.length, 3);
-  const tooltip = children[1].made.find((m) => m[0] === "tooltip")[1];
-  assert.equal(tooltip, `${READY.items[1].prompt}  2`, "key hints only in tooltips");
+  assert.equal(children[1].made.find((m) => m[0] === "tooltip")[1], READY.items[1].prompt);
+  const tag = children[1].made.find((m) => m[0] === "child")[1].made;
+  assert.match(JSON.stringify(tag), /"child","2"/, "its key in a tag");
+  const dismiss = strip.made.filter((m) => m[0] === "child").at(-1)[1].made;
+  assert.match(JSON.stringify(dismiss), /"id","chat-next-dismiss"/);
+  assert.doesNotMatch(made, /"Next"/, "no heading");
   children[2].made.find((m) => m[0] === "on_click")[1]({}, {});
   assert.deepEqual(picked, [READY.items[2].prompt], "a click fills too");
   const loading = mod.next.NextSteps({ turn: "t", state: "loading", items: [] }, k, { onPick() {}, onDismiss() {} }).made.filter((m) => m[0] === "child");
@@ -215,19 +219,13 @@ test("after a window command put the chat on its agent, digits fill nothing unti
   assert.equal(f.mod.next.nextKey("1", f.mod.next.nextShown(READY, {}), { pointed: true }), null);
 });
 
-test("the strip names the agent that writes the suggestions, dim, its billing in the tooltip", async () => {
+test("the strip shows the suggestions alone, with no line naming who writes them", async () => {
   const { mod } = await fixture();
   const k = { dim: "#707070", border: "#333", mutedFg: "#a0a0a0", accent: "#2a2a2a", foreground: "#ededed" };
-  const shown = mod.next.nextShown({ ...READY, by: "Claude Code‮" }, {});
-  assert.equal(shown.by, "Claude Code", "cleaned like the rest");
-  const strip = mod.next.NextSteps(shown, k, { onPick() {}, onDismiss() {} });
-  const by = strip.made.filter((m) => m[0] === "child").map((m) => m[1].made).find((made) => made.some((c) => c[0] === "id" && c[1] === "chat-next-by"));
-  assert.ok(by, "a dim line after the suggestions");
-  assert.deepEqual(plain(by.filter((c) => ["child", "tooltip", "text_color"].includes(c[0]))), [
-    ["text_color", "#707070"], ["tooltip", "Written by Claude Code and billed to its account"], ["child", "by Claude Code"],
-  ], "monochrome");
+  const strip = mod.next.NextSteps(mod.next.nextShown({ ...READY, by: "Claude Code" }, {}), k, { onPick() {}, onDismiss() {} });
+  assert.doesNotMatch(JSON.stringify(strip.made), /Claude Code/);
   const loading = mod.next.NextSteps(mod.next.nextShown({ turn: "t", state: "loading", by: "Claude Code" }, {}), k, { onPick() {}, onDismiss() {} });
-  assert.match(JSON.stringify(loading.made.filter((m) => m[0] === "child").map((m) => m[1].made)), /Next steps by Claude Code…/);
+  assert.match(JSON.stringify(loading.made.filter((m) => m[0] === "child").map((m) => m[1].made)), /"Next steps…"/);
 });
 
 test("a held ⏎ never sends; a press after it is let go does", async () => {

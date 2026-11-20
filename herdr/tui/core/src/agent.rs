@@ -79,6 +79,8 @@ pub struct Agent {
     pub offered: Vec<String>,
     /// The effort levels it takes, lowest first. Empty where it has none or they were not measured.
     pub efforts: Vec<String>,
+    /// Its lightest model, which errands such as next steps run on. None where not measured.
+    pub light: Option<String>,
     /// How an effort level is passed at start, `{effort}`. None where not measured.
     pub effort: Option<Vec<String>>,
     /// How fast mode is set at start: `{fast}` as true or false, `{speed}` as fast or default. Switches without a value
@@ -194,6 +196,8 @@ pub struct Picked<'a> {
 #[derive(Clone, Debug, Default)]
 pub struct Headless<'a> {
     pub model: Option<&'a str>,
+    /// An effort level, passed where the agent takes it.
+    pub effort: Option<&'a str>,
     /// A past session to branch from.
     pub fork: Option<&'a str>,
     /// May edit files in its folder, and in `dirs`, without asking.
@@ -254,6 +258,7 @@ impl Row<'_> {
             new_session: vec![],
             offered: vec![],
             efforts: vec![],
+            light: None,
             effort: None,
             fast: None,
             live: vec![],
@@ -410,6 +415,8 @@ struct Measured {
     offered: &'static [&'static str],
     /// Its effort levels, lowest first.
     efforts: &'static [&'static str],
+    /// Its lightest model, as it takes it; empty where not measured.
+    light: &'static str,
     /// How an effort level is passed at start.
     effort: &'static [&'static str],
     /// How fast mode is set at start.
@@ -423,6 +430,7 @@ const PICKS: &[Measured] = &[
         id: "claude",
         offered: &["opus", "sonnet", "haiku", "fable"],
         efforts: &["low", "medium", "high", "xhigh", "max"],
+        light: "haiku",
         effort: &["--effort", "{effort}"],
         fast: &["--settings", "{\"fastMode\":{fast}}"],
     },
@@ -431,6 +439,7 @@ const PICKS: &[Measured] = &[
         id: "codex",
         offered: NONE,
         efforts: &["low", "medium", "high", "xhigh", "max", "ultra"],
+        light: "",
         effort: &["-c", "model_reasoning_effort=\"{effort}\""],
         fast: &["-c", "service_tier=\"{speed}\""],
     },
@@ -471,6 +480,7 @@ pub fn builtin() -> Vec<Agent> {
             }
             if let Some(p) = PICKS.iter().find(|p| p.id == row.id) {
                 (agent.offered, agent.efforts, agent.effort, agent.fast) = (v(p.offered), v(p.efforts), control(p.effort), control(p.fast));
+                agent.light = (!p.light.is_empty()).then(|| p.light.to_string());
             }
             agent.live = LIVE.iter().find(|(id, _)| *id == row.id).map(|(_, l)| l.iter().map(|(setting, _)| *setting).collect()).unwrap_or_default();
             agent.typing = typing(row.id);
@@ -960,6 +970,7 @@ fn laid_over(mut list: Vec<Agent>, overrides: &serde_json::Map<String, Value>) -
             new_session: vec![],
             offered: vec![],
             efforts: vec![],
+            light: None,
             effort: None,
             fast: None,
             live: vec![],
@@ -1002,6 +1013,9 @@ fn laid_over(mut list: Vec<Agent>, overrides: &serde_json::Map<String, Value>) -
         }
         if let Some(list) = strs(&o["live"]) {
             agent.live = list.iter().filter_map(|s| Setting::of(s)).collect();
+        }
+        if let Some(light) = o["light"].as_str() {
+            agent.light = (!light.trim().is_empty()).then(|| light.trim().to_string());
         }
         // An empty list says it has no such control.
         for (key, field) in [("mode", &mut agent.mode), ("interrupt", &mut agent.interrupt), ("effort", &mut agent.effort), ("fast", &mut agent.fast)] {
@@ -1530,6 +1544,7 @@ impl Agent {
             return None;
         }
         let mut opts = self.model_args(how.model.filter(|m| self.takes_model(m)));
+        opts.extend(how.effort.and_then(|e| self.effort_argv(e)).unwrap_or_default());
         if how.aside {
             let isolated = self.aside();
             if isolated.is_empty() || how.edits || !how.dirs.is_empty() {
@@ -1854,6 +1869,9 @@ mod tests {
         assert_eq!(claude.live, [Setting::Model], "a name it does not know is left out");
         let acme = list.iter().find(|a| a.id == "acme").unwrap();
         assert_eq!(acme.effort_argv("quick").unwrap(), ["--think", "quick"]);
+        assert_eq!(claude.light.as_deref(), Some("haiku"), "measured");
+        let light = laid_over(builtin(), serde_json::json!({"codex": {"light": "gpt-6-luna"}}).as_object().unwrap());
+        assert_eq!(light.iter().find(|a| a.id == "codex").unwrap().light.as_deref(), Some("gpt-6-luna"));
     }
 
     #[test]
@@ -2009,7 +2027,8 @@ mod tests {
 
     #[test]
     fn a_headless_run_gets_what_the_agent_takes() {
-        let how = Headless { model: Some("sonnet"), fork: Some("s1"), edits: true, dirs: vec!["/rb".into()], system: Some("Be brief."), aside: false };
+        let how =
+            Headless { model: Some("sonnet"), effort: None, fork: Some("s1"), edits: true, dirs: vec!["/rb".into()], system: Some("Be brief."), aside: false };
         let claude = row("claude").headless("Go.", &how).unwrap();
         assert_eq!(
             claude,

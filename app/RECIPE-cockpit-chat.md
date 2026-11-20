@@ -25,8 +25,9 @@ Left to right, then top to bottom. Colours come from the layout's own theme (`co
 - **Top bar**, 56px, draggable, over the window's traffic lights: one rounded capsule holding a pill per tab of the
   space in front, the active one filled, each with its agent's mark (a turning arc working, a check done, an amber dot
   waiting, a ring idle). A tab whose agent waits says so in the blocked colour and carries how long it has waited.
-  What does not fit, and the tabs archived with the active pill's ×, wait behind a "+N" pill (⌘⇧A opens its menu);
-  archiving shows a toast whose click brings the tab back. A second capsule on the right holds the hub's dot (filled
+  A pill reads the title of its agent's work while the tab's label is Herdr's number or the agent's own name. What
+  does not fit waits behind a "+N" pill (⌘⇧A opens its menu). The active pill's × closes the tab, a second click
+  confirming it while its agent works or waits. A second capsule on the right holds the hub's dot (filled
   while it runs, a ring with "Hub stopped" or "Hub not running" when it is down, a click starts it), Herdr's own new menu (a terminal, an
   agent, a space, a worktree — ⌘T) and the agent's terminal.
 - **Chat**, the screen the window opens on, in a 760px reading column:
@@ -36,7 +37,8 @@ Left to right, then top to bottom. Colours come from the layout's own theme (`co
     it square, and a fence still streaming is a box already;
   - everything the agent did for one turn as a single line ("Worked for 2m 14s"), which opens into what it said on
     the way and one line per call: the tool, what it was given, and whether it worked; a rule under it separates the
-    work from the answer, and a turn still running counts up to now with its fold open;
+    work from the answer, and a turn still running counts up to now and shows only the step it is on, its terminal's
+    words for it, with "N more ⌄" beside it opening the rest;
   - the newest message stays in view only while you are there: reading back is never pulled down, and a "N new ↓"
     pill counts what came since; reaching the top, or "Earlier messages", reads further back with the first message
     kept where it was;

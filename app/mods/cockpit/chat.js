@@ -35,7 +35,7 @@ const MODES = {
   bypassPermissions: { label: "Full access", icon: "triangle-alert", loud: true, offered: true },
   manual: { label: "Asks first", icon: "shield-check", loud: false, offered: false },
   dontAsk: { label: "Never asks", icon: "triangle-alert", loud: true, offered: false },
-  auto: { label: "Auto", icon: "triangle-alert", loud: true, offered: false },
+  auto: { label: "Auto", icon: "zap", loud: true, offered: false },
 };
 
 /** The subject of a start box the palette opened: no agent, the box is Start work. */
@@ -192,21 +192,25 @@ const INTERRUPTED = /^\[Request interrupted by user\b[^\]]*\]$/;
 export function rowsOf(messages, { working = false, now = null, stopped = false, failed = false, error = null } = {}) {
   const rows = [];
   let turn = null;
-  const open = (at, first) => (turn ??= { calls: [], notes: [], from: at, to: at, first, ids: [] });
+  const open = (at, first) => (turn ??= { calls: [], notes: [], steps: [], from: at, to: at, first, ids: [] });
   const close = (live, cut = false) => {
     if (!turn) return;
     const answer = live || cut || !turn.notes.length ? null : turn.notes[turn.notes.length - 1];
     const aside = answer ? turn.notes.slice(0, -1) : turn.notes;
     if (turn.calls.length || aside.length) {
       const ids = answer ? turn.ids.filter((id) => id !== answer.mid) : turn.ids;
-      rows.push({ kind: "work", calls: turn.calls, notes: aside, done: !live, from: turn.from, to: turn.to, secs: secondsBetween(turn.from, live ? now : turn.to), ids, base: `work:${turn.from}:${hashOf(turn.first)}` });
+      // Everything it did and said on the way, in the order it came: the fold's list, its last one what it does now.
+      const steps = answer ? turn.steps.filter((s) => s.note !== answer) : turn.steps;
+      rows.push({ kind: "work", calls: turn.calls, notes: aside, steps, done: !live, from: turn.from, to: turn.to, secs: secondsBetween(turn.from, live ? now : turn.to), ids, base: `work:${turn.from}:${hashOf(turn.first)}` });
     }
     if (answer) rows.push({ kind: "answered", text: answer.text, at: answer.at, ids: [answer.mid], base: `answered:${answer.id ?? answer.at}:${hashOf(answer.text)}` });
     turn = null;
   };
   for (const m of messages ?? []) {
     if (m.tool) {
-      open(m.at, `${m.tool.name} ${m.tool.summary}`).calls.push({ ...m.tool, at: m.at });
+      const call = { ...m.tool, at: m.at };
+      open(m.at, `${m.tool.name} ${m.tool.summary}`).calls.push(call);
+      turn.steps.push({ call });
       turn.to = m.at;
       turn.ids.push(msgId(m));
       continue;
@@ -223,7 +227,9 @@ export function rowsOf(messages, { working = false, now = null, stopped = false,
       continue;
     }
     const mid = msgId(m);
-    open(m.at, text).notes.push({ text, at: m.at, id: m.id, mid });
+    const note = { text, at: m.at, id: m.id, mid };
+    open(m.at, text).notes.push(note);
+    turn.steps.push({ note });
     turn.to = m.at;
     turn.ids.push(mid);
   }
@@ -1861,29 +1867,39 @@ export default class Chat {
       );
   }
 
-  /** Whether a turn's fold is open: everything it did is in view while it works, out of the way once it answers. */
+  /** Whether a turn's fold is shut: a running one then shows only what it does now, a finished one only how long it took. */
   folded(row) {
     // Kept by a message the row holds: the fold survives the row growing when earlier messages come.
     for (const id of row.ids ?? []) if (this.folds.has(id)) return this.folds.get(id);
-    return row.done;
+    return true;
   }
 
   /**
-   * What the agent did for one turn, as one line you can open. Closed it is only how long it took, with a rule under
-   * it; open it is every call it made and everything it said on the way.
+   * What the agent did for one turn, as one line you can open. While it works, under it, the step it is on as its
+   * terminal words it ("Reading the config"); open, it lists every call and everything it said on the way.
    */
   work(row, k) {
     const open = !this.folded(row);
+    const steps = row.steps ?? [...row.notes.map((note) => ({ note })), ...row.calls.map((call) => ({ call }))];
+    const toggle = (_e, cx) => {
+      for (const id of row.ids ?? []) this.folds.delete(id);
+      if (row.ids?.[0]) this.folds.set(row.ids[0], open);
+      cx.notify();
+    };
     const mark = (c) => (c.ok === false ? Icon("x", { size: 12, color: k.destructive }) : c.ok === true ? Icon("check", { size: 12, color: k.success }) : Spinner({ size: 11, color: k.mutedFg }));
-    const call = (c, i) =>
+    const call = (c) =>
       h_flex()
         .h(26)
         .gap(10)
         .items_center()
         .text_size(TEXT.sm)
         .child(div().flex_none().w(78).truncate().text_color(k.foreground).child(c.name))
-        .child(div().flex_1().min_w(0).truncate().font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.mutedFg).child(c.summary || "—"))
-        .child(div().flex_none().child(mark(c, i)));
+        .child(
+          c.about
+            ? div().flex_1().min_w(0).truncate().text_color(k.mutedFg).child(c.about)
+            : div().flex_1().min_w(0).truncate().font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.mutedFg).child(c.summary || "—"),
+        )
+        .child(div().flex_none().child(mark(c)));
     const note = (n, i) =>
       div()
         .w_full()
@@ -1891,6 +1907,52 @@ export default class Chat {
         .text_size(TEXT.sm)
         .text_color(k.mutedFg)
         .child(TextView.markdown(`chat-s${row.slot}-n${i}`, n.text).selectable(true).text_size(TEXT.sm));
+    const step = (s, i) => (s.call ? call(s.call) : note(s.note, i));
+    // The step it is on as its terminal shows it, else the last thing its transcript holds: what for, then the call.
+    const shown = !row.done ? this.value?.session : null;
+    const latest = shown?.task ? { step: { label: shown.task, detail: shown.detail } } : steps.at(-1);
+    const line = (label, detail) =>
+      v_flex()
+        .w_full()
+        .min_w(0)
+        .child(div().w_full().truncate().text_size(TEXT.sm).text_color(k.foreground).child(label))
+        .when(Boolean(detail), (e) => e.child(div().w_full().truncate().font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.mutedFg).child(detail)));
+    const now = (s) =>
+      s.step
+        ? line(s.step.label, s.step.detail)
+        : s.call
+        ? h_flex()
+            .w_full()
+            .gap(10)
+            .items_start()
+            .child(
+              v_flex()
+                .flex_1()
+                .min_w(0)
+                .child(div().w_full().truncate().text_size(TEXT.sm).text_color(k.foreground).child(s.call.about || s.call.name))
+                .child(div().w_full().truncate().font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.mutedFg).child(`${s.call.about ? `${s.call.name} · ` : ""}${s.call.summary || "—"}`)),
+            )
+            .child(div().flex_none().pt(3).child(mark(s.call)))
+        : div().w_full().text_size(TEXT.sm).text_color(k.mutedFg).child(TextView.markdown(`chat-s${row.slot}-now`, s.note.text).selectable(true).text_size(TEXT.sm));
+    // The rest of the list, folded beside the last one.
+    const more = latest?.step ? steps.length : steps.length - 1;
+    const expander = h_flex()
+      .id(`work-more-${row.key}`)
+      .flex_none()
+      .h(22)
+      .px(6)
+      .gap(3)
+      .items_center()
+      .rounded(RADIUS.md)
+      .cursor_pointer()
+      .text_size(TEXT.xs)
+      .text_color(k.dim)
+      .hover((st) => st.bg(k.accent).text_color(k.foreground))
+      .tooltip("Everything it did this turn")
+      .on_click(toggle)
+      .child(div().child(`${more} more`))
+      .child(Icon("chevron-down", { size: 12, color: k.dim }));
+    const label = workedFor(row.done ? row.secs : secondsBetween(row.from, new Date().toISOString()), row.done);
     return this.column(
       v_flex()
         .w_full()
@@ -1904,17 +1966,23 @@ export default class Chat {
             .text_color(k.mutedFg)
             .hover((s) => s.text_color(k.foreground))
             .tooltip(open ? "Fold it away" : "What it did")
-            .on_click((_e, cx) => {
-              for (const id of row.ids ?? []) this.folds.delete(id);
-              if (row.ids?.[0]) this.folds.set(row.ids[0], open);
-              cx.notify();
-            })
+            .on_click(toggle)
             .when(!row.done, (e) => e.child(Spinner({ size: 13, color: k.mutedFg })))
-            .child(div().text_size(TEXT.base).child(workedFor(row.done ? row.secs : secondsBetween(row.from, new Date().toISOString()), row.done)))
+            .child(div().min_w(0).truncate().text_size(TEXT.base).child(label))
             .child(Icon(open ? "chevron-down" : "chevron-right", { size: 15, color: k.dim })),
         )
-        .when(open && (row.calls.length > 0 || row.notes.length > 0), (e) =>
-          e.child(v_flex().w_full().pt(6).children([...row.notes.map(note), ...row.calls.map(call)])),
+        .when(open && steps.length > 0, (e) => e.child(v_flex().w_full().pt(6).children(steps.map(step))))
+        .when(!open && !row.done && Boolean(latest), (e) =>
+          e.child(
+            h_flex()
+              .w_full()
+              .pt(6)
+              .pl(20)
+              .gap(8)
+              .items_start()
+              .child(div().flex_1().min_w(0).child(now(latest)))
+              .when(more > 0, (e) => e.child(expander)),
+          ),
         )
         // The rule sits close under the row and the answer stands well clear of it.
         .when(row.done, (e) => e.child(div().w_full().h(1).mt(10).mb(22).bg(k.border))),
@@ -2175,6 +2243,32 @@ export default class Chat {
       );
   }
 
+  /**
+   * The mode an agent in a terminal is in, and focus mode when it is on, as its screen and transcript say: shown, not
+   * set, since only its own ⇧⇥ and /focus change them.
+   */
+  shownModes(k) {
+    const ran = this.value?.session ?? {};
+    const chip = (id, icon, label, tooltip, color) =>
+      h_flex()
+        .id(id)
+        .h(26)
+        .px(7)
+        .gap(5)
+        .flex_none()
+        .items_center()
+        .text_size(TEXT.sm)
+        .text_color(color ?? k.mutedFg)
+        .tooltip(tooltip)
+        .child(Icon(icon, { size: 14, color: color ?? k.mutedFg }))
+        .child(div().child(label));
+    const out = [];
+    const mode = ran.mode ? (MODES[ran.mode] ?? { label: ran.mode, icon: "shield-check", loud: false }) : null;
+    if (mode) out.push(chip("chat-mode-shown", mode.icon, mode.label, "What it may do without asking — ⇧⇥ in its terminal changes it", mode.loud ? k.blocked : null));
+    if (ran.focus === true) out.push(chip("chat-focus-shown", "scan-eye", "Focus", "Focus mode: its terminal shows only its last words — /focus there turns it off"));
+    return out;
+  }
+
   /** A word in the bottom bar that opens a menu: the permission mode, the model. */
   picker(id, { label, icon, logo, color, tooltip, items }, k) {
     return h_flex()
@@ -2345,6 +2439,7 @@ export default class Chat {
                   ),
                 ),
               )
+              .when(!live && Boolean(row), (e) => e.children(this.shownModes(k)))
               .when(!row && !live, (e) => e.children(this.starter.chips((id, o) => this.picker(id, o, k))))
               .when(Boolean(seat.cwd), (e) =>
                 e.child(

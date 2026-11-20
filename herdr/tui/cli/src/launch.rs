@@ -62,6 +62,7 @@ fn argv(kind: &str, asked: &Asked, a: &Agent) -> Result<Vec<String>, String> {
         "run" => {
             let how = Headless {
                 model,
+                effort: None,
                 fork: asked.session.as_deref().filter(|s| !s.is_empty()),
                 edits: asked.edits,
                 dirs: asked.dirs.clone(),
