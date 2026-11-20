@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.1.1 (2026-11-20)
+
+- Fix: cockpit doctor checks the Claude plugin with the Claude Code cockpit starts, so a wrapper with its own config folder no longer reads as missing the plugin (#76)
+- Fix: Claude can update an artifact it already published without being asked for an artifact again (#78)
+- The site and gallery picture show the day's hub, each session's links and the browser inside Herdr (#75)
+
 ## 1.1.0 (2026-11-19)
 
 - New: a Chromium side browser for the Herdr app on macOS, docked in the side panel of both layouts, with tabs, an
