@@ -182,6 +182,7 @@ fn unframe(line: &str) -> String {
 /// prompts, its own furniture, and the lines that say a limit was reached or is over.
 #[derive(Default)]
 pub struct Shapes {
+    command_prompt: Option<(Regex, Regex)>,
     permission: Vec<Regex>,
     footer: Vec<Regex>,
     busy: Vec<Regex>,
@@ -219,6 +220,7 @@ impl Shapes {
 
     fn with(permission: &[String], screen: &cockpit_core::agent::Screen) -> Shapes {
         Shapes {
+            command_prompt: screen.command_prompt.as_ref().and_then(|(start, end)| Some((Regex::new(start).ok()?, Regex::new(end).ok()?))),
             permission: patterns(permission),
             footer: patterns(&screen.footer),
             busy: patterns(&screen.busy),
@@ -251,7 +253,7 @@ pub fn read_for(screen: &str, shapes: &Shapes) -> Question {
     let boxed = input_box(&raw, &lines, shapes);
     // A list above the agent's input box is what it said, not a menu waiting on a key.
     let menu = numbered_menu(&lines, screen).or_else(|| cursor_menu(&lines, &raw)).filter(|(_, _, last)| boxed.is_none_or(|b| b.at <= *last));
-    let Some((mut q, first, _)) = menu else {
+    let Some((mut q, first, last)) = menu else {
         return said_above(&raw, &lines, boxed, shapes);
     };
     let asks = &shapes.permission;
@@ -259,7 +261,8 @@ pub fn read_for(screen: &str, shapes: &Shapes) -> Question {
     q.free = free_option(&q);
     // In display columns: combining marks and wide characters count as the screen draws them.
     let width = raw.iter().map(|l| cockpit_core::text::width(l.trim_end())).max().unwrap_or(0);
-    let top = (0..first).rev().find(|&i| frame_rule(raw[i], width)).map(|i| i + 1);
+    let command_top = complete_command_top(&raw, first, last, &q, shapes);
+    let top = command_top.or_else(|| (0..first).rev().find(|&i| frame_rule(raw[i], width)).map(|i| i + 1));
     let own: Vec<&str> = lines[top.unwrap_or(0)..first].iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
     let shaped = |l: &str| asks.iter().any(|r| r.is_match(l));
     let asks_words = q.free.is_some() || q.choices.iter().any(|c| c.label.to_lowercase().starts_with("chat about this"));
@@ -270,8 +273,8 @@ pub fn read_for(screen: &str, shapes: &Shapes) -> Question {
         q.block = block_above(&lines, top.unwrap_or(first.saturating_sub(QUESTION_LINES)), first);
         return q;
     }
-    // From the frame down. With no frame on the screen nothing tells where the prompt starts: a command can print a
-    // line that reads like its question, so everything read is kept and the prompt is cut.
+    // A drawn frame or the agent's complete command format bounds the request. Otherwise the available text is kept
+    // for review, and the permission is answered at its terminal.
     q.cut = top.is_none();
     q.block = own.iter().map(|l| l.to_string()).collect();
     if q.preview.is_empty() {
@@ -285,6 +288,20 @@ pub fn read_for(screen: &str, shapes: &Shapes) -> Question {
     // Nothing of what it would run read: no card can show it either.
     q.cut |= q.preview.trim().is_empty();
     q
+}
+
+/// An agent's complete unframed command approval, with its command, choices and closing hint all present.
+fn complete_command_top(raw: &[&str], first: usize, last: usize, q: &Question, shapes: &Shapes) -> Option<usize> {
+    let (start, end) = shapes.command_prompt.as_ref()?;
+    if !q.numbered || q.choices.len() < 2 || !q.choices.iter().any(|choice| choice.label.to_ascii_lowercase().starts_with("no")) {
+        return None;
+    }
+    let top = (0..first).rev().find(|&i| start.is_match(raw[i]))?;
+    let body = &raw[top + 1..first];
+    let complete = body.iter().any(|line| line.starts_with("  $ ") && line.trim().len() > 2)
+        && !body.iter().any(|line| line.contains('…') || line.contains("[truncated]") || line.contains("lines omitted"))
+        && raw.get(last + 1..)?.iter().any(|line| end.is_match(line));
+    complete.then_some(top)
 }
 
 /// What a permission cockpit cannot show in full is told, on every surface: it is answered in the agent's terminal.
@@ -836,6 +853,27 @@ Enter to select · ↑/↓ to navigate · Esc to cancel";
         assert!(read_as(CODEX, &claude).permission);
         assert!(run.cut, "Codex draws no frame: where its prompt starts cannot be told, so it is answered in its terminal");
         assert!(!read("Which one?\n\n❯ 1. Yes\n  2. No\n  3. Type something.\n").permission, "a question taking words is not one");
+    }
+
+    #[test]
+    fn a_known_complete_command_prompt_can_be_answered_without_a_drawn_frame() {
+        let known = Shapes::with(&shapes("codex"), &cockpit_core::agent::screen("codex"));
+        let question = read_for(CODEX, &known);
+        assert!(question.permission && !question.cut, "{question:?}");
+        assert_eq!(question.json()["terminal_only"], Value::Null);
+        assert_eq!(question.choices.len(), 3);
+        assert!(question.preview.starts_with("Would you like to run the following command?"));
+        let changed = read_for(&CODEX.replace("mix test test/api/quota_test.exs", "mix test test/api/report_test.exs"), &known);
+        assert_ne!(question.fingerprint(1), changed.fingerprint(1), "a changed command is another permission");
+        for incomplete in [
+            CODEX.replace("  Would you like to run the following command?", ""),
+            CODEX.replace("  Would you like to run the following command?", "    Would you like to run the following command?"),
+            CODEX.replace("  Press enter to confirm or esc to cancel", ""),
+            CODEX.replace("mix test test/api/quota_test.exs", "mix test …"),
+        ] {
+            assert!(read_for(&incomplete, &known).cut, "incomplete or quoted prompt stays terminal-only");
+        }
+        assert!(read_as(CODEX, &shapes("claude")).cut, "another agent does not inherit the unframed format");
     }
 
     #[test]

@@ -80,16 +80,16 @@ async function fixture({ tabs = 12, active = 1, settled = [], layoutName = "cock
     modules.set(name, module);
     return module;
   }
-  const module = new SourceTextModule('export * as top from "./chat-top.js"; export * as ui from "./ui.js"; export * as code from "./code.js"; export * as commands from "./commands.js";', { context });
+  const module = new SourceTextModule('export * as top from "./chat-top.js"; export * as ui from "./ui.js"; export * as code from "./code.js"; export * as commands from "./commands.js"; export * as screens from "./screens.js";', { context });
   await module.link(load);
   await module.evaluate();
-  const { top, ui, code, commands } = module.namespace;
+  const { top, ui, code, commands, screens } = module.namespace;
   // The bar as a copy of it stands after its first layout: the window 1280 px wide, the sidebar open.
   const bar = Object.create(top.default.prototype);
   bar.sizes = new Map([["bar", 1280 - 8 - 268 - 8 - 8], ["right", 104]]);
   bar.sessions = [];
   bar.hub = "live";
-  return { top, ui, code, commands, bar, space, state, calls, notices, overlays, acts, menus: () => overlays.filter((o) => o.props?.app === "menu") };
+  return { top, ui, code, commands, screens, bar, space, state, calls, notices, overlays, acts, menus: () => overlays.filter((o) => o.props?.app === "menu") };
 }
 
 /** Values from the module's own realm compared by their contents. */
@@ -365,4 +365,23 @@ test("a tab still at Herdr's number shows the name of the agent in it; a label a
   eq(f.top.tabName({ id: "t3", name: "quotas" }, rows), "quotas", "a name the person typed");
   eq(f.top.tabName({ id: "t4", name: "4" }, rows), "4", "no agent in it: its number");
   eq(f.top.tabName({ id: "t3", name: "3" }), "3", "no rows yet");
+});
+
+test("the highlighted pill follows the chat's terminal, including a floating terminal in another tab", async () => {
+  const f = await fixture({ tabs: 3, active: 1, live: [{ address: "a", tab: "t1" }, { address: "b", tab: "t2" }] });
+  f.state.set("cockpit.chat.subject", "app:b");
+  const selected = f.bar.layoutNow().shown.filter((pill) => pill.on);
+  eq(selected.map((pill) => pill.tab.id), ["t2"]);
+});
+
+test("exited agents do not give shell tabs an agent icon or chat, and generic labels follow the current provider", async () => {
+  const f = await fixture({ tabs: 3, live: [{ address: "stale", tab: "t1" }, { address: "current", tab: "t2" }] });
+  const rows = [{ terminal: "app:current", address: "current", tab: { id: "t2" }, agent_name: "Codex" }];
+  f.screens.setChatAgents(rows);
+  f.bar.rows = rows;
+  assert.equal(f.bar.tabAgent({ id: "t1" }), null);
+  assert.equal(f.screens.frontAgent({ tab: "t1", terminal: "stale" }), null);
+  eq(f.top.tabName({ id: "t1", name: "Claude Code" }, rows), "Terminals");
+  eq(f.top.tabName({ id: "t2", name: "Claude Code" }, rows), "Codex");
+  eq(f.top.tabName({ id: "t2", name: "Quota review" }, rows), "Quota review");
 });

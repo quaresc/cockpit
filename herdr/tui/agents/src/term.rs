@@ -220,6 +220,10 @@ fn app_live(t: &Value, core: &Value, place: Place) -> Option<Live> {
         (None, Some(a)) => (Some(a.clone()), a.bin),
         (agent, _) => (agent, program),
     };
+    let shell = found.got["foreground"]["name"].as_str().is_some_and(|name| ["sh", "bash", "zsh", "fish", "dash", "nu"].contains(&name));
+    if reported.is_none() && shell && attached_claude(&found.got).is_none() {
+        return None;
+    }
     // Herdr reports no status for a Claude Code session attached from the background (`claude --bg`, a job): its title's
     // spinner says whether it works. An agent with no Herdr status otherwise takes it from its transcript's last turn.
     let (status, title) = match reported {
@@ -341,11 +345,56 @@ pub fn which(
     if let Some((id, p)) = ids.into_iter().find_map(|id| Some((id.clone(), transcripts::find(kind, id, cwd)?))) {
         return (Some(id), Some(shown(p)));
     }
+    if kind == Transcripts::Codex
+        && let Some(pid) = pid
+    {
+        let paths = process_files(pid);
+        return codex_process_session(&paths, cwd);
+    }
     // Without the terminal's start, the newest session in its folder could be any older one.
     match (since > 0).then(|| transcripts::latest(kind, cwd, since)).flatten() {
         Some(p) => (transcripts::id_of(kind, &p), Some(shown(p))),
         None => (None, None),
     }
+}
+
+/// Files held by this process, as the OS reports them.
+fn process_files(pid: u64) -> Vec<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_dir(format!("/proc/{pid}/fd")).into_iter().flatten().filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok()).collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        cockpit_core::peer::lsof(&["-nP", "-p", &pid.to_string(), "-Fn"])
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| line.strip_prefix('n').map(PathBuf::from))
+            .collect()
+    }
+}
+
+/// A Codex process's rollout or writer lock identifies its session, including one with no messages yet.
+fn codex_process_session(paths: &[PathBuf], cwd: &str) -> (Option<String>, Option<String>) {
+    let Some(root) = transcripts::root(Transcripts::Codex) else { return (None, None) };
+    let locks = root.parent().unwrap_or(&root).join("thread-writer-locks");
+    let mut ids: Vec<String> = paths
+        .iter()
+        .filter_map(|path| {
+            if path.starts_with(&root) && path.extension().is_some_and(|ext| ext == "jsonl") {
+                transcripts::id_of(Transcripts::Codex, path)
+            } else if path.parent() == Some(locks.as_path()) && path.extension().is_some_and(|ext| ext == "lock") {
+                path.file_stem().and_then(|id| id.to_str()).map(str::to_string)
+            } else {
+                None
+            }
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    let [id] = ids.as_slice() else { return (None, None) };
+    let path = transcripts::find(Transcripts::Codex, id, cwd).map(|p| p.to_string_lossy().into_owned());
+    (Some(id.clone()), path)
 }
 
 /// The session Claude Code notes for one of its processes: `~/.claude/sessions/<pid>.json`.
@@ -647,6 +696,17 @@ mod tests {
         assert_eq!(which(&agent, None, None, None, &[], &cwd, started - 1000), (Some(a.to_string()), shown(&old)), "the session it started there");
         assert_eq!(which(&agent, None, None, None, &[], &cwd, 0), (None, None), "no start time: no guess");
         let newer = rollout(&codex, b, &cwd, false);
+        let locks = codex.join("thread-writer-locks");
+        assert_eq!(codex_process_session(&[old.clone(), locks.join(format!("{a}.lock"))], &cwd), (Some(a.to_string()), shown(&old)));
+        let empty = "0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a60";
+        assert_eq!(
+            codex_process_session(&[locks.join(format!("{empty}.lock"))], &cwd),
+            (Some(empty.to_string()), None),
+            "a blank session owns no older transcript"
+        );
+        assert_eq!(codex_process_session(&[], &cwd), (None, None), "no owned files: no other terminal's conversation");
+        assert_eq!(codex_process_session(&[old.clone(), newer.clone()], &cwd), (None, None), "ambiguous files: no guess");
+        assert_eq!(which(&agent, None, None, Some(4_000_000_001), &[], &cwd, started - 1000), (None, None), "a process never borrows a same-folder session");
         let resumed = ["codex".to_string(), "resume".to_string(), a.to_string()];
         assert_eq!(which(&agent, None, None, None, &resumed, &cwd, started - 1000), (Some(a.to_string()), shown(&old)), "the one it resumed");
         assert_eq!(which(&agent, Some(b), None, None, &[], "", 0), (Some(b.to_string()), shown(&newer)), "the one Herdr reports");

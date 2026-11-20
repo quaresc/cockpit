@@ -18,7 +18,7 @@ function find(node, id) {
   return null;
 }
 
-async function fixture({ layoutName = "cockpit-chat", shared: given = {} } = {}) {
+async function fixture({ layoutName = "cockpit-chat", shared: given = {}, native = {} } = {}) {
   const tree = JSON.parse(await readFile(new URL(`../layouts/${layoutName}.json`, import.meta.url), "utf8"));
   const calls = [];
   const state = new Map(Object.entries({ layout: layoutName, "cockpit.app": "chat", ...given }));
@@ -53,15 +53,17 @@ async function fixture({ layoutName = "cockpit-chat", shared: given = {} } = {})
       panes: () => [],
       notify: () => null,
       keys: () => [],
+      machines: () => [],
       window: () => ({ platform: "macos", titlebar: "none", fullscreen: false }),
       theme: () => ({ foreground: "#ededed", background: "#1e1e1e", hover: "#2a2a2a", muted: "#a0a0a0", dim: "#707070", border: "#333333" }),
     },
-    "gpui-kit": { div: element },
-    "gpui-base": { h_flex: element, v_flex: element },
+    "gpui-kit": { div: element, svg: element },
+    "gpui-base": { h_flex: element, v_flex: element, Scrollbar: { vertical: element } },
     "./hub.js": { subscribe: () => ({ stop() {}, park() {} }), sleep: async () => {}, act: async () => ({}), view: async () => null, remoteMachine: () => null },
     // The drawer's own `show`, standing for the real view: only whether it is held matters here.
     "./show.js": { default: class { init() {} close() {} tick() {} render() { return element(); } } },
   };
+  Object.assign(imports.herdr, native);
   const sources = new Map(), modules = new Map();
   for (const name of await readdir(MODS)) {
     if (!name.endsWith(".js")) continue;
@@ -86,7 +88,7 @@ async function fixture({ layoutName = "cockpit-chat", shared: given = {} } = {})
     modules.set(name, module);
     return module;
   }
-  const module = new SourceTextModule('export * as screens from "./screens.js"; export * as top from "./chat-top.js"; export * as commands from "./commands.js"; export { default as SidePeek } from "./side-peek.js"; export { default as PanelPeek } from "./panel-peek.js"; export { default as Code, openCode } from "./code.js";', { context });
+  const module = new SourceTextModule('export * as screens from "./screens.js"; export * as top from "./chat-top.js"; export * as commands from "./commands.js"; export { default as Sidebar } from "./sidebar.js"; export { default as SidePeek } from "./side-peek.js"; export { default as PanelPeek } from "./panel-peek.js"; export { default as Code, openCode } from "./code.js";', { context });
   await module.link(load);
   await module.evaluate();
   return { ...module.namespace, tree, state, calls, node: (id) => find(tree, id) };
@@ -215,4 +217,45 @@ test("⌘⌥B opens a closed panel at the first press, even when the other layou
   assert.equal(f.node("panel").hidden, false);
   f.commands.togglePanel("files");
   assert.equal(f.node("panel").hidden, true);
+});
+
+test("the agent drawer lists working agents first, including before agents that need attention", async () => {
+  const f = await fixture();
+  f.node("sidebar").hidden = true;
+  const drawer = Object.create(f.SidePeek.prototype);
+  const row = (id, stage, status = stage) => ({ terminal: `app:${id}`, address: id, title: id, stage, status });
+  drawer.rows = { agents: [
+    ...Array.from({ length: 10 }, (_, i) => row(`idle-${i}`, "idle")),
+    row("done-1", "done"), row("working-1", "working"), row("waiting-1", "needs_you", "blocked"),
+  ] };
+  drawer.update = null;
+  const ids = [];
+  const visit = (element) => {
+    for (const [method, ...args] of element?.made ?? []) {
+      if (method === "id") ids.push(args[0]);
+      for (const child of args.flat()) if (child?.made) visit(child);
+    }
+  };
+  visit(drawer.render());
+  const groups = ids.filter((id) => id.startsWith("peek-stage-"));
+  assert.deepEqual(groups, ["peek-stage-working", "peek-stage-needs_you", "peek-stage-done", "peek-stage-idle"]);
+  for (const agent of drawer.rows.agents) assert.ok(ids.includes(`peek-${agent.terminal}`), `${agent.address} stays listed`);
+});
+
+test("space presence checks build no terminal elements for folded spaces and build expanded lines once", async () => {
+  const spaces = Array.from({ length: 30 }, (_, i) => ({ id: `space-${i}`, name: `demo-${i}`, tabs: [{ id: `tab-${i}` }] }));
+  const panes = spaces.map((s, i) => ({ terminal: `demo-${i}`, tab: s.tabs[0].id }));
+  const f = await fixture({ native: { spaces: () => spaces, panes: () => panes } });
+  const sidebar = Object.create(f.Sidebar.prototype);
+  sidebar.agents = { rows: [] };
+  sidebar.machineList = [];
+  sidebar.repoOf = () => null;
+  const rendered = [];
+  sidebar.termRows = (_k, s) => { rendered.push(s.id); return []; };
+  f.state.set("cockpit.spaces.folded", spaces.map((s) => s.id));
+  sidebar.spaceRows({}, {});
+  assert.equal(rendered.length, 0, "folded spaces never build hidden terminal rows");
+  f.state.set("cockpit.spaces.folded", []);
+  sidebar.spaceRows({}, {});
+  assert.deepEqual(rendered, spaces.map((s) => s.id), "each expanded space builds terminal rows just once");
 });

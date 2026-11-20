@@ -1042,6 +1042,8 @@ pub fn get(id: &str) -> Option<Agent> {
 /// its frame and indent taken off. None of them is ever a question or a choice.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Screen {
+    /// Raw opening and closing lines of a complete command approval without a drawn frame.
+    pub command_prompt: Option<(String, String)>,
     /// Its footer: the mode line and key hints under its input box, which a status line sits right above.
     pub footer: Vec<String>,
     /// What it shows while it works and when a turn ended: a spinner, how long the turn took.
@@ -1083,9 +1085,18 @@ const SCREENS: &[ScreenRow] = &[
     ),
 ];
 
+const COMMAND_PROMPTS: &[(&str, &str, &str)] =
+    &[("codex", r"^  Would you like to run the following command\?$", r"^  Press enter to confirm or esc to cancel\s*$")];
+
 /// The screen shapes of agent `id`; for a program the table does not know, every agent's furniture and no limit words.
 pub fn screen(id: &str) -> Screen {
-    let of = |row: &ScreenRow| Screen { footer: v(row.1), busy: v(row.2), limit: v(row.3), lifted: v(row.4) };
+    let of = |row: &ScreenRow| Screen {
+        command_prompt: COMMAND_PROMPTS.iter().find(|entry| entry.0 == row.0).map(|entry| (entry.1.to_string(), entry.2.to_string())),
+        footer: v(row.1),
+        busy: v(row.2),
+        limit: v(row.3),
+        lifted: v(row.4),
+    };
     let own = get(id).map(|a| a.id).unwrap_or_else(|| id.to_string());
     if let Some(row) = SCREENS.iter().find(|row| row.0 == own) {
         return of(row);

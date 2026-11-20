@@ -21,6 +21,7 @@ async function fixture({ layout = "cockpit-chat", shown = null, answers = {}, do
   const imports = {
     herdr: {
       agents: () => [],
+      focused: () => ({ tab: "demo-tab", space: "demo-space" }),
       spaces: () => [],
       run: (...args) => calls.push(args),
       setShared: (key, value) => (shared[key] = value),
@@ -293,4 +294,64 @@ test("a mode that runs tools without asking waits for a yes about its own sessio
   await settled();
   assert.equal(acts.length, before, "a used or guessed key sets nothing");
   assert.equal(chat.confirm?.mode, "acceptEdits", "it asks instead");
+});
+
+test("a terminal-only permission or unreadable wait opens the floating terminal without replacing the chat", async () => {
+  for (const row of [
+    { ...terminal, question: { ...terminal.question, permission: true, terminal_only: "Review the full command in its terminal" } },
+    { ...terminal, question: null, waits: { kind: "terminal", text: "Waiting at its terminal" } },
+  ]) {
+    const { mod, calls, acts, shared, overlays } = await fixture({ shown: "chat" });
+    const model = Object.create(mod.AgentsModel.prototype);
+    Object.assign(model, { view: "chat", busy: new Map(), drawn: new Map() });
+    const { cx, settled } = context();
+    model.go(cx, row);
+    await settled();
+    assert.equal(shared["cockpit.app"], "chat");
+    assert.equal(overlays.at(-1).kind, "window");
+    assert.equal(overlays.at(-1).key, "cockpit-chat-terminal");
+    assert.equal(overlays.at(-1).layout.children.at(-1).content.terminal, row.address);
+    assert.ok(calls.some(([name, arg]) => name === "agent.focus" && arg.terminal === row.address));
+    assert.ok(!calls.some(([name, arg]) => name === "layout.select" && arg.child === "tab"));
+    assert.ok(acts.every(({ action }) => action === "seen"), "navigation never answers or approves the request");
+  }
+});
+
+test("readable questions and driven sessions keep their normal chat navigation", async () => {
+  for (const row of [terminal, driven]) {
+    const { mod, calls, acts, shared } = await fixture({ shown: "chat" });
+    const model = Object.create(mod.AgentsModel.prototype);
+    Object.assign(model, { view: "chat", busy: new Map(), drawn: new Map() });
+    const { cx, settled } = context();
+    model.go(cx, row);
+    await settled();
+    assert.equal(shared["cockpit.app"], "chat");
+    assert.ok(!calls.some(([name, arg]) => name === "layout.select" && arg.child === "tab"));
+    assert.ok(acts.every(({ action }) => action === "seen"));
+  }
+});
+
+test("a terminal-only navigation from a window command marks nothing seen", async () => {
+  const { mod, acts, shared, overlays } = await fixture({ shown: "chat" });
+  const model = Object.create(mod.AgentsModel.prototype);
+  Object.assign(model, { view: "chat", busy: new Map(), drawn: new Map() });
+  const { cx, settled } = context();
+  model.go(cx, { ...terminal, question: { ...terminal.question, terminal_only: "Open its terminal" } }, false);
+  await settled();
+  assert.equal(shared["cockpit.app"], "chat");
+  assert.equal(overlays.at(-1).kind, "window");
+  assert.equal(acts.length, 0);
+});
+
+test("a complete terminal permission is answered from its chat card with the shown question identity", async () => {
+  const { mod, acts } = await fixture({ shown: "chat" });
+  const row = { ...terminal, question: { ...terminal.question, permission: true, cut: false, terminal_only: null, preview: "$ mix test test/api/quota_test.exs" } };
+  const model = Object.create(mod.AgentsModel.prototype);
+  Object.assign(model, { view: "chat", busy: new Map(), picks: new Map(), drawn: new Map() });
+  const { cx, settled } = context();
+  model.answer(cx, row, 1);
+  await settled();
+  assert.equal(acts.length, 1);
+  assert.equal(acts[0].action, "answer");
+  assert.deepEqual(plain(acts[0].args[0]), { terminal: row.terminal, choice: 1, asked: row.question.asked, source: "chat:click" });
 });
