@@ -80,6 +80,7 @@ impl Sandbox {
     /// herdr answering these prefixes, `{"result": {}}` to anything else.
     pub fn herdr(&self, answers: &[(&str, &str)]) {
         let mut all: Vec<(&str, String)> = answers.iter().map(|(p, a)| (*p, says(a))).collect();
+        all.push(("workspace list", says(r#"{"result": {"workspaces": []}}"#)));
         all.push(("*", says(r#"{"result": {}}"#)));
         let refs: Vec<(&str, &str)> = all.iter().map(|(p, a)| (*p, a.as_str())).collect();
         executable(&self.root.join("bin/herdr"), &fake("herdr", &self.log(), &refs));

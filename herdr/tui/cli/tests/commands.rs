@@ -1191,12 +1191,17 @@ fn doctor_tells_the_hub_fetches_the_calendar_without_printing_its_address() {
 
 #[test]
 fn doctor_leaves_the_pinned_spaces_alone_while_herdr_is_not_running() {
-    let sandbox = Sandbox::new();
+    // herdr answers on stderr and exits 1: its own error when no server runs, a wire error on the Herdr app's socket.
     let down = r#"{"id":"cli:workspace:list","error":{"code":"server_not_running","message":"no herdr server is running"}}"#;
-    sandbox.herdr(&[("--version", "herdr 0.9.5"), ("workspace list", down), ("pane list", down)]);
-    sandbox.write("home/.config/cockpit/config.json", r#"{"spaces": ["inbox"]}"#);
-    let out = sandbox.cockpit(&["doctor", "--all"], &[]);
-    let printed = stdout(&out);
-    assert!(printed.lines().any(|l| l == "ok    herdr is not running: its pinned spaces are checked while it runs"), "{printed}");
-    assert!(!printed.contains("space inbox"), "{printed}");
+    let wire = "Error: Custom { kind: Other, error: Json(Error(\"data did not match any variant of untagged enum WireResponse\")) }";
+    for answer in [down, wire] {
+        let sandbox = Sandbox::new();
+        let failing = format!("{} >&2\n    exit 1", common::says(answer));
+        let version = common::says("herdr 0.9.5");
+        executable(&sandbox.root.join("bin/herdr"), &common::fake("herdr", &sandbox.log(), &[("--version", &version), ("*", &failing)]));
+        sandbox.write("home/.config/cockpit/config.json", r#"{"spaces": ["inbox"]}"#);
+        let printed = stdout(&sandbox.cockpit(&["doctor", "--all"], &[]));
+        assert!(printed.lines().any(|l| l == "ok    herdr is not running: its pinned spaces are checked while it runs"), "{printed}");
+        assert!(!printed.contains("space inbox"), "{printed}");
+    }
 }
