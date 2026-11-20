@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.3.0 (2026-11-20)
+
+- Chat: mode and focus change from the chat, Files and Changes follow the agent's projects (#86)
+
 ## 1.2.1 (2026-11-20)
 
 - New: artifactGuard set to false in config.json lets every claude.ai artifact through, for a machine with no pane to draw in (#82)
