@@ -167,6 +167,8 @@ export type Config = {
   e2eBrowser: 'terminal-browser' | 'chrome'
   // The browser beside an agent: terminal-browser in a pane, or cockpit's Chromium window docked in the Herdr app (macOS).
   sideBrowser: 'terminal-browser' | 'chromium'
+  // Whether a new claude.ai artifact waits for show to be tried, or for the person to ask for one; off lets every publish through.
+  artifactGuard: boolean
   // A browser beside an agent whose space stayed out of view this long closes, to stop it drawing; 0 keeps it.
   browserIdleMinutes: number
   herdrPluginRoot: string
@@ -334,6 +336,7 @@ const DEFAULTS: Config = {
   notifications: true,
   e2eBrowser: 'terminal-browser',
   sideBrowser: 'terminal-browser',
+  artifactGuard: true,
   browserIdleMinutes: 60,
   herdrPluginRoot: '',
   spaces: ['inbox', 'terminal', 'actions', 'to-do', 'runbook', 'meetings'],
