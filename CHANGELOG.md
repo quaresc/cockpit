@@ -7,7 +7,7 @@ must be here first.
 
 ## 1.2.1 (2026-11-20)
 
-- Drawing: artifactGuard: false lets every artifact through (#82)
+- New: artifactGuard set to false in config.json lets every claude.ai artifact through, for a machine with no pane to draw in (#82)
 
 ## 1.2.0 (2026-11-20)
 
