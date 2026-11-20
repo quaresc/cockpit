@@ -370,6 +370,7 @@ pub const IN_FILE: &[(&str, &str)] = &[
     ("deployWatch", "The check after a deploy: tools, agent."),
     ("runbookTools", "Extra tools a runbook's background refresh may use."),
     ("footer.links", "The links under Claude Code's prompt: on in a terminal, off in the Herdr app."),
+    ("artifactGuard", "false lets every claude.ai artifact through, for a machine with no pane to draw in."),
     ("frontend", "tui or app, when cockpit cannot tell which it runs in."),
 ];
 
