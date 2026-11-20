@@ -89,7 +89,8 @@ Only the first broken rule is reported, so a call with several mistakes takes a 
 
 In Claude Code, the plugin also refuses a hand-made HTML page beside the session, or a claude.ai artifact, when `show`
 could draw it. Asking for a page or a link in so many words lets it through, as does prefixing the command with
-`COCKPIT_SHOW_FALLBACK="<what show cannot draw>"`.
+`COCKPIT_SHOW_FALLBACK="<what show cannot draw>"`. Setting `artifactGuard: false` in `~/.config/cockpit/config.json` lets every
+artifact through, for a machine with no pane to draw in.
 
 ## Where it draws
 

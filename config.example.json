@@ -45,6 +45,7 @@
   "e2eBrowser": "terminal-browser",
   "browserIdleMinutes": 60,
   "sideBrowser": "terminal-browser",
+  "artifactGuard": true,
   "herdrPluginRoot": "",
   "spaces": ["inbox", "terminal", "actions", "to-do", "runbook", "meetings"],
   "runbookTools": [],

@@ -73,6 +73,7 @@ itself and need no `tools`.
 | `browserIdleMinutes` | `60` | A browser whose space stayed out of view this long closes, and a Chromium tab out of view this long sleeps; `0` keeps them. |
 | `sideBrowser` | `terminal-browser` | The browser beside an agent: terminal-browser in a pane, or `chromium`, cockpit's own window docked in the Herdr app on macOS (see [browser.md](browser.md)). |
 | `browser` | `{dock: true, profileScope: "shared", popups: "tab", downloads: ""}` | The Chromium side browser: docked or a window of its own, the profile a worktree starts with (`shared`, `repo`, `worktree`), pop-ups as tabs or blocked, and the downloads folder (yours when empty). |
+| `artifactGuard` | `true` | In Claude Code, a new claude.ai artifact waits until `show` was tried or you asked for an artifact or a link; `false` lets every publish through (see [show.md](show.md)). |
 | `footer.links` | on in Claude Code | The links under the prompt; off in the Herdr app, whose status bar shows them. |
 
 `/cockpit` in Claude Code flips the eight settings worth changing day to day without editing the file. In the Herdr
