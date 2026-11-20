@@ -908,6 +908,15 @@ impl ClaudeFold {
             self.t.focus = Some(contains(line, b"# Focus mode"));
             return;
         }
+        // `/focus` typed in its terminal says so at once, before the next request's snapshot.
+        if contains(line, b"\"subtype\":\"local_command\"") {
+            if contains(line, b"local-command-stdout>Focus view enabled") {
+                self.t.focus = Some(true);
+            } else if contains(line, b"local-command-stdout>Focus view disabled") {
+                self.t.focus = Some(false);
+            }
+            return;
+        }
         let Ok(line) = serde_json::from_slice::<ClaudeLine>(line) else { return };
         let t = &mut self.t;
         if let Some(mode) = line.permission_mode.clone().filter(|m| !m.is_empty()) {
@@ -1789,6 +1798,8 @@ mod tests {
                 json!({"type": "attachment", "attachment": {"type": "prompt_snapshot", "systemPrompt": ["You are Claude Code.\n\n# Focus mode\nThe user has focus mode enabled."]}}),
                 json!({"type": "user", "cwd": "/r/api", "sessionId": "c-2", "permissionMode": "plan", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Fix it"}}),
                 json!({"type": "permission-mode", "permissionMode": "auto", "sessionId": "c-2"}),
+                json!({"type": "system", "subtype": "local_command", "content": "<local-command-stdout>Focus view disabled</local-command-stdout>"}),
+                json!({"type": "system", "subtype": "local_command", "content": "<local-command-stdout>Focus view enabled</local-command-stdout>"}),
                 json!({"type": "user", "timestamp": "2026-11-03T10:01:00Z", "message": {"role": "user", "content": "\n\n<pasted_content id=\"cb5e\">\n## Design Feedback\nPlaceholder is cropped\n</pasted_content>"}}),
                 json!({"type": "assistant", "timestamp": "2026-11-03T10:01:05Z", "message": {"id": "m1", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git diff", "description": "Show the diff"}}]}}),
             ],

@@ -55,6 +55,7 @@ itself and need no `tools`.
 | `usage.commands` | none | Limits of a provider cockpit has no source for: `{"<agent id>": "<command>"}`, each command printing a JSON list of `{name, percent, resets_at}` (run at most every 10 minutes); its windows show under that agent's logo. |
 | `queue.drain` | `true` | Each prompt queued for an agent goes when its turn ends; `false` sends them only by hand. |
 | `chat.nextSteps` | `false` | After a finished answer, up to three suggested prompts appear above the box; 1, 2, 3 or a click fill it, never send. Works for any agent's conversation: Claude Code answers, with no tools, billed to your own Claude account; `chat.nextStepsAgent` names another agent that runs with no tools once one exists. |
+| `chat.projectPanels` | `true` | In Cockpit Chat, the side panel's Files and Changes are cockpit's: they show the repositories the agent works in, even from a folder of several, the latest first. Off, Herdr's own follow the focused terminal's folder. |
 | `chat.nextStepsModel` | the agent's lightest model | The model next steps run on, at the agent's lowest effort: a name, or one per agent id (`{"claude": "haiku"}`). By default the agent's lightest (`agents.commands.<id>.light`, Haiku for Claude Code), else the session's own. |
 | `ci.tellAgents` | `true` | A CI run that ends red is told to the agent working on its PR, and green after it; `false` tells no agent. |
 | `github.reviewBots` | `false` | `address review` hands bots' review threads over too, after people's. |

@@ -16,6 +16,7 @@ import { AgentsModel, QuestionCard, UndoRow, oneTimeKey } from "./agentsui.js";
 import { inFront } from "./front.js";
 import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent } from "./screens.js";
 import { followInReview } from "./review.js";
+import { showWhere } from "./projects.js";
 import { windowsWords } from "./usage.js";
 import { Started } from "./doctor.js";
 import { ChatStart } from "./chatstart.js";
@@ -46,6 +47,9 @@ const UNASKED = ["bypassPermissions", "auto"];
 
 /** The modes that let it do more without asking: set only from the mode menu the person opened, or a confirm. */
 const ASKS_LESS = ["acceptEdits", "bypassPermissions", "auto", "dontAsk"];
+
+/** The modes a terminal's menu offers: its ⇧⇥ goes through them, Auto only where the agent has it on. */
+const TERMINAL_MODES = ["default", "acceptEdits", "plan", "auto"];
 
 /** ⇧⇥'s cycle, as the session's own (`session::CYCLE`). */
 const CYCLE = ["default", "acceptEdits", "plan"];
@@ -517,7 +521,10 @@ export default class Chat {
     if (front) {
       this.reviewed = null;
       this.follows(cx);
-    } else followInReview(null);
+    } else {
+      followInReview(null);
+      showWhere(null);
+    }
   }
 
   close() {
@@ -527,6 +534,7 @@ export default class Chat {
     this.model.stop();
     this.scroll?.release();
     followInReview(null);
+    showWhere(null);
   }
 
   /** Whether older messages come before the first one shown. */
@@ -731,10 +739,13 @@ export default class Chat {
   follows(_cx) {
     const handle = this.subjectHandle();
     const cwd = this.session()?.cwd || this.value?.session?.cwd || this.value?.agent?.cwd || null;
-    const said = `${handle} ${cwd}`;
+    // The repositories its agent works in, the latest first: Files, Changes and Review show the one it changed last.
+    const repos = this.value?.session?.repos ?? [];
+    const said = `${handle} ${cwd} ${repos.map((r) => r.path).join(" ")}`;
     if (!handle || said === this.reviewed || this.front === false) return;
     this.reviewed = said;
-    followInReview(handle, cwd);
+    showWhere(cwd ? { cwd, repos } : null);
+    followInReview(handle, repos[0]?.path ?? cwd);
   }
 
   /** The subject's handle, as the hub's actions take it: `app:t3`, or a driven session's key. */
@@ -822,10 +833,14 @@ export default class Chat {
     this.askMode(next, null, cx);
   }
 
-  /** The mode menu's items, keyed for this opening of it: a command naming no key, or an older one, picks nothing. */
-  modeItems() {
+  /**
+   * The mode menu's items, keyed for this opening of it: a command naming no key, or an older one, picks nothing. A
+   * terminal's offers the modes its ⇧⇥ goes through.
+   */
+  modeItems(terminal = false) {
     this.modeKey = oneTimeKey();
-    return Object.entries(MODES).filter(([, m]) => m.offered).map(([id, m]) => ({ label: m.label, icon: m.icon, command: `mode:${id}:${this.modeKey}` }));
+    const ids = terminal ? TERMINAL_MODES : Object.keys(MODES).filter((id) => MODES[id].offered);
+    return ids.map((id) => ({ label: MODES[id].label, icon: MODES[id].icon, command: `mode:${id}:${this.modeKey}` }));
   }
 
   /**
@@ -835,23 +850,43 @@ export default class Chat {
    */
   askMode(mode, key, cx) {
     const live = this.session();
+    // An agent in a terminal changes its mode by its own keys, typed there by the hub.
+    const row = live ? null : this.value?.session?.switch?.mode ? this.row() : null;
     const fromMenu = Boolean(key) && key === this.modeKey;
     this.modeKey = null;
-    if (live && (UNASKED.includes(mode) || (ASKS_LESS.includes(mode) && !fromMenu))) {
-      const first = live.title ?? live.messages?.find((m) => m.role === "user")?.text?.split("\n")[0] ?? "";
+    if (!live && !row) return cx.notify();
+    if (UNASKED.includes(mode) || (ASKS_LESS.includes(mode) && !fromMenu)) {
+      const first = live ? (live.title ?? live.messages?.find((m) => m.role === "user")?.text?.split("\n")[0] ?? "") : (row.title ?? "");
       const asked = first.length > 60 ? `${first.slice(0, 59).trimEnd()}…` : first;
-      this.confirm = { mode, key: live.key, title: asked || "This session", folder: String(live.cwd ?? "").split("/").pop() };
+      const cwd = live ? live.cwd : row.cwd;
+      this.confirm = { mode, key: live ? live.key : row.terminal, ...(live ? {} : { terminal: true }), title: asked || "This session", folder: String(cwd ?? "").split("/").pop() };
       this.cancelFocus.focus();
-    } else this.sessionAct("mode", { mode }, cx);
+    } else if (live) this.sessionAct("mode", { mode }, cx);
+    else this.terminalAct("mode", { mode }, cx, row.terminal);
     cx.notify();
   }
 
-  /** The confirm's answer: a yes sets the mode on the session it was asked for, and only that one. */
+  /** The confirm's answer: a yes sets the mode on the session or terminal it was asked for, and only that one. */
   confirmed(yes, cx) {
     const c = this.confirm;
     this.confirm = null;
-    if (yes && c) this.sessionAct("mode", { mode: c.mode, confirm: true }, cx, c.key);
+    if (yes && c?.terminal) this.terminalAct("mode", { mode: c.mode }, cx, c.key);
+    else if (yes && c) this.sessionAct("mode", { mode: c.mode, confirm: true }, cx, c.key);
     cx.notify();
+  }
+
+  /** One of the agents view's actions typed into a terminal agent (its mode, its focus view), its refusal said. */
+  terminalAct(action, arg, cx, terminal = this.row()?.terminal) {
+    if (!terminal) return;
+    cx.spawn(async (cx) => {
+      try {
+        const r = await hub.act("agents", action, [{ terminal, ...arg }]);
+        if (r?.error) notify({ title: "Its terminal did not take it", body: String(r.error).replace(/^[a-z_]+: /, ""), level: "warning", timeout: 5000 });
+      } catch (e) {
+        notify({ title: "Its terminal did not take it", body: String(e?.message ?? e), level: "warning" });
+      }
+      cx.notify();
+    });
   }
 
   /**
@@ -2244,29 +2279,42 @@ export default class Chat {
   }
 
   /**
-   * The mode an agent in a terminal is in, and focus mode when it is on, as its screen and transcript say: shown, not
-   * set, since only its own ⇧⇥ and /focus change them.
+   * The mode an agent in a terminal is in, and its focus view, as its screen and transcript say: a menu that changes the
+   * mode by its own ⇧⇥ and a click that types its /focus, where the agent has them; else shown only.
    */
   shownModes(k) {
     const ran = this.value?.session ?? {};
-    const chip = (id, icon, label, tooltip, color) =>
-      h_flex()
-        .id(id)
-        .h(26)
-        .px(7)
-        .gap(5)
-        .flex_none()
-        .items_center()
-        .text_size(TEXT.sm)
-        .text_color(color ?? k.mutedFg)
-        .tooltip(tooltip)
-        .child(Icon(icon, { size: 14, color: color ?? k.mutedFg }))
-        .child(div().child(label));
+    const can = ran.switch ?? {};
     const out = [];
     const mode = ran.mode ? (MODES[ran.mode] ?? { label: ran.mode, icon: "shield-check", loud: false }) : null;
-    if (mode) out.push(chip("chat-mode-shown", mode.icon, mode.label, "What it may do without asking — ⇧⇥ in its terminal changes it", mode.loud ? k.blocked : null));
-    if (ran.focus === true) out.push(chip("chat-focus-shown", "scan-eye", "Focus", "Focus mode: its terminal shows only its last words — /focus there turns it off"));
+    if (mode && can.mode)
+      out.push(this.picker("chat-mode-shown", { label: mode.label, icon: mode.icon, color: mode.loud ? k.blocked : null, tooltip: "What it may do without asking", items: () => this.modeItems(true) }, k));
+    else if (mode) out.push(this.chip("chat-mode-shown", mode.icon, mode.label, "What it may do without asking — ⇧⇥ in its terminal changes it", mode.loud ? k.blocked : null, k));
+    if (typeof ran.focus === "boolean" && (ran.focus || can.focus)) {
+      const tip = ran.focus ? "Focus view: its terminal shows only its last words" : "Focus view is off: its terminal shows every step";
+      out.push(
+        this.chip("chat-focus-shown", ran.focus ? "scan-eye" : "eye-off", "Focus", can.focus ? `${tip} — click to turn it ${ran.focus ? "off" : "on"}` : tip, ran.focus ? null : k.dim, k, can.focus ? (cx) => this.terminalAct("focus_mode", {}, cx) : null),
+      );
+    }
     return out;
+  }
+
+  /** A word in the bottom bar with its icon, that does something when clicked or only says something. */
+  chip(id, icon, label, tooltip, color, k, onClick = null) {
+    return h_flex()
+      .id(id)
+      .h(26)
+      .px(7)
+      .gap(5)
+      .flex_none()
+      .items_center()
+      .rounded(RADIUS.md)
+      .text_size(TEXT.sm)
+      .text_color(color ?? k.mutedFg)
+      .tooltip(tooltip)
+      .when(Boolean(onClick), (e) => e.cursor_pointer().hover((s) => s.bg(k.accent)).on_click((_e, cx) => (onClick(cx), cx.notify())))
+      .child(Icon(icon, { size: 14, color: color ?? k.mutedFg }))
+      .child(div().child(label));
   }
 
   /** A word in the bottom bar that opens a menu: the permission mode, the model. */
@@ -2484,8 +2532,8 @@ export default class Chat {
   render(cx) {
     const k = tokens();
     const live = this.session();
-    // The confirm was asked for one session: another one in front takes it away.
-    if (this.confirm && live?.key !== this.confirm.key) this.confirm = null;
+    // The confirm was asked for one session or terminal: another one in front takes it away.
+    if (this.confirm && (live?.key ?? this.row()?.terminal) !== this.confirm.key) this.confirm = null;
     const row = this.row();
     const working = live ? live.working === true : row?.status === "working";
     if (this.wantFiles) this.loadFiles(cx);

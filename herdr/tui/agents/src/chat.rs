@@ -68,9 +68,9 @@ pub fn dirs() -> Vec<PathBuf> {
     Vec::new()
 }
 
-/// One agent's conversation: `{agent, session: {id, cwd, branch, model, effort, fast, mode, focus, task, detail, context, cost}, messages, question,
-/// more, next}`, for the agent `terminal` names (a handle, an address or a driven session's key); empty when it names none the
-/// agents view lists. `limit` is how many of the latest messages to send, `WINDOW` by default; `agent` is the agents
+/// One agent's conversation: `{agent, session: {id, cwd, branch, model, effort, fast, mode, focus, switch, repos, task, detail,
+/// context, cost}, messages, question, more, next}`, for the agent `terminal` names (a handle, an address or a driven
+/// session's key); empty when it names none the agents view lists. `limit` is how many of the latest messages to send, `WINDOW` by default; `agent` is the agents
 /// view's row, so a chat needs no second subscription.
 pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     let agents = crate::gui::view(&json!({"frontend": args["frontend"].clone()}), doc);
@@ -91,6 +91,13 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     let screen = row["terminal"].as_str().filter(|_| row["driven"] != true).and_then(|t| crate::term::screen(t, 0));
     let shown = screen.map(|s| crate::prompt::activity(&s, &crate::prompt::Shapes::of(row["agent"].as_str().unwrap_or_default()))).unwrap_or_default();
     let working = row["status"] == "working";
+    // What a click in the chat may change in its terminal: the agent's mode cycle and focus view, where measured.
+    let program = row["program"].as_str().unwrap_or_default();
+    let known = cockpit_core::agent::of_program(program).or_else(|| cockpit_core::agent::get(row["agent"].as_str().unwrap_or_default()));
+    let switch = json!({
+        "mode": row["driven"] != true && known.as_ref().is_some_and(|a| a.cycle.is_some()),
+        "focus": row["driven"] != true && known.as_ref().is_some_and(|a| a.focus.is_some()),
+    });
     ON_A_STEP.store(working && row["driven"] != true, Ordering::Relaxed);
     json!({
         "agent": row,
@@ -101,6 +108,8 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "fast": ran.speed.map(|s| Value::from(s == "fast")).unwrap_or(Value::Null),
             "mode": shown.mode.or(ran.mode).map(Value::from).unwrap_or(Value::Null),
             "focus": ran.focus.map(Value::from).unwrap_or(Value::Null),
+            "repos": repos(cwd, &messages),
+            "switch": switch,
             "task": shown.task.filter(|_| working).map(Value::from).unwrap_or(Value::Null),
             "detail": shown.detail.filter(|_| working).map(Value::from).unwrap_or(Value::Null),
             "context": usage.context_percent(), "cost": usage.cost,
@@ -110,6 +119,77 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         "more": more,
         "next": next,
     })
+}
+
+/// The most repositories a chat names as worked in.
+const REPOS: usize = 8;
+
+/// The git repositories the agent works in, the latest touched first, as `[{path, name}]`: its folder's own, and those its
+/// calls changed or went into (a file written, a `cd`, a path under its folder in a command), never one it only read.
+fn repos(cwd: &str, messages: &[Value]) -> Value {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let full = |p: &str| -> Option<PathBuf> {
+        let p = p.trim_matches(|c: char| matches!(c, '"' | '\'' | '`' | ',' | ';' | ')' | '('));
+        let p = match p.strip_prefix("~/") {
+            Some(rest) if !home.is_empty() => format!("{home}/{rest}"),
+            _ => p.to_string(),
+        };
+        p.starts_with('/').then(|| PathBuf::from(p))
+    };
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut note = |top: Option<PathBuf>| {
+        if let Some(top) = top {
+            found.retain(|t| *t != top);
+            found.push(top);
+        }
+    };
+    note(toplevel(Path::new(cwd)));
+    for m in messages {
+        let Some(summary) = m["tool"]["summary"].as_str() else { continue };
+        let name = m["tool"]["name"].as_str().unwrap_or_default();
+        if matches!(name, "Edit" | "Write" | "MultiEdit" | "NotebookEdit") {
+            note(full(summary).and_then(|p| toplevel(&p)));
+            continue;
+        }
+        // Reading a project is no work in it.
+        if matches!(name, "Read" | "Grep" | "Glob" | "LS" | "NotebookRead" | "WebFetch" | "WebSearch") {
+            continue;
+        }
+        let words: Vec<&str> = summary.split_whitespace().collect();
+        for (i, w) in words.iter().enumerate() {
+            let Some(p) = full(w) else { continue };
+            let went = i > 0 && words[i - 1] == "cd";
+            if went || (!cwd.is_empty() && p.starts_with(cwd)) {
+                note(toplevel(&p));
+            }
+        }
+    }
+    let list: Vec<Value> = found
+        .iter()
+        .rev()
+        .take(REPOS)
+        .map(|t| json!({"path": t.to_string_lossy(), "name": t.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()}))
+        .collect();
+    Value::from(list)
+}
+
+/// The top of the git repository `path` is in, found by its `.git` (a folder, or a worktree's file); None outside one.
+fn toplevel(path: &Path) -> Option<PathBuf> {
+    static SEEN: Mutex<Option<HashMap<PathBuf, Option<PathBuf>>>> = Mutex::new(None);
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let seen = seen.get_or_insert_with(HashMap::new);
+    if let Some(top) = seen.get(path) {
+        return top.clone();
+    }
+    let top = path.ancestors().find(|dir| dir.join(".git").exists()).filter(|dir| dir.parent().is_some()).map(Path::to_path_buf);
+    if seen.len() > 4096 {
+        seen.clear();
+    }
+    seen.insert(path.to_path_buf(), top.clone());
+    top
 }
 
 /// What a transcript says its last turn ran with.
@@ -277,6 +357,30 @@ mod tests {
         assert_eq!(cut(&longer(10), 400), (false, 0), "a short session is sent whole");
         assert_eq!(cut(&longer(500), 400), (true, 100), "a long one keeps its latest 400 and says so");
         assert_eq!(cut(&longer(500), 500), (false, 0), "asking for more reaches the start");
+    }
+
+    #[test]
+    fn the_repositories_an_agent_works_in_are_the_ones_it_changed_or_went_into_the_latest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("work");
+        for repo in ["api", "web", "docs"] {
+            std::fs::create_dir_all(root.join(repo).join(".git")).unwrap();
+        }
+        let at = |p: &str| root.join(p).to_string_lossy().into_owned();
+        let call = |name: &str, summary: String| json!({"role": "assistant", "text": "", "tool": {"name": name, "summary": summary, "ok": true}});
+        let messages = [
+            call("Edit", at("api/lib/quota.ex")),
+            call("Bash", format!("cd {} && mix test", at("web"))),
+            call("Read", at("docs/README.md")),
+            call("Bash", format!("grep -rn quota {}", at("api/lib"))),
+        ];
+        let names = |v: Value| v.as_array().unwrap().iter().map(|r| r["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            names(repos(&root.to_string_lossy(), &messages)),
+            ["api", "web"],
+            "a file only read is no work; a command naming a path under the folder is"
+        );
+        assert_eq!(names(repos(&at("web"), &messages[..1])), ["api", "web"], "its own folder's repository, then the one it changed");
     }
 
     #[test]

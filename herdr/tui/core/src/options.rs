@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::{agent, files, jsonedit};
 
 /// The version the options below arrive in: the one number to change at release.
-pub const NEXT: &str = "1.1.0";
+pub const NEXT: &str = "1.3.0";
 
 /// The side browser that is cockpit's own Chromium window, which only the Herdr app on macOS shows.
 pub const CHROMIUM: &str = "chromium";
@@ -202,7 +202,18 @@ pub const ALL: &[Setting] = &[
         "The model that writes the suggested prompts, such as haiku.",
         "",
         Check::Word,
-        Some("the conversation's own model"),
+        Some("the agent's lightest model"),
+    ),
+    brought(
+        toggle(
+            "chat.projectPanels",
+            "Chat",
+            "Files and Changes follow the agent's projects",
+            "In Cockpit Chat, the side panel's Files and Changes show the repositories the agent works in, even from a \
+             folder of several; off, Herdr's own follow the focused terminal's folder.",
+            true,
+        ),
+        NEXT,
     ),
     choice(
         "agents.pace",
@@ -320,7 +331,7 @@ pub const ALL: &[Setting] = &[
             "terminal-browser",
             &[("terminal-browser", "In a terminal pane"), (CHROMIUM, "Chromium, docked")],
         ),
-        NEXT,
+        "1.1.0",
     ),
     toggle(
         "browser.dock",
@@ -821,8 +832,12 @@ mod tests {
         let order: Vec<usize> = ALL.iter().map(|s| SECTIONS.iter().position(|name| *name == s.section).unwrap()).collect();
         assert!(order.windows(2).all(|w| w[0] <= w[1]), "the options are listed section by section");
         assert!(SECTIONS.iter().all(|name| ALL.iter().any(|s| s.section == *name)), "no empty section");
-        assert_eq!(since("0.40.3").iter().map(|s| s.key).collect::<Vec<_>>(), ["queue.drain", "ci.tellAgents", "chat.nextSteps", "sideBrowser"]);
-        assert_eq!(since("1.0.1").iter().map(|s| s.key).collect::<Vec<_>>(), ["sideBrowser"]);
+        assert_eq!(
+            since("0.40.3").iter().map(|s| s.key).collect::<Vec<_>>(),
+            ["queue.drain", "ci.tellAgents", "chat.nextSteps", "chat.projectPanels", "sideBrowser"]
+        );
+        assert_eq!(since("1.0.1").iter().map(|s| s.key).collect::<Vec<_>>(), ["chat.projectPanels", "sideBrowser"]);
+        assert_eq!(since("1.2.0").iter().map(|s| s.key).collect::<Vec<_>>(), ["chat.projectPanels"]);
         assert_eq!(get("chat.nextSteps").map(|s| s.default), Some(Def::Off));
         assert!(get("nope").is_none());
         for (key, line) in IN_FILE {
@@ -1170,7 +1185,7 @@ mod tests {
             (&names["section"], &names["kind"], &names["since"], &names["seen"], &names["new"]),
             (&json!("Agents"), &json!("toggle"), &Value::Null, &json!(true), &json!(false))
         );
-        assert_eq!((&option("queue.drain")["since"], &option("sideBrowser")["since"]), (&json!("1.0.0"), &json!(NEXT)));
+        assert_eq!((&option("queue.drain")["since"], &option("chat.projectPanels")["since"]), (&json!("1.0.0"), &json!(NEXT)));
         let pace = option("agents.pace");
         assert_eq!(pace["choices"], json!([{"value": "week", "label": "Whole week"}, {"value": "weekdays", "label": "Weekdays"}]));
         let every = option("refresh.github");

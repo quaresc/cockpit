@@ -1698,6 +1698,58 @@ fn pick(handle: &str, arg: &Value) -> Result<String, String> {
     done.map(|()| format!("typed {line}"))
 }
 
+/// The agent in a terminal, as cockpit knows it, for an action typed into that terminal; never a session cockpit drives.
+fn terminal_agent(handle: &str) -> Result<(Agent, cockpit_core::agent::Agent), String> {
+    if crate::session::summary(handle).is_some() {
+        return Err("a session cockpit drives changes it from its chat".into());
+    }
+    let a = find(handle).ok_or("no such agent")?;
+    let agent = cockpit_core::agent::of_program(&a.live.program)
+        .or_else(|| cockpit_core::agent::get(&a.live.agent))
+        .ok_or_else(|| format!("cockpit does not know the agent {}", a.live.program))?;
+    Ok((a, agent))
+}
+
+/// Moves an agent to permission mode `mode` in its own terminal: its cycle keys pressed until its footer shows that mode,
+/// never more than once round the cycle, so a mode it does not offer leaves it where it was.
+fn set_mode(handle: &str, arg: &Value) -> Result<String, String> {
+    let want = arg["mode"].as_str().filter(|m| !m.is_empty()).ok_or("which mode? pass {mode}")?;
+    let (a, agent) = terminal_agent(handle)?;
+    let keys = agent.cycle.clone().ok_or_else(|| format!("{} has no known key to change its mode", agent.name))?;
+    if a.live.status == "blocked" {
+        return Err(format!("{} is waiting on a question: change its mode once it is answered", agent.name));
+    }
+    let shapes = prompt::Shapes::of(&a.live.agent);
+    let shown = || term::screen(handle, 0).and_then(|s| prompt::activity(&s, &shapes).mode);
+    let start = shown().ok_or("its footer shows no mode")?;
+    let mut now = start.clone();
+    while now != want {
+        term::keys(handle, &keys)?;
+        let moved = (0..20).find_map(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            shown().filter(|m| *m != now)
+        });
+        now = moved.ok_or("its footer did not change")?;
+        if now == start {
+            return Err(format!("{} offers no {want} mode here", agent.name));
+        }
+    }
+    Ok(format!("in {want} mode"))
+}
+
+/// Turns an agent's focus view on or off in its own terminal (Claude Code's `/focus`), once it rests: typed into a turn
+/// it would wait as a prompt.
+fn toggle_focus(handle: &str) -> Result<String, String> {
+    let (a, agent) = terminal_agent(handle)?;
+    let line = agent.focus.clone().ok_or_else(|| format!("{} has no focus view", agent.name))?;
+    if !matches!(a.live.status.as_str(), "idle" | "done" | "failed") {
+        return Err(format!("{} is {}: change it once it rests", agent.name, if a.live.status == "blocked" { "waiting on a question" } else { "working" }));
+    }
+    let done = cockpit_core::deliver::deliver(handle, &line);
+    log_delivery(handle, &json!({"text": line, "source": "focus"}), &done);
+    done.map(|()| format!("typed {line}"))
+}
+
 /// What an agent's tools asking to dismiss a card are told.
 pub(crate) const DISMISSED_BY_A_PERSON: &str = "a card is dismissed by a person, not by an agent's tools";
 
@@ -1783,7 +1835,7 @@ fn dismiss(handle: &str, wait: Option<&str>, undo: bool) -> Result<String, Strin
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let arg = args.first().cloned().unwrap_or(Value::Null);
     let handle = arg["terminal"].as_str().or(arg.as_str()).unwrap_or_default().to_string();
-    let known = ["answer", "deliver", "recap", "snooze", "seen", "dismiss", "fork", "focus", "interrupt", "refresh", "pick"];
+    let known = ["answer", "deliver", "recap", "snooze", "seen", "dismiss", "fork", "focus", "interrupt", "refresh", "pick", "mode", "focus_mode"];
     if !known.contains(&action) {
         return None;
     }
@@ -1801,7 +1853,9 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
         "pick" if arg["setting"] == "fast" && arg["value"] == true => {
             by_a_person("fast mode is turned on by a person, not by an agent's tools").and_then(|()| may_touch(&handle))
         }
-        "pick" => may_touch(&handle),
+        "pick" | "focus_mode" => may_touch(&handle),
+        // A mode lets an agent do more or less without asking: a person changes it.
+        "mode" => by_a_person("an agent's mode is changed by a person, not by an agent's tools").and_then(|()| may_touch(&handle)),
         _ => Ok(()),
     };
     if let Err(why) = checked {
@@ -1848,6 +1902,8 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
         "fork" => fork(&handle, arg["place"].as_str().unwrap_or("tab")),
         "interrupt" => may_touch(&handle).and_then(|()| interrupt(&handle)),
         "pick" => pick(&handle, &arg),
+        "mode" => set_mode(&handle, &arg),
+        "focus_mode" => toggle_focus(&handle),
         "focus" => {
             let shown = term::demo_path().is_some() || frontend::focus(&handle);
             let mut st = states();

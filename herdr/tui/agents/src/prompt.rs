@@ -735,7 +735,13 @@ pub fn activity(screen: &str, shapes: &Shapes) -> Activity {
         step.and_then(|i| lines.get(i + 1)).filter(|l| l.starts_with('⎿')).map(|l| l.trim_start_matches('⎿').trim().to_string()).filter(|d| !d.is_empty());
     let mode = lines[from..].iter().rev().find_map(|l| {
         let l = l.to_lowercase();
-        let shown = [("auto mode on", "auto"), ("accept edits on", "acceptEdits"), ("plan mode on", "plan"), ("bypass permissions on", "bypassPermissions")];
+        let shown = [
+            ("auto mode on", "auto"),
+            ("manual mode on", "default"),
+            ("accept edits on", "acceptEdits"),
+            ("plan mode on", "plan"),
+            ("bypass permissions on", "bypassPermissions"),
+        ];
         shown
             .iter()
             .find(|(words, _)| l.contains(words))
@@ -767,6 +773,7 @@ mod tests {
         let done = activity("● Reading it\n✻ Cooked for 3m 9s\n────\n❯ \n────\n  ? for shortcuts\n", &shapes);
         assert_eq!(done, Activity { mode: Some("default".into()), ..Activity::default() }, "a turn that ended is on no step");
         assert_eq!(activity("⏸ plan mode on (shift+tab to cycle)", &shapes).mode.as_deref(), Some("plan"));
+        assert_eq!(activity("⏸ manual mode on", &shapes).mode.as_deref(), Some("default"), "Claude Code 2.1.311's default");
     }
 
     #[test]
