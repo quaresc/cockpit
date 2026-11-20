@@ -7,7 +7,11 @@ must be here first.
 
 ## 1.2.0 (2026-11-20)
 
-- Chat: a running turn shows the step its terminal is on, and the bar its mode (#83)
+- New: in Cockpit Chat, a running turn shows only the step the agent is on, as its terminal words it, with the rest one click away (#83)
+- New: the chat box shows the agent's permission mode and focus mode (#83)
+- New: tab pills show what the agent works on, and × closes the tab for good (#83)
+- New: next steps run on the agent's lightest model at its lowest effort, listed one per line with the key that picks each (#83)
+- Fix: a pasted message no longer goes missing from the chat, merging two turns into one (#83)
 
 ## 1.1.2 (2026-11-20)
 
