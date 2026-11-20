@@ -48,6 +48,8 @@ pub struct Tool {
     pub summary: String,
     /// Whether it worked, when the transcript says.
     pub ok: Option<bool>,
+    /// What the agent said the call is for (a command's description), when it said.
+    pub about: Option<String>,
 }
 
 /// How much of a transcript a read keeps. Tool calls cost a second pass over records the other readers skip, so only
@@ -99,6 +101,11 @@ pub struct Transcript {
     pub effort: Option<String>,
     /// The speed its last reply was served at ("fast", "standard"), where the transcript says.
     pub speed: Option<String>,
+    /// The permission mode its last turn ran in, in Claude Code's words (`default`, `acceptEdits`, `plan`, `auto`,
+    /// `bypassPermissions`, `dontAsk`), where the transcript says.
+    pub mode: Option<String>,
+    /// Whether the agent showed the person only its last words (Claude Code's focus mode), where the transcript says.
+    pub focus: Option<bool>,
     pub branch: Option<String>,
     pub messages: Vec<Message>,
     pub usage: Usage,
@@ -585,7 +592,20 @@ fn is_typed(text: &str) -> bool {
             && tag.chars().any(|c| c == '-' || c == '_' || c.is_ascii_lowercase())
             && rest.trim_start_matches('/')[tag.len()..].starts_with(['>', ' ', '\n'])
     });
-    !text.is_empty() && !tagged && !text.starts_with("[Request interrupted") && !text.starts_with("# AGENTS.md instructions")
+    let pasted = text.starts_with("<pasted_content");
+    !text.is_empty() && (pasted || !tagged) && !text.starts_with("[Request interrupted") && !text.starts_with("# AGENTS.md instructions")
+}
+
+/// What the person typed with the wrappers Claude Code puts around a paste taken off, the pasted words kept.
+fn unwrap_pasted(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("<pasted_content") {
+        out.push_str(&rest[..at]);
+        rest = rest[at..].find('>').map_or("", |end| &rest[at + end + 1..]);
+    }
+    out.push_str(rest);
+    out.replace("</pasted_content>", "").trim().to_string()
 }
 
 /// A slash command the person ran, as its transcript wraps it (`<command-name>/review</command-name>
@@ -606,8 +626,8 @@ fn command_of(text: &str) -> Option<String> {
 }
 
 /// A tool call where a message would be: `summary` is already one line.
-fn tool_message(at: &str, name: &str, summary: String, ok: Option<bool>) -> Message {
-    Message { role: Role::Assistant, text: String::new(), at: at.to_string(), tool: Some(Tool { name: name.to_string(), summary, ok }) }
+fn tool_message(at: &str, name: &str, summary: String, ok: Option<bool>, about: Option<String>) -> Message {
+    Message { role: Role::Assistant, text: String::new(), at: at.to_string(), tool: Some(Tool { name: name.to_string(), summary, ok, about }) }
 }
 
 fn message(role: Role, text: &str, at: &str) -> Message {
@@ -693,6 +713,7 @@ struct ClaudeLine {
     is_sidechain: Option<bool>,
     is_compact_summary: Option<bool>,
     effort: Option<String>,
+    permission_mode: Option<String>,
     message: Option<ClaudeMessage>,
 }
 
@@ -719,7 +740,7 @@ struct ClaudeUsage {
 /// A content block, kept only where it says something: words, a tool call, or how one ended.
 enum Chunk {
     Text(String),
-    Call { id: String, name: String, summary: String },
+    Call { id: String, name: String, summary: String, about: Option<String> },
     Result { id: String, ok: bool },
 }
 
@@ -737,9 +758,15 @@ struct ToolInput {
 }
 
 impl ToolInput {
-    /// The first of its fields that says what the call did.
-    fn summary(self) -> Option<String> {
-        [self.command, self.file_path, self.path, self.pattern, self.url, self.description, self.prompt].into_iter().flatten().find(|s| !s.trim().is_empty())
+    /// The first of its fields that says what the call did, and its description when that is not it already.
+    fn summary(self) -> (Option<String>, Option<String>) {
+        let about = self.description.clone().filter(|d| !d.trim().is_empty());
+        let summary = [self.command, self.file_path, self.path, self.pattern, self.url, self.description, self.prompt]
+            .into_iter()
+            .flatten()
+            .find(|s| !s.trim().is_empty());
+        let about = about.filter(|d| summary.as_ref() != Some(d)).map(|d| tool_line(&d));
+        (summary, about)
     }
 }
 
@@ -767,7 +794,7 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
                 }
                 fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Block, A::Error> {
                     let (mut kind, mut text, mut name) = (None::<String>, None::<String>, None::<String>);
-                    let (mut id, mut used, mut error, mut summary) = (None::<String>, None::<String>, false, None::<String>);
+                    let (mut id, mut used, mut error, mut summary, mut about) = (None::<String>, None::<String>, false, None::<String>, None::<String>);
                     while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
                             "type" => kind = Some(map.next_value()?),
@@ -776,7 +803,7 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
                             "id" => id = map.next_value()?,
                             "tool_use_id" => used = map.next_value()?,
                             "is_error" => error = map.next_value::<Option<bool>>()?.unwrap_or(false),
-                            "input" => summary = map.next_value::<ToolInput>()?.summary(),
+                            "input" => (summary, about) = map.next_value::<ToolInput>()?.summary(),
                             _ => {
                                 map.next_value::<IgnoredAny>()?;
                             }
@@ -788,6 +815,7 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
                             id: id.unwrap_or_default(),
                             name: name.unwrap_or_default(),
                             summary: summary.map(|s| tool_line(&s)).unwrap_or_default(),
+                            about,
                         }),
                         Some("tool_result") => used.map(|id| Chunk::Result { id, ok: !error }),
                         _ => None,
@@ -875,8 +903,16 @@ impl ClaudeFold {
     }
 
     fn feed(&mut self, line: &[u8]) {
+        // The system prompt the agent ran with says whether focus mode is on; the snapshot is read for nothing else.
+        if contains(line, b"\"type\":\"prompt_snapshot\"") {
+            self.t.focus = Some(contains(line, b"# Focus mode"));
+            return;
+        }
         let Ok(line) = serde_json::from_slice::<ClaudeLine>(line) else { return };
         let t = &mut self.t;
+        if let Some(mode) = line.permission_mode.clone().filter(|m| !m.is_empty()) {
+            t.mode = Some(mode);
+        }
         let at = line.timestamp.filter(|t| !t.is_empty()).unwrap_or_default();
         if !at.is_empty() {
             if t.first.is_empty() {
@@ -935,6 +971,7 @@ impl ClaudeFold {
                                 }
                                 continue;
                             }
+                            let text = if role == Role::User { unwrap_pasted(&text) } else { text };
                             if role == Role::User && self.prompt.is_none() {
                                 self.prompt = Some(text.clone());
                                 self.opening.get_or_insert_with(|| text.clone());
@@ -943,9 +980,9 @@ impl ClaudeFold {
                                 t.messages.push(message(role, &text, &at));
                             }
                         }
-                        Chunk::Call { id, name, summary } if self.detail == Detail::Tools => {
+                        Chunk::Call { id, name, summary, about } if self.detail == Detail::Tools => {
                             self.calls.insert(id, t.messages.len());
-                            t.messages.push(tool_message(&at, &name, summary, None));
+                            t.messages.push(tool_message(&at, &name, summary, None, about));
                         }
                         Chunk::Result { id, ok } if self.detail == Detail::Tools => {
                             if let Some(tool) = self.calls.get(&id).and_then(|i| t.messages.get_mut(*i)).and_then(|m| m.tool.as_mut()) {
@@ -1146,6 +1183,7 @@ fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
                 if let Some(e) = p["effort"].as_str().filter(|e| !e.is_empty()) {
                     t.effort = Some(e.to_string());
                 }
+                t.mode = codex_mode(p).or(t.mode.take());
             }
             ("event_msg", "task_started") => window = p["model_context_window"].as_u64().or(window),
             ("event_msg", "token_count") => {
@@ -1189,6 +1227,21 @@ fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
     Some(t)
 }
 
+/// A Codex turn's approval and sandbox policies as the permission mode Claude Code would name them.
+fn codex_mode(p: &Value) -> Option<String> {
+    if p["collaboration_mode"]["mode"] == "plan" {
+        return Some("plan".into());
+    }
+    let full = p["sandbox_policy"]["type"] == "danger-full-access";
+    let mode = match p["approval_policy"].as_str()? {
+        "never" if full => "bypassPermissions",
+        "never" => "dontAsk",
+        _ if p["approvals_reviewer"] == "auto_review" => "auto",
+        _ => "default",
+    };
+    Some(mode.into())
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // pi and oh-my-pi: <agent dir>/sessions/<folder of the cwd>/<time>_<session>.jsonl, a header then one entry per line
 // (badlogic/pi-mono `session-manager.ts`). Entries form a tree; every branch's messages are read.
@@ -1217,7 +1270,9 @@ fn json_chunks(content: &Value, detail: Detail) -> Vec<Chunk> {
 fn json_call(v: &Value) -> Option<Chunk> {
     let name = ["name", "toolName", "tool"].iter().find_map(|k| v[*k].as_str()).filter(|n| !n.is_empty())?;
     let args = ["input", "arguments", "args", "parameters"].iter().map(|k| &v[*k]).find(|a| !a.is_null());
-    Some(Chunk::Call { id: String::new(), name: name.to_string(), summary: args.map(arg_line).unwrap_or_default() })
+    let summary = args.map(arg_line).unwrap_or_default();
+    let about = args.and_then(|a| a["description"].as_str()).map(tool_line).filter(|d| !d.is_empty() && *d != summary);
+    Some(Chunk::Call { id: String::new(), name: name.to_string(), summary, about })
 }
 
 /// The telling field of a call's arguments, on one line; arguments written as a JSON string are read first.
@@ -1242,7 +1297,7 @@ pub fn arg_line(args: &Value) -> String {
 /// A chunk as a message, when it is a call.
 fn chunk_message(chunk: &Chunk, at: &str) -> Option<Message> {
     match chunk {
-        Chunk::Call { name, summary, .. } => Some(tool_message(at, name, summary.clone(), None)),
+        Chunk::Call { name, summary, about, .. } => Some(tool_message(at, name, summary.clone(), None, about.clone())),
         _ => None,
     }
 }
@@ -1620,7 +1675,7 @@ fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
                             _ => None,
                         };
                         let name = call["displayName"].as_str().or(call["name"].as_str()).unwrap_or("tool");
-                        t.messages.push(tool_message(&at, name, summary, ok));
+                        t.messages.push(tool_message(&at, name, summary, ok, None));
                     }
                 }
             }
@@ -1722,6 +1777,26 @@ mod tests {
             "the call sits where it was made, and its result says it failed"
         );
         assert_eq!(told.text(4096), t.text(4096), "a call is not words");
+    }
+
+    #[test]
+    fn a_claude_transcript_keeps_a_paste_and_says_its_mode_focus_and_what_a_call_is_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "-r-api/c-2.jsonl",
+            &[
+                json!({"type": "attachment", "attachment": {"type": "prompt_snapshot", "systemPrompt": ["You are Claude Code.\n\n# Focus mode\nThe user has focus mode enabled."]}}),
+                json!({"type": "user", "cwd": "/r/api", "sessionId": "c-2", "permissionMode": "plan", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Fix it"}}),
+                json!({"type": "permission-mode", "permissionMode": "auto", "sessionId": "c-2"}),
+                json!({"type": "user", "timestamp": "2026-11-03T10:01:00Z", "message": {"role": "user", "content": "\n\n<pasted_content id=\"cb5e\">\n## Design Feedback\nPlaceholder is cropped\n</pasted_content>"}}),
+                json!({"type": "assistant", "timestamp": "2026-11-03T10:01:05Z", "message": {"id": "m1", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git diff", "description": "Show the diff"}}]}}),
+            ],
+        );
+        let t = read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        assert_eq!(t.messages[1].text, "## Design Feedback\nPlaceholder is cropped", "a paste is what the person sent, its wrapper off");
+        assert_eq!((t.mode.as_deref(), t.focus), (Some("auto"), Some(true)));
+        assert_eq!(t.messages[2].tool.as_ref().and_then(|c| c.about.as_deref()), Some("Show the diff"));
     }
 
     #[test]

@@ -707,9 +707,67 @@ pub fn last_message(screen: &str) -> String {
     screen.lines().rev().filter_map(|l| SAID.captures(l)).map(|c| c[1].to_string()).find(|t| !TOOL.is_match(t)).unwrap_or_default()
 }
 
+/// What an agent's screen says it is doing: the step it is on while it works, and the permission mode its footer shows.
+#[derive(Debug, Default, PartialEq)]
+pub struct Activity {
+    /// The step above its spinner, as the agent words it: "Reading sandbox script usage".
+    pub task: Option<String>,
+    /// The line under that step, when it has one: "$ sed -n 1,60p scripts/sandbox.sh".
+    pub detail: Option<String>,
+    /// The mode its footer shows, in Claude Code's words; `default` when the footer shows none.
+    pub mode: Option<String>,
+}
+
+/// The step an agent is on and the mode it is in, read off the bottom of its screen under its own shapes.
+pub fn activity(screen: &str, shapes: &Shapes) -> Activity {
+    let lines: Vec<&str> = screen.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let from = lines.len().saturating_sub(BOTTOM_LINES);
+    // A spinner still turning says "…" or "esc to interrupt"; "Worked for 2m" is a turn that ended.
+    let spinner = (from..lines.len())
+        .rev()
+        .find(|&i| Shapes::any(&shapes.busy, lines[i]) && (lines[i].contains('…') || lines[i].contains("...") || lines[i].contains("esc to interrupt")));
+    // The step is the nearest line above it that the agent marks as its own ("⏺", "●"), or that a "⎿" line hangs under:
+    // Claude Code blinks the mark of a call still running, so half the time the line has none.
+    let marked = |i: usize| lines[i].starts_with(['⏺', '●']) || (!lines[i].starts_with('⎿') && lines.get(i + 1).is_some_and(|l| l.starts_with('⎿')));
+    let step = spinner.and_then(|at| (at.saturating_sub(STEP_LINES)..at).rev().find(|&i| marked(i)));
+    let task = step.map(|i| lines[i].trim_start_matches(['⏺', '●']).trim().to_string()).filter(|t| !t.is_empty());
+    let detail =
+        step.and_then(|i| lines.get(i + 1)).filter(|l| l.starts_with('⎿')).map(|l| l.trim_start_matches('⎿').trim().to_string()).filter(|d| !d.is_empty());
+    let mode = lines[from..].iter().rev().find_map(|l| {
+        let l = l.to_lowercase();
+        let shown = [("auto mode on", "auto"), ("accept edits on", "acceptEdits"), ("plan mode on", "plan"), ("bypass permissions on", "bypassPermissions")];
+        shown
+            .iter()
+            .find(|(words, _)| l.contains(words))
+            .map(|(_, mode)| (*mode).to_string())
+            .or_else(|| l.starts_with("? for shortcuts").then(|| "default".to_string()))
+    });
+    Activity { task, detail, mode }
+}
+
+/// How far up from the bottom of a screen its spinner and footer are looked for.
+const BOTTOM_LINES: usize = 14;
+/// How far above the spinner the step it is on is looked for, past the output a call printed.
+const STEP_LINES: usize = 40;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_working_screen_says_what_it_does_and_in_which_mode() {
+        let shapes = Shapes::of("claude");
+        let screen = "⏺ Done.\n\n● Reading sandbox script usage\n  ⎿  $ sed -n 1,60p scripts/sandbox.sh\n\n✻ Grooving… (34m 5s · ↓ 11.1k tokens · thought for 8s)\n  ⎿  Tip: Use /clear to start fresh\n\n────\n❯ \n────\n  7d 52%\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
+        let a = activity(screen, &shapes);
+        assert_eq!(a.task.as_deref(), Some("Reading sandbox script usage"));
+        assert_eq!(a.detail.as_deref(), Some("$ sed -n 1,60p scripts/sandbox.sh"));
+        assert_eq!(a.mode.as_deref(), Some("auto"));
+        let blinked = activity(&screen.replace("● Reading", "  Reading"), &shapes);
+        assert_eq!(blinked.task.as_deref(), Some("Reading sandbox script usage"), "a running call's mark blinks");
+        let done = activity("● Reading it\n✻ Cooked for 3m 9s\n────\n❯ \n────\n  ? for shortcuts\n", &shapes);
+        assert_eq!(done, Activity { mode: Some("default".into()), ..Activity::default() }, "a turn that ended is on no step");
+        assert_eq!(activity("⏸ plan mode on (shift+tab to cycle)", &shapes).mode.as_deref(), Some("plan"));
+    }
 
     #[test]
     fn a_draft_is_what_is_typed_in_the_box() {

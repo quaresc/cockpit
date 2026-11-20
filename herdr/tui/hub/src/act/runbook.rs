@@ -255,7 +255,7 @@ pub fn update(ctx: &mut Ctx, args: &[Value]) -> Res {
     if memory.is_dir() {
         dirs.push(memory.to_string_lossy().into_owned());
     }
-    let how = Headless { model: Some("sonnet"), fork, edits: true, dirs, system: None, aside: false };
+    let how = Headless { model: Some("sonnet"), effort: None, fork, edits: true, dirs, system: None, aside: false };
     let Some(mut command) = agent.headless(&refresh_prompt(ctx, book)?, &how) else {
         return Err(format!("{} has no headless mode: it cannot refresh a runbook", agent.name));
     };

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
@@ -22,19 +23,28 @@ static FOLLOWED: Mutex<Vec<(PathBuf, Follow)>> = Mutex::new(Vec::new());
 /// How the hub builds the chat view again, set once by the hub.
 static GROWN: OnceLock<fn()> = OnceLock::new();
 
-/// Builds the chat view again whenever a transcript it follows grows: a long turn writes for minutes while its agent's
-/// status, which is what moves the agents view, stays the same.
+/// Whether the last chat built shows an agent in a terminal at work: the step it is on is read off its screen, which
+/// moves while its transcript waits on a long call.
+static ON_A_STEP: AtomicBool = AtomicBool::new(false);
+
+/// Builds the chat view again whenever a transcript it follows grows, and every other second while it shows an agent's
+/// step: a long turn writes for minutes while its agent's status, which is what moves the agents view, stays the same.
 pub fn on_growth(touch: fn()) {
     if GROWN.set(touch).is_err() {
         return;
     }
     std::thread::spawn(|| {
         let mut stamps: HashMap<PathBuf, (u64, SystemTime)> = HashMap::new();
+        let mut odd = false;
         loop {
+            odd = !odd;
             std::thread::sleep(Duration::from_secs(1));
             let paths: Vec<PathBuf> = FOLLOWED.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(p, _)| p.clone()).collect();
             let grew = grown(&mut stamps, &paths);
-            if grew && let Some(touch) = GROWN.get() {
+            let step = odd && ON_A_STEP.load(Ordering::Relaxed);
+            if (grew || step)
+                && let Some(touch) = GROWN.get()
+            {
                 touch();
             }
         }
@@ -58,7 +68,7 @@ pub fn dirs() -> Vec<PathBuf> {
     Vec::new()
 }
 
-/// One agent's conversation: `{agent, session: {id, cwd, branch, model, effort, fast, context, cost}, messages, question,
+/// One agent's conversation: `{agent, session: {id, cwd, branch, model, effort, fast, mode, focus, task, detail, context, cost}, messages, question,
 /// more, next}`, for the agent `terminal` names (a handle, an address or a driven session's key); empty when it names none the
 /// agents view lists. `limit` is how many of the latest messages to send, `WINDOW` by default; `agent` is the agents
 /// view's row, so a chat needs no second subscription.
@@ -68,6 +78,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     // The chat's subject, and only that: another agent's conversation is never shown in its place.
     let wanted = args["terminal"].as_str().filter(|t| !t.is_empty());
     let Some(row) = wanted.and_then(|t| rows.iter().find(|r| r["terminal"] == t || r["address"] == t)) else {
+        ON_A_STEP.store(false, Ordering::Relaxed);
         return json!({"agent": Value::Null, "session": Value::Null, "messages": [], "question": Value::Null, "more": false, "next": Value::Null});
     };
     let session = row["session"].as_str().unwrap_or_default();
@@ -76,6 +87,11 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     let window = args["limit"].as_u64().map(|n| (n as usize).clamp(1, CEILING)).unwrap_or(WINDOW);
     let (messages, more, usage, ran) = found.and_then(|(kind, path)| latest(kind, &path, window)).unwrap_or_default();
     let next = crate::next::of(row, &messages, &cockpit_core::files::config(), ran.model.as_deref(), GROWN.get().copied());
+    // What its terminal shows now: the step it is on while it works, and its mode, which the transcript says a turn late.
+    let screen = row["terminal"].as_str().filter(|_| row["driven"] != true).and_then(|t| crate::term::screen(t, 0));
+    let shown = screen.map(|s| crate::prompt::activity(&s, &crate::prompt::Shapes::of(row["agent"].as_str().unwrap_or_default()))).unwrap_or_default();
+    let working = row["status"] == "working";
+    ON_A_STEP.store(working && row["driven"] != true, Ordering::Relaxed);
     json!({
         "agent": row,
         "session": {
@@ -83,6 +99,10 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
             "model": ran.model.map(Value::from).unwrap_or(Value::Null),
             "effort": ran.effort.map(Value::from).unwrap_or(Value::Null),
             "fast": ran.speed.map(|s| Value::from(s == "fast")).unwrap_or(Value::Null),
+            "mode": shown.mode.or(ran.mode).map(Value::from).unwrap_or(Value::Null),
+            "focus": ran.focus.map(Value::from).unwrap_or(Value::Null),
+            "task": shown.task.filter(|_| working).map(Value::from).unwrap_or(Value::Null),
+            "detail": shown.detail.filter(|_| working).map(Value::from).unwrap_or(Value::Null),
             "context": usage.context_percent(), "cost": usage.cost,
         },
         "messages": messages,
@@ -98,6 +118,8 @@ struct Ran {
     model: Option<String>,
     effort: Option<String>,
     speed: Option<String>,
+    mode: Option<String>,
+    focus: Option<bool>,
 }
 
 /// The latest `window` messages of a transcript, whether it holds older ones, its token use and what it ran with.
@@ -109,7 +131,7 @@ fn latest(kind: Transcripts, path: &Path, window: usize) -> Option<(Vec<Value>, 
     };
     let out = entry.1.read().map(|t| {
         let from = t.messages.len().saturating_sub(window);
-        let ran = Ran { model: t.model.clone(), effort: t.effort.clone(), speed: t.speed.clone() };
+        let ran = Ran { model: t.model.clone(), effort: t.effort.clone(), speed: t.speed.clone(), mode: t.mode.clone(), focus: t.focus };
         (t.messages[from..].iter().map(message).collect(), from > 0, t.usage.clone(), ran)
     });
     followed.insert(0, entry);
@@ -123,7 +145,7 @@ pub(crate) fn message(m: &transcripts::Message) -> Value {
         "role": if m.role == Role::User { "user" } else { "assistant" },
         "at": m.at,
         "text": m.text,
-        "tool": m.tool.as_ref().map(|t| json!({"name": t.name, "summary": t.summary, "ok": t.ok})).unwrap_or(Value::Null),
+        "tool": m.tool.as_ref().map(|t| json!({"name": t.name, "summary": t.summary, "ok": t.ok, "about": t.about})).unwrap_or(Value::Null),
     })
 }
 
@@ -146,11 +168,11 @@ mod tests {
             role: Role::Assistant,
             text: String::new(),
             at: "2026-11-03T10:01:00Z".into(),
-            tool: Some(Tool { name: "Bash".into(), summary: "mix test".into(), ok: Some(false) }),
+            tool: Some(Tool { name: "Bash".into(), summary: "mix test".into(), ok: Some(false), about: None }),
         };
         assert_eq!(
             message(&ran),
-            json!({"role": "assistant", "at": "2026-11-03T10:01:00Z", "text": "", "tool": {"name": "Bash", "summary": "mix test", "ok": false}})
+            json!({"role": "assistant", "at": "2026-11-03T10:01:00Z", "text": "", "tool": {"name": "Bash", "summary": "mix test", "ok": false, "about": null}})
         );
     }
 

@@ -4,7 +4,7 @@
 import { run, shared, setShared, keys, commands, focused, openOverlay, spaces, notify, terminals } from "herdr";
 import * as hub from "./hub.js";
 import { fleet, goToAgent } from "./fleet.js";
-import { show, showWork, showTab, screens, screensOf, layoutName, shownLayout, toggleSidebar, nodeOf, agentInView, CHAT_SUBJECT, CHAT_PIN, pinChat } from "./screens.js";
+import { show, showWork, screens, screensOf, layoutName, shownLayout, toggleSidebar, nodeOf, agentInView, CHAT_SUBJECT, CHAT_PIN, pinChat } from "./screens.js";
 import { shownScreen } from "./front.js";
 import { follow } from "./notify.js";
 import { openUpdate } from "./update.js";
@@ -93,7 +93,7 @@ export const CATALOGUE = [
   entry("cockpit.panel:changes", "Side panel: Changes", "git-fork", "Side panel", "git diff"),
   entry("cockpit.sidebar", "Sidebar", "panel-right", "Window", "pin drawer open close", { layouts: ["cockpit-chat"] }),
   entry("cockpit.new", "Start something new", "plus", "Window", "terminal agent space worktree tab", { layouts: ["cockpit-chat"] }),
-  entry("cockpit.tabs", "Every tab, the hidden and archived ones too", "app-window", "Window", "tabs more overflow archived restore switch", { layouts: ["cockpit-chat"] }),
+  entry("cockpit.tabs", "Every tab, the ones that do not fit too", "app-window", "Window", "tabs more overflow switch", { layouts: ["cockpit-chat"] }),
 ];
 
 /** Older names of commands, which keys bound to them still run: the keys sheet names each as what it opens now. */
@@ -572,11 +572,6 @@ const WINDOW = {
   kit: () => openOverlay({ mod: "cockpit", props: { app: "kit" }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 }),
   "kit:": (tab) => openOverlay({ mod: "cockpit", props: { app: "kit", tab }, kind: "window", key: "cockpit-kit", width: 0.85, height: 0.9 }),
   "code:open:": (path) => openCode(path),
-  // An archived tab back, from the archive toast's Undo or the "+N" menu: whichever layout shows when it is clicked.
-  "tabs:restore:": (id) => {
-    run("tab.unsettle", { id });
-    showTab(id);
-  },
 };
 
 /** What only one layout has: Home and the lone agent in Cockpit, the sidebar and the new menu in Cockpit Chat. */
