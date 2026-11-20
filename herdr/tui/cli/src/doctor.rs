@@ -880,8 +880,9 @@ impl Doctor {
             return;
         }
         let listed = self.herdr_json(&["workspace", "list"]);
-        // The Herdr app alone runs no herdr server: the pinned spaces are the herdr TUI's, checked while it runs.
-        if listed["error"]["code"] == "server_not_running" {
+        // The Herdr app alone runs no herdr server, so herdr lists no workspaces: the pinned spaces are the herdr TUI's,
+        // checked while it runs.
+        if !listed["result"]["workspaces"].is_array() {
             ok("spaces", "herdr is not running: its pinned spaces are checked while it runs");
             return;
         }
