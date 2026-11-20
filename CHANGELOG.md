@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.1.2 (2026-11-20)
+
+- Doctor: no space check fails while herdr lists no workspaces (#80)
+
 ## 1.1.1 (2026-11-20)
 
 - Fix: cockpit doctor checks the Claude plugin with the Claude Code cockpit starts, so a wrapper with its own config folder no longer reads as missing the plugin (#76)
