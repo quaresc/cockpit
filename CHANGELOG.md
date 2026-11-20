@@ -7,9 +7,9 @@ must be here first.
 
 ## 1.1.1 (2026-11-20)
 
-- Site and gallery picture: the day's hub, each session's links, the browser inside Herdr (#75)
-- doctor: ask the configured Claude Code for its plugins (#76)
-- Drawing: a published artifact takes updates without a new ask (#78)
+- Fix: cockpit doctor checks the Claude plugin with the Claude Code cockpit starts, so a wrapper with its own config folder no longer reads as missing the plugin (#76)
+- Fix: Claude can update an artifact it already published without being asked for an artifact again (#78)
+- The site and gallery picture show the day's hub, each session's links and the browser inside Herdr (#75)
 
 ## 1.1.0 (2026-11-19)
 
