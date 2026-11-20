@@ -707,7 +707,10 @@ impl Doctor {
 
     /// The Claude plugin's installed version, empty when it is not installed (a failure when Claude is the default agent).
     fn claude_plugin(&self, is_default: bool) -> String {
-        let listed = self.output(&["claude", "plugin", "list"]);
+        // Asked of the Claude Code cockpit starts (`agents.commands.claude.bin`, `COCKPIT_CLAUDE`): a wrapper there may
+        // pick its own CLAUDE_CONFIG_DIR, which the Herdr app's environment does not carry.
+        let bin = cockpit_core::agent::get("claude").map_or_else(|| "claude".to_string(), |a| a.path());
+        let listed = self.output(&[bin.as_str(), "plugin", "list"]);
         let mut found = false;
         let mut installed = String::new();
         for line in listed.lines() {

@@ -1044,6 +1044,29 @@ fn doctor_prints_a_line_per_check() {
     assert!(at("herdr 0.8.1") < at("config.json") && at("config.json") < at("session") && at("session") < at("inbox:") && at("inbox:") < at("platform tools"));
 }
 
+/// The Claude plugin is looked up with the Claude Code the agents config starts, not whichever `claude` is on PATH.
+#[test]
+fn doctor_asks_the_configured_claude_for_its_plugins() {
+    let _one = serial();
+    let sandbox = Sandbox::new();
+    sandbox.herdr(&[("--version", "herdr 0.9.1")]);
+    let listing = "    printf '%s\\n' 'Installed plugins:' '' '  ❯ cockpit@cockpit' '    Version: 1.0.1' '    Scope: user'";
+    // The `claude` on PATH reads another profile, without the plugin; the configured wrapper reads the one with it.
+    executable(&sandbox.root.join("bin/claude"), &common::fake("claude", &sandbox.log(), &[("plugin list", "    printf 'Installed plugins:\\n'")]));
+    executable(&sandbox.root.join("bin/claude-work"), &common::fake("claude-work", &sandbox.log(), &[("plugin list", listing)]));
+    let wrapper = sandbox.root.join("bin/claude-work");
+    sandbox.write(
+        "home/.config/cockpit/config.json",
+        &format!(r#"{{"agents": {{"default": "claude", "commands": {{"claude": {{"bin": "{}"}}}}}}}}"#, wrapper.display()),
+    );
+    let report: Value = serde_json::from_str(&stdout(&sandbox.cockpit(&["doctor", "--json"], &[]))).unwrap();
+    let check = report["checks"].as_array().unwrap().iter().find(|c| c["id"] == "claude.plugin").cloned().unwrap_or_default();
+    assert_eq!(check["status"], "pass", "{report}");
+    assert_eq!(check["message"], "Claude plugin cockpit 1.0.1", "{report}");
+    assert!(sandbox.calls().iter().any(|c| c == "claude-work plugin list"), "{:?}", sandbox.calls());
+    assert!(!sandbox.calls().iter().any(|c| c == "claude plugin list"), "{:?}", sandbox.calls());
+}
+
 /// Every check of one report has an id of its own: a fix names its check by it.
 #[test]
 fn doctor_json_gives_no_two_checks_one_id() {
