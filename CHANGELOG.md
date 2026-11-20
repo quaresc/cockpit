@@ -7,7 +7,9 @@ must be here first.
 
 ## 1.3.0 (2026-11-20)
 
-- Chat: mode and focus change from the chat, Files and Changes follow the agent's projects (#86)
+- New: in Cockpit Chat, the mode chip is a menu that changes a terminal agent's mode, and Focus turns its focus view on or off (#86)
+- New: Files and Changes in the side panel follow the projects the agent works in, even when it runs from a folder of several, and Review follows the latest one (#86)
+- New: a setting, Files and Changes follow the agent's projects, gives Herdr's own panels back when off (#86)
 
 ## 1.2.1 (2026-11-20)
 
