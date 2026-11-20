@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.1.1 (2026-11-20)
+
+- Site and gallery picture: the day's hub, each session's links, the browser inside Herdr (#75)
+- doctor: ask the configured Claude Code for its plugins (#76)
+- Drawing: a published artifact takes updates without a new ask (#78)
+
 ## 1.1.0 (2026-11-19)
 
 - New: a Chromium side browser for the Herdr app on macOS, docked in the side panel of both layouts, with tabs, an
