@@ -7,7 +7,7 @@ import { processRequests, refreshCi } from './ci'
 import { recordCost, startCosts } from './costs'
 import { DRAWING_SECTION, type Turn, artifactRefusal, freshTurn, pageRefusal, subagentTurn } from './drawing'
 import { forgetFacts, reportFacts } from './facts'
-import { cacheDir, home } from './config'
+import { cacheDir, home, loadConfig } from './config'
 import { refreshMail } from './mail'
 import { CHANGES_SPEC, CHANGES_TOOL_FULL, HEALTH_SPEC, HEALTH_TOOL_FULL, READ_SPEC, READ_TOOL_FULL, SEARCH_SPEC, SEARCH_TOOL_FULL, changesArgs, find, healthArgs, readArgs, searchArgs } from './find'
 import { refreshLinks, refreshViews, renderFooter } from './footer'
@@ -171,6 +171,7 @@ export const register: Register = on => {
     return reason ? { decision: 'deny', reason } : next(e)
   })
   on('tool.check', { tool: 'Artifact' }, async ($, e, next) => {
+    if ((await loadConfig($)).artifactGuard === false) return next(e)
     const reason = artifactRefusal((e.input ?? {}) as Record<string, unknown>, agentTurn(e.agentId), publishedArtifacts)
     return reason ? { decision: 'deny', reason } : next(e)
   })
