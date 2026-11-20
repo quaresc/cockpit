@@ -7,7 +7,7 @@ must be here first.
 
 ## 1.1.2 (2026-11-20)
 
-- Doctor: no space check fails while herdr lists no workspaces (#80)
+- Fix: in the Herdr app without herdr running, cockpit doctor and the settings no longer fail every pinned space (#80)
 
 ## 1.1.1 (2026-11-20)
 
