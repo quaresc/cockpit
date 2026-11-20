@@ -95,7 +95,8 @@ fn a_finished_turn_asks_its_agent_once_and_the_chat_gets_what_it_answered() {
     assert_eq!(args[at("--tools").unwrap() + 1], "", "no read, write, shell or network tools");
     assert!(at("--bare").is_none(), "bare mode would refuse the person's sign-in");
     assert_eq!(args[at("--setting-sources").unwrap() + 1], "", "no hooks from user or project settings");
-    assert_eq!(args[at("--model").unwrap() + 1], "claude-haiku-4-5", "the session's own model");
+    assert_eq!(args[at("--model").unwrap() + 1], "haiku", "the agent's lightest, not the session's own");
+    assert_eq!(args[at("--effort").unwrap() + 1], "low", "at its lowest effort");
     assert!(args.iter().any(|a| a.starts_with("Do not carry on with the work.")), "the question");
     assert!(!args.iter().any(|a| a.contains("<conversation>")), "a fork reads its own session");
 
