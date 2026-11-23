@@ -75,7 +75,7 @@
       "shadow": "sm"
     },
     {
-      "id": "work",
+      "id": "main-area",
       "type": "column",
       "resizable": false,
       "children": [
