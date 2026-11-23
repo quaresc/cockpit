@@ -290,9 +290,13 @@ pub fn poll() -> bool {
                 let mut q = prompt::read_for(&screen, &prompt::Shapes::of(&live.agent));
                 // A plan approval shows the whole plan from the transcript: its screen scrolls only part of it.
                 if q.permission
-                    && let Some(plan) = plan_of(&live, &facts[&live.handle])
+                    && let Some((plan, session)) = plan_of(&live, &facts[&live.handle])
                 {
                     q.with_plan(&plan);
+                    // Kept as a view of the session, where the side panel shows it whole and keeps it once carried out.
+                    if q.markdown && live.frontend == "app" {
+                        q.view = crate::plans::record(&live.address, &session, &live.cwd, &plan);
+                    }
                 }
                 // The frontend's word can stay blocked after the prompt went: the screen and the transcript say what it does.
                 if let Some(status) = past_prompt(&q, prompt::menu_shown(&screen), || turn_of(&live)) {
@@ -415,11 +419,15 @@ fn turn_of(live: &Live) -> Option<Turn> {
     cockpit_core::transcripts::turn(agent.transcripts, std::path::Path::new(live.transcript.as_deref()?))
 }
 
-/// The plan the agent asks to carry out, whole, from its transcript, where its agent's table says it is kept.
-fn plan_of(live: &Live, facts: &Value) -> Option<String> {
+/// The plan the agent asks to carry out, whole, from its transcript, where its agent's table says it is kept; with the
+/// session it belongs to (the transcript's own name when the session's id is not known).
+fn plan_of(live: &Live, facts: &Value) -> Option<(String, String)> {
     let agent = cockpit_core::agent::of_program(&live.agent).or_else(|| cockpit_core::agent::of_program(&live.program))?;
-    let transcript = live.transcript.as_ref().map(PathBuf::from).or_else(|| transcript_of(live, facts, &session_of(live, facts)?))?;
-    cockpit_core::transcripts::plan(agent.plan?, agent.transcripts, &transcript)
+    let session = session_of(live, facts);
+    let transcript = live.transcript.as_ref().map(PathBuf::from).or_else(|| transcript_of(live, facts, session.as_deref()?))?;
+    let plan = cockpit_core::transcripts::plan(agent.plan?, agent.transcripts, &transcript)?;
+    let session = session.or_else(|| transcript.file_stem().map(|s| s.to_string_lossy().into_owned()))?;
+    Some((plan, session))
 }
 
 /// The argument of the tool `agent` asks through before it carries a plan out, when `tool` is that one.
@@ -1027,6 +1035,13 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
     let recap = if session.is_empty() { Value::Null } else { recap::shown(session, transcript.as_deref()) };
     let failed = s["ended"].as_str().or(s["failed"].as_str()).map(str::to_string);
     let (status, since) = driven_status(s);
+    let agent = cockpit_core::agent::of_program(s["agent"].as_str().unwrap_or_default());
+    let mut question = asking.clone().map(|a| permission_question(a, agent.as_ref())).unwrap_or(Value::Null);
+    // A plan asked about is kept as a view of the session, as a terminal's is.
+    if question["markdown"] == true {
+        let plan = question["preview"].as_str().unwrap_or_default();
+        question["view"] = json!(crate::plans::record(s["key"].as_str().unwrap_or_default(), session, &cwd, plan));
+    }
     let branch = git.and_then(|g| g.branch.clone());
     let repo = git.map(|g| g.repo.clone()).unwrap_or_default();
     let changes = git.map_or(Value::Null, |g| json!({"files": g.files, "add": g.add, "del": g.del, "ahead": g.ahead, "behind": g.behind}));
@@ -1049,7 +1064,7 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
         "stage": stage(status, false, status != "done", &pr, &ci, &changes),
         "interrupted": status == "done", "error": failed, "stoppable": status == "working",
         "interrupt": interrupt_of(s["agent"].as_str().unwrap_or_default()),
-        "question": asking.map(|a| permission_question(a, cockpit_core::agent::of_program(s["agent"].as_str().unwrap_or_default()).as_ref())).unwrap_or(Value::Null), "waits": Value::Null,
+        "question": question, "waits": Value::Null,
         "said": "", "recap": recap, "paused": s["paused"], "cwd": cwd, "branch": branch, "repo": repo,
         "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
         "cost": s["session"].as_str().and_then(cockpit_core::usage::session_estimate), "session": s["session"].clone(), "seen": true,

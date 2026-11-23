@@ -185,6 +185,8 @@ export function showPanes() {
 
 /** Where the reading layout's chat says which agent it follows: a terminal's address or a driven session's key. */
 export const CHAT_SUBJECT = "cockpit.chat.subject";
+/** A view the side panel opens on once it follows that view's terminal: `{terminal, name, at}`, for a few seconds. */
+export const PENDING_VIEW = "cockpit.show.pending";
 
 /** Where `chat:open` keeps the agent it named, and the agent in front then: the chat stays on it until that changes. */
 export const CHAT_PIN = "cockpit.chat.pinned";

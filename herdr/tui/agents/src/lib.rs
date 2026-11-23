@@ -12,6 +12,7 @@ pub mod links;
 pub mod load;
 pub mod next;
 pub mod place;
+pub mod plans;
 pub mod prompt;
 pub mod recap;
 pub mod session;

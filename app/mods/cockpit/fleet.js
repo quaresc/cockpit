@@ -66,7 +66,7 @@ export function questionOf(row) {
   );
   const at = q.permission ? -1 : choices.findIndex((c) => c.n === q.cursor);
   const text = String(q.text ?? q.question ?? "").replace(/\n?>\s*$/, "").trim();
-  return { text, kind: q.kind ?? (choices.length ? "single" : "text"), choices, cursor: at, permission: Boolean(q.permission), ask: q.ask ?? null, asked: q.asked ?? null, preview: q.preview ?? "", cut: q.cut === true, unasked: Array.isArray(q.unasked) ? q.unasked : [], terminal_only: q.terminal_only || null, markdown: q.markdown === true };
+  return { text, kind: q.kind ?? (choices.length ? "single" : "text"), choices, cursor: at, permission: Boolean(q.permission), ask: q.ask ?? null, asked: q.asked ?? null, preview: q.preview ?? "", cut: q.cut === true, unasked: Array.isArray(q.unasked) ? q.unasked : [], terminal_only: q.terminal_only || null, markdown: q.markdown === true, view: q.view || null };
 }
 
 /**

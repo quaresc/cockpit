@@ -65,7 +65,7 @@ async function fixture({ layout = "cockpit-chat", shown = null, answers = {}, do
     modules.set(name, module);
     return module;
   }
-  const entry = 'export * from "./fleet.js"; export * from "./front.js"; export { AgentsModel } from "./agentsui.js"; export { default as Chat, digitAnswers } from "./chat.js"; export { default as Home } from "./home.js"; export { keyed, unkey } from "./person.js";';
+  const entry = 'export * from "./fleet.js"; export * from "./front.js"; export { AgentsModel, openPlan, planTitle, planNumber } from "./agentsui.js"; export { default as Chat, digitAnswers } from "./chat.js"; export { default as Home } from "./home.js"; export { keyed, unkey } from "./person.js";';
   const module = new SourceTextModule(entry, { context });
   await module.link(load);
   await module.evaluate();
@@ -293,4 +293,19 @@ test("a mode that runs tools without asking waits for a yes about its own sessio
   await settled();
   assert.equal(acts.length, before, "a used or guessed key sets nothing");
   assert.equal(chat.confirm?.mode, "acceptEdits", "it asks instead");
+});
+
+test("a plan opens in the side panel of its session, and its card names it in one line", async () => {
+  const { mod, calls, shared } = await fixture({ layout: "cockpit" });
+  assert.equal(mod.planTitle("Intro line\n\n## Must-have **fixes**\n\n1. One"), "Must-have fixes");
+  assert.equal(mod.planTitle(""), "");
+  assert.equal(mod.planNumber("plan-9d2e0000-12"), 12);
+  assert.equal(mod.planNumber(null), null);
+  mod.openPlan({ terminal: "app:t41", address: "t41" }, "plan-9d2e0000-2");
+  const pending = shared["cockpit.show.pending"];
+  assert.deepEqual([pending.terminal, pending.name], ["t41", "plan-9d2e0000-2"], "the panel opens on it once it follows the agent");
+  assert.equal(JSON.stringify(calls.find((c) => c[0] === "agent.focus")), JSON.stringify(["agent.focus", { terminal: "t41" }]));
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["cockpit.doc:plan-9d2e0000-2"]));
+  const q = mod.questionOf({ question: { text: "Proceed?", kind: "single", permission: true, markdown: true, view: "plan-9d2e0000-2", preview: "# P", choices: [] } });
+  assert.equal(q.view, "plan-9d2e0000-2");
 });

@@ -7,12 +7,12 @@ import * as base from "gpui-base";
 
 // A Herdr older than 0.1.15 has no ScrollHandle: the conversation still draws, it just does not follow its own end.
 const ScrollHandle = base.ScrollHandle ?? null;
-import { focused, run, exec, notify, shared, setShared, appHome, window as win } from "herdr";
+import { focused, run, exec, notify, shared, setShared, appHome, home, window as win } from "herdr";
 import * as hub from "./hub.js";
 import { take, testKeys } from "./person.js";
 import { openUrl } from "./hub.js";
 import { openPanel } from "./status.js";
-import { AgentsModel, QuestionCard, UndoRow, oneTimeKey } from "./agentsui.js";
+import { AgentsModel, QuestionCard, UndoRow, oneTimeKey, pendView } from "./agentsui.js";
 import { inFront } from "./front.js";
 import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent } from "./screens.js";
 import { followInReview } from "./review.js";
@@ -24,6 +24,8 @@ import { modelName, pickChips } from "./picks.js";
 import { statusMark } from "./chat-top.js";
 import { hint, keyText } from "./commands.js";
 import { pasteImage, thumbnail, IMAGE_LINE } from "./paste.js";
+import { linkify, imagesIn, pathOf, fileAndLine, expand } from "./textlinks.js";
+import { openCode } from "./code.js";
 import { TOOK, boxTakesBack } from "./browser.js";
 import { tokens, TEXT, RADIUS, Icon, Spinner, Chip, Empty, Card, Button, HubDown, openMenu, AgentLogo } from "./ui.js";
 import { NEXT_KEYS, NextSteps, nextKey, nextShown } from "./next-steps.js";
@@ -312,6 +314,9 @@ function prReadiness(row) {
   const review = { APPROVED: "approved", CHANGES_REQUESTED: "changes requested", REVIEW_REQUIRED: "needs a review" }[pr.review] ?? "no review yet";
   return `${pr.draft ? "Draft · " : ""}${checks} · ${review}`;
 }
+
+/** How high an image an answer names is drawn under it. */
+const PICTURE_H = 220;
 
 export default class Chat {
   init(_props, cx) {
@@ -1835,7 +1840,7 @@ export default class Chat {
             .bg(k.muted)
             .text_size(TEXT.base)
             .text_color(k.foreground)
-            .child(TextView.markdown(`chat-s${row.slot}`, text).selectable(true).text_size(TEXT.base)),
+            .child(TextView.markdown(`chat-s${row.slot}`, linkify(text)).selectable(true).text_size(TEXT.base).on_link_click((url) => this.openLink(url))),
         ))
         // Sent to a session cockpit drives, not yet replayed by it.
         .when(Boolean(row.pending), (e) => e.child(h_flex().gap(5).items_center().text_size(TEXT.xs).text_color(k.dim).child(Spinner({ size: 10, color: k.dim })).child(div().child("Sending…")))),
@@ -1844,9 +1849,36 @@ export default class Chat {
 
   answered(row, k) {
     const parts = segments(row.text).map((s, i) =>
-      s.code ? this.codeBox(`chat-s${row.slot}-c${i}`, s, k) : TextView.markdown(`chat-s${row.slot}-t${i}`, s.text).selectable(true).text_size(TEXT.base).on_link_click((url) => openUrl(url)),
+      s.code
+        ? this.codeBox(`chat-s${row.slot}-c${i}`, s, k)
+        : TextView.markdown(`chat-s${row.slot}-t${i}`, linkify(s.text)).selectable(true).text_size(TEXT.base).on_link_click((url) => this.openLink(url)),
     );
-    return this.column(v_flex().w_full().pb(10).gap(2).text_color(k.foreground).children(parts));
+    // The images it names show as themselves under its words, each opened full size with a click.
+    const pics = imagesIn(row.text, home()).filter((p) => this.thumbs.get(p) !== false);
+    const picture = (p, i) => this.picture(p, PICTURE_H, k).id(`chat-s${row.slot}-p${i}`).cursor_pointer().tooltip(p).on_click(() => openUrl(p));
+    return this.column(
+      v_flex()
+        .w_full()
+        .pb(10)
+        .gap(2)
+        .text_color(k.foreground)
+        .children(parts)
+        .when(pics.length > 0, (e) => e.child(h_flex().flex_wrap().gap(8).pt(6).children(pics.map(picture)))),
+    );
+  }
+
+  /**
+   * A link the conversation holds: a path opens in the side panel beside the chat (a folder or an image in the system's
+   * own app), anything else in the browser.
+   */
+  openLink(url) {
+    const path = pathOf(url);
+    if (!path) return openUrl(url);
+    const { file, line } = fileAndLine(expand(path, home()));
+    if (IMAGE_LINE.test(file)) return openUrl(file);
+    exec("test", ["-d", file])
+      .then((r) => (r?.code === 0 ? openUrl(file) : openCode(file, { line: line ?? undefined })))
+      .catch(() => openCode(file, { line: line ?? undefined }));
   }
 
   /**
@@ -2547,7 +2579,8 @@ export default class Chat {
     const all = memo?.messages === messages && memo.length === messages.length && memo.shape === shape ? memo.rows : rowsOf(messages, { working, ...end });
     this.made = { messages, length: messages.length, shape, rows: all };
     const rows = this.drawn(all);
-    this.thumbsFor([...this.files, ...rows.flatMap((r) => (r.kind === "said" ? String(r.text).split("\n") : []))], cx);
+    const named = (r) => (r.kind === "said" ? String(r.text).split("\n") : r.kind === "answered" ? imagesIn(r.text, home()) : []);
+    this.thumbsFor([...this.files, ...rows.flatMap(named)], cx);
     // A turn still running counts its own seconds, so the row is redrawn while nothing else moves: one redraw a second,
     // however often something else draws it. `ticking` is when it was armed: one that never fired is armed again.
     if (working && !(Date.now() - (this.ticking ?? 0) < 2000)) {
@@ -2682,11 +2715,27 @@ export default class Chat {
       .children(this.queuedRows(k))
       // A dismissal's Undo, above the card it came from: the chat keeps key hints out of it, as everywhere here.
       .when(Boolean(UndoRow("chat-undo", this.model)), (e) => e.child(h_flex().w_full().px(GUTTER).pt(8).justify_center().child(div().w_full().max_w(READ_W).child(UndoRow("chat-undo", this.model)))))
+      .when(Boolean(row?.question?.view), (e) => (this.planInPanel(row, cx), e))
       .when(Boolean(row?.question || row?.waits), (e) =>
         e.child(h_flex().w_full().px(GUTTER).pt(8).justify_center().child(div().w_full().max_w(READ_W).child(QuestionCard(`chat-card-${row.terminal}-${row.question?.ask ?? row.question?.text?.length ?? ""}`, row, this.model, { wide: true, focus: this.cardFocus })))),
       )
       .child(this.composer(k))
       .when(Boolean(this.confirm), (e) => e.child(this.fullAccess(k, this.confirm)));
+  }
+
+  /**
+   * A plan the agent asks about opens once in the side panel, where it reads whole and stays after it is carried out;
+   * the card above the box keeps it to one line.
+   */
+  planInPanel(row, cx) {
+    const view = row.question.view;
+    if (this.planOpened === view) return;
+    this.planOpened = view;
+    cx.timer.after(0, () => {
+      pendView(row, view);
+      openPanel("show");
+      run(`cockpit.show:go:${view}`);
+    });
   }
 
   /** At the top of the conversation when there is more before it: reads further back, the first row staying put. */
