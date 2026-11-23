@@ -5,6 +5,12 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.4.0 (2026-11-23)
+
+- New: a plan approval's card shows the whole plan, read from the transcript and rendered as Markdown, and takes the answer from the card (#92)
+- New: the plan is read where each agent keeps it: Claude Code's ExitPlanMode call, Qwen Code's exit_plan_mode call, Gemini CLI's plan file, Codex's last message in plan mode (#92)
+- Fix: Claude Code 2.1.330's prompts, drawn under a rule of eighth blocks, are no longer cut (#92)
+
 ## 1.3.0 (2026-11-20)
 
 - New: in Cockpit Chat, the mode chip is a menu that changes a terminal agent's mode, and Focus turns its focus view on or off (#86)
