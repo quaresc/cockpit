@@ -19,6 +19,8 @@ const ICON = {
   image: "image", compare: "square-split", diff: "git-compare", log: "scroll-text", ci: "activity", choice: "circle-help", confirm: "shield-check",
 };
 const ROW = 32;
+/** The narrowest a dragged table column gets, in pixels. */
+const MIN_COL = 48;
 const hhmm = (ms) => {
   if (!ms) return "";
   const d = new Date(ms);
@@ -812,19 +814,39 @@ export default class Show {
     const st = this.state(b);
     const rows = this.rowsOf(b);
     const cols = b.columns ?? [];
+    // Columns share the width until one is dragged: then each has its own, and a table wider than its card scrolls.
+    const widths = st.widths?.length === cols.length ? st.widths : null;
+    const sized = (el, i) => (widths ? el.w(widths[i]).flex_none() : el.flex_1());
     const cell = (i, content, head) => {
-      let el = h_flex().flex_1().min_w(0).px(8).items_center();
+      let el = sized(h_flex(), i).min_w(0).px(8).items_center();
       if (b.numeric?.[i]) el = el.justify_end();
       return el.child(div().truncate().when(Boolean(b.numeric?.[i]) && !head, (e) => e.font_family("JetBrains Mono").text_size(TEXT.sm)).child(content));
     };
+    const z = () => Number(settings().zoom ?? 1) || 1;
+    if (!st.seen) st.seen = [];
+    const edge = (i) => div().id(`show-tw-${b.n}-${i}`).absolute().top(0).right(-4).w(8).h_full().cursor_col_resize()
+      .tooltip("Drag to resize the column, double-click to fit them all")
+      .on_mouse_down("left", (e, cx) => {
+        cx.stop_propagation();
+        if (e.click_count >= 2) {
+          st.widths = null;
+          st.resize = null;
+        } else {
+          st.widths = widths ?? cols.map((_, j) => Math.max(MIN_COL, Math.round(st.seen[j] ?? 120)));
+          st.resize = { i, x: e.position.x, w: st.widths[i] };
+        }
+        cx.notify();
+      });
     const header = h_flex().h(34).border_b_1().border_color(k.border).children(cols.map((c, i) => {
       const on = st.sort?.i === i;
-      return h_flex().id(`show-th-${b.n}-${i}`).flex_1().min_w(0).px(8).gap(4).items_center().cursor_pointer().when(Boolean(b.numeric?.[i]), (e) => e.justify_end())
+      return sized(h_flex().id(`show-th-${b.n}-${i}`), i).relative().min_w(0).px(8).gap(4).items_center().cursor_pointer().when(Boolean(b.numeric?.[i]), (e) => e.justify_end())
         .text_size(TEXT.sm).font_medium().text_color(on ? k.foreground : k.mutedFg).hover((s) => s.text_color(k.foreground))
         .tooltip(`Sort by ${c} (${i + 1})`)
+        .on_size_change((size) => (st.seen[i] = size.width / z()))
         .on_click((_e, cx) => { this.sortBy(st, i); cx.notify(); })
         .child(div().truncate().child(c))
-        .child(Icon(on ? (st.sort.desc ? "chevron-down" : "chevron-up") : "chevrons-up-down", { size: 12 }));
+        .child(Icon(on ? (st.sort.desc ? "chevron-down" : "chevron-up") : "chevrons-up-down", { size: 12 }))
+        .child(edge(i));
     }));
     if (!this.tableScroll) this.tableScroll = new Map();
     const key = this.liveKey(b);
@@ -839,9 +861,23 @@ export default class Show {
         cx.notify();
       });
     const height = Math.min(rows.length, 12) * ROW;
-    return v_flex().w_full().rounded(RADIUS.md).border_1().border_color(k.border).overflow_hidden()
+    const grid = v_flex().when(Boolean(widths), (e) => e.w(widths.reduce((a, w) => a + w, 0)).flex_none()).when(!widths, (e) => e.w_full())
       .child(header)
-      .child(div().relative().h(Math.max(ROW, height)).child(list).child(Scrollbar.vertical(`show-rows-${key}`).viewport_from_layout().absolute().inset_0()))
+      .child(div().relative().h(Math.max(ROW, height)).child(list).child(Scrollbar.vertical(`show-rows-${key}`).viewport_from_layout().absolute().inset_0()));
+    return v_flex().id(`show-table-${b.n}`).w_full().rounded(RADIUS.md).border_1().border_color(k.border).overflow_hidden()
+      // The drag follows the pointer anywhere over the table, and ends with the press.
+      .on_mouse_move((e, cx) => {
+        const r = st.resize;
+        if (!r || !st.widths) return;
+        const w = Math.max(MIN_COL, Math.round(r.w + (e.position.x - r.x) / z()));
+        if (w !== st.widths[r.i]) {
+          st.widths = st.widths.map((x, j) => (j === r.i ? w : x));
+          cx.notify();
+        }
+      })
+      .on_mouse_up("left", (_e, cx) => { if (st.resize) { st.resize = null; cx.notify(); } })
+      .on_hover((on) => { if (!on) st.resize = null; })
+      .child(widths ? div().id(`show-tx-${b.n}`).w_full().overflow_x_scrollbar().child(grid) : grid)
       .child(h_flex().h(28).px(8).items_center().bg(alpha(k.muted, 0.5)).text_size(TEXT.xs).text_color(k.mutedFg)
         .child(`${rows.length} row${rows.length === 1 ? "" : "s"}${st.sort ? ` · by ${cols[st.sort.i]} ${st.sort.desc ? "↓" : "↑"}` : ""}`));
   }
