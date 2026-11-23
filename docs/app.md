@@ -1702,6 +1702,8 @@ stretch of skips: it keeps the first skip's id).
 - `diff.js` (`DiffView`) is the shared diff: folding files, unified or side by side, a cursor, comments as rows under
   their line, the composer floating over the list (docked under it when narrow). `diagram.js` lays out and draws
   flowcharts and sequence charts natively; `plot.js` draws the charts.
+- A `table` block sorts on a header click or `1-9`. Dragging a header's right edge gives every column a width of its own,
+  and a table wider than its card then scrolls sideways; a double-click on an edge fits the columns to the card again.
 
 ## Design kit (`ui.js`)
 
