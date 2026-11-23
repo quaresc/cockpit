@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## Unreleased
+
+- Fix: in Cockpit Chat, dragging the edge of the side panel resizes it; the drag showed but nothing moved (#98)
+
 ## 1.5.0 (2026-11-23)
 
 - New: a Cmd-click on a web link in a Herdr app terminal can open it in the side browser beside that terminal, with links.open set to side in Cockpit settings; your browser stays the default (#96)

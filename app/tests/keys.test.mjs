@@ -566,3 +566,15 @@ test("a keys.json value written as a number reaches Herdr as one", async () => {
   mod.runAction("pane.split:right");
   assert.deepEqual(plain(calls), [["tab.select", { index: 1 }], ["pane.split", { direction: "right" }]]);
 });
+
+test("every node of a cockpit layout has an id of its own, so Herdr finds the one a drag or a command names", async () => {
+  for (const name of ["cockpit", "cockpit-chat"]) {
+    const ids = [];
+    const walk = (node) => {
+      if (node?.id) ids.push(node.id);
+      for (const child of [...(node?.children ?? []), ...(node?.floating ?? [])]) walk(child);
+    };
+    walk(await json(new URL(`layouts/${name}.json`, app)));
+    assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], name);
+  }
+});
