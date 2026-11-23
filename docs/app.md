@@ -305,7 +305,10 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   Review opens the file under the cursor, and `cockpit.code:open:<path>` any file. In Cockpit Chat the file opens in
   the side panel beside the chat instead (`{app: "code", panel: true}` in `panel-body`, reading shared
   `cockpit.code.panel` = {file, line, terminal, at, back}); its Close gives the panel back to what it showed, or closes
-  it, and the activity bar gets a button for the file. Ported from yama-lei/herdr-editor-layout's editor (Apache-2.0);
+  it, and the activity bar gets a button for the file. The chat's messages link their bare paths and URLs, and a code
+  span holding only one (`textlinks.js`): a path opens here (`path:12` on its line), a folder or an image in the system's
+  own app, a URL in the browser; the local images an answer names show under it, each opened full size with a click.
+  Ported from yama-lei/herdr-editor-layout's editor (Apache-2.0);
   no LSP.
 - **Reader** (`reader.js`): a window that reads a file or a text as rendered Markdown, selectable and copied in one click;
   `openReader({path | text, title, meta})`, and `Markdown(id, text)` for the same rendering inside a panel (a routine
