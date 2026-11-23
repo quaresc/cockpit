@@ -24,7 +24,11 @@
     "cmd-r": "cockpit.recap",
     "cmd-g": "cockpit.pr",
     "cmd-l": "cockpit.ticket",
-    "cmd-/": "cockpit.keys"
+    "cmd-/": "cockpit.keys",
+    "ctrl-alt-left": "pane.resize:left",
+    "ctrl-alt-right": "pane.resize:right",
+    "ctrl-alt-up": "pane.resize:up",
+    "ctrl-alt-down": "pane.resize:down"
   },
   "layout:cockpit-chat": {
     "cmd-b": "cockpit.sidebar",
@@ -54,6 +58,10 @@
     "ctrl-cmd-5": "cockpit.panel:changes",
     "cmd-t": "cockpit.new",
     "cmd-shift-a": "cockpit.tabs",
-    "cmd-alt-n": "cockpit.session"
+    "cmd-alt-n": "cockpit.session",
+    "ctrl-alt-left": "pane.resize:left",
+    "ctrl-alt-right": "pane.resize:right",
+    "ctrl-alt-up": "pane.resize:up",
+    "ctrl-alt-down": "pane.resize:down"
   }
 }

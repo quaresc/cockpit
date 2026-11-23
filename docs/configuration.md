@@ -69,9 +69,11 @@ itself and need no `tools`.
 | `names` | `true` | Agents, tabs and spaces named after their work: the name you gave, else the agent's own title, else its first prompt in a few words, never over a tab name you or another tool typed; `false` turns it off. |
 | `fetcher` | `true` | The Claude session the hub keeps for sources it cannot reach itself; `false` turns it off. |
 | `notifications` | `true` | Notifications at all. |
+| `dockBadge` | `true` | On macOS, the Herdr app's Dock icon shows how many agents need you. |
 | `e2eBrowser` | `terminal-browser` | Where an agent runs E2E tests: beside it, or Claude in Chrome. |
 | `browserIdleMinutes` | `60` | A browser whose space stayed out of view this long closes, and a Chromium tab out of view this long sleeps; `0` keeps them. |
 | `sideBrowser` | `terminal-browser` | The browser beside an agent: terminal-browser in a pane, or `chromium`, cockpit's own window docked in the Herdr app on macOS (see [browser.md](browser.md)). |
+| `links.open` | `browser` | Where a Cmd-click (Ctrl-click) on a web link in a Herdr app terminal opens it: `browser`, your own, or `side`, the side browser beside that terminal. |
 | `browser` | `{dock: true, profileScope: "shared", popups: "tab", downloads: ""}` | The Chromium side browser: docked or a window of its own, the profile a worktree starts with (`shared`, `repo`, `worktree`), pop-ups as tabs or blocked, and the downloads folder (yours when empty). |
 | `artifactGuard` | `true` | In Claude Code, a new claude.ai artifact waits until `show` was tried or you asked for an artifact or a link; `false` lets every publish through (see [show.md](show.md)). |
 | `footer.links` | on in Claude Code | The links under the prompt; off in the Herdr app, whose status bar shows them. |

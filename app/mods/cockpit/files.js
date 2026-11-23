@@ -5,7 +5,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar } from "gpui-base";
 import { exec } from "herdr";
-import { tokens, TEXT, RADIUS, Icon } from "./ui.js";
+import { tokens, TEXT, RADIUS, Icon, dragPaths } from "./ui.js";
 import { openCode } from "./code.js";
 import { where, whereKey, reposOf, statusOf } from "./projects.js";
 
@@ -172,8 +172,7 @@ export default class Files {
       const status = this.marks.files.get(abs);
       const changed = this.marks.under.get(abs) ?? 0;
       const worked = e.dir && repos.has(abs);
-      return h_flex()
-        .id(`file-${abs}`)
+      return dragPaths(h_flex().id(`file-${abs}`), [abs])
         .h(26)
         .flex_none()
         .pl(8 + e.depth * 14)

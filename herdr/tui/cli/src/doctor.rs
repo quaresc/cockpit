@@ -122,6 +122,11 @@ fn verdict() {
     }
 }
 
+/// Whether a herdr-core config.toml turns on `restore_screen`.
+fn restores_screen(toml: &str) -> bool {
+    toml.parse::<toml_edit::DocumentMut>().ok().and_then(|d| d.get("restore_screen").and_then(toml_edit::Item::as_bool)).unwrap_or(false)
+}
+
 /// What the checks read and run with.
 struct Doctor {
     /// The herdr plugin folder this binary belongs to, its links resolved.
@@ -670,6 +675,27 @@ impl Doctor {
             .run(fix.clone()),
             None => warn("app.mod", "Herdr app: herdr-app check did not answer"),
         };
+        self.restore_screen();
+    }
+
+    /// herdr-core 0.1.21 and later can show a terminal's last screen above its new shell after a reboot, when its
+    /// config.toml asks: beside cockpit's Resume, it shows where each agent was.
+    fn restore_screen(&self) {
+        let said = self.output(&[&cockpit_core::frontend::program("hc", "HC_BIN"), "--version"]);
+        let Some(version) = said.split_whitespace().nth(1) else { return };
+        if !cockpit_core::options::is_newer(version, "0.1.20") {
+            return;
+        }
+        let dir = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| files::home().join(".config"));
+        let path = dir.join("herdr-core/config.toml");
+        if restores_screen(&std::fs::read_to_string(&path).unwrap_or_default()) {
+            ok("app.restoreScreen", "herdr-core shows each terminal's last screen after a reboot");
+        } else {
+            ok(
+                "app.restoreScreen",
+                &format!("herdr-core can show each terminal's last screen after a reboot → set restore_screen = true in {}", path.display()),
+            );
+        }
     }
 
     /// Each Claude session in a Herdr app terminal should beat with the installed version, as `app:<terminal>`.
@@ -1754,5 +1780,15 @@ mod tests {
         let tools = json!({"listMine": {"tool": "x"}, "get": {"tool": ""}, "listStates": {}});
         assert_eq!(unmapped(&tools, &["listMine", "get", "listStates", "setState"]), "get, listStates, setState");
         assert_eq!(unmapped(&Value::Null, &["a"]), "");
+    }
+
+    #[test]
+    fn restore_screen_is_read_from_the_core_config() {
+        assert!(restores_screen("restore_screen = true\n"));
+        assert!(restores_screen("draft_wait = 30\nrestore_screen = true\n[machines]\n"));
+        assert!(!restores_screen("restore_screen = false\n"));
+        assert!(!restores_screen("[other]\nrestore_screen = true\n"), "a key under a table is not the core's");
+        assert!(!restores_screen(""));
+        assert!(!restores_screen("not = [toml"));
     }
 }

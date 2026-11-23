@@ -16,6 +16,7 @@
     "dark": "cockpit-chat"
   },
   "preview": "layouts/cockpit-chat.svg",
+  "link_handlers": ["cockpit"],
   "children": [
     {
       "id": "sidebar",
@@ -101,7 +102,7 @@
               "id": "work",
               "type": "row",
               "gap": 8,
-              "resizable": false,
+              "resizable": true,
               "children": [
                 {
                   "id": "view",

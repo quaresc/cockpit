@@ -117,6 +117,8 @@ export const NAMED = [
   ["pane.split", { direction: "down" }, "Pane", "Split down", "horizontal"],
   ["pane.close", {}, "Pane", "Close pane", "kill"],
   ["pane.zoom", {}, "Pane", "Zoom pane", "maximize fullscreen"],
+  ["pane.rename", {}, "Pane", "Rename pane", "name title"],
+  ...["left", "right", "up", "down"].map((d) => ["pane.resize", { direction: d }, "Pane", `Move pane edge ${d}`, "resize size wider narrower taller"]),
   ...["left", "right", "up", "down"].map((d) => ["pane.go", { direction: d }, "Pane", `Focus pane ${d}`, "move go"]),
   ...["left", "right", "up", "down"].map((d) => ["pane.swap", { direction: d }, "Pane", `Swap pane ${d}`, "move"]),
   ["space.new", {}, "Space", "New space", "workspace"],
@@ -198,7 +200,13 @@ export function sheet(layout = layoutName(), bound = keys(), section = shownLayo
   const rows = bindings(section, bound).map((b) => ({ keys: b.keys, action: b.action, ...describe(b.action, layout) }));
   rows.push(...VIEW_KEYS.map(([k, title]) => ({ keys: k, action: null, title, group: "In the apps", icon: null })));
   rows.push(...CHAT_KEYS.filter(([, , l]) => l === layout).map(([k, title]) => ({ keys: k, action: null, title, group: "This agent", icon: null })));
-  const sorted = rows.map((r, i) => [r, i]).sort(([a, i], [b, j]) => at(a) - at(b) || i - j).map(([r]) => r);
+  // Herdr's commands a layout binds keep NAMED's order (left, right, up, down), whatever order keys() lists them in.
+  const named = (r) => {
+    const [name, value] = splitAction(r.action ?? "");
+    const n = NAMED.findIndex(([c, args]) => c === name && (value === undefined || Object.values(args)[0] === value));
+    return n < 0 ? NAMED.length : n;
+  };
+  const sorted = rows.map((r, i) => [r, i]).sort(([a, i], [b, j]) => at(a) - at(b) || named(a) - named(b) || i - j).map(([r]) => r);
   return SHEET.map((title) => ({ title, rows: sorted.filter((r) => r.group === title) })).filter((g) => g.rows.length > 0);
 }
 

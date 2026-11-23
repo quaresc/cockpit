@@ -161,7 +161,8 @@ pub fn list(only: Option<&str>) -> Vec<Live> {
     out
 }
 
-fn tui_running() -> bool {
+/// Whether the herdr TUI runs on this machine.
+pub fn tui_running() -> bool {
     Command::new("pgrep").args(["-x", "herdr"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 

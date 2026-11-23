@@ -4,7 +4,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, Input, InputState, v_virtual_list } from "gpui-base";
 import { exec, readTextFile } from "herdr";
-import { tokens, TEXT, RADIUS } from "./ui.js";
+import { tokens, TEXT, RADIUS, dragPaths } from "./ui.js";
 import { READ, where, whereKey, reposOf, statusOf } from "./projects.js";
 
 /** The most diff lines drawn, and the characters kept of one. */
@@ -231,8 +231,7 @@ export default class Changes {
     const fileRow = (f) => {
       const parts = f.path.split("/");
       const name = parts.pop();
-      return h_flex()
-        .id(`change-${f.path}`)
+      return dragPaths(h_flex().id(`change-${f.path}`), f.status === "D" || !this.repo ? [] : [`${this.repo}/${f.path}`])
         .h(28)
         .flex_none()
         .px(8)

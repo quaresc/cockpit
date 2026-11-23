@@ -8,7 +8,8 @@ import { run, shared, setShared, focused, spaces, agents, machines, hc, panes, t
 import * as hub from "./hub.js";
 import { followBrowser } from "./web.js";
 import { deliver } from "./notify.js";
-import { rowsOf, countsOf, agentStatus, needing } from "./fleet.js";
+import { rowsOf, countsOf, agentStatus, needing, showBadge } from "./fleet.js";
+import { option } from "./config.js";
 import { show, showWork, showPanes, screens, layoutName } from "./screens.js";
 import { togglePalette, openRecap, hint, keyFor, keyText, lend } from "./commands.js";
 import { inFront } from "./front.js";
@@ -135,6 +136,8 @@ export default class Sidebar {
     this.sub?.stop();
     this.web?.stop();
     this.agents.stop();
+    // Another layout draws no count: the badge goes with the sidebar, and a sidebar still drawn puts it back.
+    showBadge(0);
   }
 
   /** A hub notification, as notify.js shows it: Herdr's toast in front, the system's behind. */
@@ -197,6 +200,7 @@ export default class Sidebar {
     // Home and Needs answer them on their own cards: there the waiting agents stay in the list below. Without the hub
     // nothing answers in place, so they stay in the list too.
     const band = active === "home" || active === "needs" || model.down ? [] : waiting;
+    if (!model.down) showBadge(needing(rows).length, option("dockBadge", true) !== false);
     setAgentOrder(order.filter(r => !r.remote).map((r) => r.address));
 
     const navItem = (child, label, icon, count, command, tone) => {

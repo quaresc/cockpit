@@ -1,6 +1,7 @@
 // A pane's header in the cockpit layout (`pane.header.content` = {mod: "cockpit", props: {app: "pane"}}): the program's
-// icon, its name or title, the folder and branch, the agent's status; on hover, Open in editor, Fork (an agent's
-// session) and Herdr's split, zoom and close. Herdr gives each copy `props().pane` and `props().terminal`.
+// icon, the name given to the pane else its program or title, the folder and branch, the agent's status; on hover, Open
+// in editor, Fork (an agent's session), Rename and Herdr's split, zoom and close. Herdr gives each copy `props().pane`
+// and `props().terminal`.
 
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
@@ -62,13 +63,15 @@ export default class PaneHeader {
     const p = this.me();
     if (!p) return div();
     const pane = p.pane;
-    const name = (p.program?.agent || p.program?.shell ? p.program.name : null) || p.title || p.program?.name || p.mod || "shell";
+    const name = p.name || (p.program?.agent || p.program?.shell ? p.program.name : null) || p.title || p.program?.name || p.mod || "shell";
     const pic = programIcon(p.program, 14, k.dim);
     const st = this.status(k, p.status);
     const act = (id, icon, tooltip, onClick) => Button(`ph-${id}-${pane}`, { icon, size: "icon-sm", variant: "ghost", tooltip, onClick: (e, cx) => { cx.stop_propagation(); onClick(); } });
     const actions = [
       p.cwd && act("ed", "code", `Open in ${this.editor}`, () => this.openEditor(p)),
       p.terminal && isAgent(p) && act("fk", "git-fork", "Fork this session to a new tab", () => this.fork(p)),
+      // A Herdr that names panes says so with `name` (null until someone does).
+      p.name !== undefined && act("rn", "pencil", "Rename", () => run("pane.rename", { pane })),
       act("sr", "columns", "Split right", () => run("pane.split", { direction: "right", pane })),
       act("sd", "square-split", "Split down", () => run("pane.split", { direction: "down", pane })),
       act("zm", p.zoomed ? "minimize" : "maximize", p.zoomed ? "Unzoom" : "Zoom", () => run("pane.zoom", { pane })),

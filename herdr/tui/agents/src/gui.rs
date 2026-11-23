@@ -17,6 +17,7 @@ use cockpit_core::{files, names};
 use regex::Regex;
 use serde_json::{Value, json};
 
+use crate::events;
 use crate::ledger::{self, Ledger};
 use crate::place;
 use crate::prompt::{self, Cursor, Question};
@@ -181,12 +182,24 @@ pub fn start(touch: fn()) {
     }
     std::thread::spawn(|| {
         ledger::trim(&ledger::path(), now_ms());
+        // The sender stays here too, so the wait below times out rather than ends when nothing follows the core.
+        let (tx, rx) = std::sync::mpsc::channel();
+        if term::demo().is_none() {
+            events::follow(tx.clone());
+        }
         loop {
+            let looked = std::time::Instant::now();
             if poll() {
                 self::touch();
             }
             let app = frontend::app_home().join("herdr-app.sock").exists();
-            std::thread::sleep(Duration::from_secs(if app { 2 } else { 4 }));
+            let blocked = snap().agents.iter().any(|a| a.live.status == "blocked");
+            let tui = app && events::following() && term::tui_running();
+            if rx.recv_timeout(events::wait(app, events::following(), tui, blocked)).is_ok() {
+                // A burst of changes makes one look, and looks stay a second apart at least.
+                std::thread::sleep(Duration::from_secs(1).saturating_sub(looked.elapsed()).max(Duration::from_millis(150)));
+                while rx.try_recv().is_ok() {}
+            }
         }
     });
 }

@@ -51,6 +51,11 @@ export function tokens() {
 }
 
 /** `color` at this opacity, for tints (a 15% destructive behind its text). */
+/** The element as a drag source of these files into a terminal, which types their paths; a Herdr older than 0.1.16 has none. */
+export function dragPaths(el, paths) {
+  return typeof el.drag_paths === "function" && paths.length ? el.drag_paths(paths) : el;
+}
+
 export function alpha(color, a) {
   if (!color?.startsWith("#")) return color;
   const hex = color.length === 9 ? color.slice(0, 7) : color.slice(0, 7);
