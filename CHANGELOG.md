@@ -8,6 +8,7 @@ must be here first.
 ## 1.5.1 (2026-11-23)
 
 - Fix: in Cockpit Chat, dragging the edge of the side panel resizes it; the drag showed but nothing moved (#98)
+- Note: the update puts the fixed Cockpit Chat layout in place; a copy of the layout you made keeps the old ids until you duplicate it again (#98)
 
 ## 1.5.0 (2026-11-23)
 
