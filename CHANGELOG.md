@@ -17,6 +17,7 @@ must be here first.
 - New: cockpit doctor says how to show each terminal's last screen after a reboot (herdr-core restore_screen) (#96)
 - Fix: the agents list follows herdr-core's events, so a status change shows at once and an idle window reads its terminals far less often (#96)
 - Fix: herdr-app check, also run by cockpit doctor, no longer starts or reaches the hub while it loads the mod (#96)
+- Note: link clicks, named panes and pane resizing need Herdr app 0.1.17, the Dock badge and drags 0.1.16; an older Herdr app runs the rest as before (#96)
 
 ## 1.4.1 (2026-11-23)
 
