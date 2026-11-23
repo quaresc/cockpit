@@ -345,6 +345,14 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   <handle>]` and `cockpit focus resume`. Resuming types `cd '<cwd>' && claude --resume <id>` into its terminal when it
   sits at a shell, opens a space in its folder when it is gone, and refuses when another program runs there.
 
+
+**Links, badge and drags.** Both layouts list the mod in `link_handlers` (Herdr 0.1.17): `link.js` takes a Cmd-click on
+a web link in a terminal, passes it back to Herdr unless `links.open` is `side`, and then runs `cockpit browse` for the
+clicked terminal. The sidebar puts the count of agents that need you on the Dock icon (`setBadge`, `dockBadge`), Files
+and Changes rows drag their paths into a terminal (`drag_paths`), and the mod starts, asks and follows nothing while
+`herdr-app check` loads it (`hub.checking()`). In Cockpit Chat the boundary between the conversation and the side panel
+drags. The pane header shows a name given with Rename (`pane.rename`), and ctrl-alt-arrows move a pane's edge
+(`pane.resize`).
 ## The reading layout (`cockpit-chat`)
 
 `app/layouts/cockpit-chat.json`, its brief in `app/RECIPE-cockpit-chat.md`. It draws the conversation instead of
@@ -836,8 +844,9 @@ transcript as before. `cockpit session run <agent> <cwd> <prompt>` drives one fr
 
 ## View `agents` (every agent terminal, both halves)
 
-Built by `cockpit_agents::gui` in the hub, pushed again when an agent's status changes (the hub polls the frontends
-every 2 s), when the `inbox`/`ci`/`agents` documents change, when a driven session moves, or after its own action. Subscribe with
+Built by `cockpit_agents::gui` in the hub, pushed again when an agent's status changes (the hub follows `hc events`
+and looks when a terminal is made, ends or changes status, else every 10 s; every 2 s while an agent waits on a
+question, the herdr TUI runs or the events are not followed), when the `inbox`/`ci`/`agents` documents change, when a driven session moves, or after its own action. Subscribe with
 `{name: "agents", args: {frontend: "app"}}` (the Herdr app's terminals; `"tui"` for herdr's panes, no args for both).
 
 ```jsonc

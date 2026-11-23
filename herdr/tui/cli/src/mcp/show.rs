@@ -380,6 +380,8 @@ fn open_pane(dir: &Path, here: &Here, name: &str, session: &str, placement: &str
                 return Err("herdr-app pane.split failed: is the cockpit mod installed? (cockpit app install)".into());
             };
             files::write(&dir.join(format!("{name}.app")), &json!({"pane": new, "terminal": terminal})).map_err(|e| e.to_string())?;
+            // The pane's header reads the view's name; a Herdr older than 0.1.17 cannot name panes and keeps its own.
+            frontend::app_do("pane.rename", &json!({"pane": new, "name": name}));
             // The keyboard stays with the conversation.
             if placement == "zoomed" {
                 frontend::app_do("pane.zoom", &json!({"pane": new}))

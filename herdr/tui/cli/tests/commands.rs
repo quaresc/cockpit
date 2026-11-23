@@ -530,6 +530,7 @@ fn in_the_app_a_browser_splits_right_of_the_sessions_pane() {
         [
             format!(r#"herdr-app do pane.split {{"argv":["{}","open","https://app.test/c"],"direction":"right","pane":"p62d2"}}"#, tb.display()),
             r#"herdr-app do pane.focus {"terminal":"t2"}"#.to_string(),
+            r#"herdr-app do pane.rename {"name":"Browser","pane":"p9"}"#.to_string(),
         ]
     );
     let listings = tb_calls(&sandbox).iter().filter(|c| c.ends_with("ls --all --json")).count();
@@ -896,7 +897,7 @@ fn options_ask_changes_only_the_picked_options_and_tries_the_layout_on_yes() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(b"n\n\ny\n\ny\n").unwrap();
+    child.stdin.take().unwrap().write_all(b"n\n\ny\n\n\ny\n").unwrap();
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success(), "{}", common::stderr(&out));
     let said = stdout(&out);

@@ -353,6 +353,15 @@ pub fn new_space(cwd: &str, label: &str) -> Option<String> {
     }
 }
 
+/// A new space with a shell in `cwd` that stays out of view, for work looked at later: the handle of its first pane or
+/// terminal. A Herdr app older than 0.1.16 shows it anyway.
+pub fn new_space_behind(cwd: &str, label: &str) -> Option<String> {
+    match current() {
+        Frontend::App => app_handle(&app_do("space.new", &json!({"name": label, "folder": cwd, "focus": false}))?),
+        Frontend::Tui => root_pane(&herdr(&["workspace", "create", "--cwd", cwd, "--label", label])?),
+    }
+}
+
 /// The space open under this label, brought into view; false when none is.
 pub fn focus_space_named(label: &str) -> bool {
     match current() {

@@ -2,6 +2,7 @@
 // view (question, recap, branch, PR, CI, changes, cost), each placed in a stage: whose move it is.
 
 import { agents, spaces, panes, run, notify } from "herdr";
+import * as herdr from "herdr";
 import * as hub from "./hub.js";
 import { showWork, pinChat, readInChat } from "./screens.js";
 
@@ -185,6 +186,20 @@ export function needing(rows) {
   const asks = (r) => !r.dismissed && (r.stage === "needs_you" || Boolean(r.question));
   const failed = (r) => !asks(r) && !r.dismissed && (r.stage === "failed" || agentStatus(r.status) === "failed");
   return [...rows.filter(asks), ...rows.filter(failed)];
+}
+
+/** The Dock badge for this many agents that need you: their count, none at zero or when turned off. */
+export const badgeText = (n, on = true) => (on && n > 0 ? String(n) : null);
+
+/**
+ * Puts the count on the Herdr app's Dock icon when it changes, once for every copy that draws it; a Herdr older than
+ * 0.1.16 has no badge.
+ */
+export function showBadge(n, on = true) {
+  const text = badgeText(n, on);
+  if (globalThis.cockpitBadge === text) return;
+  globalThis.cockpitBadge = text;
+  herdr.setBadge?.(text);
 }
 
 /**

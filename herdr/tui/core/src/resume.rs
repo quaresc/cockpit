@@ -287,6 +287,11 @@ pub fn dismiss(handle: &str) {
 
 /// Resumes one lost agent in its terminal when it still sits at a shell, else in a new space in its folder.
 pub fn resume(handle: &str) -> Result<String, String> {
+    resume_in(handle, false)
+}
+
+/// `resume`, its new space kept out of view when `behind`.
+fn resume_in(handle: &str, behind: bool) -> Result<String, String> {
     let record = files::load(&path()).unwrap_or(Value::Null);
     let entry = record["agents"][handle].clone();
     let session = entry["session"].as_str().unwrap_or_default().to_string();
@@ -304,7 +309,8 @@ pub fn resume(handle: &str) -> Result<String, String> {
         } else if frontend::exists(handle) {
             Err(format!("{name}'s terminal runs something else now: resume it yourself with `{line}`"))
         } else {
-            Ok(frontend::new_space(&cwd, &name).is_some_and(|h| frontend::run_in(&h, &line)))
+            let space = if behind { frontend::new_space_behind(&cwd, &name) } else { frontend::new_space(&cwd, &name) };
+            Ok(space.is_some_and(|h| frontend::run_in(&h, &line)))
         }
     })?;
     if !done {
@@ -327,7 +333,8 @@ pub fn resume_all() -> Result<String, String> {
     let mut done = 0;
     let mut failed = None;
     for e in &lost {
-        match resume(e["handle"].as_str().unwrap_or_default()) {
+        // Several at once open behind the space in view: none takes the screen from another.
+        match resume_in(e["handle"].as_str().unwrap_or_default(), lost.len() > 1) {
             Ok(_) => done += 1,
             Err(err) => failed = failed.or(Some(err)),
         }

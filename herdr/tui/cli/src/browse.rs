@@ -393,8 +393,11 @@ fn app_open_beside(tb: &Tb, app: &AppPlace, url: &str, reload: bool) -> Result<O
     }
     let split = frontend::app_do("pane.split", &json!({"direction": "right", "pane": app.pane, "argv": [tb.bin, "open", url]}));
     frontend::app_do("pane.focus", &json!({"terminal": app.terminal}));
-    if split.is_none() {
+    let Some(split) = split else {
         return Ok(Opened::No(format!("the Herdr window did not split pane {}", app.pane)));
+    };
+    if let Some(pane) = split["pane"].as_str() {
+        frontend::app_do("pane.rename", &json!({"pane": pane, "name": "Browser"}));
     }
     // The browser takes a moment to start: once it lists, `--beside` and the agent's next action find it.
     for _ in 0..STARTS {

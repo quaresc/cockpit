@@ -7,6 +7,7 @@
   "terminal_padding": [14, 12],
   "divider": { "width": 1, "color": "border" },
   "preview": "layouts/cockpit.svg",
+  "link_handlers": ["cockpit"],
   "floating": [
     { "id": "queue", "content": { "mod": "cockpit", "props": { "app": "queue" } }, "edge": "right", "align": "center", "peek": 44 }
   ],
