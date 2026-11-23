@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.5.0 (2026-11-23)
 
 - New: a Cmd-click on a web link in a Herdr app terminal can open it in the side browser beside that terminal, with links.open set to side in Cockpit settings; your browser stays the default (#96)
 - New: the Herdr app's Dock icon counts the agents that need you, on macOS (dockBadge to turn it off) (#96)
@@ -17,6 +17,7 @@ must be here first.
 - New: cockpit doctor says how to show each terminal's last screen after a reboot (herdr-core restore_screen) (#96)
 - Fix: the agents list follows herdr-core's events, so a status change shows at once and an idle window reads its terminals far less often (#96)
 - Fix: herdr-app check, also run by cockpit doctor, no longer starts or reaches the hub while it loads the mod (#96)
+- Note: link clicks, named panes and pane resizing need Herdr app 0.1.17, the Dock badge and drags 0.1.16; an older Herdr app runs the rest as before (#96)
 
 ## 1.4.1 (2026-11-23)
 
