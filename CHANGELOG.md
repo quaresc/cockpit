@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.5.2 (2026-11-23)
 
 - New: a show table's columns resize by dragging the edge of their header, so truncated text can be read; a table wider than its card scrolls sideways, and a double-click on an edge fits the columns again (#100)
 
