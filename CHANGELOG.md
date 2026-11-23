@@ -8,6 +8,7 @@ must be here first.
 ## 1.6.0 (2026-11-23)
 
 - New: a show table's columns resize by dragging the edge of their header, so truncated text can be read; a table wider than its card scrolls sideways, and a double-click on an edge fits the columns again (#100)
+- Note: only the show tool's tables resize; a table written in Markdown (a note, the chat) is drawn by Herdr and keeps its widths (#100)
 
 ## 1.5.1 (2026-11-23)
 
