@@ -7,16 +7,16 @@ must be here first.
 
 ## Unreleased
 
-- New: a Cmd-click on a web link in a Herdr app terminal can open it in the side browser beside that terminal, with links.open set to side in Cockpit settings; your browser stays the default
-- New: the Herdr app's Dock icon counts the agents that need you, on macOS (dockBadge to turn it off)
-- New: files in Files and Changes drag into a terminal, which types their paths
-- New: in Cockpit Chat, the side panel is as wide as you drag it
-- New: panes take a name with Rename in their header and the palette, and the side browser and show panes are named for what they hold
-- New: ctrl-alt-arrows move the edge of the focused pane, in both layouts
-- New: resuming several agents after a restart opens their spaces behind the one you look at
-- New: cockpit doctor says how to show each terminal's last screen after a reboot (herdr-core restore_screen)
-- Fix: the agents list follows herdr-core's events, so a status change shows at once and an idle window reads its terminals far less often
-- Fix: herdr-app check, also run by cockpit doctor, no longer starts or reaches the hub while it loads the mod
+- New: a Cmd-click on a web link in a Herdr app terminal can open it in the side browser beside that terminal, with links.open set to side in Cockpit settings; your browser stays the default (#96)
+- New: the Herdr app's Dock icon counts the agents that need you, on macOS (dockBadge to turn it off) (#96)
+- New: files in Files and Changes drag into a terminal, which types their paths (#96)
+- New: in Cockpit Chat, the side panel is as wide as you drag it (#96)
+- New: panes take a name with Rename in their header and the palette, and the side browser and show panes are named for what they hold (#96)
+- New: ctrl-alt-arrows move the edge of the focused pane, in both layouts (#96)
+- New: resuming several agents after a restart opens their spaces behind the one you look at (#96)
+- New: cockpit doctor says how to show each terminal's last screen after a reboot (herdr-core restore_screen) (#96)
+- Fix: the agents list follows herdr-core's events, so a status change shows at once and an idle window reads its terminals far less often (#96)
+- Fix: herdr-app check, also run by cockpit doctor, no longer starts or reaches the hub while it loads the mod (#96)
 
 ## 1.4.1 (2026-11-23)
 
