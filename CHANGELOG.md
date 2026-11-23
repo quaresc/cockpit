@@ -7,7 +7,7 @@ must be here first.
 
 ## Unreleased
 
-- New: a show table's columns resize by dragging the edge of their header, so truncated text can be read; a table wider than its card scrolls sideways, and a double-click on an edge fits the columns again
+- New: a show table's columns resize by dragging the edge of their header, so truncated text can be read; a table wider than its card scrolls sideways, and a double-click on an edge fits the columns again (#100)
 
 ## 1.5.1 (2026-11-23)
 
