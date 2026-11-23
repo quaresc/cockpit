@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.4.1 (2026-11-23)
+
+- Plans in the side panel, and clickable paths, links and images in the chat (#94)
+
 ## 1.4.0 (2026-11-23)
 
 - New: a plan approval's card shows the whole plan, read from the transcript and rendered as Markdown, and takes the answer from the card (#92)
