@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.4.0 (2026-11-23)
+
+- Plan approvals: the whole plan from the transcript, drawn as Markdown (#92)
+
 ## 1.3.0 (2026-11-20)
 
 - New: in Cockpit Chat, the mode chip is a menu that changes a terminal agent's mode, and Focus turns its focus view on or off (#86)
