@@ -1018,7 +1018,7 @@ export default class Home {
             ? this.choiceRow(a, "next", 6)
             : null;
       // A permission shows what it would allow, in full, above its choices; one cockpit cannot show in full has none.
-      const allows = q?.permission ? AllowsBlock(`next-${a.address}`, q.preview, { cut: q.cut === true, note: q.terminal_only }) : null;
+      const allows = q?.permission ? AllowsBlock(`next-${a.address}`, q.preview, { cut: q.cut === true, note: q.terminal_only, markdown: q.markdown === true }) : null;
       const body = allows && row ? v_flex().gap(6).pt(6).child(allows).child(row) : (row ?? allows);
       return Callout("home-next", {
         tone: k.blocked,
@@ -1271,6 +1271,7 @@ export default class Home {
                 AllowsBlock(`${card.key}-q`, a.question.preview, {
                   cut: a.question.cut === true,
                   note: a.question.terminal_only,
+                  markdown: a.question.markdown === true,
                   open: Boolean(this.opened?.has(a.address)),
                   onToggle: (cx) => {
                     this.opened ??= new Set();

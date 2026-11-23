@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde::de::{Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
 
+use crate::agent::Plan;
 pub use crate::agent::Transcripts;
 use crate::files;
 
@@ -546,6 +547,130 @@ pub fn turn(kind: Transcripts, path: &Path) -> Option<Turn> {
         _ => None,
     }
 }
+
+/// The input of a `tool` call the agent made and nothing answered yet, read off the transcript's end: what its prompt
+/// asks about in full. Only when that call is the one thing left unanswered in its last message, so the prompt on its
+/// screen can be about nothing else. Formats that write the call before asking: Claude Code's, Qwen Code's, Gemini's.
+pub fn pending_input(kind: Transcripts, path: &Path, tool: &str) -> Option<Value> {
+    let calls = match kind {
+        Transcripts::Claude => pending_claude(path)?,
+        Transcripts::Qwen => pending_qwen(path)?,
+        Transcripts::Gemini => pending_gemini(path)?,
+        _ => return None,
+    };
+    match calls.as_slice() {
+        [(name, input)] if name == tool => Some(input.clone()),
+        _ => None,
+    }
+}
+
+/// Claude Code: the last assistant line's `tool_use` blocks without a `tool_result` after them, as (name, input).
+fn pending_claude(path: &Path) -> Option<Vec<(String, Value)>> {
+    let tail = tail(path, TAIL)?;
+    let mut answered: Vec<String> = Vec::new();
+    for l in tail.split(|b| *b == b'\n').rev() {
+        let Ok(v) = serde_json::from_slice::<Value>(l) else { continue };
+        if v["isSidechain"] == true {
+            continue;
+        }
+        let blocks = v["message"]["content"].as_array().into_iter().flatten();
+        match v["type"].as_str().unwrap_or_default() {
+            "user" => answered.extend(blocks.filter(|b| b["type"] == "tool_result").filter_map(|b| b["tool_use_id"].as_str().map(str::to_string))),
+            "assistant" => {
+                let open = blocks.filter(|b| b["type"] == "tool_use" && !answered.iter().any(|id| b["id"] == id.as_str()));
+                return Some(open.map(|b| (b["name"].as_str().unwrap_or_default().to_string(), b["input"].clone())).collect());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Qwen Code (Gemini's chat format): the last assistant line's `functionCall` parts without a `functionResponse` after
+/// them, by id when the parts carry one, else by name.
+fn pending_qwen(path: &Path) -> Option<Vec<(String, Value)>> {
+    let tail = tail(path, TAIL)?;
+    let mut answered: Vec<Value> = Vec::new();
+    for l in tail.split(|b| *b == b'\n').rev() {
+        let Ok(v) = serde_json::from_slice::<Value>(l) else { continue };
+        if v["isSidechain"] == true {
+            continue;
+        }
+        let parts = v["message"]["parts"].as_array().into_iter().flatten();
+        match v["type"].as_str().unwrap_or_default() {
+            "user" => answered.extend(parts.map(|p| p["functionResponse"].clone()).filter(Value::is_object)),
+            "assistant" => {
+                let calls = parts.map(|p| &p["functionCall"]).filter(|c| c.is_object());
+                let open = calls.filter(|c| {
+                    !answered.iter().any(|r| match (c["id"].as_str(), r["id"].as_str()) {
+                        (Some(a), Some(b)) => a == b,
+                        _ => r["name"] == c["name"],
+                    })
+                });
+                return Some(open.map(|c| (c["name"].as_str().unwrap_or_default().to_string(), c["args"].clone())).collect());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Gemini CLI: the last message's tool calls still without an outcome (no `result`, and a `status` that is neither
+/// success, error nor cancelled).
+fn pending_gemini(path: &Path) -> Option<Vec<(String, Value)>> {
+    let (messages, _, _) = gemini_replay(path)?;
+    let last = messages.iter().rev().find(|m| matches!(m["type"].as_str(), Some("gemini" | "user")))?;
+    if last["type"] != "gemini" {
+        return Some(Vec::new());
+    }
+    let calls = last["toolCalls"].as_array().into_iter().flatten();
+    let open = calls.filter(|c| c["result"].is_null() && !matches!(c["status"].as_str(), Some("success" | "error" | "cancelled")));
+    Some(open.map(|c| (c["name"].as_str().unwrap_or_default().to_string(), c["args"].clone())).collect())
+}
+
+/// The last message of an agent writing in its plan mode, read off the transcript's end: Codex's, when the turn's
+/// collaboration mode is plan. None in any other mode: a message of its own is no plan.
+pub fn plan_message(kind: Transcripts, path: &Path) -> Option<String> {
+    if kind != Transcripts::Codex {
+        return None;
+    }
+    let tail = tail(path, TAIL)?;
+    let mut message: Option<String> = None;
+    for l in tail.split(|b| *b == b'\n').rev() {
+        let Ok(v) = serde_json::from_slice::<Value>(l) else { continue };
+        let p = &v["payload"];
+        match (v["type"].as_str().unwrap_or_default(), p["type"].as_str().unwrap_or_default()) {
+            ("turn_context", _) => return message.filter(|_| p["collaboration_mode"]["mode"] == "plan"),
+            ("response_item", "message") if message.is_none() && p["role"] == "assistant" => {
+                let text = p["content"].as_array().into_iter().flatten().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n");
+                if !text.trim().is_empty() {
+                    message = Some(text);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The plan an agent asks to carry out, whole, as `plan` says it is kept: a call's argument, the file that argument
+/// names (read when it is a readable file), or its last message in plan mode. Empty text is no plan.
+pub fn plan(plan: Plan, kind: Transcripts, path: &Path) -> Option<String> {
+    let text = match plan {
+        Plan::Argument { tool, arg } => pending_input(kind, path, tool)?[arg].as_str().map(str::to_string)?,
+        Plan::File { tool, arg } => {
+            let named = pending_input(kind, path, tool)?[arg].as_str()?.to_string();
+            let file = named.strip_prefix("~/").map(|rest| files::home().join(rest)).unwrap_or_else(|| PathBuf::from(&named));
+            let bytes = std::fs::read(file).ok().filter(|b| b.len() <= PLAN_FILE_MAX)?;
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+        Plan::LastMessage => plan_message(kind, path)?,
+    };
+    Some(text).filter(|t| !t.trim().is_empty())
+}
+
+/// How large a plan file is read: a plan is pages, not a dump.
+const PLAN_FILE_MAX: usize = 1024 * 1024;
 
 /// Claude Code's note that the person stopped the turn, as a user message's text.
 fn interruption(content: &Value) -> bool {
@@ -1532,61 +1657,11 @@ fn read_copilot(path: &Path, detail: Detail) -> Option<Transcript> {
 // (google-gemini/gemini-cli `chatRecordingService.ts`, `chatRecordingTypes.ts`)
 
 /// The project folder Gemini CLI keeps in `<project>/.project_root`, beside the session's `chats`.
-fn gemini_root(path: &Path) -> Option<String> {
-    let project = path.parent()?.parent()?;
-    let text = std::fs::read_to_string(project.join(".project_root")).ok()?;
-    let cwd = text.trim();
-    (!cwd.is_empty()).then(|| cwd.to_string())
-}
-
-/// A message's words: its content when a string, else its text parts.
-fn gemini_text(content: &Value) -> String {
-    match content {
-        Value::String(s) => s.clone(),
-        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"),
-        _ => String::new(),
-    }
-}
-
-/// What the person typed: never a command (`/…`, `?`) or the context the CLI adds itself (gemini-cli `sessionUtils.ts`).
-fn gemini_typed(text: &str) -> bool {
-    let t = text.trim_start();
-    is_typed(t) && !t.starts_with(['/', '?']) && !t.starts_with("<session_context>") && !t.starts_with("<hook_context>")
-}
-
-/// Applies the mutable content and tool results of one Gemini message patch.
-fn gemini_patch(kept: &mut HashMap<String, Value>, patch: &Value) {
-    let Some(message) = patch["id"].as_str().and_then(|id| kept.get_mut(id)) else { return };
-    if let Some(content) = patch.get("content") {
-        message["content"] = content.clone();
-    }
-    for update in patch["toolCalls"].as_array().into_iter().flatten() {
-        if let Some(result) = update.get("result")
-            && let Some(call) = message["toolCalls"].as_array_mut().and_then(|calls| calls.iter_mut().find(|c| c["id"] == update["id"]))
-        {
-            call["result"] = result.clone();
-        }
-    }
-}
-
-/// Replaces the message checkpoint while preserving the order and latest version of each id.
-fn gemini_checkpoint(order: &mut Vec<String>, kept: &mut HashMap<String, Value>, messages: &[Value]) {
-    order.clear();
-    kept.clear();
-    for message in messages {
-        if let Some(id) = message["id"].as_str() {
-            if !kept.contains_key(id) {
-                order.push(id.to_string());
-            }
-            kept.insert(id.to_string(), message.clone());
-        }
-    }
-}
-
-fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
-    let mut t = Transcript { cwd: gemini_root(path).unwrap_or_default(), ..Transcript::default() };
+/// A Gemini session as last written: each message once, at its first place, with `$set` checkpoints, `$patch` updates
+/// and `$rewindTo` replayed; then the summary and the session id the file states.
+fn gemini_replay(path: &Path) -> Option<(Vec<Value>, Option<String>, String)> {
     let mut summary: Option<String> = None;
-    // Each message once, at its first place, as last written.
+    let mut id_of_session = String::new();
     let mut order: Vec<String> = Vec::new();
     let mut kept: HashMap<String, Value> = HashMap::new();
     let mut lines = lines_of(path)?;
@@ -1630,8 +1705,8 @@ fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
             continue;
         }
         let Some(id) = v["id"].as_str().map(str::to_string) else {
-            if t.id.is_empty() {
-                t.id = v["sessionId"].as_str().unwrap_or_default().to_string();
+            if id_of_session.is_empty() {
+                id_of_session = v["sessionId"].as_str().unwrap_or_default().to_string();
             }
             summary = v["summary"].as_str().map(str::to_string).or(summary);
             if let Some(messages) = v["messages"].as_array() {
@@ -1644,8 +1719,68 @@ fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
         }
         kept.insert(id, v);
     }
+    let messages = order.iter().filter_map(|id| kept.remove(id)).collect();
+    Some((messages, summary, id_of_session))
+}
+
+fn gemini_root(path: &Path) -> Option<String> {
+    let project = path.parent()?.parent()?;
+    let text = std::fs::read_to_string(project.join(".project_root")).ok()?;
+    let cwd = text.trim();
+    (!cwd.is_empty()).then(|| cwd.to_string())
+}
+
+/// A message's words: its content when a string, else its text parts.
+fn gemini_text(content: &Value) -> String {
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// What the person typed: never a command (`/…`, `?`) or the context the CLI adds itself (gemini-cli `sessionUtils.ts`).
+fn gemini_typed(text: &str) -> bool {
+    let t = text.trim_start();
+    is_typed(t) && !t.starts_with(['/', '?']) && !t.starts_with("<session_context>") && !t.starts_with("<hook_context>")
+}
+
+/// Applies the mutable content and tool results of one Gemini message patch.
+fn gemini_patch(kept: &mut HashMap<String, Value>, patch: &Value) {
+    let Some(message) = patch["id"].as_str().and_then(|id| kept.get_mut(id)) else { return };
+    if let Some(content) = patch.get("content") {
+        message["content"] = content.clone();
+    }
+    for update in patch["toolCalls"].as_array().into_iter().flatten() {
+        let Some(call) = message["toolCalls"].as_array_mut().and_then(|calls| calls.iter_mut().find(|c| c["id"] == update["id"])) else { continue };
+        for field in ["result", "status"] {
+            if let Some(value) = update.get(field) {
+                call[field] = value.clone();
+            }
+        }
+    }
+}
+
+/// Replaces the message checkpoint while preserving the order and latest version of each id.
+fn gemini_checkpoint(order: &mut Vec<String>, kept: &mut HashMap<String, Value>, messages: &[Value]) {
+    order.clear();
+    kept.clear();
+    for message in messages {
+        if let Some(id) = message["id"].as_str() {
+            if !kept.contains_key(id) {
+                order.push(id.to_string());
+            }
+            kept.insert(id.to_string(), message.clone());
+        }
+    }
+}
+
+fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
+    let mut t = Transcript { cwd: gemini_root(path).unwrap_or_default(), ..Transcript::default() };
+    let (messages, summary, id) = gemini_replay(path)?;
+    t.id = id;
     let mut prompt: Option<String> = None;
-    for v in order.iter().filter_map(|id| kept.get(id)) {
+    for v in &messages {
         let at = v["timestamp"].as_str().unwrap_or_default().to_string();
         if !at.is_empty() {
             if t.first.is_empty() {
@@ -1741,6 +1876,110 @@ mod tests {
         assert!(!is_typed("</image>"));
         assert!(!is_typed("# AGENTS.md instructions for /r/api"));
         assert!(!is_typed("[Request interrupted by user]"));
+    }
+
+    #[test]
+    fn a_pending_call_is_read_off_the_transcript_end_until_its_result_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = json!({"type": "assistant", "timestamp": "2026-11-03T10:00:06Z", "message": {"id": "m1", "content": [{"type": "text", "text": "The plan is written."}, {"type": "tool_use", "id": "t1", "name": "ExitPlanMode", "input": {"plan": "# Daily quota\n\n1. Add the column"}}]}});
+        let path = write(
+            dir.path(),
+            "-r-api/c-pending.jsonl",
+            &[json!({"type": "user", "cwd": "/r/api", "sessionId": "c-pending", "message": {"role": "user", "content": "Plan the quota"}}), plan.clone()],
+        );
+        assert_eq!(pending_input(Transcripts::Claude, &path, "ExitPlanMode"), Some(json!({"plan": "# Daily quota\n\n1. Add the column"})));
+        assert_eq!(pending_input(Transcripts::Claude, &path, "Bash"), None, "another tool's call is not pending");
+        assert_eq!(pending_input(Transcripts::Codex, &path, "ExitPlanMode"), None, "only a format that writes the call before asking");
+        // Answered: its result follows, and nothing is pending any more.
+        let answered = json!({"type": "user", "timestamp": "2026-11-03T10:00:07Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "approved"}]}});
+        let done = write(dir.path(), "-r-api/c-done.jsonl", &[plan.clone(), answered]);
+        assert_eq!(pending_input(Transcripts::Claude, &done, "ExitPlanMode"), None);
+        // A sidechain's call is not the agent's own.
+        let aside = json!({"type": "assistant", "isSidechain": true, "message": {"id": "m2", "content": [{"type": "tool_use", "id": "t2", "name": "ExitPlanMode", "input": {"plan": "not mine"}}]}});
+        let main = write(dir.path(), "-r-api/c-aside.jsonl", &[plan.clone(), aside]);
+        assert_eq!(pending_input(Transcripts::Claude, &main, "ExitPlanMode"), Some(json!({"plan": "# Daily quota\n\n1. Add the column"})));
+        // Two calls open at once: the prompt on the screen could be about either, so neither is the one.
+        let two = json!({"type": "assistant", "message": {"id": "m3", "content": [{"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "ls"}}, {"type": "tool_use", "id": "t4", "name": "ExitPlanMode", "input": {"plan": "x"}}]}});
+        let both = write(dir.path(), "-r-api/c-two.jsonl", &[plan.clone(), two]);
+        assert_eq!(pending_input(Transcripts::Claude, &both, "ExitPlanMode"), None);
+        assert_eq!(plan_of_claude(&main), Some("# Daily quota\n\n1. Add the column".into()));
+        assert_eq!(plan_of_claude(&both), None);
+    }
+
+    fn plan_of_claude(path: &Path) -> Option<String> {
+        plan(Plan::Argument { tool: "ExitPlanMode", arg: "plan" }, Transcripts::Claude, path)
+    }
+
+    #[test]
+    fn qwens_pending_plan_call_is_read_until_its_response_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        let call = json!({"type": "assistant", "sessionId": "q-2", "message": {"role": "model", "parts": [{"text": "Here is the plan."}, {"functionCall": {"id": "f1", "name": "exit_plan_mode", "args": {"plan": "## Steps\n\n1. Add the column"}}}]}});
+        let open = write(
+            dir.path(),
+            "-r-api/chats/q-2.jsonl",
+            &[json!({"type": "user", "sessionId": "q-2", "message": {"role": "user", "parts": [{"text": "Plan it"}]}}), call.clone()],
+        );
+        let plan_call = Plan::Argument { tool: "exit_plan_mode", arg: "plan" };
+        assert_eq!(plan(plan_call, Transcripts::Qwen, &open), Some("## Steps\n\n1. Add the column".into()));
+        assert_eq!(pending_input(Transcripts::Qwen, &open, "write_file"), None);
+        let reply = json!({"type": "user", "sessionId": "q-2", "message": {"role": "user", "parts": [{"functionResponse": {"id": "f1", "name": "exit_plan_mode", "response": {"output": "approved"}}}]}});
+        let done = write(dir.path(), "-r-api/chats/q-2-done.jsonl", &[call.clone(), reply]);
+        assert_eq!(plan(plan_call, Transcripts::Qwen, &done), None);
+        // Parts without ids answer by name.
+        let unnamed =
+            json!({"type": "assistant", "message": {"role": "model", "parts": [{"functionCall": {"name": "exit_plan_mode", "args": {"plan": "p"}}}]}});
+        let by_name = json!({"type": "user", "message": {"role": "user", "parts": [{"functionResponse": {"name": "exit_plan_mode", "response": {}}}]}});
+        let named = write(dir.path(), "-r-api/chats/q-3.jsonl", &[unnamed.clone(), by_name]);
+        assert_eq!(plan(plan_call, Transcripts::Qwen, &named), None);
+        let still = write(dir.path(), "-r-api/chats/q-4.jsonl", &[unnamed]);
+        assert_eq!(plan(plan_call, Transcripts::Qwen, &still), Some("p".into()));
+    }
+
+    #[test]
+    fn geminis_pending_plan_call_names_the_plan_file_which_is_read_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let plans = dir.path().join("plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        let file = plans.join("daily-quota.md");
+        std::fs::write(&file, "# Daily quota\n\n1. Add the column\n").unwrap();
+        let path = dir.path().join("session-2026-11-03T10-00-9d2e0000.jsonl");
+        let asking = json!({"id": "m2", "type": "gemini", "content": "The plan is ready.", "toolCalls": [{"id": "c1", "name": "exit_plan_mode", "displayName": "Exit Plan Mode", "args": {"plan_path": file.to_string_lossy()}, "status": "awaiting_approval"}]});
+        std::fs::write(
+            &path,
+            lines(&[json!({"sessionId": "9d2e0000", "projectHash": "ab12"}), json!({"id": "m1", "type": "user", "content": "Plan the quota"}), asking.clone()]),
+        )
+        .unwrap();
+        let plan_file = Plan::File { tool: "exit_plan_mode", arg: "plan_path" };
+        assert_eq!(plan(plan_file, Transcripts::Gemini, &path), Some("# Daily quota\n\n1. Add the column\n".into()));
+        // Approved: the call's status lands through a patch, and the plan is no longer asked about.
+        std::fs::write(
+            &path,
+            lines(&[
+                json!({"id": "m1", "type": "user", "content": "Plan the quota"}),
+                asking.clone(),
+                json!({"$patch": {"id": "m2", "toolCalls": [{"id": "c1", "status": "success", "result": "ok"}]}}),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(plan(plan_file, Transcripts::Gemini, &path), None);
+        // A file it names that is not there is no plan.
+        let gone = json!({"id": "m2", "type": "gemini", "content": "", "toolCalls": [{"id": "c2", "name": "exit_plan_mode", "args": {"plan_path": plans.join("missing.md").to_string_lossy()}}]});
+        std::fs::write(&path, lines(&[gone])).unwrap();
+        assert_eq!(plan(plan_file, Transcripts::Gemini, &path), None);
+    }
+
+    #[test]
+    fn codexs_plan_is_its_last_message_in_plan_mode_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let turn = |mode: Value| json!({"timestamp": "2026-11-03T10:00:00.400Z", "type": "turn_context", "payload": {"cwd": "/r/api", "model": "gpt-acme-1", "collaboration_mode": mode}});
+        let said = json!({"timestamp": "2026-11-03T10:01:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": "## Plan\n\n1. Add the column"}]}});
+        let planning = write(dir.path(), "sessions/2026/11/03/rollout-plan.jsonl", &[turn(json!({"mode": "plan"})), said.clone()]);
+        assert_eq!(plan(Plan::LastMessage, Transcripts::Codex, &planning), Some("## Plan\n\n1. Add the column".into()));
+        let coding = write(dir.path(), "sessions/2026/11/03/rollout-code.jsonl", &[turn(json!({"mode": "default"})), said.clone()]);
+        assert_eq!(plan(Plan::LastMessage, Transcripts::Codex, &coding), None, "a message in another mode is no plan");
+        let unsaid = write(dir.path(), "sessions/2026/11/03/rollout-quiet.jsonl", &[turn(json!({"mode": "plan"}))]);
+        assert_eq!(plan(Plan::LastMessage, Transcripts::Codex, &unsaid), None);
+        assert_eq!(plan(Plan::LastMessage, Transcripts::Claude, &planning), None, "only a format whose plan mode is written down");
     }
 
     #[test]

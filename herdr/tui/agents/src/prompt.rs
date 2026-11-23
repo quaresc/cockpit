@@ -51,6 +51,8 @@ pub struct Question {
     /// A permission cockpit cannot show in full (no frame on the screen tells where it starts, or nothing of it was
     /// read): it is answered in the agent's terminal.
     pub cut: bool,
+    /// Its preview is Markdown (a plan, read whole from the transcript): the card renders it rather than showing it as typed.
+    pub markdown: bool,
     /// Its last output says it reached a usage or rate limit, by its agent's screen shapes.
     pub limit: Option<Limit>,
     /// The person's own words are the last thing above its input box: what it asked was answered there.
@@ -140,9 +142,38 @@ impl Question {
             .collect();
         let cut = self.permission && self.cut;
         json!({"text": self.text, "kind": self.kind(), "choices": choices, "cursor": cursor, "submit": self.submit_after.is_some(), "preview": self.preview,
-               "permission": self.permission, "cut": cut, "terminal_only": if cut { json!(CUT) } else { Value::Null }, "unasked": self.unasked()})
+               "permission": self.permission, "cut": cut, "terminal_only": if cut { json!(CUT) } else { Value::Null }, "unasked": self.unasked(),
+               "markdown": self.markdown})
+    }
+
+    /// Shows the whole plan a plan approval asks about, from the transcript, where the screen scrolls only part of it:
+    /// the preview becomes the plan as Markdown, nothing of it is cut, and the menu is a permission whatever its
+    /// agent's shapes say. Any other prompt is left as read.
+    pub fn with_plan(&mut self, plan: &str) {
+        let plan = plan.trim();
+        if plan.is_empty() || self.choices.is_empty() || !self.about_plan() {
+            return;
+        }
+        self.preview = plan.to_string();
+        self.cut = false;
+        self.markdown = true;
+        self.permission = true;
+    }
+
+    /// Whether the menu approves a plan: its question or a choice names the plan or its implementation (Claude Code,
+    /// Codex, Gemini), or its choices are the ones Qwen Code's docs give (proceed once or always, restore, cancel).
+    fn about_plan(&self) -> bool {
+        let names = |l: &str| PLAN_WORDS.is_match(l);
+        let said = self.block.iter().chain(std::iter::once(&self.text)).any(|l| names(l)) || self.choices.iter().any(|c| names(&c.label));
+        let qwen =
+            self.choices.iter().all(|c| QWEN_PLAN_CHOICE.is_match(&c.label)) && self.choices.iter().any(|c| c.label.to_lowercase().starts_with("proceed"));
+        said || qwen
     }
 }
+
+/// How a plan approval names its plan, and how Qwen Code's docs label its choices.
+static PLAN_WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(plan|implement)\b").unwrap());
+static QWEN_PLAN_CHOICE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^(proceed (once|always)|restore previous|cancel)\b").unwrap());
 
 /// FNV-1a, 64 bits: the same text gives the same number in every build, which a hasher with random keys would not.
 fn fnv(bytes: &[u8]) -> u64 {
@@ -159,7 +190,7 @@ const QUESTION_LINES: usize = 8;
 fn frame_rule(line: &str, width: usize) -> bool {
     let line = line.trim_end();
     let n = cockpit_core::text::width(line);
-    n >= 20 && n * 10 >= width * 9 && line.chars().all(|c| matches!(c, '─' | '━' | '═' | '╭' | '╮' | '┌' | '┐'))
+    n >= 20 && n * 10 >= width * 9 && line.chars().all(|c| matches!(c, '─' | '━' | '═' | '▔' | '▁' | '╭' | '╮' | '┌' | '┐'))
 }
 
 /// What turns on a mode running tools unasked: Claude Code's plan approval and bypass-mode warning, Codex's full access
@@ -854,7 +885,64 @@ Enter to select · ↑/↓ to navigate · Esc to cancel";
     const BASH: &str = include_str!("../tests/fixtures/screens/claude-bash.txt");
     const EDIT: &str = include_str!("../tests/fixtures/screens/claude-edit.txt");
     const PLAN: &str = include_str!("../tests/fixtures/screens/claude-plan.txt");
+    const PLAN_SCROLL: &str = include_str!("../tests/fixtures/screens/claude-plan-scroll.txt");
     const TRUST: &str = include_str!("../tests/fixtures/screens/claude-trust.txt");
+
+    #[test]
+    fn a_plan_approval_shows_the_whole_plan_from_the_transcript_as_markdown() {
+        let claude = shapes("claude");
+        let plan = "# Daily quota\n\n1. Add a daily_limit column to plans\n2. Read it in `Api.Quota.limit/2`";
+        let mut scroll = read_as(PLAN_SCROLL, &claude);
+        let asked = scroll.identity();
+        scroll.with_plan(plan);
+        assert!((scroll.preview.as_str(), scroll.cut, scroll.markdown) == (plan, false, true), "{scroll:?}");
+        assert_eq!(scroll.identity(), asked, "the prompt is still the one on the screen");
+        assert_eq!(scroll.json()["markdown"], true);
+        assert_eq!(scroll.json()["terminal_only"], Value::Null);
+        // The older box, cut by its screen: the plan still fills it in.
+        let mut boxed = read_as(PLAN, &claude);
+        boxed.with_plan(plan);
+        assert!(boxed.markdown && boxed.preview == plan, "{boxed:?}");
+        // A tool's permission, a question of the agent's own, and an empty plan change nothing.
+        let mut bash = read_as(BASH, &claude);
+        bash.with_plan(plan);
+        assert!(!bash.markdown && bash.preview.starts_with("Bash command"), "{bash:?}");
+        let mut ask = read_as(ASK, &claude);
+        ask.with_plan(plan);
+        assert!(!ask.markdown && !ask.permission, "{ask:?}");
+        let mut none = read_as(PLAN_SCROLL, &claude);
+        none.with_plan("  ");
+        assert!(!none.markdown && !none.cut, "{none:?}");
+        assert_eq!(read(BASH).json()["markdown"], false);
+        // Said without a menu: words answer it, and no plan goes with them.
+        let mut words = read("⏺ Here is the plan: add the column.\n\n╭──────────╮\n│ >        │\n╰──────────╯\n");
+        words.with_plan(plan);
+        assert!(!words.markdown && !words.permission, "{words:?}");
+    }
+
+    #[test]
+    fn other_agents_plan_approvals_are_told_by_their_documented_choices() {
+        let plan = "## Steps\n\n1. Add the column";
+        // Codex (/plan): the choices name the plan; its command approval does not.
+        let mut codex = read("  Ready to implement?\n\n› 1. Yes, implement this plan\n  2. Yes, clear context and implement\n  3. No, stay in Plan mode\n");
+        codex.with_plan(plan);
+        assert!((codex.permission, codex.markdown, codex.preview.as_str()) == (true, true, plan), "{codex:?}");
+        let mut command = read_as(CODEX, &shapes("codex"));
+        command.with_plan(plan);
+        assert!(!command.markdown && command.preview.contains("mix test"), "{command:?}");
+        // Qwen Code (exit_plan_mode): its documented labels, with no plan named anywhere on the screen.
+        let mut qwen =
+            read("  Approve to continue?\n\n❯ 1. Restore Previous\n  2. Proceed Once\n  3. Proceed Always\n  4. Cancel\n\nEnter to select · Esc to cancel");
+        qwen.with_plan(plan);
+        assert!((qwen.permission, qwen.markdown, qwen.cut) == (true, true, false), "{qwen:?}");
+        // Gemini CLI (exit_plan_mode): yes/yes choices alone say nothing; its question names the plan.
+        let mut gemini = read("  Apply this plan?\n\n❯ 1. Yes, automatically accept edits\n  2. Yes, manually accept edits\n\nEnter to select");
+        gemini.with_plan(plan);
+        assert!(gemini.markdown && gemini.permission, "{gemini:?}");
+        let mut edits = read("  Apply this change?\n\n❯ 1. Yes, allow once\n  2. Yes, allow always\n  3. No\n");
+        edits.with_plan(plan);
+        assert!(!edits.markdown && edits.preview == "Apply this change?", "a tool's own approval, read as its agent's shapes say: {edits:?}");
+    }
     const ASK: &str = include_str!("../tests/fixtures/screens/claude-ask.txt");
     const CODEX: &str = include_str!("../tests/fixtures/screens/codex-command.txt");
 
@@ -880,6 +968,16 @@ Enter to select · ↑/↓ to navigate · Esc to cancel";
             ["Yes, and auto-accept edits", "Yes, and manually approve edits", "No, keep planning"]
         );
         assert!(plan.preview.contains("Ready to code?") && plan.preview.contains("1. Add a daily_limit column to plans"), "{}", plan.preview);
+
+        // A plan in a scrolling box under a rule of eighth blocks: the prompt starts at the rule, so nothing is cut.
+        let scroll = read_as(PLAN_SCROLL, &claude);
+        assert!(scroll.permission && !scroll.cut, "{scroll:?}");
+        assert_eq!(
+            scroll.choices.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+            ["Yes, and use auto mode", "Yes, manually approve edits", "Tell Claude what to change"]
+        );
+        assert!(scroll.preview.starts_with("- Read it in Api.Quota.limit/2") && !scroll.preview.contains("· summary"), "{}", scroll.preview);
+        assert_eq!(scroll.text, "Claude has written up a plan and is ready to execute. Would you like to proceed?");
 
         let trust = read_as(TRUST, &claude);
         assert!(trust.permission && !trust.numbered, "the folder trust menu has no numbers");

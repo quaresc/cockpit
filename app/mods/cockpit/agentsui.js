@@ -8,7 +8,7 @@ import { run, notify, openOverlay, agents, shared, setShared } from "herdr";
 import * as hub from "./hub.js";
 import { sharing } from "./feed.js";
 import { rowsOf, answerPayload, changed, CHANGED, agentStatus } from "./fleet.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, ChoiceKey, Button, Checkbox, Chip, Mono, TextField, dur, openMenu, iconOf } from "./ui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, ChoiceKey, Button, Checkbox, Chip, Mono, Markdown, TextField, dur, openMenu, iconOf } from "./ui.js";
 import { showWork, layoutName, readInChat, pinChat } from "./screens.js";
 import { QuotaGroups } from "./usage.js";
 import { oneTimeKey, take } from "./person.js";
@@ -476,9 +476,10 @@ export class AgentsModel {
 
 /**
  * What a permission would allow (the command, the diff, the plan), in a box: its first lines always show, the rest
- * folds in a narrow card until its row is clicked. `cut` says its first lines are past the top of the agent's screen.
+ * folds in a narrow card until its row is clicked. `cut` says its first lines are past the top of the agent's screen;
+ * `markdown` draws it rendered (a plan), in a taller box.
  */
-export function AllowsBlock(id, text, { open = true, onToggle, cut = false, note = null } = {}) {
+export function AllowsBlock(id, text, { open = true, onToggle, cut = false, note = null, markdown = false } = {}) {
   const k = tokens();
   // Nothing of it read: it says so, and its answer is the agent's terminal's.
   if (!text) cut = true;
@@ -517,14 +518,14 @@ export function AllowsBlock(id, text, { open = true, onToggle, cut = false, note
     .when(Boolean(text), (e) => e.child(
       div()
         .id(`${id}-allows-body`)
-        .max_h(220)
+        .max_h(markdown ? 480 : 220)
         .overflow_y_scroll()
-        .p(8)
+        .p(markdown ? 12 : 8)
         .rounded(RADIUS.md)
         .border_1()
         .border_color(k.border)
         .bg(k.background)
-        .child(Mono(shown, { color: k.foreground })),
+        .child(markdown ? Markdown(`${id}-allows-md`, shown) : Mono(shown, { color: k.foreground })),
     ))
     .when(folds, (e) => e.child(head));
 }
@@ -756,7 +757,7 @@ export function QuestionCard(id, row, model, { wide = false, header, footer, foc
         .child(div().flex_1().min_w(0).text_size(wide ? TEXT.base : TEXT.sm).font_medium().text_color(k.foreground).child(q.text || "It is waiting for you.")),
     )
     // A permission always shows what it would allow; a question's own preview, beside a choice, only when there is room.
-    .when(Boolean(q.permission), (e) => e.child(AllowsBlock(`${id}-${named}`, q.preview, { open: opened, onToggle: toggle, cut: q.cut === true, note: q.terminal_only })))
+    .when(Boolean(q.permission), (e) => e.child(AllowsBlock(`${id}-${named}`, q.preview, { open: opened, onToggle: toggle, cut: q.cut === true, note: q.terminal_only, markdown: q.markdown === true })))
     .when(Boolean(q.preview) && !q.permission && wide, (e) => e.child(div().p(8).rounded(RADIUS.md).border_1().border_color(k.border).bg(k.background).child(Mono(q.preview, { color: k.foreground }))))
     // One cockpit cannot show in full offers no choice here: it is answered in the agent's terminal (Go to the agent).
     .when(q.choices.length > 0 && !q.terminal_only, (e) => e.child(v_flex().gap(1).children(q.choices.map(choice))))
