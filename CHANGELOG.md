@@ -7,7 +7,7 @@ must be here first.
 
 ## Unreleased
 
-- Fix: in Cockpit Chat, dragging the edge of the side panel resizes it; the drag showed but nothing moved
+- Fix: in Cockpit Chat, dragging the edge of the side panel resizes it; the drag showed but nothing moved (#98)
 
 ## 1.5.0 (2026-11-23)
 
