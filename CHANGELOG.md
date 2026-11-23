@@ -7,7 +7,10 @@ must be here first.
 
 ## 1.4.1 (2026-11-23)
 
-- Plans in the side panel, and clickable paths, links and images in the chat (#94)
+- New: each plan an agent asks to carry out is kept in its session's side panel as Plan 1, Plan 2 and so on, to read again after it is carried out (#94)
+- New: the question cards show a plan as one line that opens it in the side panel, and Cockpit Chat opens the panel on it by itself (#94)
+- New: in Cockpit Chat, paths and links in messages open in one click: a file in the side panel, on its line when given, a URL in the browser (#94)
+- New: in Cockpit Chat, the local images an answer names show under it, each opened full size with a click (#94)
 
 ## 1.4.0 (2026-11-23)
 
