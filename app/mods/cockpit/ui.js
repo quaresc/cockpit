@@ -5,7 +5,7 @@
 // 1px borders; muted-foreground for what is secondary; color only for state.
 
 import { div, svg, image, PathBuilder, Background } from "gpui-kit";
-import { h_flex, v_flex, Input, HoverCard as BaseHoverCard } from "gpui-base";
+import { h_flex, v_flex, Input, TextView, HoverCard as BaseHoverCard } from "gpui-base";
 import { theme, settings, openOverlay, shared, setShared, knownAgents, notify as notice } from "herdr";
 import * as hub from "./hub.js";
 import * as fresh from "./fresh.js";
@@ -1306,6 +1306,11 @@ export function StatTile(id, { label, value, delta, deltaGood, hint, spark, spar
 // Boards: state chips, stage headings, metrics with mini bars, callouts (the Home board's pieces)
 
 /** Text in the mono face, for what you would type: branches, keys, numbers. */
+/** Markdown as cockpit draws it in a panel: selectable, links to the browser. */
+export function Markdown(id, text, { size = TEXT.sm } = {}) {
+  return TextView.markdown(id, String(text ?? "")).selectable(true).text_size(size).on_link_click((url) => hub.openUrl(url));
+}
+
 export function Mono(text, { size = TEXT.xs, color } = {}) {
   const k = tokens();
   return div().flex_none().font_family("JetBrains Mono").text_size(size).text_color(color ?? k.mutedFg).child(String(text ?? ""));

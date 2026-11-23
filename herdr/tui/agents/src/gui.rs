@@ -287,7 +287,13 @@ pub fn poll() -> bool {
             if live.status == "blocked"
                 && let Some(screen) = term::screen(&live.handle, 0)
             {
-                let q = prompt::read_for(&screen, &prompt::Shapes::of(&live.agent));
+                let mut q = prompt::read_for(&screen, &prompt::Shapes::of(&live.agent));
+                // A plan approval shows the whole plan from the transcript: its screen scrolls only part of it.
+                if q.permission
+                    && let Some(plan) = plan_of(&live, &facts[&live.handle])
+                {
+                    q.with_plan(&plan);
+                }
                 // The frontend's word can stay blocked after the prompt went: the screen and the transcript say what it does.
                 if let Some(status) = past_prompt(&q, prompt::menu_shown(&screen), || turn_of(&live)) {
                     live.status = status.into();
@@ -407,6 +413,21 @@ pub fn past_prompt(q: &Question, menu: bool, turn: impl FnOnce() -> Option<Turn>
 fn turn_of(live: &Live) -> Option<Turn> {
     let agent = cockpit_core::agent::of_program(&live.agent).or_else(|| cockpit_core::agent::of_program(&live.program))?;
     cockpit_core::transcripts::turn(agent.transcripts, std::path::Path::new(live.transcript.as_deref()?))
+}
+
+/// The plan the agent asks to carry out, whole, from its transcript, where its agent's table says it is kept.
+fn plan_of(live: &Live, facts: &Value) -> Option<String> {
+    let agent = cockpit_core::agent::of_program(&live.agent).or_else(|| cockpit_core::agent::of_program(&live.program))?;
+    let transcript = live.transcript.as_ref().map(PathBuf::from).or_else(|| transcript_of(live, facts, &session_of(live, facts)?))?;
+    cockpit_core::transcripts::plan(agent.plan?, agent.transcripts, &transcript)
+}
+
+/// The argument of the tool `agent` asks through before it carries a plan out, when `tool` is that one.
+fn plan_arg(agent: Option<&cockpit_core::agent::Agent>, tool: &str) -> Option<&'static str> {
+    match agent?.plan? {
+        cockpit_core::agent::Plan::Argument { tool: t, arg } if t == tool => Some(arg),
+        _ => None,
+    }
 }
 
 /// What a blocked agent waits on when it asks nothing cockpit can read: a limit it reached, else its terminal. When the
@@ -1028,7 +1049,7 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
         "stage": stage(status, false, status != "done", &pr, &ci, &changes),
         "interrupted": status == "done", "error": failed, "stoppable": status == "working",
         "interrupt": interrupt_of(s["agent"].as_str().unwrap_or_default()),
-        "question": asking.map(permission_question).unwrap_or(Value::Null), "waits": Value::Null,
+        "question": asking.map(|a| permission_question(a, cockpit_core::agent::of_program(s["agent"].as_str().unwrap_or_default()).as_ref())).unwrap_or(Value::Null), "waits": Value::Null,
         "said": "", "recap": recap, "paused": s["paused"], "cwd": cwd, "branch": branch, "repo": repo,
         "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
         "cost": s["session"].as_str().and_then(cockpit_core::usage::session_estimate), "session": s["session"].clone(), "seen": true,
@@ -1190,11 +1211,14 @@ fn walk_now(pid: u32) -> place::Walk {
 /// What a request cockpit cannot place is told.
 const UNPLACED: &str = "cockpit cannot tell whether a person sent this, so it takes no answer from it";
 
-/// What an agent asks to be allowed, in full for the card to show: the command, the diff, the file, the plan, the
-/// arguments of an MCP tool.
-pub fn what_it_runs(tool: &str, input: &Value) -> String {
+/// What an agent asks to be allowed, in full for the card to show: the command, the diff, the file, the plan (where
+/// `plan` names its argument), the arguments of an MCP tool.
+pub fn what_it_runs(tool: &str, input: &Value, plan: Option<&str>) -> String {
     let field = |k: &str| input[k].as_str().unwrap_or_default().to_string();
     let lines = |prefix: &str, text: &str| text.lines().map(|l| format!("{prefix}{l}")).collect::<Vec<_>>().join("\n");
+    if let Some(arg) = plan {
+        return field(arg).trim().to_string();
+    }
     let shown = match tool {
         "Bash" => [field("command"), field("description")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n"),
         "Edit" => format!("{}\n{}\n{}", field("file_path"), lines("- ", &field("old_string")), lines("+ ", &field("new_string"))),
@@ -1206,7 +1230,6 @@ pub fn what_it_runs(tool: &str, input: &Value) -> String {
         }
         "Write" => format!("{}\n{}", field("file_path"), field("content")),
         "NotebookEdit" => format!("{}\n{}", field("notebook_path"), field("new_source")),
-        "ExitPlanMode" => field("plan"),
         "WebFetch" => [field("url"), field("prompt")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n"),
         _ => serde_json::to_string_pretty(input).unwrap_or_default(),
     };
@@ -1214,14 +1237,15 @@ pub fn what_it_runs(tool: &str, input: &Value) -> String {
 }
 
 /// A permission request in the shape the question card draws: what it wants to run, and the two answers, neither of
-/// them picked.
-fn permission_question(ask: Value) -> Value {
+/// them picked. A plan, told by `agent`'s table, is drawn as Markdown.
+fn permission_question(ask: Value, agent: Option<&cockpit_core::agent::Agent>) -> Value {
     let tool = ask["tool_name"].as_str().unwrap_or("A tool");
     let detail = cockpit_core::transcripts::arg_line(&ask["input"]);
     let text = if detail.is_empty() { format!("May it run {tool}?") } else { format!("May it run {tool}: {detail}?") };
+    let plan = plan_arg(agent, tool);
     json!({
         "text": text, "kind": "single", "permission": true, "cursor": null, "ask": ask["id"].clone(), "unasked": [], "cut": false, "terminal_only": null,
-        "preview": what_it_runs(tool, &ask["input"]),
+        "preview": what_it_runs(tool, &ask["input"], plan), "markdown": plan.is_some(),
         "choices": [{"n": 1, "label": "Allow once"}, {"n": 2, "label": "Deny"}],
     })
 }
@@ -2235,13 +2259,23 @@ mod tests {
 
     #[test]
     fn a_driven_ask_is_drawn_with_nothing_picked_and_all_it_would_do() {
-        let q = permission_question(json!({"id": "toolu_a", "tool_name": "Bash", "input": {"command": "mix test", "description": "Run the tests"}}));
+        let claude = cockpit_core::agent::of_program("claude");
+        let q = permission_question(
+            json!({"id": "toolu_a", "tool_name": "Bash", "input": {"command": "mix test", "description": "Run the tests"}}),
+            claude.as_ref(),
+        );
         assert_eq!((q["cursor"].clone(), q["ask"].clone(), q["permission"].clone()), (Value::Null, json!("toolu_a"), json!(true)));
         assert_eq!(q["preview"], "mix test\nRun the tests");
-        let edit = what_it_runs("Edit", &json!({"file_path": "/r/api/lib/quota.ex", "old_string": "@limit 100", "new_string": "@limit 200"}));
+        assert_eq!(q["markdown"], false);
+        let plan =
+            permission_question(json!({"id": "toolu_p", "tool_name": "ExitPlanMode", "input": {"plan": "# Quota\n\n1. Add the column"}}), claude.as_ref());
+        assert_eq!((plan["preview"].clone(), plan["markdown"].clone()), (json!("# Quota\n\n1. Add the column"), json!(true)), "a plan is drawn as Markdown");
+        let unknown = permission_question(json!({"id": "toolu_p", "tool_name": "ExitPlanMode", "input": {"plan": "# Quota"}}), None);
+        assert_eq!(unknown["markdown"], false, "an agent with no plan tool in the table shows the input as it is");
+        let edit = what_it_runs("Edit", &json!({"file_path": "/r/api/lib/quota.ex", "old_string": "@limit 100", "new_string": "@limit 200"}), None);
         assert_eq!(edit, "/r/api/lib/quota.ex\n- @limit 100\n+ @limit 200");
-        assert_eq!(what_it_runs("ExitPlanMode", &json!({"plan": "1. Add the column\n2. Read it"})), "1. Add the column\n2. Read it");
-        assert!(what_it_runs("mcp__acme__deploy", &json!({"service": "api", "env": "prod"})).contains("\"env\": \"prod\""), "an MCP tool's whole input");
+        assert_eq!(what_it_runs("ExitPlanMode", &json!({"plan": "1. Add the column\n2. Read it"}), Some("plan")), "1. Add the column\n2. Read it");
+        assert!(what_it_runs("mcp__acme__deploy", &json!({"service": "api", "env": "prod"}), None).contains("\"env\": \"prod\""), "an MCP tool's whole input");
     }
 
     #[test]

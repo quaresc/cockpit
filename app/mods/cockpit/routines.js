@@ -12,12 +12,12 @@ import { h_flex, v_flex, Input, InputState } from "gpui-base";
 import { readTextFile } from "herdr";
 import * as hub from "./hub.js";
 import { take, testKeys, holds, MOVE_FIRST } from "./person.js";
-import { Markdown, openReader } from "./reader.js";
+import { openReader } from "./reader.js";
 import { modelChoices, asPills, listHint } from "./models.js";
 import {
   tokens, TEXT, RADIUS, Icon, Badge, Button, Kbd, PageHeader, SearchField, TextField, KeyHints, Empty, Skeleton,
   Command, Toaster, Flashes, Scroller, SidePanel, AlertDialog, Chip, Mono, Metric, StageHeading, Progress, Pills, Toggle,
-  Spinner, Callout, openMenu, alpha, Overline, Tiles, HubDownBody, AgentLogo,
+  Spinner, Callout, openMenu, alpha, Overline, Tiles, HubDownBody, AgentLogo, Markdown,
 } from "./ui.js";
 
 const ICONS = { run: "play", stop: "circle-stop", edit: "pencil", open: "file-text", talk: "message-circle", pause: "circle-pause", model: "sparkles", delete: "trash", worktree: "git-branch" };

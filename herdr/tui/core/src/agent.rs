@@ -29,6 +29,18 @@ pub enum Transcripts {
     Gemini,
 }
 
+/// Where an agent's plan is read whole while it asks to carry it out: the argument of the tool it asks through, the
+/// Markdown file that argument names, or its last message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Plan {
+    /// The call's `arg` holds the plan as Markdown.
+    Argument { tool: &'static str, arg: &'static str },
+    /// The call's `arg` is the path of the Markdown file holding the plan.
+    File { tool: &'static str, arg: &'static str },
+    /// The plan is its last message, written in its plan mode.
+    LastMessage,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Agent {
     /// Herdr's integration id, also its `program` name (`claude`, `codex`, `opencode`).
@@ -50,6 +62,9 @@ pub struct Agent {
     /// A new session branched from a past one. Empty when unsupported.
     pub fork: Vec<String>,
     pub transcripts: Transcripts,
+    /// Where its plan is read whole while it asks to carry one out. None where it has no plan mode, or none measured
+    /// or documented.
+    pub plan: Option<Plan>,
     /// Non-interactive, on a new branch of a past session. Empty when unsupported.
     pub run_fork: Vec<String>,
     /// Lets an unattended run edit files in its folder without asking. Empty when it has no such switch.
@@ -249,6 +264,7 @@ impl Row<'_> {
             resume: v(self.resume),
             fork: v(self.fork),
             transcripts: self.transcripts,
+            plan: None,
             run_fork: v(self.run_fork),
             edits: v(self.edits),
             add_dir: v(self.add_dir),
@@ -303,6 +319,18 @@ const STREAM: &[(&str, &[&str], &[&str])] = &[
         &["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages", "--permission-prompt-tool", "stdio"],
         &["--session-id", "{session}"],
     ),
+];
+
+/// Where each agent's plan is read while it asks to carry one out.
+const PLANS: &[(&str, Plan)] = &[
+    // Claude Code 2.1.330 (measured): ExitPlanMode's `plan`, the screen scrolling the plan in a box.
+    ("claude", Plan::Argument { tool: "ExitPlanMode", arg: "plan" }),
+    // Codex 0.96 (developers.openai.com /plan): the plan is the last message of a turn in plan collaboration mode.
+    ("codex", Plan::LastMessage),
+    // Qwen Code (qwenlm.github.io exit-plan-mode): `exit_plan_mode(plan=…)` presents the plan for approval.
+    ("qwen", Plan::Argument { tool: "exit_plan_mode", arg: "plan" }),
+    // Gemini CLI (geminicli.com tools/planning): `exit_plan_mode(plan_path=…)` names the plan file under its plans folder.
+    ("gemini", Plan::File { tool: "exit_plan_mode", arg: "plan_path" }),
 ];
 
 /// How each agent's permission prompts read, as measured: (id, patterns of the text above the menu).
@@ -485,6 +513,7 @@ pub fn builtin() -> Vec<Agent> {
             if let Some((_, shapes)) = PERMISSION.iter().find(|(id, _)| *id == row.id) {
                 agent.permission = v(shapes);
             }
+            agent.plan = PLANS.iter().find(|(id, _)| *id == row.id).map(|(_, plan)| *plan);
             if let Some((_, stream, new_session)) = STREAM.iter().find(|(id, _, _)| *id == row.id) {
                 (agent.stream, agent.new_session) = (Some(v(stream)), v(new_session));
             }
@@ -970,6 +999,7 @@ fn laid_over(mut list: Vec<Agent>, overrides: &serde_json::Map<String, Value>) -
             resume: vec![],
             fork: vec![],
             transcripts: Transcripts::None,
+            plan: None,
             run_fork: vec![],
             edits: vec![],
             add_dir: vec![],

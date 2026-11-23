@@ -1,0 +1,19 @@
+⏺ The limiter is ready to build: three steps, each with its test. · summary
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   - Read it in Api.Quota.limit/2, 100 when it is unset.                                                   ↑
+   - Cover both in test/api/quota_test.exs.
+
+   Rollout
+
+   1. Migrate plans (daily_limit, nullable).
+   2. Deploy the limiter behind the quota flag.
+   3. Turn the flag on for acme/api once the dashboard shows the counts.                                  ↓
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+   Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+   ❯ 1. Yes, and use auto mode
+     2. Yes, manually approve edits
+     3. Tell Claude what to change
+        shift+tab to approve with this feedback
+
+   ctrl+g to edit in your editor · ~/.claude/plans/daily-quota.md
