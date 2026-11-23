@@ -12,7 +12,7 @@ import * as hub from "./hub.js";
 import { sharing } from "./feed.js";
 import { fleet, goToAgent, agentAct, refuseRemoteAgent, answerPayload, changed, CHANGED } from "./fleet.js";
 import { inFront } from "./front.js";
-import { AllowsBlock, confirmUnasked, takeConfirm, unaskedChoice, pinsNow, togglePinOf, dismissable } from "./agentsui.js";
+import { AllowsBlock, PlanRow, openPlan, confirmUnasked, takeConfirm, unaskedChoice, pinsNow, togglePinOf, dismissable } from "./agentsui.js";
 import { showWork, layoutName } from "./screens.js";
 import { keyFor, keyText, available } from "./commands.js";
 import { openStart } from "./start.js";
@@ -1018,7 +1018,11 @@ export default class Home {
             ? this.choiceRow(a, "next", 6)
             : null;
       // A permission shows what it would allow, in full, above its choices; one cockpit cannot show in full has none.
-      const allows = q?.permission ? AllowsBlock(`next-${a.address}`, q.preview, { cut: q.cut === true, note: q.terminal_only, markdown: q.markdown === true }) : null;
+      const allows = !q?.permission
+        ? null
+        : q.view
+          ? PlanRow(`next-${a.address}`, q, () => openPlan(a, q.view))
+          : AllowsBlock(`next-${a.address}`, q.preview, { cut: q.cut === true, note: q.terminal_only, markdown: q.markdown === true });
       const body = allows && row ? v_flex().gap(6).pt(6).child(allows).child(row) : (row ?? allows);
       return Callout("home-next", {
         tone: k.blocked,
@@ -1266,7 +1270,8 @@ export default class Home {
             .bg(alpha(tone, 0.1))
             .child(div().text_size(10.5).font_semibold().text_color(tone).child(a.waits ? (a.waits.kind === "limit" ? "AT ITS LIMIT" : "WAITS FOR YOU") : a.status === "blocked" ? "ASKS YOU" : a.status === "failed" ? "STOPPED WITH AN ERROR" : "TO FIX"))
             .child(div().w_full().whitespace_normal().text_size(TEXT.sm).text_color(k.foreground).child(a.question?.text || a.waits?.text || (a.status === "blocked" ? "It stopped and waits for you." : a.status === "failed" ? a.error || "It stopped on an error: look at its terminal." : a.ci === "FAILURE" ? "Its PR's checks fail: tell it to fix them." : "Changes were asked on its PR.")))
-            .when(Boolean(a.question?.permission), (e) =>
+            .when(Boolean(a.question?.permission) && Boolean(a.question?.view), (e) => e.child(PlanRow(`${card.key}-q`, a.question, () => openPlan(a, a.question.view))))
+            .when(Boolean(a.question?.permission) && !a.question?.view, (e) =>
               e.child(
                 AllowsBlock(`${card.key}-q`, a.question.preview, {
                   cut: a.question.cut === true,

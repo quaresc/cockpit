@@ -8,7 +8,7 @@ import { h_flex, v_flex, v_virtual_list, Scrollbar, InputState, Input, TextView 
 import { exec, appHome, focused, panes, run, layout, shared, setShared, props, settings, window as win } from "herdr";
 import * as hub from "./hub.js";
 import { take } from "./person.js";
-import { layoutName, frontAgent, CHAT_SUBJECT } from "./screens.js";
+import { layoutName, frontAgent, CHAT_SUBJECT, PENDING_VIEW } from "./screens.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, ChoiceKey, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
 import { Chart, Figures, zoomed, compact } from "./plot.js";
 import { parseFlowchart, flowGraph, laidOut, Graph, graphSize, Sequence, sequenceSize, fit } from "./diagram.js";
@@ -50,6 +50,15 @@ export function followed() {
   const f = focused();
   return frontAgent(f) ?? f?.shown ?? f?.terminal ?? null;
 }
+
+/** The view asked for while the panel still followed another terminal, taken once it follows `terminal`. */
+function pendingFor(terminal) {
+  const p = shared(PENDING_VIEW);
+  if (!p || p.terminal !== terminal || Date.now() - (p.at ?? 0) > PENDING_MS) return null;
+  setShared(PENDING_VIEW, null);
+  return p.name ?? null;
+}
+const PENDING_MS = 10_000;
 
 /** Whether the layout shows the block holding `app` (a pane copy, outside the layout, always is). */
 function shownInLayout(app) {
@@ -575,7 +584,7 @@ export default class Show {
         this.subscription = (this.subscription ?? 0) + 1;
         this.sub?.stop();
         this.data = null;
-        this.pick = null;
+        this.pick = pendingFor(terminal);
         this.focus = null;
         this.asking = null;
         this.pendingGo = null;

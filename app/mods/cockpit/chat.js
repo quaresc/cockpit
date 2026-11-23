@@ -12,7 +12,7 @@ import * as hub from "./hub.js";
 import { take, testKeys } from "./person.js";
 import { openUrl } from "./hub.js";
 import { openPanel } from "./status.js";
-import { AgentsModel, QuestionCard, UndoRow, oneTimeKey } from "./agentsui.js";
+import { AgentsModel, QuestionCard, UndoRow, oneTimeKey, pendView } from "./agentsui.js";
 import { inFront } from "./front.js";
 import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent } from "./screens.js";
 import { followInReview } from "./review.js";
@@ -2682,11 +2682,27 @@ export default class Chat {
       .children(this.queuedRows(k))
       // A dismissal's Undo, above the card it came from: the chat keeps key hints out of it, as everywhere here.
       .when(Boolean(UndoRow("chat-undo", this.model)), (e) => e.child(h_flex().w_full().px(GUTTER).pt(8).justify_center().child(div().w_full().max_w(READ_W).child(UndoRow("chat-undo", this.model)))))
+      .when(Boolean(row?.question?.view), (e) => (this.planInPanel(row, cx), e))
       .when(Boolean(row?.question || row?.waits), (e) =>
         e.child(h_flex().w_full().px(GUTTER).pt(8).justify_center().child(div().w_full().max_w(READ_W).child(QuestionCard(`chat-card-${row.terminal}-${row.question?.ask ?? row.question?.text?.length ?? ""}`, row, this.model, { wide: true, focus: this.cardFocus })))),
       )
       .child(this.composer(k))
       .when(Boolean(this.confirm), (e) => e.child(this.fullAccess(k, this.confirm)));
+  }
+
+  /**
+   * A plan the agent asks about opens once in the side panel, where it reads whole and stays after it is carried out;
+   * the card above the box keeps it to one line.
+   */
+  planInPanel(row, cx) {
+    const view = row.question.view;
+    if (this.planOpened === view) return;
+    this.planOpened = view;
+    cx.timer.after(0, () => {
+      pendView(row, view);
+      openPanel("show");
+      run(`cockpit.show:go:${view}`);
+    });
   }
 
   /** At the top of the conversation when there is more before it: reads further back, the first row staying put. */

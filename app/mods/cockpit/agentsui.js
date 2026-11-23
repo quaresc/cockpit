@@ -9,7 +9,7 @@ import * as hub from "./hub.js";
 import { sharing } from "./feed.js";
 import { rowsOf, answerPayload, changed, CHANGED, agentStatus } from "./fleet.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Spinner, ChoiceKey, Button, Checkbox, Chip, Mono, Markdown, TextField, dur, openMenu, iconOf } from "./ui.js";
-import { showWork, layoutName, readInChat, pinChat } from "./screens.js";
+import { showWork, layoutName, readInChat, pinChat, PENDING_VIEW } from "./screens.js";
 import { QuotaGroups } from "./usage.js";
 import { oneTimeKey, take } from "./person.js";
 
@@ -530,6 +530,70 @@ export function AllowsBlock(id, text, { open = true, onToggle, cut = false, note
     .when(folds, (e) => e.child(head));
 }
 
+/** What a plan is about: its first heading, else its first line, without Markdown marks. */
+export function planTitle(text) {
+  const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const line = lines.find((l) => l.startsWith("#")) ?? lines[0] ?? "";
+  return line.replace(/^#+\s*/, "").replace(/[*`]/g, "").trim();
+}
+
+/** The number of the plan a view keeps (`plan-<session>-<n>`), or null. */
+export const planNumber = (view) => Number(/-(\d+)$/.exec(view ?? "")?.[1]) || null;
+
+/**
+ * Opens a plan kept as a view of `row`'s session in the side panel: the agent comes into view first, so the panel
+ * follows its session, then the panel goes to that view.
+ */
+export function openPlan(row, view) {
+  pendView(row, view);
+  if (row.driven) readInChat(row.handle ?? row.terminal, null, true);
+  else {
+    pinChat(null);
+    run("agent.focus", { terminal: row.address });
+    showWork();
+  }
+  run(`cockpit.doc:${view}`);
+}
+
+/** Tells the side panel to open on `view` once it follows `row`'s session. */
+export function pendView(row, view) {
+  setShared(PENDING_VIEW, { terminal: row.driven ? (row.handle ?? row.terminal) : row.address, name: view, at: Date.now() });
+}
+
+/**
+ * A plan asked about, as one line: its number and title, read whole in the side panel with one click (`onOpen`), where
+ * it stays once carried out.
+ */
+export function PlanRow(id, q, onOpen) {
+  const k = tokens();
+  const n = planNumber(q.view);
+  const title = planTitle(q.preview) || "The plan";
+  return h_flex()
+    .id(`${id}-plan`)
+    .w_full()
+    .min_h(34)
+    .pl(10)
+    .pr(4)
+    .py(4)
+    .gap(8)
+    .items_center()
+    .rounded(RADIUS.md)
+    .border_1()
+    .border_color(k.border)
+    .bg(k.background)
+    .cursor_pointer()
+    .hover((s) => s.bg(k.accent))
+    .tooltip("Read the whole plan in the side panel")
+    .on_click((_e, cx) => {
+      cx.stop_propagation();
+      onOpen(cx);
+    })
+    .child(Icon("file-text", { size: 14, color: k.mutedFg }))
+    .child(div().flex_none().text_size(TEXT.xs).font_medium().text_color(k.mutedFg).child(n ? `Plan ${n}` : "Plan"))
+    .child(div().flex_1().min_w(0).truncate().text_size(TEXT.sm).text_color(k.foreground).child(title))
+    .child(h_flex().flex_none().gap(4).items_center().px(6).text_size(TEXT.xs).text_color(k.mutedFg).child("Read").child(Icon("panel-right", { size: 13 })));
+}
+
 /** Whether picking `choice` turns on a mode that runs every tool unasked: the hub names those choices per question. */
 export function unaskedChoice(q, choice) {
   return Array.isArray(q?.unasked) && q.unasked.includes(choice?.n);
@@ -756,8 +820,9 @@ export function QuestionCard(id, row, model, { wide = false, header, footer, foc
         .child(div().pt(1).child(Icon(q.permission ? "shield-check" : "circle-help", { size: 14, color: tone })))
         .child(div().flex_1().min_w(0).text_size(wide ? TEXT.base : TEXT.sm).font_medium().text_color(k.foreground).child(q.text || "It is waiting for you.")),
     )
-    // A permission always shows what it would allow; a question's own preview, beside a choice, only when there is room.
-    .when(Boolean(q.permission), (e) => e.child(AllowsBlock(`${id}-${named}`, q.preview, { open: opened, onToggle: toggle, cut: q.cut === true, note: q.terminal_only, markdown: q.markdown === true })))
+    // A permission always shows what it would allow; a plan kept as a view is one line, read whole in the side panel.
+    .when(Boolean(q.permission) && Boolean(q.view), (e) => e.child(PlanRow(`${id}-${named}`, q, () => openPlan(row, q.view))))
+    .when(Boolean(q.permission) && !q.view, (e) => e.child(AllowsBlock(`${id}-${named}`, q.preview, { open: opened, onToggle: toggle, cut: q.cut === true, note: q.terminal_only, markdown: q.markdown === true })))
     .when(Boolean(q.preview) && !q.permission && wide, (e) => e.child(div().p(8).rounded(RADIUS.md).border_1().border_color(k.border).bg(k.background).child(Mono(q.preview, { color: k.foreground }))))
     // One cockpit cannot show in full offers no choice here: it is answered in the agent's terminal (Go to the agent).
     .when(q.choices.length > 0 && !q.terminal_only, (e) => e.child(v_flex().gap(1).children(q.choices.map(choice))))

@@ -53,6 +53,8 @@ pub struct Question {
     pub cut: bool,
     /// Its preview is Markdown (a plan, read whole from the transcript): the card renders it rather than showing it as typed.
     pub markdown: bool,
+    /// The view the plan is kept as in its session's side panel (`plan-<session>-<n>`), once it is kept.
+    pub view: Option<String>,
     /// Its last output says it reached a usage or rate limit, by its agent's screen shapes.
     pub limit: Option<Limit>,
     /// The person's own words are the last thing above its input box: what it asked was answered there.
@@ -143,7 +145,7 @@ impl Question {
         let cut = self.permission && self.cut;
         json!({"text": self.text, "kind": self.kind(), "choices": choices, "cursor": cursor, "submit": self.submit_after.is_some(), "preview": self.preview,
                "permission": self.permission, "cut": cut, "terminal_only": if cut { json!(CUT) } else { Value::Null }, "unasked": self.unasked(),
-               "markdown": self.markdown})
+               "markdown": self.markdown, "view": self.view})
     }
 
     /// Shows the whole plan a plan approval asks about, from the transcript, where the screen scrolls only part of it:
