@@ -227,3 +227,28 @@ test('the longest serviceReplace key wins and the Datadog link follows', async (
     forgetConfig()
   }
 })
+
+test('monitor.releaseDays widens how far back a release shows and an app is watched', async () => {
+  const apps = async (monitor: object) => {
+    forgetConfig()
+    try {
+      const run = engine(null, { ...CONFIG, monitor })
+      await refreshMonitor(run.$, true)
+      return run.doc().apps
+    } finally {
+      forgetConfig()
+    }
+  }
+  const seen = (list: MonitorState['apps'], id: string) => {
+    const app = list.find(a => a.id === id)!
+    return [app.watched, app.releases.length]
+  }
+  const day = await apps({})
+  expect([seen(day, 'api-production'), seen(day, 'billing-production')]).toEqual([[true, 1], [false, 0]])
+  const week = await apps({ releaseDays: 7 })
+  expect([seen(week, 'api-production'), seen(week, 'billing-production')]).toEqual([[true, 2], [false, 0]])
+  const ten = await apps({ releaseDays: 10 })
+  expect(seen(ten, 'billing-production')[0]).toBe(true)
+  const junk = await apps({ releaseDays: -3 })
+  expect([seen(junk, 'api-production'), seen(junk, 'billing-production')]).toEqual([[true, 1], [false, 0]])
+})

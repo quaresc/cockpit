@@ -1,5 +1,5 @@
 //! The monitor space's document: every app of the watched environment from the platform connector, and for those with a
-//! release in the last day (or pinned) their deploys, alerting monitors, open errors and a verdict on each release from
+//! release in the last `releaseDays` (a day by default) or pinned, their deploys, alerting monitors, open errors and a verdict on each release from
 //! the numbers before and after it (Datadog's, or any observability tool's through its mapping).
 
 use serde_json::{Value, json};
@@ -37,6 +37,13 @@ pub struct Context<'a> {
     pub now: i64,
     /// The local time's offset from UTC, for the times a summary says.
     pub utc_offset_minutes: i32,
+}
+
+/// How far back (ms) a release still shows and an app is still watched: the monitor section's `releaseDays`, a day when it
+/// is missing or not a positive number.
+fn release_window(monitor: &Value) -> i64 {
+    let days = monitor["releaseDays"].as_f64().filter(|d| d.is_finite() && *d > 0.0).unwrap_or(1.0);
+    (days * DAY_MS as f64) as i64
 }
 
 /// The service as Datadog names it: the monitor section's `serviceReplace` substrings, longest key first.
@@ -102,6 +109,7 @@ pub struct Notice {
 pub fn settings(monitor: &Value) -> Value {
     let mut merged = json!({
         "env": "production",
+        "releaseDays": 1,
         "queries": {
             "errors": "sum:trace.http.server.request.errors{service:{service},env:{env}}.as_count()",
             "hits": "sum:trace.http.server.request.hits{service:{service},env:{env}}.as_count()",
@@ -388,6 +396,7 @@ fn list<'a>(value: &'a Value, path: &str) -> Vec<&'a Value> {
 /// An app's recent deploys, newest first, as releases: mine when I started it or it ships one of my tickets.
 pub async fn releases_of(platform: &impl Tools, ctx: &Context<'_>, app_id: &str, repo: &str) -> Result<Vec<Value>, String> {
     let f = |name: &str, default: &'static str| platform_field(ctx, name, default);
+    let window = release_window(ctx.monitor);
     let answer = platform.call("deployHistory", &json!({"appId": app_id})).await?;
     let deploys = ctx.inbox.and_then(|i| i["deploys"].as_object());
     let inbox_tickets = ctx.inbox.and_then(|i| i["tickets"].as_array());
@@ -434,9 +443,9 @@ pub async fn releases_of(platform: &impl Tools, ctx: &Context<'_>, app_id: &str,
             })
         })
         .enumerate()
-        .filter(|(i, r)| *i == 0 || r["startedAt"].as_str().and_then(parse_ms).is_some_and(|t| ctx.now - t < DAY_MS))
+        .filter(|(i, r)| *i == 0 || r["startedAt"].as_str().and_then(parse_ms).is_some_and(|t| ctx.now - t < window))
         .map(|(_, r)| r)
-        .take(5)
+        .take(if window > DAY_MS { 20 } else { 5 })
         .collect();
     Ok(releases)
 }
@@ -534,6 +543,7 @@ pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, 
     }
     let f = |name: &str, default: &'static str| platform_field(ctx, name, default);
     let skip: Vec<&str> = ctx.platform["fields"]["skipKinds"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let window = release_window(ctx.monitor);
     let status = platform.call("deployStatus", &json!({})).await?;
     let mut apps: Vec<Value> = list(&status, f("apps", ""))
         .into_iter()
@@ -559,7 +569,7 @@ pub async fn refresh<D: Tools>(platform: &impl Tools, signals: &Signals<'_, D>, 
                 "behind": number(get("appBehind", "commitsBehindHead").as_deref()),
                 "argoUrl": get("appLink", "").unwrap_or_default(),
                 "datadogUrl": datadog_link,
-                "watched": !muted && (pinned || parse_ms(&deployed_at).is_some_and(|t| ctx.now - t < DAY_MS)),
+                "watched": !muted && (pinned || parse_ms(&deployed_at).is_some_and(|t| ctx.now - t < window)),
                 "pinned": pinned,
                 "muted": muted,
                 "monitors": null,
@@ -846,6 +856,55 @@ mod tests {
         assert_eq!((s["env"].as_str(), s["notify"].as_str()), (Some("staging"), Some("all")));
         assert_eq!(Moved::of(&s), Moved { min_hits: 10.0, ..MOVED });
         assert!(s["queries"]["p95"].as_str().unwrap().starts_with("p95:"));
+    }
+
+    #[test]
+    fn release_days_sets_the_window_and_falls_back_to_a_day() {
+        assert_eq!(release_window(&json!({})), DAY_MS);
+        assert_eq!(release_window(&json!({"releaseDays": 7})), 7 * DAY_MS);
+        assert_eq!(release_window(&json!({"releaseDays": 0.5})), DAY_MS / 2);
+        for bad in [json!(0), json!(-2), json!("7"), Value::Null] {
+            assert_eq!(release_window(&json!({"releaseDays": bad})), DAY_MS, "{bad} is not a window");
+        }
+        assert_eq!(settings(&json!({}))["releaseDays"], 1);
+        assert_eq!(release_window(&settings(&json!({"releaseDays": 7}))), 7 * DAY_MS);
+    }
+
+    #[test]
+    fn release_days_widens_what_is_watched_and_listed() {
+        let platform_section = crate::platform::mapping(&json!({
+            "tools": {"deployStatus": {"tool": "status"}, "deployHistory": {"tool": "history", "args": {"app": "{appId}"}}},
+            "fields": {"apps": "apps", "appId": "id", "appRepo": "repository", "deployments": "deployments", "deployTag": "tag"}
+        }));
+        let status = json!({"apps": [{"id": "api", "repository": "https://github.com/acme/api", "lastDeployedAt": "2026-11-02T12:00:00Z"}]});
+        let history = json!({"deployments": [
+            {"id": 3, "tag": "v3", "phase": "Succeeded", "startedAt": "2026-11-02T12:00:00Z"},
+            {"id": 2, "tag": "v2", "phase": "Succeeded", "startedAt": "2026-11-01T12:00:00Z"},
+            {"id": 1, "tag": "v1", "phase": "Succeeded", "startedAt": "2026-10-29T12:00:00Z"}
+        ]});
+        let run = |monitor: Value| {
+            let platform = Fake::default().with("deployStatus", status.clone()).with("deployHistory", history.clone());
+            let datadog = Fake::default();
+            let monitor = settings(&monitor);
+            let ctx = Context {
+                platform: &platform_section,
+                monitor: &monitor,
+                after_minutes: 30,
+                login: "",
+                org: "",
+                inbox: None,
+                pinned: &[],
+                muted: &[],
+                now: at("2026-11-04T12:00:00Z"),
+                utc_offset_minutes: 0,
+            };
+            let doc = block_on(refresh(&platform, &Signals::Datadog(&datadog), &ctx, None)).unwrap().unwrap();
+            let app = &doc["apps"][0];
+            (app["watched"].as_bool(), app["releases"].as_array().map(Vec::len))
+        };
+        assert_eq!(run(json!({})), (Some(false), Some(0)), "two days on, a day's window leaves it out");
+        assert_eq!(run(json!({"releaseDays": 7})), (Some(true), Some(3)), "a week watches it and lists all three");
+        assert_eq!(run(json!({"releaseDays": 3.5})), (Some(true), Some(2)), "a window of three and a half days keeps the two newest");
     }
 
     fn metric(values: Value) -> String {

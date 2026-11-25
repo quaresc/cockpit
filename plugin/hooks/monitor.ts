@@ -18,6 +18,15 @@ type $ = EngineInterface
 
 const REFRESH_MS = 2 * 60_000
 const DAY_MS = 86_400_000
+// Releases kept per app: five for a day's window, more once the window is wider.
+const RELEASES_DAY = 5
+const RELEASES_WIDE = 20
+
+// How far back a release still shows and an app is still watched: `monitor.releaseDays`, a day when it is not a positive number.
+export function releaseWindowMs(config: Config['monitor']) {
+  const days = Number(config.releaseDays)
+  return Number.isFinite(days) && days > 0 ? days * DAY_MS : DAY_MS
+}
 const BINS = 20
 // Claude Code refuses an MCP answer over about 25k tokens: monitors come in pages well under it.
 const MONITOR_PAGES = 8
@@ -208,7 +217,7 @@ async function readJson<T>($: $, path: string): Promise<T | null> {
 }
 
 // An app's recent deploys, newest first, as releases: mine when I started it or it ships one of my tickets.
-async function releasesOf($: $, app: { id: string; repo: string }, now: number, login: string, inbox: Inbox | null, org: string): Promise<Release[]> {
+async function releasesOf($: $, app: { id: string; repo: string }, now: number, login: string, inbox: Inbox | null, org: string, windowMs: number): Promise<Release[]> {
   const f = (await platform($))!.fields
   const deployments = list(pick(await call($, 'deployHistory', { appId: app.id }), f.deployments))
   return deployments
@@ -231,8 +240,8 @@ async function releasesOf($: $, app: { id: string; repo: string }, now: number, 
         verdict: null,
       }
     })
-    .filter((r, i) => i === 0 || now - Date.parse(r.startedAt) < DAY_MS)
-    .slice(0, 5)
+    .filter((r, i) => i === 0 || now - Date.parse(r.startedAt) < windowMs)
+    .slice(0, windowMs > DAY_MS ? RELEASES_WIDE : RELEASES_DAY)
 }
 
 // One app's details: its releases with their verdicts (a settled one kept from the last round), monitors, errors and a day
@@ -243,7 +252,7 @@ async function watch($: $, app: MonitoredApp, previous: MonitoredApp | undefined
   const site = app.datadogUrl.match(/^https:\/\/[^/]+/)?.[0] ?? 'https://app.datadoghq.com'
   const window = config.deployWatch.afterMinutes * 60_000
   const keep = <T>(label: string, fallback: T) => (err: Error) => (errors.push(`${app.name} ${label}: ${err.message.slice(0, 120)}`), fallback)
-  app.releases = await releasesOf($, app, now, ctx.login, ctx.inbox, config.github.org).catch(keep('deploys', previous?.releases ?? []))
+  app.releases = await releasesOf($, app, now, ctx.login, ctx.inbox, config.github.org, releaseWindowMs(config.monitor)).catch(keep('deploys', previous?.releases ?? []))
   if (!app.service) return
   app.monitors = await monitorsOf($, server, app.service, site).catch(keep('monitors', previous?.monitors ?? null))
   app.series = await seriesOf($, server, config.monitor, app.service, now).catch(keep('series', previous?.series ?? null))
@@ -319,7 +328,7 @@ export function refreshMonitor($: $, isForced = false) {
             behind: Number(text(pick(a, f.appBehind ?? 'commitsBehindHead')) ?? 0),
             argoUrl: text(pick(a, f.appLink)) ?? '',
             datadogUrl: datadogLink(text(pick(a, f.appDatadog ?? 'datadogUrl')) ?? '', platformService, service),
-            watched: !muted.has(id) && (pinned.has(id) || now - Date.parse(deployedAt) < DAY_MS),
+            watched: !muted.has(id) && (pinned.has(id) || now - Date.parse(deployedAt) < releaseWindowMs(config.monitor)),
             pinned: pinned.has(id),
             muted: muted.has(id),
             monitors: null,

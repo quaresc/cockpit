@@ -154,8 +154,10 @@ export type Config = {
   // The monitor space: the environment it watches, the Datadog queries of a service ({service}, {env}), when a release
   // counts as moved (p95 up by both the ratio and the milliseconds), and whose releases notify (mine, all or none).
   // serviceReplace renames a platform's service to Datadog's, as literal substrings applied longest key first ({ "-": "_" }).
+  // releaseDays is how many days back a release still shows and an app is still watched after its last deploy (1 by default).
   monitor: {
     env: string
+    releaseDays: number
     serviceReplace: Record<string, string>
     queries: { errors: string; hits: string; p95: string }
     moved: { errorPoints: number; p95Ratio: number; p95Ms: number; minHits: number }
@@ -323,6 +325,7 @@ const DEFAULTS: Config = {
   datadog: { server: 'claude.ai Datadog' },
   monitor: {
     env: 'production',
+    releaseDays: 1,
     serviceReplace: {},
     queries: {
       errors: 'sum:trace.http.server.request.errors{service:{service},env:{env}}.as_count()',
