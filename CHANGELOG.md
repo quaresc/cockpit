@@ -14,6 +14,7 @@ must be here first.
 - Fix: Files, Changes, the machines list and live show tables stop refreshing while the Herdr window is hidden (#103)
 - Fix: resizing a table column or moving the before/after slider keeps following the pointer outside the element (#103)
 - Note: the new pieces need Herdr app 0.1.18; an older Herdr app keeps the previous behaviour (#103)
+- Note: a code block's colours come from Herdr's code view; a language it does not colour shows as plain text, still selectable (#103)
 
 ## 1.5.2 (2026-11-23)
 
