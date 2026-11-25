@@ -16,9 +16,9 @@ import { tokens, TEXT, Icon, Button, Kbd, TextField, Toaster } from "./ui.js";
 import { layoutName, CHAT_SUBJECT } from "./screens.js";
 import { lent, panelOpen } from "./commands.js";
 import { findNode, openPanel, closePanel } from "./status.js";
+import { LANG } from "./codeblock.js";
 
 const MD = /\.(md|markdown|mdx)$/i;
-const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", cjs: "js", toml: "yaml", yml: "yaml", jsonc: "json", svelte: "html", vue: "html", htm: "html", md: "markdown", py: "python", rs: "rust", sh: "bash", zsh: "bash", ex: "elixir", exs: "elixir" };
 const MAX_EDIT = 400_000;
 const MD_NEXT = { split: "preview", preview: "edit", edit: "split" };
 

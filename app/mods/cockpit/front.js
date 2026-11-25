@@ -1,7 +1,7 @@
 // Which copy of the mod is in front, so a key pressed from outside the window (`cockpit.key:<k>`) reaches that view and
 // no other, and a hidden view's keys stay with it. Every copy of the window shares the list, on globalThis.
 
-import { shared, layout } from "herdr";
+import { shared, layout, window as win } from "herdr";
 import { screens } from "./screens.js";
 
 /** The apps that are screens of a layout's stack: one of them is in front at a time. */
@@ -75,3 +75,9 @@ export function front(list = alive(), shown = shownScreen()) {
   if (SCREENS.has(shown)) return [];
   return keyed.filter((c) => !c.overlay && (!SCREENS.has(c.app) || c.scoped));
 }
+
+/**
+ * Whether the window is out of sight (minimized, covered, on another Space): polling and live refreshes wait until it
+ * shows again. A Herdr older than 0.1.18 never says so.
+ */
+export const windowHidden = () => win()?.visible === false;

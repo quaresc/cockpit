@@ -5,6 +5,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar } from "gpui-base";
 import { exec } from "herdr";
+import { windowHidden } from "./front.js";
 import { tokens, TEXT, RADIUS, Icon, dragPaths } from "./ui.js";
 import { openCode } from "./code.js";
 import { where, whereKey, reposOf, statusOf } from "./projects.js";
@@ -74,7 +75,7 @@ export default class Files {
     this.open = new Set();
     this.marks = { files: new Map(), under: new Map() };
     this.refresh(cx);
-    cx.timer.every(5000, (cx) => this.refresh(cx));
+    cx.timer.every(5000, (cx) => windowHidden() || this.refresh(cx));
   }
 
   /** Lists the open folders again and the repositories' changes; a new place starts the tree over. */

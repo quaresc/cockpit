@@ -1,1 +1,11 @@
-{ "place": "none", "title": "Cockpit", "focusable": true, "link_handlers": [{ "kind": "url", "pattern": "(?i)^https?://" }] }
+{
+  "place": "none",
+  "title": "Cockpit",
+  "focusable": true,
+  "link_handlers": [{ "kind": "url", "pattern": "(?i)^https?://" }],
+  "palette": [
+    { "title": "Cockpit Chat", "command": "layout.switch", "args": { "name": "cockpit-chat" }, "group": "Cockpit", "words": "cockpit layout chat reading" },
+    { "title": "Cockpit", "command": "layout.switch", "args": { "name": "cockpit" }, "group": "Cockpit", "words": "cockpit layout home inbox" },
+    { "title": "Cockpit settings", "command": "cockpit.settings", "group": "Cockpit", "words": "cockpit options health doctor" }
+  ]
+}
