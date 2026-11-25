@@ -2,7 +2,7 @@
 //! requests, folds and the selection kept by key, what changed since you last looked, and the actions sent through the
 //! bridge.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
 use cockpit_core::bridge::Bridge;
@@ -93,6 +93,9 @@ pub struct App {
     live: bool,
     /// What changed since you last looked at the monitor.
     pub looked: Seen,
+    /// Pins and mutes asked for and not yet in the document: shown at once, dropped when the document agrees.
+    pin_wish: HashMap<String, bool>,
+    mute_wish: HashMap<String, bool>,
 }
 
 impl App {
@@ -141,6 +144,33 @@ impl App {
             reported: None,
             live: false,
             looked: Seen::fixture(0, Vec::new()),
+            pin_wish: HashMap::new(),
+            mute_wish: HashMap::new(),
+        }
+    }
+
+    /// Lays the pins and mutes just asked for over the document, which only catches up on its next refresh; one the
+    /// document already shows is forgotten.
+    fn apply_wishes(&mut self) {
+        let Some(doc) = &mut self.doc else { return };
+        for app in &mut doc.apps {
+            if let Some(&pin) = self.pin_wish.get(&app.id) {
+                if app.pinned == pin {
+                    self.pin_wish.remove(&app.id);
+                } else {
+                    app.pinned = pin;
+                    app.muted = app.muted && !pin;
+                }
+            }
+            if let Some(&mute) = self.mute_wish.get(&app.id) {
+                if app.muted == mute {
+                    self.mute_wish.remove(&app.id);
+                } else {
+                    app.muted = mute;
+                    app.pinned = app.pinned && !mute;
+                    app.watched = app.watched && !mute;
+                }
+            }
         }
     }
 
@@ -153,6 +183,7 @@ impl App {
     pub fn set_doc(&mut self, value: &Value) {
         self.doc = Doc::parse(value);
         self.raw = Some(value.clone());
+        self.apply_wishes();
         self.select_default();
     }
 
@@ -176,6 +207,7 @@ impl App {
         let value = docs.get("monitor").cloned();
         self.doc = value.as_ref().and_then(Doc::parse);
         self.raw = value;
+        self.apply_wishes();
         self.select_default();
         self.looked.fetch();
         true
@@ -281,8 +313,19 @@ impl App {
             Cmd::Bug(app, target) => self.call("bug", vec![self.app_value(&app), target], None),
             Cmd::RollBack(app, release, previous) => self.call("roll_back", vec![self.app_value(&app), release.into(), previous.into()], armed),
             Cmd::Talk(app, release) => self.call("talk", vec![self.app_value(&app), release.into()], None),
-            Cmd::Pin(app, pin) => self.call("pin", vec![app.into(), pin.into()], None),
-            Cmd::Mute(app, mute) => self.call("mute", vec![app.into(), mute.into()], None),
+            Cmd::Pin(app, pin) => {
+                // The row answers now; the hub writes the file and the numbers follow with the next refresh.
+                self.mute_wish.remove(&app);
+                self.pin_wish.insert(app.clone(), pin);
+                self.apply_wishes();
+                self.call("pin", vec![app.into(), pin.into()], None);
+            }
+            Cmd::Mute(app, mute) => {
+                self.pin_wish.remove(&app);
+                self.mute_wish.insert(app.clone(), mute);
+                self.apply_wishes();
+                self.call("mute", vec![app.into(), mute.into()], None);
+            }
             Cmd::Refresh => self.call("request_refresh", vec![], None),
             Cmd::Fold(app) => self.toggle(&app),
             Cmd::View => {
