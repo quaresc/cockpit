@@ -7,13 +7,13 @@ must be here first.
 
 ## Unreleased
 
-- New: code in Cockpit Chat answers and in show notes is coloured by its language and can be selected and copied
-- New: the edge of the Cockpit Chat side panel shows when the pointer is on it
-- New: Herdr's own command palette offers the Cockpit and Cockpit Chat layouts and Cockpit settings
-- New: Attach file in the chat uses Herdr's file picker, on every system, and takes several files
-- Fix: Files, Changes, the machines list and live show tables stop refreshing while the Herdr window is hidden
-- Fix: resizing a table column or moving the before/after slider keeps following the pointer outside the element
-- Note: the new pieces need Herdr app 0.1.18; an older Herdr app keeps the previous behaviour
+- New: code in Cockpit Chat answers and in show notes is coloured by its language and can be selected and copied (#103)
+- New: the edge of the Cockpit Chat side panel shows when the pointer is on it (#103)
+- New: Herdr's own command palette offers the Cockpit and Cockpit Chat layouts and Cockpit settings (#103)
+- New: Attach file in the chat uses Herdr's file picker, on every system, and takes several files (#103)
+- Fix: Files, Changes, the machines list and live show tables stop refreshing while the Herdr window is hidden (#103)
+- Fix: resizing a table column or moving the before/after slider keeps following the pointer outside the element (#103)
+- Note: the new pieces need Herdr app 0.1.18; an older Herdr app keeps the previous behaviour (#103)
 
 ## 1.5.2 (2026-11-23)
 
