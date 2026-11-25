@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.5.3 (2026-11-25)
 
 - New: code in Cockpit Chat answers and in show notes is coloured by its language and can be selected and copied (#103)
 - New: the edge of the Cockpit Chat side panel shows when the pointer is on it (#103)
