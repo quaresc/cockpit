@@ -12,7 +12,7 @@ import { rowsOf, countsOf, agentStatus, needing, showBadge } from "./fleet.js";
 import { option } from "./config.js";
 import { show, showWork, showPanes, screens, layoutName } from "./screens.js";
 import { togglePalette, openRecap, hint, keyFor, keyText, lend } from "./commands.js";
-import { inFront } from "./front.js";
+import { inFront, windowHidden } from "./front.js";
 import { UpdateTag, pending as pendingUpdate } from "./update.js";
 import { SettingsLink } from "./doctor.js";
 import { openUsage } from "./usage.js";
@@ -92,7 +92,7 @@ export default class Sidebar {
     this.repos = new Map();
     this.machineList = [];
     this.refreshMachines(cx);
-    cx.timer.every(15000, cx => this.refreshMachines(cx));
+    cx.timer.every(15000, cx => windowHidden() || this.refreshMachines(cx));
     this.drag = null;
     this.update = null;
     this.agents = new AgentsModel();

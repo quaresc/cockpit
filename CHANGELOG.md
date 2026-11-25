@@ -5,6 +5,16 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## Unreleased
+
+- New: code in Cockpit Chat answers and in show notes is coloured by its language and can be selected and copied (#103)
+- New: the edge of the Cockpit Chat side panel shows when the pointer is on it (#103)
+- New: Herdr's own command palette offers the Cockpit and Cockpit Chat layouts and Cockpit settings (#103)
+- New: Attach file in the chat uses Herdr's file picker, on every system, and takes several files (#103)
+- Fix: Files, Changes, the machines list and live show tables stop refreshing while the Herdr window is hidden (#103)
+- Fix: resizing a table column or moving the before/after slider keeps following the pointer outside the element (#103)
+- Note: the new pieces need Herdr app 0.1.18; an older Herdr app keeps the previous behaviour (#103)
+
 ## 1.5.2 (2026-11-23)
 
 - New: a show table's columns resize by dragging the edge of their header, so truncated text can be read; a table wider than its card scrolls sideways, and a double-click on an edge fits the columns again (#100)

@@ -3,11 +3,13 @@
 
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, Input, InputState, TextView } from "gpui-base";
+import { CodeBlocks, segments } from "./codeblock.js";
 import * as base from "gpui-base";
 
 // A Herdr older than 0.1.15 has no ScrollHandle: the conversation still draws, it just does not follow its own end.
 const ScrollHandle = base.ScrollHandle ?? null;
 import { focused, run, exec, notify, shared, setShared, appHome, home, window as win } from "herdr";
+import * as herdr from "herdr";
 import * as hub from "./hub.js";
 import { take, testKeys } from "./person.js";
 import { openUrl } from "./hub.js";
@@ -140,26 +142,7 @@ export const DRAW = 300;
 const READ_W = 760;
 const GUTTER = 24;
 
-/** A message's words split on fences, so code is drawn in a box of its own: Herdr's Markdown draws it square. */
-export function segments(text) {
-  const out = [];
-  const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
-  let last = 0;
-  let m;
-  while ((m = fence.exec(text))) {
-    if (m.index > last) out.push({ code: false, text: text.slice(last, m.index) });
-    out.push({ code: true, lang: m[1].trim(), text: m[2] });
-    last = fence.lastIndex;
-  }
-  // A fence still being written is code already, up to where the words stop.
-  const rest = text.slice(last);
-  const open = /```([^\n`]*)\n/.exec(rest);
-  if (open) {
-    out.push({ code: false, text: rest.slice(0, open.index) });
-    out.push({ code: true, lang: open[1].trim(), text: rest.slice(open.index + open[0].length) });
-  } else if (rest) out.push({ code: false, text: rest });
-  return out.filter((s) => s.text.trim() !== "");
-}
+export { segments } from "./codeblock.js";
 
 /** A short hash of the start of some words: part of a row's key, which must not move when older rows come in above. */
 function hashOf(text) {
@@ -321,6 +304,7 @@ const PICTURE_H = 220;
 export default class Chat {
   init(_props, cx) {
     this.model = new AgentsModel("chat");
+    this.codes = new CodeBlocks();
     this.model.follow(cx);
     // The chat's own keyboard: a digit answers only from a key the person pressed here.
     this.handle = cx.focus_handle();
@@ -538,6 +522,7 @@ export default class Chat {
     this.starter.close();
     this.model.stop();
     this.scroll?.release();
+    this.codes.clear();
     followInReview(null);
     showWhere(null);
   }
@@ -1073,20 +1058,22 @@ export default class Chat {
   }
 
   /**
-   * A mod has no file picker, so choosing one is osascript, macOS's own open panel; elsewhere, dropping a file on the box
-   * is the way. The clipboard's image is read wherever a tool for it is there.
+   * Herdr's own file picker chooses the files (0.1.18); an older Herdr goes through osascript, macOS's open panel, and
+   * elsewhere a drop on the box is the way. The clipboard's image is read wherever a tool for it is there.
    */
   pick(what, cx) {
     if (what === "clipboard") return this.pasteFromClipboard(cx, true);
+    const native = typeof herdr.pickFiles === "function";
     const mac = win()?.platform === "macos";
-    if (!mac) return notify({ title: "Drop the file on the box", body: "Choosing goes through macOS; a drop works anywhere.", level: "info" });
+    if (!native && !mac) return notify({ title: "Drop the file on the box", body: "Choosing goes through macOS; a drop works anywhere.", level: "info" });
     const script = ["try", 'return POSIX path of (choose file with prompt "Send a file to the agent")', "on error", 'return ""', "end try"];
     const subject = this.target;
     cx.spawn(async (cx) => {
       try {
-        const r = await exec("osascript", script.flatMap((line) => ["-e", line]));
-        const path = String(r?.stdout ?? "").trim();
-        if (path) this.attach(path, cx, subject);
+        const paths = native
+          ? ((await herdr.pickFiles({ prompt: "Attach", multiple: true })) ?? [])
+          : [String((await exec("osascript", script.flatMap((line) => ["-e", line])))?.stdout ?? "").trim()].filter(Boolean);
+        for (const path of paths) this.attach(path, cx, subject);
       } catch (e) {
         notify({ title: "Could not read that", body: String(e?.message ?? e), level: "warning" });
       }
@@ -1920,18 +1907,7 @@ export default class Chat {
               .child(Icon("copy", { size: 12 })),
           ),
       )
-      .child(
-        div()
-          .id(`${id}-lines`)
-          .w_full()
-          .overflow_x_scroll()
-          .px(12)
-          .py(10)
-          .font_family("JetBrains Mono")
-          .text_size(TEXT.sm)
-          .text_color(k.foreground)
-          .child(v_flex().children(text.split("\n").map((line) => div().whitespace_nowrap().child(line.replace(/\t/g, "    ") || " ")))),
-      );
+      .child(this.codes.view(id, s.lang, text, k));
   }
 
   /** Whether a turn's fold is shut: a running one then shows only what it does now, a finished one only how long it took. */
@@ -2563,6 +2539,9 @@ export default class Chat {
 
   render(cx) {
     const k = tokens();
+    this.codes.sweep();
+    // Code blocks get their editors right after this frame: Herdr makes none while a view is drawn.
+    cx.timer.after(0, (cx) => this.codes.make() && cx.notify());
     const live = this.session();
     // The confirm was asked for one session or terminal: another one in front takes it away.
     if (this.confirm && (live?.key ?? this.row()?.terminal) !== this.confirm.key) this.confirm = null;

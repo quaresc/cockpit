@@ -9,10 +9,12 @@ import { exec, appHome, focused, panes, run, layout, shared, setShared, props, s
 import * as hub from "./hub.js";
 import { take } from "./person.js";
 import { layoutName, frontAgent, CHAT_SUBJECT, PENDING_VIEW } from "./screens.js";
-import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, ChoiceKey, Empty, Toaster, Progress, Spinner, openMenu, dur } from "./ui.js";
+import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, ChoiceKey, Empty, Toaster, Progress, Spinner, openMenu, dur, followDrag } from "./ui.js";
 import { Chart, Figures, zoomed, compact } from "./plot.js";
 import { parseFlowchart, flowGraph, laidOut, Graph, graphSize, Sequence, sequenceSize, fit } from "./diagram.js";
 import { DiffView } from "./diff.js";
+import { windowHidden } from "./front.js";
+import { CodeBlocks, segments } from "./codeblock.js";
 
 const ICON = {
   markdown: "file-text", stats: "chart-column", table: "table", chart: "chart-column", flow: "workflow", mermaid: "workflow", blueprint: "map", sequence: "list-ordered",
@@ -79,6 +81,7 @@ function shownInLayout(app) {
 
 export default class Show {
   init(p, cx) {
+    this.codes = new CodeBlocks();
     const pr = props() ?? p ?? {};
     this.name = pr.name ?? null;
     this.panel = !this.name;
@@ -132,6 +135,7 @@ export default class Show {
   close() {
     this.subscription = (this.subscription ?? 0) + 1;
     this.sub?.stop();
+    this.codes?.clear();
   }
 
   /** The panel's picked view survives a reload of the mod. */
@@ -214,7 +218,7 @@ export default class Show {
 
   tick(cx) {
     const view = this.view();
-    if (!view || !shownInLayout(this.panel ? "show" : "__pane__")) return;
+    if (!view || !shownInLayout(this.panel ? "show" : "__pane__") || windowHidden()) return;
     const now = Date.now();
     // A blueprint's "updated 2m ago" moves on.
     if (now - (this.aged ?? 0) >= 15000 && view.blocks.some((b) => b.type === "blueprint")) {
@@ -601,6 +605,8 @@ export default class Show {
   }
 
   render(cx) {
+    this.codes.sweep();
+    cx.timer.after(0, (cx) => this.codes.make() && cx.notify());
     const k = tokens();
     this.follow(cx);
     const view = this.view();
@@ -755,7 +761,7 @@ export default class Show {
 
   blockBody(k, b, cx, room, narrow) {
     switch (b.type) {
-      case "markdown": return TextView.markdown(`show-md-${this.liveKey(b)}`, String(b.text ?? "").slice(0, 24000)).selectable(true).text_size(TEXT.base).on_link_click((url) => this.openUrl(url));
+      case "markdown": return this.note(k, b);
       case "stats": return Figures(`show-stats-${b.n}`, b.items);
       case "table": return this.table(k, this.tableBlock(b), cx);
       case "chart": return this.chart(k, b, cx, room);
@@ -864,22 +870,35 @@ export default class Show {
     const grid = v_flex().when(Boolean(widths), (e) => e.w(widths.reduce((a, w) => a + w, 0)).flex_none()).when(!widths, (e) => e.w_full())
       .child(header)
       .child(div().relative().h(Math.max(ROW, height)).child(list).child(Scrollbar.vertical(`show-rows-${key}`).viewport_from_layout().absolute().inset_0()));
-    return v_flex().id(`show-table-${b.n}`).w_full().rounded(RADIUS.md).border_1().border_color(k.border).overflow_hidden()
-      // The drag follows the pointer anywhere over the table, and ends with the press.
-      .on_mouse_move((e, cx) => {
-        const r = st.resize;
-        if (!r || !st.widths) return;
-        const w = Math.max(MIN_COL, Math.round(r.w + (e.position.x - r.x) / z()));
-        if (w !== st.widths[r.i]) {
-          st.widths = st.widths.map((x, j) => (j === r.i ? w : x));
-          cx.notify();
-        }
-      })
-      .on_mouse_up("left", (_e, cx) => { if (st.resize) { st.resize = null; cx.notify(); } })
-      .on_hover((on) => { if (!on) st.resize = null; })
+    const table = v_flex().id(`show-table-${b.n}`).w_full().rounded(RADIUS.md).border_1().border_color(k.border).overflow_hidden();
+    // The drag follows the pointer until the press ends.
+    return followDrag(table, (e, cx) => {
+      const r = st.resize;
+      if (!r || !st.widths) return;
+      const w = Math.max(MIN_COL, Math.round(r.w + (e.position.x - r.x) / z()));
+      if (w !== st.widths[r.i]) {
+        st.widths = st.widths.map((x, j) => (j === r.i ? w : x));
+        cx.notify();
+      }
+    }, (cx) => { if (st.resize) { st.resize = null; cx.notify(); } })
       .child(widths ? div().id(`show-tx-${b.n}`).w_full().overflow_x_scrollbar().child(grid) : grid)
       .child(h_flex().h(28).px(8).items_center().bg(alpha(k.muted, 0.5)).text_size(TEXT.xs).text_color(k.mutedFg)
         .child(`${rows.length} row${rows.length === 1 ? "" : "s"}${st.sort ? ` · by ${cols[st.sort.i]} ${st.sort.desc ? "↓" : "↑"}` : ""}`));
+  }
+
+  /** A note's Markdown, its fenced code drawn as coloured, selectable blocks. */
+  note(k, b) {
+    const key = this.liveKey(b);
+    const md = (id, text) => TextView.markdown(id, text).selectable(true).text_size(TEXT.base).on_link_click((url) => this.openUrl(url));
+    const parts = segments(String(b.text ?? "").slice(0, 24000));
+    if (!parts.some((p) => p.code)) return md(`show-md-${key}`, String(b.text ?? "").slice(0, 24000));
+    return v_flex().w_full().gap(6).children(parts.map((p, i) => {
+      if (!p.code) return md(`show-md-${key}-${i}`, p.text);
+      const id = `show-code-${key}-${i}`;
+      return v_flex().w_full().rounded(RADIUS.md).border_1().border_color(k.border).bg(k.card).overflow_hidden()
+        .when(Boolean(p.lang), (e) => e.child(h_flex().h(24).px(12).items_center().border_b_1().border_color(k.border).text_size(TEXT.xs).text_color(k.dim).child(p.lang)))
+        .child(this.codes.view(id, p.lang, p.text.replace(/\n$/, ""), k));
+    }));
   }
 
   // Charts and diagrams -------------------------------------------------------------------------------------------------
@@ -1073,13 +1092,11 @@ export default class Show {
           if (e.local_position) st.split = Math.max(0, Math.min(100, (e.local_position.x / w) * 100));
           cx.notify();
         })
-        .on_mouse_up("left", (_e, cx) => { st.drag = false; cx.notify(); })
-        .on_hover((on, cx) => { if (!on) st.drag = false; cx.notify(); })
-        .on_mouse_move((e, cx) => {
-          if (!st.drag) return;
+        .when(true, (el) => followDrag(el, (e, cx) => {
+          if (!st.drag || !e.local_position) return;
           st.split = Math.max(0, Math.min(100, (e.local_position.x / w) * 100));
           cx.notify();
-        })
+        }, (cx) => { if (st.drag) { st.drag = false; cx.notify(); } }))
         .child(image(c.rel).absolute().left(0).top(0).w(w).h(h))
         .child(div().absolute().left(0).top(0).h(h).w((w * split) / 100).overflow_hidden().child(image(a.rel).absolute().left(0).top(0).w(w).h((w * a.h) / a.w)))
         .child(div().absolute().top(0).h(h).w(2).ml(-1).left((w * split) / 100).bg(k.background))

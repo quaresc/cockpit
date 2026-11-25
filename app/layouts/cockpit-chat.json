@@ -103,6 +103,7 @@
               "type": "row",
               "gap": 8,
               "resizable": true,
+              "divider": { "width": 1, "color": "#00000000", "hover": "border", "active": "accent" },
               "children": [
                 {
                   "id": "view",

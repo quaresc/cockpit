@@ -353,6 +353,13 @@ and Changes rows drag their paths into a terminal (`drag_paths`), and the mod st
 `herdr-app check` loads it (`hub.checking()`). In Cockpit Chat the boundary between the conversation and the side panel
 drags. The pane header shows a name given with Rename (`pane.rename`), and ctrl-alt-arrows move a pane's edge
 (`pane.resize`).
+
+**Herdr 0.1.18.** Code fences in the chat and in show notes are drawn by Herdr's read-only editor (`codeblock.js`):
+coloured by language and selectable, made just after the frame that first draws them and released once no frame does.
+Files, Changes, the machines list and live show blocks wait while `window().visible` is false; table and slider drags
+follow the pointer out of their element (`followDrag`, `on_window_mouse_move`); the chat attaches files through
+`pickFiles`; `mod.json` adds the two layouts and Cockpit settings to Herdr's palette; the Cockpit Chat panel's edge
+shows on hover.
 ## The reading layout (`cockpit-chat`)
 
 `app/layouts/cockpit-chat.json`, its brief in `app/RECIPE-cockpit-chat.md`. It draws the conversation instead of

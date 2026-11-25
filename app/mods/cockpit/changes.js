@@ -4,6 +4,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, Input, InputState, v_virtual_list } from "gpui-base";
 import { exec, readTextFile } from "herdr";
+import { windowHidden } from "./front.js";
 import { tokens, TEXT, RADIUS, dragPaths } from "./ui.js";
 import { READ, where, whereKey, reposOf, statusOf } from "./projects.js";
 
@@ -59,7 +60,7 @@ export default class Changes {
     this.input.on("submit", (_e, cx) => this.commit(cx));
     this.input.on("change", (_e, cx) => cx.notify());
     this.refresh(cx);
-    cx.timer.every(5000, (cx) => this.refresh(cx));
+    cx.timer.every(5000, (cx) => windowHidden() || this.refresh(cx));
   }
 
   /** The repository shown: the one picked, else the one the agent touched last. */
