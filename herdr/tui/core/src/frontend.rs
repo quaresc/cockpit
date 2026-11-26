@@ -362,6 +362,11 @@ pub fn new_space_behind(cwd: &str, label: &str) -> Option<String> {
     }
 }
 
+/// The id of herdr's space open under this label, for the TUI only.
+pub fn tui_space_named(label: &str) -> Option<String> {
+    tui_spaces().into_iter().find(|w| w["label"].as_str() == Some(label)).and_then(|w| w["workspace_id"].as_str().map(str::to_string))
+}
+
 /// The space open under this label, brought into view; false when none is.
 pub fn focus_space_named(label: &str) -> bool {
     match current() {
