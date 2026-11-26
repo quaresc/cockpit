@@ -235,7 +235,7 @@ export function details(entry, { run, open, compact = false }) {
         out.push(h_flex().gap(8).items_center().child(verdictBadge(r.state)).child(Mono(r.tag, { size: TEXT.sm, color: k.foreground })).child(div().flex_1().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(`${r.who} · ${r.ago ?? ""}`)));
     }
     if (a.muted) out.push(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Muted: not watched, nor announced, until you unmute it."));
-    else if (!a.watched) out.push(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Not watched: no release today and not pinned. Pin it to watch it anyway."));
+    else if (!a.watched) out.push(div().text_size(TEXT.sm).text_color(k.mutedFg).child("Not watched: no recent release and not pinned. Pin it to watch it anyway."));
   } else if (kind === "issue") {
     const i = item;
     out.push(div().whitespace_normal().text_size(TEXT.base).text_color(k.foreground).child(i.message));
