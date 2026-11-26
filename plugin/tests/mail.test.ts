@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { isFresh, messagesOf, threadFile, threadOf, unescape } from '../hooks/mail'
+import { dated, isFresh, keptDates, latestDate, messagesOf, threadFile, threadOf, toPeek, unescape } from '../hooks/mail'
 import { checkRequest } from '../hooks/protocol'
 
 // Claude's Gmail connector answers search_threads with threads and, in the summary view, their latest message.
@@ -8,7 +8,11 @@ const GMAIL = {
   enabled: true,
   name: 'Gmail',
   server: 'claude.ai Gmail',
-  tools: {},
+  tools: {
+    listInbox: { tool: 'search_threads', args: { query: 'in:inbox', view: 'THREAD_VIEW_SUMMARY' } },
+    listUnread: { tool: 'search_threads', args: { query: 'in:inbox is:unread', view: 'THREAD_VIEW_SUMMARY' } },
+    peek: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'METADATA_ONLY' } },
+  },
   fields: {
     messages: 'threads[].messages', id: 'threadId', threadId: 'threadId', from: 'sender', fromName: 'addressDisplayNames.0.displayName',
     subject: 'subject', snippet: 'snippet', url: 'viewUrl', date: 'date', unread: 'labelIds', labels: 'labelIds|label_ids',
@@ -26,11 +30,34 @@ test('unread Gmail threads read as the inbox mail, newest first', () => {
         labelIds: ['INBOX'], viewUrl: 'https://mail.google.com/#all/t2' }] },
     ],
   }
-  const messages = messagesOf(GMAIL, answer)
+  const messages = dated(messagesOf(GMAIL, answer), {})
   expect(messages.map(m => m.id)).toEqual(['t2', 't1'])
   expect(messages[0]).toMatchObject({ from: 'ana@acme.io', fromName: 'Ana Lima', unread: false })
   expect(messages[1]).toMatchObject({ fromName: 'Linear', snippet: 'You have 6 unread', unread: true, url: 'https://mail.google.com/#all/t1' })
   expect(messages[1]?.labels).toEqual(['UNREAD', 'INBOX'])
+})
+
+test('a summary listing with no labels nor dates is unread by the unread listing and dated by a peek', () => {
+  // search_threads answers the summary view with id, sender, subject and threadId only.
+  const summary = (threadId: string, sender: string, subject: string) => ({ id: threadId, messages: [{ id: `m-${threadId}`, threadId, sender, subject, toRecipients: ['me@acme.example'] }] })
+  const inbox = { threads: [summary('t1', 'Priya <priya@example.com>', 'Roadmap'), summary('t2', 'Maya <maya@example.com>', 'Lunch?'), summary('t3', 'Sam <sam@example.com>', 'Retro notes')] }
+  const unread = { threads: [summary('t2', 'Maya <maya@example.com>', 'Lunch?')] }
+  const listing = messagesOf(GMAIL, inbox, unread)
+  expect(listing.map(m => [m.id, m.unread])).toEqual([['t2', true], ['t1', false], ['t3', false]])
+  expect(listing.every(m => m.date === '')).toBe(true)
+  expect(messagesOf(GMAIL, inbox, { threads: [] }).every(m => !m.unread)).toBe(true)
+
+  // Undated and not yet peeked, the unread thread stays first; a peek dates it by its newest message.
+  expect(dated(listing, {}).map(m => m.id)).toEqual(['t2', 't1', 't3'])
+  expect(toPeek(listing, { t3: '' }).map(m => m.id)).toEqual(['t2', 't1'])
+  const peeked = { id: 't1', messages: [{ id: 'a', sender: 'Priya <priya@example.com>', date: '2026-11-03T09:00:00Z' }, { id: 'b', sender: 'me@acme.example', date: '2026-11-05T09:00:00Z' }] }
+  expect(latestDate(GMAIL, peeked)).toBe('2026-11-05T09:00:00Z')
+  expect(latestDate(GMAIL, { id: 't3', messages: [] })).toBe('')
+  const dates = { t1: '2026-11-05T09:00:00Z', t2: '2026-11-04T09:00:00Z', t3: '', gone: '2026-11-01T09:00:00Z' }
+  const messages = dated(listing, dates)
+  expect(messages.map(m => [m.id, m.date])).toEqual([['t1', '2026-11-05T09:00:00Z'], ['t2', '2026-11-04T09:00:00Z'], ['t3', '']])
+  expect(toPeek(messages, dates)).toEqual([])
+  expect(keptDates(dates, listing)).toEqual({ t1: '2026-11-05T09:00:00Z', t2: '2026-11-04T09:00:00Z', t3: '' })
 })
 
 test('a Gmail thread reads whole in either case, oldest first, as the mail space keeps it', () => {

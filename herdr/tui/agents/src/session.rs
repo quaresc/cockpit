@@ -11,9 +11,10 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use cockpit_core::agent::{self, Agent, Picked, Setting};
+use cockpit_core::agent::{self, Agent, Offer, Picked, Setting};
+use cockpit_core::modes;
 use cockpit_core::seen::now_ms;
-use cockpit_core::transcripts::{self, Detail, Transcripts, arg_line};
+use cockpit_core::transcripts::{self, Detail, TaskState, Transcripts, arg_line, background_id, call_task};
 use serde_json::{Value, json};
 
 /// What an answer is told when the question it names is not the one asked now.
@@ -84,6 +85,9 @@ pub struct State {
     pub restart: bool,
     /// The control requests sent and not answered yet, by request id.
     asked: HashMap<String, Asked>,
+    /// The subagents, background jobs and workflows its turns started, in the shape the views send: `{id, kind, name,
+    /// state, started, ended, summary, tool_use_id}`.
+    pub tasks: Vec<Value>,
 }
 
 /// What a control request cockpit sent asks for, so its answer is read for it.
@@ -107,7 +111,7 @@ impl State {
             "failed": self.failed, "interrupted": self.stopped, "since": self.since, "pending": self.pending,
             "paused": self.paused, "title": title, "count": self.messages.len(),
             "effort": self.effort, "fast": self.fast, "fast_on": self.fast_on, "fast_why": self.fast_why, "models": self.models,
-            "restart": self.restart,
+            "restart": self.restart, "tasks": self.tasks,
         })
     }
 }
@@ -570,44 +574,119 @@ fn settle_echoes(state: &mut State) {
 fn take(state: &mut State, event: &Value) -> Taken {
     let at = chrono::Utc::now().to_rfc3339();
     let mut taken = Taken::default();
+    // A subagent's own lines come down the same pipe, marked with the call that started it: they are its conversation,
+    // never the parent's, and only say what it is on.
+    if let Some(parent) = event["parent_tool_use_id"].as_str().filter(|p| !p.is_empty()) {
+        task_progress(state, parent, event);
+        return taken;
+    }
     match event["type"].as_str().unwrap_or_default() {
-        "system" => match event["subtype"].as_str().unwrap_or_default() {
-            "init" => {
-                if let Some(id) = event["session_id"].as_str().filter(|id| !id.is_empty()) {
-                    state.session_id = id.to_string();
+        "system" => {
+            match event["subtype"].as_str().unwrap_or_default() {
+                "init" => {
+                    if let Some(id) = event["session_id"].as_str().filter(|id| !id.is_empty()) {
+                        state.session_id = id.to_string();
+                    }
+                    if let Some(cwd) = event["cwd"].as_str() {
+                        state.cwd = cwd.to_string();
+                    }
+                    if let Some(model) = event["model"].as_str() {
+                        state.model = model.to_string();
+                    }
+                    // Each turn's init says the effort level its next message is sent with, and how fast mode stands.
+                    if let Some(effort) = event["effort"].as_str().filter(|e| !e.is_empty()) {
+                        state.effort = effort.to_string();
+                    }
+                    fast_reported(state, event);
+                    // The names the agent opens with. Some sessions never publish commands_changed, so this is the only
+                    // list they get.
+                    let named: Vec<Value> = event["slash_commands"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| c.as_str())
+                        .map(|name| json!({"name": name, "description": ""}))
+                        .collect();
+                    if !named.is_empty() {
+                        state.commands = named;
+                        cockpit_core::commands::describe(&state.agent, &state.cwd, &mut state.commands);
+                    }
                 }
-                if let Some(cwd) = event["cwd"].as_str() {
-                    state.cwd = cwd.to_string();
+                "commands_changed" => {
+                    let sent = event["commands"].as_array().cloned().unwrap_or_default();
+                    if !sent.is_empty() {
+                        state.commands = sent;
+                        cockpit_core::commands::describe(&state.agent, &state.cwd, &mut state.commands);
+                    }
                 }
-                if let Some(model) = event["model"].as_str() {
-                    state.model = model.to_string();
+                // The tasks a turn starts beside itself: each is told when it starts, moves, ends and is reported, and a
+                // snapshot of those still running comes after each change.
+                "task_started" => {
+                    let id = event["task_id"].as_str().unwrap_or_default();
+                    let tool_use_id = event["tool_use_id"].as_str().unwrap_or_default();
+                    let kind = task_kind_word(event);
+                    let name = event["description"].as_str().or(event["subagent_type"].as_str()).unwrap_or_default();
+                    match state.tasks.iter_mut().find(|t| (!tool_use_id.is_empty() && t["tool_use_id"] == tool_use_id) || t["id"] == id) {
+                    Some(task) => {
+                        task["id"] = json!(id);
+                        if !name.is_empty() {
+                            task["name"] = json!(name);
+                        }
+                        task["kind"] = json!(kind);
+                    }
+                    None => state.tasks.push(json!({"id": id, "kind": kind, "name": name, "state": "running", "started": at, "ended": null, "summary": null, "tool_use_id": tool_use_id})),
                 }
-                // Each turn's init says the effort level its next message is sent with, and how fast mode stands.
-                if let Some(effort) = event["effort"].as_str().filter(|e| !e.is_empty()) {
-                    state.effort = effort.to_string();
                 }
-                fast_reported(state, event);
-                // The names the agent opens with. Some sessions never publish commands_changed, so this is the only
-                // list they get.
-                let named: Vec<Value> = event["slash_commands"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|c| c.as_str())
-                    .map(|name| json!({"name": name, "description": ""}))
-                    .collect();
-                if !named.is_empty() {
-                    state.commands = named;
+                "task_progress" => {
+                    let id = event["task_id"].as_str().unwrap_or_default();
+                    if let Some(task) = state.tasks.iter_mut().find(|t| t["id"] == id) {
+                        task["progress"] = event["description"].clone();
+                        task["last_tool"] = event["last_tool_name"].clone();
+                    }
                 }
+                "task_updated" => {
+                    let id = event["task_id"].as_str().unwrap_or_default();
+                    if let Some(status) = event["patch"]["status"].as_str()
+                        && let Some(task) = state.tasks.iter_mut().find(|t| t["id"] == id)
+                    {
+                        task_ended(task, status, &at);
+                    }
+                }
+                "task_notification" => {
+                    let id = event["task_id"].as_str().unwrap_or_default();
+                    if let Some(task) = state.tasks.iter_mut().find(|t| t["id"] == id) {
+                        task_ended(task, event["status"].as_str().unwrap_or("completed"), &at);
+                        if let Some(summary) = event["summary"].as_str().filter(|s| !s.trim().is_empty()) {
+                            task["summary"] = json!(summary);
+                        }
+                    }
+                }
+                "background_tasks_changed" => {
+                    let listed = event["tasks"].as_array().cloned().unwrap_or_default();
+                    // A task still known by its call alone is not named yet: the snapshot cannot say it is over.
+                    let named = |t: &Value| t["id"] != t["tool_use_id"];
+                    for task in state.tasks.iter_mut().filter(|t| t["state"] == "running" && named(t)) {
+                        if !listed.iter().any(|l| l["task_id"] == task["id"]) {
+                            task_ended(task, "completed", &at);
+                        }
+                    }
+                    for l in listed {
+                        let id = l["task_id"].as_str().unwrap_or_default();
+                        if id.is_empty() || state.tasks.iter().any(|t| t["id"] == id) {
+                            continue;
+                        }
+                        let kind = task_kind_word(&l);
+                        let name = l["description"].as_str().or(l["subagent_type"].as_str()).unwrap_or_default();
+                        // The call that started it is there unnamed: this is its id.
+                        match state.tasks.iter_mut().find(|t| t["state"] == "running" && !named(t) && t["kind"] == kind && (name.is_empty() || t["name"] == name)) {
+                        Some(task) => task["id"] = json!(id),
+                        None => state.tasks.push(json!({"id": id, "kind": kind, "name": name, "state": "running", "started": at, "ended": null, "summary": null, "tool_use_id": ""})),
+                    }
+                    }
+                }
+                _ => {}
             }
-            "commands_changed" => {
-                let sent = event["commands"].as_array().cloned().unwrap_or_default();
-                if !sent.is_empty() {
-                    state.commands = sent;
-                }
-            }
-            _ => {}
-        },
+        }
         "rate_limit_event" => {
             state.rate_limit = event["rate_limit_info"].clone();
             state.rate_limit_at = now_ms();
@@ -654,7 +733,7 @@ fn take(state: &mut State, event: &Value) -> Taken {
             let request_id = event["response"]["request_id"].as_str().unwrap_or_default();
             let ok = event["response"]["subtype"] == "success";
             match state.asked.remove(request_id) {
-                Some(Asked::Catalog) if ok => state.models = catalog_of(&event["response"]["response"]),
+                Some(Asked::Catalog) if ok => state.models = agent::catalog(&state.agent, &event["response"]["response"]).iter().map(Offer::json).collect(),
                 // What it reported of fast mode was about the model and the setting before: the next report says again.
                 Some(Asked::Set(setting, value)) if ok => match setting {
                     Setting::Effort => state.effort = value.as_str().unwrap_or_default().to_string(),
@@ -694,9 +773,12 @@ fn take(state: &mut State, event: &Value) -> Taken {
                     }
                     "tool_use" => {
                         let name = block["name"].as_str().unwrap_or_default();
-                        let tool = json!({"name": name, "summary": arg_line(&block["input"]), "ok": null});
-                        if let Some(id) = block["id"].as_str() {
+                        let summary = arg_line(&block["input"]);
+                        let id = block["id"].as_str().unwrap_or_default();
+                        let tool = json!({"id": id, "name": name, "summary": summary, "ok": null});
+                        if !id.is_empty() {
                             state.calls.insert(id.to_string(), state.messages.len());
+                            task_of_call(state, id, name, &block["input"], &summary, &at);
                         }
                         state.messages.push(json!({"role": "assistant", "at": at, "text": "", "tool": tool}));
                     }
@@ -729,6 +811,7 @@ fn take(state: &mut State, event: &Value) -> Taken {
                             {
                                 m["tool"]["ok"] = json!(ok);
                             }
+                            task_result(state, id, ok, block, &event["tool_use_result"], &at);
                         }
                     }
                     _ => {}
@@ -752,6 +835,62 @@ fn take(state: &mut State, event: &Value) -> Taken {
         _ => {}
     }
     taken
+}
+
+/// A task's kind as the views word it, from a stream event's `task_type`.
+fn task_kind_word(event: &Value) -> &'static str {
+    match event["task_type"].as_str().unwrap_or_default() {
+        "local_bash" => "background",
+        "workflow" => "workflow",
+        _ => "subagent",
+    }
+}
+
+/// A task over, as its status says: completed is done, anything else failed.
+fn task_ended(task: &mut Value, status: &str, at: &str) {
+    if task["state"] == "running" {
+        task["state"] = json!(if status == "completed" { TaskState::Done.word() } else { TaskState::Failed.word() });
+        task["ended"] = json!(at);
+    }
+}
+
+/// Starts the task a call begins, when its agent's table names the tool.
+fn task_of_call(state: &mut State, id: &str, name: &str, input: &Value, summary: &str, at: &str) {
+    let Some(table) = agent::get(&state.agent).and_then(|a| a.tasks) else { return };
+    let background = input["run_in_background"] == true;
+    let Some((kind, title)) = call_task(&table, name, input["description"].as_str(), input["subagent_type"].as_str(), background, summary) else { return };
+    state
+        .tasks
+        .push(json!({"id": id, "kind": kind.word(), "name": title, "state": "running", "started": at, "ended": null, "summary": null, "tool_use_id": id}));
+}
+
+/// How a call's result moves its task: a subagent or job launched gets its id and stays running, anything else is over.
+fn task_result(state: &mut State, id: &str, ok: bool, block: &Value, result: &Value, at: &str) {
+    let Some(task) = state.tasks.iter_mut().find(|t| t["tool_use_id"] == id) else { return };
+    let head: String = match &block["content"] {
+        Value::String(s) => s.chars().take(200).collect(),
+        Value::Array(blocks) => blocks.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join(" ").chars().take(200).collect(),
+        _ => String::new(),
+    };
+    let launched = match task["kind"].as_str() {
+        Some("background") => result["backgroundTaskId"].as_str().map(str::to_string).or_else(|| background_id(&head)),
+        _ => result["agentId"].as_str().filter(|_| result["isAsync"] == true).map(str::to_string),
+    };
+    match launched {
+        Some(launched) => task["id"] = json!(launched),
+        None => task_ended(task, if ok { "completed" } else { "failed" }, at),
+    }
+}
+
+/// What a subagent's own line says of the task it works for: its last call.
+fn task_progress(state: &mut State, parent: &str, event: &Value) {
+    let Some(task) = state.tasks.iter_mut().find(|t| t["tool_use_id"] == parent) else { return };
+    for block in event["message"]["content"].as_array().into_iter().flatten() {
+        if block["type"] == "tool_use" {
+            task["last_tool"] = block["name"].clone();
+            task["progress"] = json!(arg_line(&block["input"]));
+        }
+    }
 }
 
 /// Takes the ask `id` out of the pending ones and words the control response that answers it; an id that is not
@@ -814,15 +953,6 @@ pub fn asking(id: &str) -> Option<String> {
     (owners.len() == 1).then(|| owners[0].clone())
 }
 
-/// The permission modes a one-key cycle offers; the rest are set on purpose or not at all.
-pub const CYCLE: [&str; 3] = ["default", "acceptEdits", "plan"];
-
-/// The mode after this one, in the cycle.
-pub fn next_mode(now: &str) -> &'static str {
-    let at = CYCLE.iter().position(|m| *m == now).unwrap_or(0);
-    CYCLE[(at + 1) % CYCLE.len()]
-}
-
 /// A control request down the same pipe the words go: the agent answers it without asking the model.
 pub fn control(key: &str, request: Value) -> Result<(), String> {
     let session = live().get(key).cloned().ok_or("no such session")?;
@@ -831,6 +961,12 @@ pub fn control(key: &str, request: Value) -> Result<(), String> {
         let mut state = session.state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(mode) = request["mode"].as_str() {
             state.mode = mode.to_string();
+        }
+        if let Some(id) = request["task_id"].as_str() {
+            let at = chrono::Utc::now().to_rfc3339();
+            for task in state.tasks.iter_mut().filter(|t| t["id"] == id) {
+                task_ended(task, "killed", &at);
+            }
         }
         drop(state);
         moved();
@@ -844,6 +980,9 @@ pub fn control(key: &str, request: Value) -> Result<(), String> {
         let mut state = session.state.lock().unwrap_or_else(|e| e.into_inner());
         if request["subtype"] == "interrupt" {
             return Err("it is not running: there is no turn to stop".into());
+        }
+        if request["subtype"] == "stop_task" {
+            return Err("it is not running: there is no task to stop".into());
         }
         let found = agent::get(&state.agent).ok_or("an agent cockpit does not know")?;
         if let Some(mode) = request["mode"].as_str() {
@@ -957,26 +1096,6 @@ fn fast_reported(state: &mut State, event: &Value) {
     }
 }
 
-/// The models a `list_models` answer offers, as the views send them: `{id, label, resolved?, efforts, fast}`, the ones it
-/// shows but does not let anyone pick left out.
-fn catalog_of(response: &Value) -> Vec<Value> {
-    response["models"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|m| m["disabled"] != true)
-        .filter_map(|m| {
-            let id = m["value"].as_str().filter(|v| !v.is_empty())?;
-            let mut out = json!({"id": id, "label": m["displayName"].as_str().filter(|l| !l.is_empty()).unwrap_or(id), "fast": m["supportsFastMode"] == true});
-            out["efforts"] = if m["supportsEffort"] == true { m["supportedEffortLevels"].clone() } else { json!([]) };
-            if let Some(resolved) = m["resolvedModel"].as_str() {
-                out["resolved"] = json!(resolved);
-            }
-            Some(out)
-        })
-        .collect()
-}
-
 /// How long a stop sent to a session refuses another while its result has not come.
 const INTERRUPT_HOLDS_MS: u64 = 5_000;
 
@@ -1003,9 +1122,23 @@ pub fn interrupt(key: &str) -> Result<(), String> {
     }
 }
 
+/// Stops one task of session `key` (a subagent, a background job) through its stream: the agent ends it and reports
+/// it killed.
+pub fn stop_task(key: &str, task_id: &str) -> Result<String, String> {
+    if task_id.is_empty() {
+        return Err("which task? pass {task}".into());
+    }
+    control(key, json!({"subtype": "stop_task", "task_id": task_id}))?;
+    note(key, &format!("asked it to stop task {task_id}"));
+    Ok("asked it to stop the task".into())
+}
+
 /// The person's words, as the protocol takes them; a session whose agent is not running (paused by a restart, ended
 /// on its own, or just exited) is picked up first.
 pub fn send(key: &str, text: &str) -> Result<(), String> {
+    if let Some(done) = slash(key, text) {
+        return done;
+    }
     let session = live().get(key).cloned().ok_or("no such session")?;
     let lock = launching(key);
     let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -1079,6 +1212,42 @@ pub fn deliver_to(handle: &str, text: &str) -> Option<Result<(), String>> {
         Some(why) => Err(why.trim_start_matches("deliver: ").to_string()),
         None => Ok(()),
     }))
+}
+
+/// A slash command sent to a driven session: a setting cockpit applies itself (`/model opus`), a command only a
+/// terminal can show (refused, with the way out), one the agent lists (None: it goes as words), or none it knows.
+fn slash(key: &str, text: &str) -> Option<Result<(), String>> {
+    let line = text.trim();
+    let rest = line.strip_prefix('/')?;
+    if rest.is_empty() || rest.starts_with(char::is_whitespace) || line.contains('\n') {
+        return None;
+    }
+    let (name, arg) = rest.split_once(char::is_whitespace).map(|(n, a)| (n, a.trim())).unwrap_or((rest, ""));
+    let session = live().get(key).cloned()?;
+    let (agent_id, commands) = {
+        let state = session.state.lock().unwrap_or_else(|e| e.into_inner());
+        (state.agent.clone(), state.commands.clone())
+    };
+    let agent_name = agent::get(&agent_id).map(|a| a.name).unwrap_or_else(|| "The agent".into());
+    if let Some(setting) = agent::slash_setting(&agent_id, name) {
+        let value = match setting {
+            Setting::Fast => match arg {
+                "on" | "true" | "1" => json!(true),
+                "off" | "false" | "0" => json!(false),
+                _ => return Some(Err(format!("/{name} on or off: pick it from the chip, or say which"))),
+            },
+            _ if arg.is_empty() => return Some(Err(format!("/{name} alone opens a picker only a terminal shows: pick it from the chip, or say which"))),
+            _ => json!(arg),
+        };
+        return Some(pick(key, setting, &value).map(|_| ()));
+    }
+    if agent::slash_needs_terminal(&agent_id, name) {
+        return Some(Err(format!("/{name} opens a dialog only {agent_name}'s terminal shows: hand the session over to a terminal first")));
+    }
+    if commands.iter().any(|c| c["name"].as_str().is_some_and(|n| n == name || n.rsplit(':').next() == Some(name))) {
+        return None;
+    }
+    Some(Err(format!("this session has no /{name}")))
 }
 
 /// A session key: an agent's id, a colon, then its start (`claude:1794…`); a herdr pane id (`w9:p1`) is not one.
@@ -1278,21 +1447,16 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     }
 }
 
-/// The modes in which tools run without asking first: each is set only once the person confirms it.
-pub const UNASKED: [&str; 2] = ["bypassPermissions", "auto"];
-
-/// A mode that runs tools without asking is set on purpose, by a person: an action that would set it says it was
-/// confirmed, and comes from no agent's process.
-fn confirmed(mode: &str, arg: &Value) -> Result<(), String> {
-    // Accepting edits unasked is the person's to turn on too, though it needs no confirm.
-    if mode == "acceptEdits" {
-        return crate::gui::by_a_person(&format!("{mode} is set by a person, not by an agent's tools"));
-    }
-    if !UNASKED.contains(&mode) {
-        return Ok(());
-    }
-    if arg["confirm"] != true {
+/// A mode that runs tools without asking (`modes::unasked`) is set on purpose, by a person: an action that would set
+/// it says it was confirmed, and comes from no agent's process. One that only asks less (`loud`) is the person's too,
+/// and one the table does not know is taken for one that runs tools unasked.
+fn confirmed(agent: &str, mode: &str, arg: &Value) -> Result<(), String> {
+    let known = modes::of(agent, mode);
+    if known.is_none_or(|m| m.unasked) && arg["confirm"] != true {
         return Err(format!("{mode} runs tools without asking: it is set only once it is confirmed, pass {{confirm: true}}"));
+    }
+    if known.is_some_and(|m| !m.loud) {
+        return Ok(());
     }
     crate::gui::by_a_person(&format!("{mode} is set by a person, not by an agent's tools"))
 }
@@ -1330,7 +1494,8 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
             if cwd.is_empty() {
                 return Some(Err("start where? pass {cwd}".into()));
             }
-            if let Err(why) = confirmed(mode, &arg) {
+            let words = agent::get(agent).map(|a| modes::words_of(&a).to_string()).unwrap_or_else(|| agent.to_string());
+            if let Err(why) = confirmed(&words, mode, &arg) {
                 return Some(Err(why));
             }
             if arg["fast"] == true
@@ -1350,11 +1515,19 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
         }
         "stop" => end(&key, arg["confirm"] == true).map(|()| "the session is over".into()),
         "mode" => {
-            let want = arg["mode"].as_str().map(str::to_string).unwrap_or_else(|| {
-                let now = summary(&key).map(|s| s["mode"].as_str().unwrap_or("default").to_string()).unwrap_or_default();
-                next_mode(&now).to_string()
-            });
-            if let Err(why) = confirmed(&want, &arg) {
+            let now = summary(&key);
+            // A session's key starts with its agent's id: the modes are known of one that is gone too.
+            let agent = now.as_ref().and_then(|s| s["agent"].as_str()).or_else(|| key.split(':').next()).unwrap_or_default().to_string();
+            let agent = agent::get(&agent).map(|a| modes::words_of(&a).to_string()).unwrap_or(agent);
+            let want = match arg["mode"].as_str() {
+                Some(mode) => mode.to_string(),
+                // ⇧⇥: the next mode of its agent's cycle.
+                None => match modes::next(&agent, now.as_ref().and_then(|s| s["mode"].as_str()).unwrap_or("default")) {
+                    Some(next) => next.to_string(),
+                    None => return Some(Err("no such session, or its agent has no mode cycle".into())),
+                },
+            };
+            if let Err(why) = confirmed(&agent, &want, &arg) {
                 return Some(Err(why));
             }
             control(&key, json!({"subtype": "set_permission_mode", "mode": want.clone()})).map(|()| want)
@@ -1477,8 +1650,9 @@ pub fn restore() {
             continue;
         }
         let text = |k: &str| e[k].as_str().unwrap_or_default().to_string();
-        // A mode that runs tools or edits unasked is set by a person each time: a restart does not carry it over.
-        let mode = e["mode"].as_str().filter(|m| !UNASKED.contains(m) && *m != "acceptEdits").unwrap_or("default").to_string();
+        // A mode that asks less (`loud`: tools or edits unasked) is set by a person each time: a restart does not carry it over.
+        let words = agent.as_ref().map_or_else(|| e["agent"].as_str().unwrap_or_default().to_string(), |a| modes::words_of(a).to_string());
+        let mode = e["mode"].as_str().filter(|m| modes::of(&words, m).is_none_or(|known| !known.loud)).unwrap_or("default").to_string();
         let mut state = State {
             session_id: id.to_string(),
             agent: text("agent"),
@@ -1537,6 +1711,7 @@ fn read_history(state: &mut State, kind: Transcripts) {
     let Some(path) = transcripts::find(kind, &state.session_id, &state.cwd) else { return };
     if let Some(t) = transcripts::read_detail(kind, &path, Detail::Tools) {
         state.messages = t.messages.iter().map(crate::chat::message).collect();
+        state.tasks = t.tasks.iter().map(crate::chat::task_json_plain).collect();
     }
     state.since = modified_ms(&path);
     if state.started == 0 {
@@ -1974,6 +2149,24 @@ mod tests {
     }
 
     #[test]
+    fn a_slash_command_sent_to_a_driven_session_is_a_setting_a_refusal_or_words() {
+        let key = "claude:slash-test-0";
+        let state = State { session_id: "0c8b2f4e-slash".into(), agent: "claude".into(), cwd: "/r/api".into(), model: "sonnet".into(), ..Default::default() };
+        let session = Arc::new(Session { state: Arc::new(Mutex::new(state)), stdin: Arc::new(Mutex::new(None)), child: Mutex::new(None), demo: true });
+        live().insert(key.into(), Arc::clone(&session));
+        let read = |f: &dyn Fn(&State) -> Value| f(&session.state.lock().unwrap_or_else(|e| e.into_inner()));
+        assert!(send(key, "/model opus").is_ok(), "a setting cockpit applies itself");
+        assert_ne!(read(&|s| json!(s.model)), json!("sonnet"), "the model moved");
+        assert!(send(key, "/model").unwrap_err().contains("pick it from the chip"), "its picker is a terminal's");
+        assert!(send(key, "/resume").unwrap_err().contains("hand the session over to a terminal"));
+        assert!(send(key, "/nope").unwrap_err().contains("no /nope"));
+        session.state.lock().unwrap_or_else(|e| e.into_inner()).commands = vec![json!({"name": "review", "description": "Review it"})];
+        assert!(send(key, "/review the branch").is_ok(), "a command the agent lists goes as words");
+        assert_eq!(read(&|s| s.messages.last().cloned().unwrap_or_default())["text"], "/review the branch");
+        live().remove(key);
+    }
+
+    #[test]
     fn a_session_with_no_commands_changed_still_knows_the_slash_commands() {
         let state = fold(&[json!({"type": "system", "subtype": "init", "slash_commands": ["review", "ship"]})]);
         assert_eq!(
@@ -2007,6 +2200,115 @@ mod tests {
         assert_eq!(state.rate_limit["rateLimitType"], "five_hour");
         assert!(state.rate_limit_at > 0, "stamped when it came");
         assert!(state.ended.is_none());
+    }
+
+    #[test]
+    fn the_tasks_a_turn_starts_are_folded_from_the_stream_and_a_subagent_s_lines_stay_out_of_the_conversation() {
+        let mut state = State { agent: "claude".into(), ..State::default() };
+        let events = [
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "List files in repo", "subagent_type": "Explore", "prompt": "List them"}}]}, "parent_tool_use_id": null}),
+            json!({"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "a1f2e3d4", "run_id": "r1", "task_type": "local_agent", "subagent_type": "Explore", "description": "List files in repo"}]}),
+            json!({"type": "system", "subtype": "task_started", "task_id": "a1f2e3d4", "run_id": "r1", "tool_use_id": "toolu_agent", "description": "List files in repo", "subagent_type": "Explore", "is_backgrounded": true, "task_type": "local_agent"}),
+            json!({"type": "user", "message": {"content": [{"tool_use_id": "toolu_agent", "type": "tool_result", "content": [{"type": "text", "text": "Async agent launched successfully."}]}]}, "parent_tool_use_id": null, "tool_use_result": {"isAsync": true, "status": "async_launched", "agentId": "a1f2e3d4"}}),
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_bash", "name": "Bash", "input": {"command": "sleep 3; echo done", "description": "Sleep then echo", "run_in_background": true}}]}, "parent_tool_use_id": null}),
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_sub", "name": "Bash", "input": {"command": "ls -la"}}]}, "parent_tool_use_id": "toolu_agent", "agent_id": "a1f2e3d4"}),
+            json!({"type": "user", "message": {"content": [{"tool_use_id": "toolu_sub", "type": "tool_result", "content": "total 0"}]}, "parent_tool_use_id": "toolu_agent", "agent_id": "a1f2e3d4"}),
+            json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "The directory is empty."}]}, "parent_tool_use_id": "toolu_agent", "agent_id": "a1f2e3d4"}),
+            json!({"type": "system", "subtype": "task_progress", "task_id": "a1f2e3d4", "run_id": "r1", "tool_use_id": "toolu_agent", "description": "Running ls", "usage": {"tool_uses": 1}, "last_tool_name": "Bash"}),
+            json!({"type": "system", "subtype": "task_started", "task_id": "b7k2m9xq1", "run_id": "r2", "tool_use_id": "toolu_bash", "description": "Sleep then echo", "is_backgrounded": true, "task_type": "local_bash"}),
+            json!({"type": "user", "message": {"content": [{"tool_use_id": "toolu_bash", "type": "tool_result", "content": "Command running in background with ID: b7k2m9xq1.", "is_error": false}]}, "parent_tool_use_id": null, "tool_use_result": {"backgroundTaskId": "b7k2m9xq1"}}),
+        ];
+        for e in &events {
+            take(&mut state, e);
+        }
+        let shown = |s: &State| {
+            s.tasks
+                .iter()
+                .map(|t| {
+                    (
+                        t["id"].as_str().unwrap_or("").to_string(),
+                        t["kind"].as_str().unwrap_or("").to_string(),
+                        t["name"].as_str().unwrap_or("").to_string(),
+                        t["state"].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shown(&state),
+            [
+                ("a1f2e3d4".to_string(), "subagent".into(), "List files in repo".into(), "running".into()),
+                ("b7k2m9xq1".to_string(), "background".into(), "Sleep then echo".into(), "running".into())
+            ],
+            "a call starts its task, task_started and the result name it"
+        );
+        assert_eq!(state.tasks[0]["tool_use_id"], "toolu_agent");
+        assert_eq!((state.tasks[0]["progress"].as_str(), state.tasks[0]["last_tool"].as_str()), (Some("Running ls"), Some("Bash")));
+        assert_eq!(
+            state.messages.iter().map(|m| m["tool"]["name"].as_str().unwrap_or(m["text"].as_str().unwrap_or(""))).collect::<Vec<_>>(),
+            ["Agent", "Bash"],
+            "the subagent's calls and words never enter the parent's conversation"
+        );
+        assert_eq!(state.messages[0]["tool"]["id"], "toolu_agent");
+        take(
+            &mut state,
+            &json!({"type": "system", "subtype": "task_updated", "task_id": "a1f2e3d4", "run_id": "r1", "patch": {"status": "completed", "end_time": 1795603567075u64}}),
+        );
+        take(
+            &mut state,
+            &json!({"type": "system", "subtype": "task_notification", "task_id": "a1f2e3d4", "run_id": "r1", "tool_use_id": "toolu_agent", "status": "completed", "summary": "The directory is empty."}),
+        );
+        assert_eq!((state.tasks[0]["state"].as_str(), state.tasks[0]["summary"].as_str()), (Some("done"), Some("The directory is empty.")));
+        assert!(state.tasks[0]["ended"].is_string());
+        take(&mut state, &json!({"type": "system", "subtype": "background_tasks_changed", "tasks": []}));
+        assert_eq!(state.tasks[1]["state"], "done", "a snapshot without it ends the job");
+        take(&mut state, &json!({"type": "system", "subtype": "task_notification", "task_id": "b7k2m9xq1", "status": "failed", "summary": "exit code 1"}));
+        assert_eq!(state.tasks[1]["state"], "done", "over is over: a later word does not move it");
+        assert_eq!(state.json()["tasks"].as_array().map(Vec::len), Some(2), "the view carries them");
+
+        // A snapshot that names a task nobody announced, and a killed one.
+        let mut other = State { agent: "claude".into(), ..State::default() };
+        take(
+            &mut other,
+            &json!({"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "z9", "task_type": "local_bash", "description": "Watch the logs"}]}),
+        );
+        take(&mut other, &json!({"type": "system", "subtype": "task_updated", "task_id": "z9", "patch": {"status": "killed"}}));
+        assert_eq!(shown(&other), [("z9".to_string(), "background".into(), "Watch the logs".into(), "failed".into())]);
+        // A spawn whose result came back whole, and a job not sent to the background, start nothing that outlives the call.
+        let mut sync = State { agent: "claude".into(), ..State::default() };
+        take(
+            &mut sync,
+            &json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Agent", "input": {"description": "Check it", "prompt": "x"}}, {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "ls"}}]}}),
+        );
+        take(
+            &mut sync,
+            &json!({"type": "user", "message": {"content": [{"tool_use_id": "t1", "type": "tool_result", "content": "Checked.", "is_error": true}]}}),
+        );
+        assert_eq!(shown(&sync), [("t1".to_string(), "subagent".into(), "Check it".into(), "failed".into())]);
+        assert_eq!(stop_task("claude:nobody", "a1"), Err("no such session".into()));
+    }
+
+    #[test]
+    fn a_restored_session_brings_its_tasks_back_from_its_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("-r-api/c-9.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let lines = [
+            json!({"type": "user", "cwd": "/r/api", "sessionId": "c-9", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Find the slow test"}}),
+            json!({"type": "assistant", "timestamp": "2026-11-03T10:00:05Z", "message": {"id": "m1", "content": [{"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "Find the slow test", "prompt": "Find it"}}]}}),
+            json!({"type": "user", "timestamp": "2026-11-03T10:00:06Z", "message": {"role": "user", "content": [{"tool_use_id": "toolu_agent", "type": "tool_result", "content": "Async agent launched successfully."}]}, "toolUseResult": {"isAsync": true, "agentId": "a1f2e3d4"}}),
+        ];
+        std::fs::write(&path, lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")).unwrap();
+        let mut state = State { session_id: "c-9".into(), agent: "claude".into(), cwd: "/r/api".into(), ..State::default() };
+        let t = transcripts::read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        state.messages = t.messages.iter().map(crate::chat::message).collect();
+        state.tasks = t.tasks.iter().map(crate::chat::task_json_plain).collect();
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(
+            (state.tasks[0]["id"].as_str(), state.tasks[0]["kind"].as_str(), state.tasks[0]["state"].as_str(), state.tasks[0]["started"].as_str()),
+            (Some("a1f2e3d4"), Some("subagent"), Some("running"), Some("2026-11-03T10:00:05Z"))
+        );
+        assert_eq!(state.messages[1]["tool"]["id"], "toolu_agent");
     }
 
     #[test]
@@ -2046,10 +2348,10 @@ mod tests {
 
     #[test]
     fn the_mode_cycles_and_a_control_answer_is_believed() {
-        assert_eq!(next_mode("default"), "acceptEdits");
-        assert_eq!(next_mode("acceptEdits"), "plan");
-        assert_eq!(next_mode("plan"), "default");
-        assert_eq!(next_mode("bypassPermissions"), "acceptEdits", "a mode outside the cycle starts it again");
+        assert_eq!(modes::next("claude", "default"), Some("acceptEdits"));
+        assert_eq!(modes::next("claude", "acceptEdits"), Some("plan"));
+        assert_eq!(modes::next("claude", "plan"), Some("default"));
+        assert_eq!(modes::next("claude", "bypassPermissions"), Some("acceptEdits"), "a mode outside the cycle starts it again");
         let state = fold(&[json!({"type": "control_response", "response": {"subtype": "success", "request_id": "c1", "response": {"mode": "plan"}}})]);
         assert_eq!(state.mode, "plan");
     }
@@ -2157,7 +2459,7 @@ mod tests {
     #[test]
     fn full_access_is_set_only_once_confirmed() {
         for from in ["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto", ""] {
-            assert_ne!(next_mode(from), "bypassPermissions", "the one-key cycle never reaches it from {from:?}");
+            assert_ne!(modes::next("claude", from), Some("bypassPermissions"), "the one-key cycle never reaches it from {from:?}");
         }
         cockpit_core::peer::trusted();
         let refused = |action: &str, arg: Value| act(action, &[arg]).expect("a session action").unwrap_err();

@@ -111,7 +111,7 @@ export type Calendar = {
 }
 
 // The mail connector, mapped like the others; Gmail's mapping is the default for a server named after it.
-export type MailCapability = 'listInbox' | 'get' | 'archive' | 'markRead'
+export type MailCapability = 'listInbox' | 'listUnread' | 'peek' | 'get' | 'archive' | 'markRead'
 export type MailFields = Partial<
   Record<'messages' | 'id' | 'threadId' | 'from' | 'fromName' | 'subject' | 'snippet' | 'url' | 'date' | 'unread' | 'labels' | 'body' | 'html' | 'thread', string>
 >
@@ -148,6 +148,9 @@ export type Config = {
   // The links and documents under Claude Code's prompt: on by default, off in the Herdr app, whose status bar shows them
   // for every agent.
   footer?: { links?: boolean }
+  // Where a Cmd-click on a terminal's web link opens (the app reads it), and whether a session's ticket and PR also come
+  // from its branch; off, only what the conversation cites or creates counts.
+  links: { open?: 'browser' | 'side'; fromBranch: boolean }
   // Connectors that show panes refresh from.
   metabase: { server: string }
   datadog: { server: string }
@@ -289,14 +292,17 @@ const GOOGLE_CALENDAR: Calendar = {
   responses: {},
 }
 
-// Claude's Gmail connector: inbox threads but promotions and social, read and unread as a mail client lists them, one
-// message each, read whole with their HTML; archive and read drop labels.
+// Claude's Gmail connector: inbox threads but promotions and social, one message each, read whole with their HTML;
+// archive and read drop labels. The summary view carries no labels nor dates, so a thread is unread when the unread
+// search lists it, and the newest threads get their dates from a metadata peek.
 const GMAIL: Mail = {
   enabled: true,
   name: 'Gmail',
   server: 'claude.ai Gmail',
   tools: {
     listInbox: { tool: 'search_threads', args: { query: 'in:inbox -category:promotions -category:social', pageSize: 50, view: 'THREAD_VIEW_SUMMARY' } },
+    listUnread: { tool: 'search_threads', args: { query: 'in:inbox is:unread -category:promotions -category:social', pageSize: 50, view: 'THREAD_VIEW_SUMMARY' } },
+    peek: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'METADATA_ONLY' } },
     get: { tool: 'get_thread', args: { threadId: '{thread}', messageFormat: 'FULL_CONTENT' } },
     archive: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['INBOX'] } },
     markRead: { tool: 'unlabel_thread', args: { threadId: '{thread}', labelIds: ['UNREAD'] } },
@@ -323,6 +329,7 @@ const DEFAULTS: Config = {
   mail: { enabled: false, name: 'Mail', server: '', tools: {}, fields: {}, urlTemplate: '' },
   metabase: { server: 'metabase' },
   datadog: { server: 'claude.ai Datadog' },
+  links: { fromBranch: false },
   monitor: {
     env: 'production',
     releaseDays: 1,
@@ -416,6 +423,7 @@ export async function loadConfig($: $): Promise<Config> {
     mail: { ...DEFAULTS.mail, ...raw.mail },
     metabase: { ...DEFAULTS.metabase, ...raw.metabase },
     datadog: { ...DEFAULTS.datadog, ...raw.datadog },
+    links: { ...DEFAULTS.links, ...raw.links },
     monitor: {
       ...DEFAULTS.monitor,
       ...raw.monitor,

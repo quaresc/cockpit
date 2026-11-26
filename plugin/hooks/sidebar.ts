@@ -7,6 +7,8 @@ import { cacheDir, home, loadConfig, writeAtomic } from './config'
 import { reportFacts } from './facts'
 import { appDo, appSpaces, browsersBeside, findTerminal, herdr, hereSoon, inboxSpace, placeHere, placeOf } from './herdr'
 import type { Here } from './herdr'
+import type { Inbox, Pr } from '../types'
+
 import { isDeploying, isFailing, isOldReview, ticketKey } from './match'
 import { siteMark } from './sites'
 import { ICON } from './icons'
@@ -126,7 +128,7 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
   const branch = current ? await branchOf($, current) : undefined
   const data = await read($, inbox)
   const pr = current && branch ? data?.mine.find(p => p.repo === current.repo && p.branch === branch) : undefined
-  const { tickets, ci } = await loadConfig($)
+  const { tickets, ci, links } = await loadConfig($)
   const named = branch && (ticketKey(branch, data, tickets.keys) ?? branch.replace(/^[^/]+\//, '').slice(0, 14))
   const run = current && branch ? (await readCi($))?.runs.find(r => r.repo === current.repo && r.branch === branch) : undefined
   // The row sits under the agent's topic, two cells in.
@@ -145,13 +147,20 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
     cwd: current?.dir ?? null,
     repo: current?.repo ?? null,
     branch: branch ?? null,
-    ticket: (branch && ticketKey(branch, data, tickets.keys)) || null,
-    pr: pr ? { number: pr.number, url: pr.url, failing: isFailing(pr) } : focus ? { number: focus.number, url: focus.url, failing: false } : null,
+    ...branchFacts(links.fromBranch, branch, pr, focus ?? undefined, data, tickets.keys),
     ci: run ? { running: run.isRunning, done: run.done, total: run.total } : null,
     clash: other ? { label: otherLabel ?? other.space, space: other.space, tab: other.tab ?? null } : null,
   }).catch(() => undefined)
   if (here.frontend === 'app') return
   await herdr($, tokenArgs(['pane', 'report-metadata', here.pane, '--source', 'cockpit'], tokens))
+}
+
+// The ticket and PR the branch gives as facts for the hub, only when `links.fromBranch` asks for them; the PR a review
+// session was opened on is the session's own and stays.
+export function branchFacts(fromBranch: boolean, branch: string | undefined, pr: Pr | undefined, focus: { number: number; url: string } | undefined, data: Inbox | null, keys: string[]) {
+  const ticket = fromBranch && branch ? (ticketKey(branch, data, keys) ?? null) : null
+  const mine = fromBranch && pr ? { number: pr.number, url: pr.url, failing: isFailing(pr) } : null
+  return { ticket, pr: mine ?? (focus ? { number: focus.number, url: focus.url, failing: false } : null) }
 }
 
 export function clearRows($: $, pane: string) {

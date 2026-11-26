@@ -65,6 +65,7 @@ const USAGE: &str = "cockpit: the spaces' apps, the hub they share and the agent
     cockpit hub start                          starts the hub when none runs, prints {port, token, pid} for the Herdr app
     cockpit hub stop                           stops the hub; nothing starts it again until cockpit hub start
     cockpit hub shown <view>                   the args of every drawn copy of a Herdr app view, as JSON
+    cockpit hub view <name> [<args-json>]      a Herdr app view as the hub builds it now, as JSON (its time on stderr)
     cockpit hub act review send|walkthrough|stop_walkthrough <JSON args>
                                                a remote desk's review action, handed to this machine's hub
     cockpit app install|uninstall              the cockpit layout, mod and keys in the Herdr app (cockpit app for more)
@@ -143,6 +144,7 @@ fn main() {
         "hub" if rest == ["start"] => gui::hub_start(),
         "hub" if rest == ["stop"] => gui::hub_stop(),
         "hub" if rest.len() == 2 && rest[0] == "shown" => gui::hub_shown(&rest[1]),
+        "hub" if rest.first().is_some_and(|a| a == "view") => gui::hub_view(&rest[1..]),
         "hub" if rest.first().is_some_and(|a| a == "act") => act::hub_act(&rest[1..]),
         "app" => gui::main(rest),
         "hub" if rest == ["ping"] => std::process::exit(if ping(Duration::from_secs(2)) { 0 } else { 1 }),

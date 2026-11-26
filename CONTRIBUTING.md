@@ -81,6 +81,9 @@ sh scripts/check-skills.sh
 `plugin/skills/side-browser/SKILL.md` and `codex/skills/side-browser/SKILL.md` must stay in step: change both, and keep
 what only one agent should read between `<!-- agent: … -->` and `<!-- /agent -->` lines.
 
+`sh scripts/check-skills.sh` also checks that `plugin/hooks/sites.ts` lists the same site kinds as
+`herdr/tui/core/src/sites.rs`: add a site to both.
+
 To type-check the hooks, load the plugin once from this folder (`claude --plugin-dir plugin`), which lays Claude Code's
 types in `plugin/.claude-plugin/types/` (ignored by git), then run `npx -p typescript tsc -p plugin`.
 

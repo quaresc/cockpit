@@ -317,15 +317,25 @@ mod tests {
         let (said, picked) = asked(&updated(), &json!({}), answers.into_iter(), &mut out);
         let shown = String::from_utf8(out).unwrap();
         assert!(shown.starts_with("Cockpit 0.41.0 is installed") && !shown.contains("cockpit options set"), "{shown}");
-        assert_eq!(shown.matches("Turn it on? (y/n)").count(), 5);
+        assert_eq!(shown.matches("Turn it on? (y/n)").count(), 6);
         assert!(shown.contains("Suggest next prompts\n  After each turn") && shown.contains("Turn it on? (y/n) [n] "), "{shown}");
         let got: Vec<(&str, bool)> = picked.iter().map(|(s, on)| (s.key, *on)).collect();
         assert_eq!(
             got,
-            [("queue.drain", false), ("ci.tellAgents", true), ("chat.nextSteps", true), ("chat.projectPanels", true), ("dockBadge", true)],
+            [
+                ("links.fromBranch", false),
+                ("queue.drain", true),
+                ("ci.tellAgents", true),
+                ("chat.nextSteps", false),
+                ("chat.projectPanels", true),
+                ("dockBadge", true)
+            ],
             "an answer that is no y or n keeps the value, and so does the input ending"
         );
-        assert!(said.contains("Now: queue.drain off, ci.tellAgents on, chat.nextSteps on, chat.projectPanels on, dockBadge on."), "{said}");
+        assert!(
+            said.contains("Now: links.fromBranch off, queue.drain on, ci.tellAgents on, chat.nextSteps off, chat.projectPanels on, dockBadge on."),
+            "{said}"
+        );
         // The input ending keeps every value.
         let (_, kept) = asked(&updated(), &json!({"chat": {"nextSteps": true}}), std::iter::empty(), &mut Vec::new());
         assert!(kept.iter().all(|(s, on)| *on == (s.default == options::Def::On || s.key == "chat.nextSteps")));

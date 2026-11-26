@@ -40,6 +40,9 @@ const ALERT_GLYPH: &str = "\u{f421}";
 const UNKNOWN_GLYPH: &str = "\u{f420}";
 const BELL: &str = "\u{f0f3}";
 const BUG: &str = "\u{f188}";
+const PIN: &str = "\u{f08d}";
+/// The cells a pinned app's marker takes after its name: the glyph and a gap.
+const PIN_CELLS: usize = 2;
 
 impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
@@ -100,7 +103,7 @@ impl App {
 
     /// The name column's width: the longest app name, within bounds.
     fn name_w(&self) -> usize {
-        let longest = self.doc.as_ref().map(|d| d.apps.iter().map(|a| width(&a.name)).max().unwrap_or(0)).unwrap_or(0);
+        let longest = self.doc.as_ref().map(|d| d.apps.iter().map(|a| width(&a.name) + if a.pinned { PIN_CELLS } else { 0 }).max().unwrap_or(0)).unwrap_or(0);
         (longest + 1).clamp(NAME_MIN, NAME_MAX)
     }
 
@@ -203,12 +206,15 @@ impl App {
         let fixed = 2 + name_w + TAG;
         let monitors = if room >= fixed + MONITORS + 8 { MONITORS } else { 0 };
         let when_w = WHEN.min(room.saturating_sub(fixed + monitors));
-        let mut spans = vec![
-            Span::styled(format!("{glyph} "), fg(color)),
-            Span::styled(cell(&app.name, name_w), bold(FG)),
-            Span::styled(cell(&app.tag, TAG), fg(FG)),
-            Span::styled(cell(&self.when(app), when_w), dim()),
-        ];
+        let mut spans = vec![Span::styled(format!("{glyph} "), fg(color))];
+        if app.pinned {
+            // The marker follows the name inside its column, so the other columns stay where they are.
+            spans.push(Span::styled(cell(&app.name, name_w.saturating_sub(PIN_CELLS)), bold(FG)));
+            spans.push(Span::styled(format!("{PIN} "), fg(ORANGE)));
+        } else {
+            spans.push(Span::styled(cell(&app.name, name_w), bold(FG)));
+        }
+        spans.extend([Span::styled(cell(&app.tag, TAG), fg(FG)), Span::styled(cell(&self.when(app), when_w), dim())]);
         if monitors > 0 {
             let (text, style) = match (&app.monitors, app.counts()) {
                 (Some(m), Some(counts)) => (
@@ -328,7 +334,12 @@ impl App {
             return lines;
         }
         if !app.watched {
-            lines.push(Line::styled("not watched: no release in the last 24 h; pin it to follow it anyway", dim()));
+            let note = if app.pinned {
+                "pinned: its deploys and Datadog numbers load with the next refresh, within a couple of minutes"
+            } else {
+                "not watched: no release in the last 24 h; pin it to follow it anyway"
+            };
+            lines.push(Line::styled(note, dim()));
             return lines;
         }
         if let Some(m) = &app.monitors {

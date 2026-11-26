@@ -1,6 +1,7 @@
 // The side panel's activity bar: one icon per panel (Documents, Review, Runbook, Files, Changes, the Chromium browser
-// when it is the side browser, and in the reading layout the file it opened there and the terminal-browser beside the agent), the shown one marked by an accent edge, each with the badge its view publishes as shared
-// `badge.<name>` = {count, tone}; a click switches the panel, the last button closes it.
+// when it is the side browser, and in the reading layout the terminal-browser beside the agent), the shown one marked
+// by an accent edge, each with the badge its view publishes as shared `badge.<name>` = {count, tone}; a click switches
+// the panel, the last button closes it.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
@@ -8,7 +9,6 @@ import { run, layout, shared, setShared, panes, focused } from "herdr";
 import { tokens, RADIUS, Icon, CornerCount } from "./ui.js";
 import { findNode, PANELS, closePanel } from "./status.js";
 import { panelChild } from "./commands.js";
-import { CODE_PANEL } from "./code.js";
 import { BROWSER, browserIn } from "./browser.js";
 import { WEB } from "./web.js";
 
@@ -18,14 +18,12 @@ const ITEMS = [
   { name: "runbook", icon: "book", label: "Runbook", key: "⌃⌘3" },
   { name: "files", icon: "folder", label: "Files", key: "⌃⌘4" },
   { name: "changes", icon: "git-commit", label: "Changes", key: "⌃⌘5" },
-  { name: "code", icon: "file-text", label: "The file opened last" },
   { name: BROWSER, icon: "globe", label: "The browser beside the agent" },
   { name: WEB, icon: "globe", label: "The browser" },
 ];
 
-/** Whether an item has something to show here: the file once one was opened, a browser while there is one. */
+/** Whether an item has something to show here: a browser while there is one. */
 function present(item, tree) {
-  if (item.name === "code") return Boolean(findNode(tree, "code") && shared(CODE_PANEL)?.file);
   if (item.name === BROWSER) return Boolean(findNode(tree, BROWSER) && browserIn(panes(), focused()?.tab));
   if (item.name === WEB) return Boolean(findNode(tree, WEB) && shared("cockpit.web.model")?.enabled);
   return true;

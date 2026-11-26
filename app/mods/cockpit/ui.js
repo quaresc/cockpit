@@ -332,7 +332,7 @@ export function Card({ id, title, description, action, children = [], footer, pa
   return el;
 }
 
-/** shadcn tabs: a muted track with the active trigger raised. items: [{ value, label, count, icon }]. */
+/** shadcn tabs: a muted track with the active trigger raised. items: [{ value, label, count, icon, muted, tooltip }], a muted one faded, its tooltip saying why. */
 export function Tabs(id, { items, value, onChange }) {
   const k = tokens();
   return h_flex()
@@ -360,6 +360,8 @@ export function Tabs(id, { items, value, onChange }) {
           .text_color(on ? k.foreground : k.mutedFg)
           .when(on, (e) => e.bg(k.background).shadow_sm())
           .when(!on, (e) => e.hover((s) => s.text_color(k.foreground)))
+          .when(Boolean(item.muted), (e) => e.opacity(0.5))
+          .when(Boolean(item.tooltip), (e) => e.tooltip(item.tooltip))
           .on_click((ev, cx) => onChange(item.value, cx))
           .when(Boolean(item.icon), (e) => e.child(Icon(item.icon, { size: 14 })))
           .child(item.label)

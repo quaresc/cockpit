@@ -1,12 +1,13 @@
 // The side panel's Changes: the uncommitted changes of the repositories the chat agent works in, the latest first, one
-// at a time, each file's diff under the list, and a commit of everything in the one shown.
+// at a time with its branch named, each file's diff under the list, and a commit of everything in the one shown.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, Input, InputState, v_virtual_list } from "gpui-base";
 import { exec, readTextFile } from "herdr";
 import { windowHidden } from "./front.js";
 import { tokens, TEXT, RADIUS, dragPaths } from "./ui.js";
-import { READ, where, whereKey, reposOf, statusOf } from "./projects.js";
+import { Pills } from "./pills.js";
+import { READ, where, whereKey, reposOf, statusOf, branchOf } from "./projects.js";
 
 /** The most diff lines drawn, and the characters kept of one. */
 const LINES = 1500;
@@ -68,6 +69,14 @@ export default class Changes {
     return this.repos.find((r) => r.path === this.picked)?.path ?? this.repos[0]?.path ?? null;
   }
 
+  /** What the header says of the repository shown: its name, and the branch checked out after a dot. */
+  title() {
+    const repo = this.repos.find((r) => r.path === this.repo) ?? (this.repo ? { path: this.repo } : null);
+    if (!repo) return "";
+    const name = repo.name ?? repo.path.split("/").pop();
+    return repo.branch ? `${name} · ${repo.branch}` : name;
+  }
+
   refresh(cx) {
     if (this.loading || this.busy) return;
     const w = where();
@@ -84,9 +93,10 @@ export default class Changes {
       try {
         const repos = await reposOf(w);
         if (whereKey(where()) !== key) return;
-        // How many files changed in each, for the switcher.
+        // How many files changed in each, for the switcher, and the branch checked out when the chat did not say.
         const counts = await Promise.all(repos.map((r) => statusOf(r.path).then((s) => s?.files.length ?? 0)));
-        this.repos = repos.map((r, i) => ({ ...r, count: counts[i] }));
+        const branches = await Promise.all(repos.map((r) => (r.branch ? r.branch : branchOf(r.path))));
+        this.repos = repos.map((r, i) => ({ ...r, count: counts[i], branch: branches[i] }));
         await this.read(cx);
       } catch (e) {
         this.note = String(e?.message ?? e);
@@ -200,34 +210,12 @@ export default class Changes {
     const ready = Boolean(this.input.value().trim() && this.repo && !this.busy);
     const colour = { A: k.success, M: k.blocked, D: k.destructive, U: k.destructive };
     const switcher = this.repos.length > 1
-      ? h_flex()
+      ? Pills("changes-repo", this.repos.map((r) => ({ value: r.path, label: r.name, count: r.count, tooltip: r.path })), this.repo, (path, cx) => this.show(path, cx))
           .flex_none()
           .px(10)
           .py(6)
-          .gap(4)
-          .flex_wrap()
           .border_b_1()
           .border_color(k.border)
-          .children(
-            this.repos.map((r) =>
-              h_flex()
-                .id(`changes-repo-${r.path}`)
-                .h(24)
-                .px(9)
-                .gap(5)
-                .items_center()
-                .rounded(12)
-                .cursor_pointer()
-                .text_size(TEXT.xs)
-                .text_color(r.path === this.repo ? k.foreground : k.mutedFg)
-                .when(r.path === this.repo, (e) => e.bg(k.selected))
-                .hover((s) => s.bg(k.accent))
-                .tooltip(r.path)
-                .on_click((_e, cx) => this.show(r.path, cx))
-                .child(div().child(r.name))
-                .when(r.count > 0, (e) => e.child(div().text_color(k.blocked).child(String(r.count)))),
-            ),
-          )
       : null;
     const fileRow = (f) => {
       const parts = f.path.split("/");
@@ -278,7 +266,7 @@ export default class Changes {
           .border_b_1()
           .border_color(k.border)
           .child(div().font_semibold().child("Changes"))
-          .child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(this.repo ? this.repo.split("/").pop() : ""))
+          .child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(this.title()))
           .child(div().text_size(TEXT.xs).text_color(k.success).child(`+${add}`))
           .child(div().text_size(TEXT.xs).text_color(k.destructive).child(`−${del}`)),
       )

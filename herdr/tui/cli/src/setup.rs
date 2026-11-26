@@ -686,10 +686,10 @@ mod tests {
 
     #[test]
     fn setup_asks_only_the_options_not_seen_and_enter_keeps_each_value() {
-        let answers = ["n", "", ""].map(String::from);
+        let answers = ["", "n", ""].map(String::from);
         let mut io = Io { lines: Box::new(answers.into_iter()) };
         let picked = asked_options(&mut io, &json!({"chat": {"nextSteps": true}}), &json!({"seen": ["ci.tellAgents"]}));
-        assert_eq!(picked, [("queue.drain", false), ("chat.nextSteps", true), ("chat.projectPanels", true), ("dockBadge", true)]);
+        assert_eq!(picked, [("links.fromBranch", false), ("queue.drain", false), ("chat.nextSteps", true), ("chat.projectPanels", true), ("dockBadge", true)]);
         let mut io = Io { lines: Box::new(std::iter::empty()) };
         let every: Vec<Value> = options::ALL.iter().map(|s| json!(s.key)).collect();
         assert!(asked_options(&mut io, &json!({}), &json!({"seen": every})).is_empty());

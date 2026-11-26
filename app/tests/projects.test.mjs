@@ -53,3 +53,15 @@ test("a status entry reads as one letter: conflicts, deletions, additions and ne
   const projects = await load("projects.js");
   assert.deepEqual(["UU", " D", "??", "A ", " M", "AA"].map(projects.statusLetter), ["U", "D", "A", "A", "M", "U"]);
 });
+
+test("the Changes header names the repository shown and the branch checked out there", async () => {
+  const changes = await load("changes.js");
+  const c = Object.create(changes.default.prototype);
+  c.repos = [{ path: "/w/api", name: "api", branch: "eng-412-quotas", count: 2 }, { path: "/w/web", name: "web", branch: null, count: 0 }];
+  c.picked = null;
+  assert.equal(c.title(), "api · eng-412-quotas");
+  c.picked = "/w/web";
+  assert.equal(c.title(), "web", "no branch known: the name alone");
+  c.repos = [];
+  assert.equal(c.title(), "");
+});

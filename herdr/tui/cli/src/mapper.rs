@@ -60,8 +60,10 @@ pub fn brief(section: &str) -> Option<&'static str> {
         "mail" => {
             "Map these capabilities, each `{\"tool\", \"args\"}` with the placeholders {message} (a message's id) and {thread} (its \
              thread's id, when the tool works on threads): listInbox (my unread or important inbox messages, newest first, about 30, e.g. \
-             a search for is:unread in:inbox), get (one message with its body), archive (moves {message} or its {thread} out of the inbox), \
-             markRead (marks {message} read). Fill `fields` with dotted paths (`a.b`, `a.0.b`, `a|b`; \"\" is the answer itself): messages \
+             a search for is:unread in:inbox), listUnread (the unread ones of the same listing, when the answers carry no unread flag), \
+             peek (one thread's metadata, {thread}: dates and labels, when the listing carries no dates), get (one message with its \
+             body), archive (moves {message} or its {thread} out of the inbox), markRead (marks {message} read). Fill `fields` with \
+             dotted paths (`a.b`, `a.0.b`, `a|b`; \"\" is the answer itself): messages \
              (the list in listInbox's answer), id, threadId, from (the sender's address or \"Name <address>\"), fromName, subject, snippet, \
              url (a link opening the message in the mail client's web page), date (ISO, RFC 2822 or epoch), unread (a flag, or a label list \
              holding UNREAD), and body in get's answer. When the answers carry no link, give `urlTemplate` with {id} and {threadId} \
@@ -118,7 +120,7 @@ async fn trial(connection: &Connection, section: &str, mapping: &Value) -> Resul
         }
         "mail" => {
             let mapping = cockpit_connectors::mail::mapping(mapping);
-            cockpit_connectors::mail::inbox(&Mapped { connection, section: &mapping }, &mapping).await.map(sample)
+            cockpit_connectors::mail::inbox(&Mapped { connection, section: &mapping }, &mapping, &Value::Null).await.map(|(messages, _)| sample(messages))
         }
         "code" => {
             let mapping = cockpit_connectors::code::mapping(mapping);

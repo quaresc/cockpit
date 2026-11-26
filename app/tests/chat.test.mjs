@@ -215,6 +215,65 @@ async function subjectFixture({ focusedOn = "t41", answers = {}, views = {} } = 
   return { mod, chat, cx, calls, acts, shared, focus, subscriptions, type: (t) => (typed = t), settled: () => Promise.all(work) };
 }
 
+const plain = (v) => JSON.parse(JSON.stringify(v));
+
+test("the tasks a turn started ride on the work row holding their call, and a folded running row counts them", async () => {
+  const { chat } = await fixture();
+  const messages = [
+    { role: "user", text: "Find the slow test", at: "2026-01-01T10:00:00Z" },
+    { role: "assistant", text: "", at: "2026-01-01T10:00:05Z", tool: { id: "toolu_agent", name: "Agent", summary: "Find the slow test", ok: true } },
+    { role: "assistant", text: "", at: "2026-01-01T10:00:06Z", tool: { id: "toolu_bash", name: "Bash", summary: "mix test", ok: true, about: "Run the tests" } },
+    { role: "assistant", text: "", at: "2026-01-01T10:00:07Z", tool: { id: "toolu_ls", name: "Bash", summary: "ls", ok: true } },
+  ];
+  const tasks = [
+    { id: "a1f2e3d4", kind: "subagent", name: "Find the slow test", state: "running", started: "2026-01-01T10:00:05Z", ended: null, tool_use_id: "toolu_agent", open: { terminal: "app:t41", subagent: "a1f2e3d4" } },
+    { id: "b7k2", kind: "background", name: "Run the tests", state: "done", started: "2026-01-01T10:00:06Z", ended: "2026-01-01T10:00:09Z", tool_use_id: "toolu_bash", open: null },
+  ];
+  const rows = chat.rowsOf(messages, { working: true, tasks });
+  const work = rows.find((r) => r.kind === "work");
+  assert.deepEqual(plain(work.calls.map((c) => c.task?.id ?? null)), ["a1f2e3d4", "b7k2", null], "each task on the call that started it, a plain call bare");
+  assert.deepEqual(plain(work.steps.map((st) => st.call?.task?.id ?? null)), ["a1f2e3d4", "b7k2", null], "the fold's steps carry them too");
+  assert.equal(work.tasks.length, 2);
+  assert.equal(work.running, 1);
+  assert.equal(chat.runningWord(work), "1 subagent running");
+  assert.equal(chat.runningWord({ running: 2, tasks: [{ state: "running", kind: "background" }, { state: "running", kind: "background" }] }), "2 background jobs running");
+  assert.equal(chat.runningWord({ running: 0 }), "");
+  const bare = chat.rowsOf(messages, { working: true });
+  assert.equal(bare.find((r) => r.kind === "work").tasks, undefined, "no tasks, nothing laid on");
+  assert.equal(bare.find((r) => r.kind === "work").calls[0].task, undefined);
+});
+
+test("opening a subagent subscribes to its conversation alone, and chat:back returns to the parent's", async () => {
+  const f = await subjectFixture({ focusedOn: "t41" });
+  f.chat.model.row = (k) => (k === "claude:1793611000000-0" ? { terminal: k, driven: true } : k === "t41" ? { terminal: "app:t41" } : null);
+  f.chat.watch("t41", f.cx);
+  const views = () => JSON.parse(JSON.stringify(f.calls.filter((c) => c[0] === "subscribe").at(-1)[1].views));
+  assert.deepEqual(views().map((v) => v.name ?? v), ["chat", "chat", "queue"]);
+  f.chat.openTask({ id: "a1f2e3d4", name: "Find the slow test", kind: "subagent", open: { terminal: "app:t41", subagent: "a1f2e3d4" } }, f.cx);
+  assert.deepEqual(plain(f.chat.subagent), { id: "a1f2e3d4", name: "Find the slow test", kind: "subagent" });
+  assert.deepEqual(views().map((v) => v.name ?? v), ["chat", "chat"], "no queue: a subagent takes no words");
+  assert.deepEqual(views().map((v) => v.args), [{ terminal: "t41", frontend: "app", subagent: "a1f2e3d4" }, { terminal: "t41", frontend: "app", subagent: "a1f2e3d4" }], "both picks ask for the subagent");
+  assert.equal(f.chat.value, null, "the parent's conversation is not drawn in its place");
+  f.chat.command("chat:back", f.cx);
+  assert.equal(f.chat.subagent, null);
+  assert.deepEqual(views().map((v) => v.name ?? v), ["chat", "chat", "queue"], "back on the parent, its queue followed again");
+  assert.deepEqual(views()[0].args, { terminal: "t41", frontend: "app" });
+  // A driven parent: its session goes unfollowed while its subagent is read, and comes back after.
+  f.chat.open("claude:1793611000000-0", f.cx);
+  f.chat.openTask({ id: "z9", name: "Check it", open: { terminal: "claude:1793611000000-0", subagent: "z9" } }, f.cx);
+  assert.deepEqual(views().map((v) => v.name ?? v), ["chat", "chat"]);
+  assert.equal(f.chat.watchedDriven, false, "its pages come from the chat view meanwhile");
+  f.chat.back(f.cx);
+  assert.deepEqual(views().map((v) => v.name ?? v), ["chat", "chat", "queue", "session"]);
+  f.chat.openTask({ id: "z9", name: "Check it", open: { terminal: "claude:1793611000000-0", subagent: "z9" } }, f.cx);
+  f.chat.watch("t41", f.cx);
+  assert.equal(f.chat.subagent, null, "another subject is its own conversation, never the last one's subagent");
+  // A task with nothing to open opens nothing.
+  const before = f.calls.length;
+  f.chat.openTask({ id: "", name: "x" }, f.cx);
+  assert.equal(f.calls.length, before);
+});
+
 test("a late transcript or connection status from the previous subject cannot replace the current conversation", async () => {
   const f = await subjectFixture();
   f.chat.watch("t41", f.cx);
@@ -225,9 +284,27 @@ test("a late transcript or connection status from the previous subject cannot re
   f.chat.hubState = "live";
   old.receive({ view: "chat", value: { messages: [{ text: "Other session" }] } }, f.cx);
   old.status("error: disconnected", f.cx);
-  assert.equal(f.chat.value, value);
+  assert.deepEqual(plain(f.chat.value), value);
   assert.equal(f.chat.hubState, "live");
   assert.equal(old.stopped, true);
+});
+
+test("switching back to a subject draws what it showed last, until the hub's first push replaces it whole", async () => {
+  const f = await subjectFixture();
+  f.chat.watch("t41", f.cx);
+  const first = { agent: { terminal: "app:t41" }, session: { cwd: "/r/api" }, messages: [{ text: "Hello" }], cursor: { from: 0, to: 1, total: 1, more: false } };
+  f.subscriptions[0].receive({ view: "chat", value: first }, f.cx);
+  f.chat.watch("t42", f.cx);
+  assert.equal(f.chat.value, null, "a subject never shown starts blank");
+  f.chat.watch("t41", f.cx);
+  assert.deepEqual(plain(f.chat.value), first, "back on t41, its last conversation is drawn at once");
+  assert.equal(f.chat.stale, true);
+  f.subscriptions[2].receive({ view: "chat", value: { agent: { terminal: "app:t41" }, session: { cwd: "/r/api", task: "Reading" } } }, f.cx);
+  assert.equal(f.chat.stale, false);
+  assert.deepEqual(plain(f.chat.value), { agent: { terminal: "app:t41" }, session: { cwd: "/r/api", task: "Reading" } }, "the first push stands alone: nothing stale is merged into it");
+  f.subscriptions[2].receive({ view: "chat", value: { messages: [{ text: "Hello" }, { text: "Again" }], cursor: { from: 0, to: 2, total: 2, more: false } } }, f.cx);
+  assert.equal(f.chat.value.messages.length, 2, "the messages come on their own and join the rest");
+  assert.equal(f.chat.value.session.task, "Reading");
 });
 
 test("a driven session is known by the agents view's row, not by the shape of its key", async () => {
@@ -247,8 +324,9 @@ test("the chat follows the agent chat:open named until another one comes in fron
   assert.equal(f.chat.wanted(), "claude:1793611000000-0");
   assert.equal(f.shared["cockpit.chat.subject"], "claude:1793611000000-0", "the runner and the review panel read it here");
   const views = f.calls.filter((c) => c[0] === "subscribe").at(-1)[1].views;
-  assert.deepEqual(JSON.parse(JSON.stringify(views)).map((v) => v.name ?? v), ["chat", "queue", "session"], "a driven subject has its session followed, by its key");
-  assert.equal(views[2].args.key, "claude:1793611000000-0");
+  assert.deepEqual(JSON.parse(JSON.stringify(views)).map((v) => v.name ?? v), ["chat", "chat", "queue", "session"], "a driven subject has its session followed, by its key");
+  assert.deepEqual(plain(views.map((v) => v.pick ?? null)), [["agent", "session", "question", "more", "next", "tasks"], ["messages", "cursor"], null, null], "the chat picked apart: what moves while a turn runs, and the messages");
+  assert.equal(views[3].args.key, "claude:1793611000000-0");
   // Once the focus had time to settle with the pin, another agent coming in front takes over.
   f.shared["cockpit.chat.pinned"].at -= 3_000;
   Object.assign(f.focus, { agent: "t42", terminal: "t42", tab: "tab-t42" });
@@ -668,4 +746,88 @@ test("no more than a window of rows is drawn, and it slides over the rest as the
   assert.equal(rows[0].key, all[1000 - f.mod.DRAW].key, "and down again");
   f.chat.toEnd(cx);
   assert.equal(f.chat.windowTop, null);
+});
+
+test("a / command typed for a terminal agent is mirrored into its box, run there with ⏎, and emptied with ⎋", async () => {
+  const f = await subjectFixture();
+  const timers = [];
+  const cx = { notify() {}, spawn: f.cx.spawn, timer: { after: (ms, fn) => (timers.push([ms, fn]), { cancel() {} }) } };
+  f.chat.watch("t41", cx);
+  f.chat.value = { agent: { terminal: "app:t41", status: "idle" }, session: { menu: { items: [{ label: "/model", hint: "Set the AI model" }, { label: "/mobile", hint: "Show QR code" }], selected: 1 } }, messages: [] };
+  f.chat.model.row = () => ({ terminal: "app:t41", status: "idle" });
+  f.type("/mo");
+  f.chat.mirrorSync(cx);
+  assert.equal(f.acts.length, 0, "a beat first: nothing typed on every key");
+  for (const [, fn] of timers.splice(0)) fn(cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["agents", "type", [{ terminal: "app:t41", text: "/mo", source: "chat:type" }]]);
+  assert.equal(f.chat.mirror?.text, "/mo");
+  const hints = f.chat.hints();
+  assert.equal(hints.kind, "mirror", "the hints are the terminal's own completion menu");
+  assert.deepEqual(plain(hints.items.map((h) => h.label)), ["/model", "/mobile"]);
+  assert.equal(hints.selected, 1, "the row the terminal's cursor is on");
+  assert.ok(f.mod.chatContext({ dialog: true }).includes("chat_down"), "the arrows are the chat's while it mirrors");
+  f.chat.pressed({ keystroke: "down", key: "down" }, cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["agents", "keys", [{ terminal: "app:t41", keys: ["down"], source: "chat:key" }]]);
+  f.chat.pressed({ keystroke: "enter", key: "enter" }, cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["agents", "keys", [{ terminal: "app:t41", keys: ["enter"], source: "chat:key" }]], "⏎ runs it in the terminal");
+  assert.equal(f.chat.input.value(), "", "and the box empties");
+  assert.equal(f.chat.mirror, null);
+  f.type("/mo");
+  f.chat.mirror = { text: "/mo" };
+  f.chat.pressed({ keystroke: "escape", key: "escape" }, cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["agents", "type", [{ terminal: "app:t41", text: "", source: "chat:type" }]], "⎋ empties the terminal's box too");
+  assert.equal(f.chat.input.value(), "");
+});
+
+test("a dialog in the terminal takes the keys and answers from its card; a driven session's / command goes through the queue", async () => {
+  const f = await subjectFixture();
+  f.chat.watch("t41", f.cx);
+  const dialog = { kind: "select", title: "Select model", body: [], numbered: true, asked: "fp1", options: [{ n: 1, label: "Default", hint: "", selected: false }, { n: 2, label: "Opus", hint: "", selected: true }], keys: [{ key: "s", does: "use this session only" }], footer: "" };
+  f.chat.value = { agent: { terminal: "app:t41", status: "idle" }, session: { dialog }, messages: [] };
+  f.chat.model.row = () => ({ terminal: "app:t41", status: "idle" });
+  assert.equal(f.chat.hints().items.length, 0);
+  f.chat.pressed({ keystroke: "up", key: "up" }, f.cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["agents", "keys", [{ terminal: "app:t41", keys: ["up"], source: "chat:key" }]]);
+  f.chat.dialogPick(dialog, dialog.options[0], f.cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["agents", "answer", [{ terminal: "app:t41", choice: 1, asked: "fp1", source: "chat:dialog" }]], "a list answers as a question, with its fingerprint");
+  f.chat.dialogPick({ ...dialog, kind: "text", asked: null }, dialog.options[0], f.cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)[2][0].keys), ["up", "enter"], "a plain dialog moves there with the arrows");
+  // A driven session: no terminal to mirror into, its commands go as words.
+  const g = await subjectFixture();
+  g.chat.model.row = (k) => (k === "claude:1" ? { terminal: k, driven: true, status: "idle" } : null);
+  g.chat.watch("claude:1", g.cx);
+  g.chat.sessions = { session: { key: "claude:1", working: false, commands: [{ name: "review", description: "Review it" }] } };
+  g.type("/review");
+  g.chat.mirrorSync(g.cx);
+  assert.equal(g.chat.mirror, null, "nothing mirrored for a driven session");
+  g.chat.send(g.cx, "click");
+  await g.settled();
+  assert.deepEqual(plain(g.acts.at(-1)), ["queue", "tell", ["claude:1", "/review"]]);
+});
+
+test("⏎ in the multi-line box sends without the new line it put in, ⇧⏎ keeps the new line", async () => {
+  const f = await subjectFixture();
+  f.chat.model.row = (k) => (k === "claude:1" ? { terminal: k, driven: true, status: "idle" } : null);
+  f.chat.watch("claude:1", f.cx);
+  f.chat.sessions = { session: { key: "claude:1", working: false } };
+  f.chat.multiLine = true;
+  f.type("Fix the export\n");
+  f.chat.submitted({ shift: true }, f.cx);
+  await f.settled();
+  assert.equal(f.acts.length, 0, "⇧⏎: a new line, nothing sent");
+  assert.equal(f.chat.input.value(), "Fix the export\n");
+  f.chat.submitted({}, f.cx);
+  await f.settled();
+  assert.deepEqual(plain(f.acts.at(-1)), ["queue", "tell", ["claude:1", "Fix the export"]], "⏎ sends, the new line taken out");
+  f.type("\n");
+  f.chat.submitted({}, f.cx);
+  await f.settled();
+  assert.equal(f.acts.length, 1, "an empty box sends nothing");
 });

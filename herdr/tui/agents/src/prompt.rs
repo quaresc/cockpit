@@ -189,7 +189,7 @@ const QUESTION_LINES: usize = 8;
 
 /// A frame across the screen at column 0, the way Claude Code opens its prompts: nothing a command prints can draw
 /// one, since a prompt indents what it quotes.
-fn frame_rule(line: &str, width: usize) -> bool {
+pub(crate) fn frame_rule(line: &str, width: usize) -> bool {
     let line = line.trim_end();
     let n = cockpit_core::text::width(line);
     n >= 20 && n * 10 >= width * 9 && line.chars().all(|c| matches!(c, '─' | '━' | '═' | '▔' | '▁' | '╭' | '╮' | '┌' | '┐'))
@@ -205,9 +205,9 @@ static UNASKED: LazyLock<Regex> = LazyLock::new(|| {
 static PERMISSION_LABEL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(yes\b|no, and tell\b|allow\b|deny\b)|don.?t ask again|do not ask again").unwrap());
 /// The hint under a menu Claude Code and Codex draw.
-static HINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)enter to (confirm|select|submit)|esc to cancel").unwrap());
+pub(crate) static HINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)enter to (confirm|select|submit)|esc to cancel").unwrap());
 
-fn unframe(line: &str) -> String {
+pub(crate) fn unframe(line: &str) -> String {
     FRAME.replace_all(line, "").into_owned()
 }
 
@@ -220,6 +220,9 @@ pub struct Shapes {
     busy: Vec<Regex>,
     limit: Vec<Regex>,
     lifted: Vec<Regex>,
+    pub(crate) completion: Vec<Regex>,
+    pub(crate) dialog_hint: Vec<Regex>,
+    pub(crate) dialog_title: Vec<Regex>,
 }
 
 impl Shapes {
@@ -257,10 +260,13 @@ impl Shapes {
             busy: patterns(&screen.busy),
             limit: patterns(&screen.limit),
             lifted: patterns(&screen.lifted),
+            completion: patterns(&screen.completion),
+            dialog_hint: patterns(&screen.dialog_hint),
+            dialog_title: patterns(&screen.dialog_title),
         }
     }
 
-    fn any(list: &[Regex], line: &str) -> bool {
+    pub(crate) fn any(list: &[Regex], line: &str) -> bool {
         list.iter().any(|r| r.is_match(line))
     }
 }
@@ -456,11 +462,18 @@ pub fn draft(screen: &str) -> Option<String> {
     Some(if SUGGESTION.is_match(&typed) { String::new() } else { typed })
 }
 
+/// What is typed in the agent's input line, never a menu's row behind the cursor: None when no input line shows.
+pub(crate) fn typed(screen: &str) -> Option<String> {
+    let lines: Vec<String> = screen.lines().map(unframe).collect();
+    let at = input_line(&lines)?;
+    draft(&lines[at..].join("\n"))
+}
+
 /// How far up from the bottom the input box is looked for: under it, an agent draws its status lines and hints.
 const DRAFT_LINES: usize = 30;
 
 /// The agent's input line, from the bottom: what is typed there and the status line under it change on their own.
-fn input_line(lines: &[String]) -> Option<usize> {
+pub(crate) fn input_line(lines: &[String]) -> Option<usize> {
     (0..lines.len()).rev().take(8).find(|&i| {
         let l = lines[i].trim();
         // A numbered choice behind the cursor is a menu's line, not the input.
@@ -741,7 +754,7 @@ pub fn last_message(screen: &str) -> String {
 }
 
 /// What an agent's screen says it is doing: the step it is on while it works, and the permission mode its footer shows.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Activity {
     /// The step above its spinner, as the agent words it: "Reading sandbox script usage".
     pub task: Option<String>,

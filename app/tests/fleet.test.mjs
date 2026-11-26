@@ -11,6 +11,7 @@ async function fixture(layout = "cockpit", live = null) {
       agents: () => live ?? [{ address: "t7", tab: "tab7", space: "s1", status: "working", title: "Local agent" }],
       spaces: () => [{ id: "s1", tabs: [{ id: "tab7" }] }],
       panes: () => [{ terminal: "runner/t7", tab: "rtab", status: "done" }, { terminal: "runner/t8", tab: "rtab", status: "idle" }],
+      terminals: () => [{ address: "t9", parent: "t7", state: "live", name: "tests", status: "working" }, { address: "t10", parent: "t7", state: "ended", name: "old" }, { address: "t11", parent: "t8", state: "live" }],
       run: (...args) => calls.push(args),
       setShared: (...args) => calls.push(["shared", ...args]),
       shared: key => (key === "layout" ? layout : null),
@@ -245,4 +246,14 @@ test("a dismissed agent leaves Needs you, the bell and Home's count, and stays i
   assert.equal(at("t4").dismissed, null, "a snooze is not a dismissal");
   assert.equal(at("t4").snoozed.label, "till it changes");
   assert.equal(fleet.stageOf({ hubStage: "dismissed" }), "dismissed");
+});
+
+test("the terminals an agent started under its own are its live children alone, which the sidebar lists under it", async () => {
+  const { fleet } = await fixture();
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepEqual(plain(fleet.childTerminals("t7").map((t) => t.address)), ["t9"], "live, and under that parent");
+  assert.deepEqual(plain(fleet.childTerminals("runner/t7")), [], "a runner's agents have no children here");
+  assert.deepEqual(plain(fleet.childTerminals("")), []);
+  const sidebar = Object.create(fleet.Sidebar.prototype);
+  assert.deepEqual(plain(sidebar.subRows({}, { address: "t7", remote: "runner" })), [], "a remote row lists none");
 });

@@ -20,14 +20,15 @@ const KEEP_NOTIFIED: usize = 300;
 /// How many threads one round reads ahead, so a full inbox fills over a few rounds without holding the feed up.
 const READ_AHEAD: usize = 10;
 
-/// My inbox through the mail server, and the threads of the listed messages read ahead over the same connection, so
-/// opening one is instant; None when no server serves the `mail` section.
-pub fn fetch(raw: &Value, config: &Value) -> Option<Result<Vec<Value>, String>> {
+/// My inbox through the mail server, with the dates kept by thread, and the threads of the listed messages read ahead
+/// over the same connection, so opening one is instant; None when no server serves the `mail` section.
+pub fn fetch(raw: &Value, config: &Value) -> Option<Result<(Vec<Value>, Value), String>> {
     let server = crate::feed::mcp::server(raw, config, "mail")?;
     let mapping = mail::mapping(&raw["mail"]);
+    let dates = crate::store::global().get("mail")["dates"].clone();
     Some(crate::feed::mcp::with(&server, async |c| {
         let tools = Mapped { connection: c, section: &mapping };
-        let messages = mail::inbox(&tools, &mapping).await?;
+        let (messages, dates) = mail::inbox(&tools, &mapping, &dates).await?;
         let ahead = if tools.has("get") { READ_AHEAD } else { 0 };
         for message in messages.iter().filter(|m| !kept_fresh(m)).take(ahead) {
             let id = message["id"].as_str().unwrap_or_default();
@@ -35,7 +36,7 @@ pub fn fetch(raw: &Value, config: &Value) -> Option<Result<Vec<Value>, String>> 
                 keep_thread(id, mail::thread(&tools, &mapping, message).await);
             }
         }
-        Ok(messages)
+        Ok((messages, dates))
     }))
 }
 
@@ -46,16 +47,16 @@ pub fn kept_fresh(message: &Value) -> bool {
     doc["error"].is_null() && doc["at"].as_i64().unwrap_or(0) >= date
 }
 
-/// The `mail` document after a fetch: its messages, and every unread one in `notified`; a failed fetch keeps the
-/// messages and says why.
-pub fn merge(doc: &Value, fetched: Result<Vec<Value>, String>, now: u64) -> Value {
+/// The `mail` document after a fetch: its messages, the dates kept by thread, and every unread one in `notified`; a
+/// failed fetch keeps the messages and says why.
+pub fn merge(doc: &Value, fetched: Result<(Vec<Value>, Value), String>, now: u64) -> Value {
     match fetched {
-        Ok(messages) => {
+        Ok((messages, dates)) => {
             let unread: Vec<Value> = messages.iter().filter(|m| m["unread"] == true).map(|m| m["id"].clone()).collect();
             let fresh: HashSet<&Value> = unread.iter().collect();
             let kept = list(&doc["notified"]).iter().filter(|id| !fresh.contains(id)).cloned();
             let notified: Vec<Value> = unread.iter().cloned().chain(kept).take(KEEP_NOTIFIED).collect();
-            json!({"at": now, "by": "hub", "messages": messages, "notified": notified})
+            json!({"at": now, "by": "hub", "messages": messages, "notified": notified, "dates": dates})
         }
         Err(error) => {
             let mut doc = if doc.is_object() { doc.clone() } else { json!({"at": 0, "by": "hub", "messages": [], "notified": []}) };
@@ -139,26 +140,41 @@ mod tests {
     #[test]
     fn a_fetch_keeps_the_unread_ids_and_a_failure_keeps_the_messages() {
         let before = json!({"at": 5, "by": "hub", "messages": [message("a", true)], "notified": ["a", "gone"], "error": "Mail: old"});
-        let after = merge(&before, Ok(vec![message("b", true), message("c", false)]), 9);
-        assert_eq!(after, json!({"at": 9, "by": "hub", "messages": [message("b", true), message("c", false)], "notified": ["b", "a", "gone"]}));
+        let dates = json!({"b": "2026-11-04T10:02:00Z"});
+        let after = merge(&before, Ok((vec![message("b", true), message("c", false)], dates.clone())), 9);
+        assert_eq!(after, json!({"at": 9, "by": "hub", "messages": [message("b", true), message("c", false)], "notified": ["b", "a", "gone"], "dates": dates}));
         let failed = merge(&after, Err("Mail: HTTP 502".into()), 12);
-        assert_eq!((&failed["messages"], &failed["at"], &failed["error"]), (&after["messages"], &json!(9), &json!("Mail: HTTP 502")));
+        assert_eq!((&failed["messages"], &failed["dates"], &failed["at"], &failed["error"]), (&after["messages"], &dates, &json!(9), &json!("Mail: HTTP 502")));
         assert_eq!(merge(&Value::Null, Err("x".into()), 1)["messages"], json!([]));
     }
 
     #[test]
+    fn news_fires_for_a_new_unread_thread_dated_by_a_peek() {
+        // A summary listing carries no dates: the thread's comes from the peek, as `dates` keeps it.
+        let undated =
+            |id: &str, unread: bool| json!({"id": id, "threadId": id, "fromName": "Maya", "subject": format!("About {id}"), "unread": unread, "date": ""});
+        let first = merge(&Value::Null, Ok((vec![message("a", true), undated("x", false)], json!({"a": "2026-11-04T10:01:00Z"}))), 1);
+        let second = merge(
+            &first,
+            Ok((vec![message("b", true), message("a", true), undated("x", false)], json!({"a": "2026-11-04T10:01:00Z", "b": "2026-11-04T10:02:00Z"}))),
+            2,
+        );
+        assert_eq!(news(&first, &second), [("✉️ Ana".to_string(), "About b".to_string(), "mail:b".to_string())]);
+    }
+
+    #[test]
     fn news_is_the_unread_messages_not_announced_yet() {
-        let first = merge(&Value::Null, Ok(vec![message("a", true)]), 1);
+        let first = merge(&Value::Null, Ok((vec![message("a", true)], json!({}))), 1);
         assert_eq!(news(&Value::Null, &first), [], "the first fetch announces nothing");
-        let second = merge(&first, Ok(vec![message("b", true), message("c", false), message("a", true)]), 2);
+        let second = merge(&first, Ok((vec![message("b", true), message("c", false), message("a", true)], json!({}))), 2);
         assert_eq!(news(&first, &second), [("✉️ Ana".to_string(), "About b".to_string(), "mail:b".to_string())]);
         let many: Vec<Value> = ["d", "e", "f", "g"].iter().map(|id| message(id, true)).collect();
-        let third = merge(&second, Ok(many), 3);
+        let third = merge(&second, Ok((many, json!({}))), 3);
         let told = news(&second, &third);
         assert_eq!((told.len(), told[0].0.as_str(), told[0].2.as_str()), (1, "✉️ 4 new messages", "space:mail"));
         assert!(told[0].1.starts_with("Ana: About d\nAna: About e"));
         assert_eq!(news(&third, &merge(&third, Err("down".into()), 4)), []);
-        let older = merge(&third, Ok(vec![message("c", true), message("g", true)]), 5);
+        let older = merge(&third, Ok((vec![message("c", true), message("g", true)], json!({}))), 5);
         assert_eq!(news(&third, &older), [], "an older unread message the listing brings in is no news");
     }
 }

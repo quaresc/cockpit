@@ -12,13 +12,11 @@ use serde_json::{Map, Value, json};
 
 use super::{Ctx, arg, inbox, land, tickets};
 use crate::config::{self, Config};
+use cockpit_core::modes;
+
 use crate::herdr;
 use crate::proc;
 use crate::value::{Res, join, list, now_ms, quote, text};
-
-/// The permission modes the agent table's `mode` column takes (`{mode}`, in Claude Code's words), with the words every
-/// surface shows; offered only to an agent whose column is filled.
-const MODES: [(&str, &str); 4] = [("default", "Asks first"), ("acceptEdits", "Edits freely"), ("plan", "Plan only"), ("bypassPermissions", "Full access")];
 
 /// The steps a run reports, in the order it runs them.
 const STEPS: [&str; 6] = ["fetch", "worktree", "space", "setup", "agent", "ticket"];
@@ -623,12 +621,14 @@ impl Plan {
     }
 }
 
-/// The modes an agent takes at start, as its table row says: none when its `mode` column is empty.
+/// The modes an agent takes at start, as its table row says (`modes::json`, the ones its menus offer): none when its
+/// `mode` column is empty.
 fn modes_of(agent: &Agent) -> Vec<Value> {
     if agent.mode.is_none() {
         return Vec::new();
     }
-    MODES.iter().map(|(id, label)| json!({"id": id, "label": label})).collect()
+    let help = cockpit_core::switches::of(agent, || {});
+    modes::json(modes::words_of(agent), &help.modes).as_array().into_iter().flatten().filter(|m| m["offered"] == true).cloned().collect()
 }
 
 /// The choices a form offers: the repos, the installed agents (the default first) with the modes each takes and what a
@@ -866,7 +866,7 @@ pub(crate) fn plan_in(world: &World, req: &Request) -> Plan {
     }
     p.prompt = clean(&prompt_for(&p, &target, &ask, &extra, &text));
     let agent_name = p.agent.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| "the agent".into());
-    let mode_word = MODES.iter().find(|(id, _)| *id == p.mode).map(|(_, l)| l.to_lowercase()).unwrap_or_default();
+    let mode_word = p.agent.as_ref().and_then(|a| modes::of(modes::words_of(a), &p.mode)).map(|m| m.label.to_lowercase()).unwrap_or_default();
     let effort = if p.effort.is_empty() { String::new() } else { format!("{} effort", p.effort) };
     let fast = match p.fast {
         Some(true) => "fast mode".to_string(),
@@ -938,15 +938,16 @@ fn agent_checks(world: &World, req: &Request, p: &mut Plan) -> Option<Agent> {
         p.fast = None;
     }
     p.mode = if found.mode.is_some() { if req.mode.is_empty() { "default".into() } else { req.mode.clone() } } else { String::new() };
-    let known = MODES.iter().any(|(id, _)| *id == p.mode) || p.mode == "auto";
-    if !p.mode.is_empty() && !known {
-        let ids: Vec<&str> = MODES.iter().map(|(id, _)| *id).collect();
-        p.block("agent", format!("No mode {:?}: one of {}", p.mode, ids.join(", ")), vec![("Ask first", json!({"mode": "default"}))]);
+    let words = modes::words_of(&found);
+    let known = modes::of(words, &p.mode);
+    if !p.mode.is_empty() && known.is_none() {
+        p.block("agent", format!("No mode {:?}: one of {}", p.mode, modes::ids(words).join(", ")), vec![("Ask first", json!({"mode": "default"}))]);
         p.mode = "default".into();
-    } else if p.mode == "bypassPermissions" && !req.confirm {
-        p.block("agent", "Full access lets the agent run any command without asking", vec![("Allow full access", json!({"confirm": true}))]);
-    } else if p.mode == "auto" && !req.confirm {
-        p.block("agent", "Auto mode lets the agent run tools without asking", vec![("Allow auto mode", json!({"confirm": true}))]);
+    } else if let Some(mode) = known.filter(|m| m.unasked && !req.confirm) {
+        // "Full access", "auto mode": a one-word label is a mode's name.
+        let name = if mode.label.contains(' ') { mode.label.to_lowercase() } else { format!("{} mode", mode.label.to_lowercase()) };
+        let said = format!("{}{} lets the agent run tools without asking", name[..1].to_uppercase(), &name[1..]);
+        p.block("agent", said, vec![(&format!("Allow {name}"), json!({"confirm": true}))]);
     }
     Some(found)
 }

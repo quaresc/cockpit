@@ -4,14 +4,15 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 use serde::de::{Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
 
-use crate::agent::Plan;
 pub use crate::agent::Transcripts;
+use crate::agent::{Plan, Tasks};
 use crate::files;
 
 /// The most of one message kept: a pasted log or a long answer says what it is in far less.
@@ -43,6 +44,8 @@ pub struct Message {
 /// A tool call, as a chat shows it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tool {
+    /// The agent's own id for the call (`toolu_…`), empty where its format gives none.
+    pub id: String,
     /// What the agent calls it: `Bash`, `Edit`, `Read`.
     pub name: String,
     /// The command, path or pattern it was given, on one line.
@@ -51,6 +54,60 @@ pub struct Tool {
     pub ok: Option<bool>,
     /// What the agent said the call is for (a command's description), when it said.
     pub about: Option<String>,
+}
+
+/// What a task started beside the turn is: a subagent with a conversation of its own, a background job, a workflow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskKind {
+    Subagent,
+    Background,
+    Workflow,
+}
+
+impl TaskKind {
+    pub fn word(self) -> &'static str {
+        match self {
+            TaskKind::Subagent => "subagent",
+            TaskKind::Background => "background",
+            TaskKind::Workflow => "workflow",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskState {
+    Running,
+    Done,
+    Failed,
+}
+
+impl TaskState {
+    pub fn word(self) -> &'static str {
+        match self {
+            TaskState::Running => "running",
+            TaskState::Done => "done",
+            TaskState::Failed => "failed",
+        }
+    }
+}
+
+/// Work an agent started beside its turn, as its transcript tells it: the call that started it, what it is for, and
+/// how it stands.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Task {
+    /// The agent's id for it (a subagent's `agentId`, a background job's task id), its call's id until the result says.
+    pub id: String,
+    pub kind: TaskKind,
+    pub name: String,
+    pub state: TaskState,
+    /// RFC 3339, when its call was made and when its result or notification came.
+    pub started: String,
+    pub ended: Option<String>,
+    pub tool_use_id: String,
+    /// What it reported when it ended, when the transcript holds a notification.
+    pub summary: Option<String>,
+    /// A subagent's own transcript, once found beside its parent's.
+    pub transcript: Option<PathBuf>,
 }
 
 /// How much of a transcript a read keeps. Tool calls cost a second pass over records the other readers skip, so only
@@ -116,6 +173,8 @@ pub struct Transcript {
     pub titled: Option<String>,
     /// The first thing the person typed, a slash command as "name args".
     pub opening: Option<String>,
+    /// The subagents, background jobs and workflows its turns started, read with the tool calls.
+    pub tasks: Vec<Task>,
 }
 
 impl Transcript {
@@ -438,10 +497,20 @@ pub fn read(kind: Transcripts, path: &Path) -> Option<Transcript> {
 
 /// The same, keeping the tool calls between the messages when `detail` asks for them.
 pub fn read_detail(kind: Transcripts, path: &Path, detail: Detail) -> Option<Transcript> {
+    read_in(kind, path, detail, false)
+}
+
+/// A subagent's own transcript, which the plain readers leave out: Claude's `agent-*.jsonl` beside its parent, a
+/// Codex rollout its parent spawned.
+pub fn read_subagent(kind: Transcripts, path: &Path, detail: Detail) -> Option<Transcript> {
+    read_in(kind, path, detail, true)
+}
+
+fn read_in(kind: Transcripts, path: &Path, detail: Detail, child: bool) -> Option<Transcript> {
     let mut t = match kind {
         Transcripts::None => return None,
-        Transcripts::Claude => read_claude(path, detail)?,
-        Transcripts::Codex => read_codex(path, detail)?,
+        Transcripts::Claude => read_claude_in(path, detail, child)?,
+        Transcripts::Codex => read_codex_in(path, detail, child)?,
         Transcripts::Pi | Transcripts::Omp => read_pi(path, detail)?,
         Transcripts::Qwen => read_qwen(path, detail)?,
         Transcripts::Copilot => read_copilot(path, detail)?,
@@ -751,8 +820,13 @@ fn command_of(text: &str) -> Option<String> {
 }
 
 /// A tool call where a message would be: `summary` is already one line.
-fn tool_message(at: &str, name: &str, summary: String, ok: Option<bool>, about: Option<String>) -> Message {
-    Message { role: Role::Assistant, text: String::new(), at: at.to_string(), tool: Some(Tool { name: name.to_string(), summary, ok, about }) }
+fn tool_message(at: &str, id: &str, name: &str, summary: String, ok: Option<bool>, about: Option<String>) -> Message {
+    Message {
+        role: Role::Assistant,
+        text: String::new(),
+        at: at.to_string(),
+        tool: Some(Tool { id: id.to_string(), name: name.to_string(), summary, ok, about }),
+    }
 }
 
 fn message(role: Role, text: &str, at: &str) -> Message {
@@ -840,6 +914,17 @@ struct ClaudeLine {
     effort: Option<String>,
     permission_mode: Option<String>,
     message: Option<ClaudeMessage>,
+    /// What a tool result says beside its text: the subagent or background job it started.
+    tool_use_result: Option<ToolUseResult>,
+}
+
+/// The telling fields of a tool's result record; its output is skipped unread.
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct ToolUseResult {
+    agent_id: Option<String>,
+    background_task_id: Option<String>,
+    is_async: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -865,8 +950,70 @@ struct ClaudeUsage {
 /// A content block, kept only where it says something: words, a tool call, or how one ended.
 enum Chunk {
     Text(String),
-    Call { id: String, name: String, summary: String, about: Option<String> },
-    Result { id: String, ok: bool },
+    Call {
+        id: String,
+        name: String,
+        summary: String,
+        about: Option<String>,
+        task: CallTask,
+    },
+    /// How a call ended, and the head of what it answered.
+    Result {
+        id: String,
+        ok: bool,
+        head: String,
+    },
+}
+
+/// What of a call's input says which task it starts: its description, the subagent type, whether it runs in the
+/// background.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CallTask {
+    description: Option<String>,
+    subagent_type: Option<String>,
+    background: bool,
+}
+
+/// The most of a result's text kept: enough to read the id a background job answers with.
+const HEAD_CAP: usize = 200;
+
+/// The first `HEAD_CAP` characters of a string, or of the text blocks of a list, the rest left unread.
+struct Head(String);
+
+impl<'de> Deserialize<'de> for Head {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Head;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a string or a list of content blocks")
+            }
+            fn visit_str<E>(self, s: &str) -> Result<Head, E> {
+                Ok(Head(s.chars().take(HEAD_CAP).collect()))
+            }
+            fn visit_unit<E>(self) -> Result<Head, E> {
+                Ok(Head(String::new()))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Head, A::Error> {
+                #[derive(Deserialize, Default)]
+                #[serde(default)]
+                struct TextBlock {
+                    text: Option<Head>,
+                }
+                let mut out = String::new();
+                while let Some(block) = seq.next_element::<TextBlock>()? {
+                    if out.chars().count() >= HEAD_CAP {
+                        continue;
+                    }
+                    if let Some(Head(t)) = block.text {
+                        out.push_str(&t);
+                    }
+                }
+                Ok(Head(out.chars().take(HEAD_CAP).collect()))
+            }
+        }
+        d.deserialize_any(V)
+    }
 }
 
 /// The telling fields of a tool call's input; the rest is skipped unread.
@@ -880,18 +1027,26 @@ struct ToolInput {
     url: Option<String>,
     description: Option<String>,
     prompt: Option<String>,
+    subagent_type: Option<String>,
+    run_in_background: Option<bool>,
 }
 
 impl ToolInput {
-    /// The first of its fields that says what the call did, and its description when that is not it already.
-    fn summary(self) -> (Option<String>, Option<String>) {
+    /// The first of its fields that says what the call did, its description when that is not it already, and what
+    /// says which task it starts.
+    fn summary(self) -> (Option<String>, Option<String>, CallTask) {
         let about = self.description.clone().filter(|d| !d.trim().is_empty());
+        let task = CallTask {
+            description: about.as_deref().map(tool_line),
+            subagent_type: self.subagent_type.filter(|t| !t.trim().is_empty()),
+            background: self.run_in_background == Some(true),
+        };
         let summary = [self.command, self.file_path, self.path, self.pattern, self.url, self.description, self.prompt]
             .into_iter()
             .flatten()
             .find(|s| !s.trim().is_empty());
         let about = about.filter(|d| summary.as_ref() != Some(d)).map(|d| tool_line(&d));
-        (summary, about)
+        (summary, about, task)
     }
 }
 
@@ -920,6 +1075,7 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
                 fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Block, A::Error> {
                     let (mut kind, mut text, mut name) = (None::<String>, None::<String>, None::<String>);
                     let (mut id, mut used, mut error, mut summary, mut about) = (None::<String>, None::<String>, false, None::<String>, None::<String>);
+                    let (mut task, mut head) = (CallTask::default(), None::<Head>);
                     while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
                             "type" => kind = Some(map.next_value()?),
@@ -928,7 +1084,9 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
                             "id" => id = map.next_value()?,
                             "tool_use_id" => used = map.next_value()?,
                             "is_error" => error = map.next_value::<Option<bool>>()?.unwrap_or(false),
-                            "input" => (summary, about) = map.next_value::<ToolInput>()?.summary(),
+                            "input" => (summary, about, task) = map.next_value::<ToolInput>()?.summary(),
+                            // A result's content is read only for its head: the rest is the tool's output.
+                            "content" if kind.as_deref() == Some("tool_result") || kind.is_none() => head = map.next_value::<Option<Head>>()?,
                             _ => {
                                 map.next_value::<IgnoredAny>()?;
                             }
@@ -941,8 +1099,9 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
                             name: name.unwrap_or_default(),
                             summary: summary.map(|s| tool_line(&s)).unwrap_or_default(),
                             about,
+                            task,
                         }),
-                        Some("tool_result") => used.map(|id| Chunk::Result { id, ok: !error }),
+                        Some("tool_result") => used.map(|id| Chunk::Result { id, ok: !error, head: head.map(|h| h.0).unwrap_or_default() }),
                         _ => None,
                     }))
                 }
@@ -972,8 +1131,9 @@ fn chunks<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Chunk>, D::Error> {
     d.deserialize_any(Chunks)
 }
 
-fn read_claude(path: &Path, detail: Detail) -> Option<Transcript> {
-    let mut fold = ClaudeFold::new(detail);
+/// A Claude transcript read whole; a subagent's file is read with `child`, its sidechain lines kept.
+fn read_claude_in(path: &Path, detail: Detail, child: bool) -> Option<Transcript> {
+    let mut fold = ClaudeFold::new_in(detail, child);
     let mut lines = lines_of(path)?;
     while let Some(line) = lines.next() {
         fold.feed(line);
@@ -982,6 +1142,64 @@ fn read_claude(path: &Path, detail: Detail) -> Option<Transcript> {
     fold.t.title = title;
     fold.name();
     Some(fold.t)
+}
+
+/// What a task notification says: the task, how it ended, its words, and the file holding its output.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Notice {
+    pub id: String,
+    pub status: String,
+    pub summary: Option<String>,
+    pub output_file: Option<String>,
+}
+
+/// The notification Claude Code gives its agent when a task ends, as a user message starting `<task-notification>`;
+/// None for any other text.
+pub fn task_notification(text: &str) -> Option<Notice> {
+    let text = text.trim_start();
+    if !text.starts_with("<task-notification>") {
+        return None;
+    }
+    let inside = |tag: &str| -> Option<String> {
+        let open = format!("<{tag}>");
+        let from = text.find(&open)? + open.len();
+        let to = text[from..].find(&format!("</{tag}>"))? + from;
+        Some(text[from..to].trim().to_string())
+    };
+    let id = inside("task-id").filter(|id| !id.is_empty())?;
+    Some(Notice { id, status: inside("status").unwrap_or_default(), summary: inside("summary"), output_file: inside("output-file") })
+}
+
+/// The task a call starts, by the agent table: its kind and its name (what it is for, else the subagent's type, else
+/// the call's own line). None when the tool starts none, or a background tool was not asked to.
+pub fn call_task(
+    tasks: &Tasks,
+    tool: &str,
+    description: Option<&str>,
+    subagent_type: Option<&str>,
+    background: bool,
+    summary: &str,
+) -> Option<(TaskKind, String)> {
+    let named = |fallback: Option<&str>| description.filter(|d| !d.trim().is_empty()).or(fallback).unwrap_or(summary).trim().to_string();
+    let is = |list: &[String]| list.iter().any(|t| t == tool);
+    if is(&tasks.spawn) {
+        return Some((TaskKind::Subagent, named(subagent_type)));
+    }
+    if is(&tasks.workflow) {
+        return Some((TaskKind::Workflow, named(None)));
+    }
+    if background && is(&tasks.background) {
+        return Some((TaskKind::Background, named(None)));
+    }
+    None
+}
+
+/// The id a background job answers with ("Command running in background with ID: b7k2m9xq1."), when its text says.
+pub fn background_id(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    let at = lower.find("in background with id:")? + "in background with id:".len();
+    let id: String = text[at..].trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    (!id.is_empty()).then_some(id)
 }
 
 /// A Claude transcript folded one line at a time, so a reader following it feeds only the lines added since.
@@ -996,10 +1214,14 @@ struct ClaudeFold {
     counted: Option<String>,
     /// Where each tool call landed in the messages, so its result can say whether it worked.
     calls: HashMap<String, usize>,
+    /// The tools that start a task, from the agent table.
+    tasks: Option<Tasks>,
+    /// A subagent's own file: its lines are sidechain ones, kept rather than skipped.
+    child: bool,
 }
 
 impl ClaudeFold {
-    fn new(detail: Detail) -> Self {
+    fn new_in(detail: Detail, child: bool) -> Self {
         ClaudeFold {
             t: Transcript::default(),
             detail,
@@ -1010,7 +1232,51 @@ impl ClaudeFold {
             opening: None,
             counted: None,
             calls: HashMap::new(),
+            tasks: (detail == Detail::Tools).then(|| crate::agent::tasks_of(Transcripts::Claude)).flatten(),
+            child,
         }
+    }
+
+    /// Starts the task a call begins, when its tool is one of the table's.
+    fn call_started(&mut self, id: &str, name: &str, summary: &str, task: &CallTask, at: &str) {
+        let Some(table) = self.tasks.as_ref() else { return };
+        let Some((kind, title)) = call_task(table, name, task.description.as_deref(), task.subagent_type.as_deref(), task.background, summary) else { return };
+        self.t.tasks.push(Task {
+            id: id.to_string(),
+            kind,
+            name: title,
+            state: TaskState::Running,
+            started: at.to_string(),
+            ended: None,
+            tool_use_id: id.to_string(),
+            summary: None,
+            transcript: None,
+        });
+    }
+
+    /// How a call's result moves its task: a subagent or job launched gets its id and stays running, anything else
+    /// is over.
+    fn call_ended(&mut self, id: &str, ok: bool, head: &str, result: Option<&ToolUseResult>, at: &str) {
+        let Some(task) = self.t.tasks.iter_mut().find(|t| t.tool_use_id == id) else { return };
+        let launched = match task.kind {
+            TaskKind::Background => result.and_then(|r| r.background_task_id.clone()).or_else(|| background_id(head)),
+            TaskKind::Subagent | TaskKind::Workflow => result.and_then(|r| r.agent_id.clone()).filter(|_| result.is_some_and(|r| r.is_async == Some(true))),
+        };
+        match launched {
+            Some(launched) => task.id = launched,
+            None => {
+                task.state = if ok { TaskState::Done } else { TaskState::Failed };
+                task.ended = Some(at.to_string());
+            }
+        }
+    }
+
+    /// A task notification the agent got: the task it names ends as it says.
+    fn notified(&mut self, notice: &Notice, at: &str) {
+        let Some(task) = self.t.tasks.iter_mut().find(|t| t.id == notice.id) else { return };
+        task.state = if notice.status == "completed" { TaskState::Done } else { TaskState::Failed };
+        task.ended = Some(at.to_string());
+        task.summary = notice.summary.clone().filter(|s| !s.trim().is_empty());
     }
 
     /// Lays what names the session on the transcript: the person's rename, the agent's title, the opening words.
@@ -1071,34 +1337,42 @@ impl ClaudeFold {
             "summary" => self.summary = line.summary.or(self.summary.take()),
             "custom-title" => self.named = line.custom_title.or(self.named.take()),
             "ai-title" => self.ai_title = line.ai_title.or(self.ai_title.take()),
-            "user" | "assistant" if ![line.is_sidechain, line.is_compact_summary, line.is_meta].contains(&Some(true)) => {
+            "user" | "assistant" if ![line.is_compact_summary, line.is_meta].contains(&Some(true)) && (self.child || line.is_sidechain != Some(true)) => {
                 let Some(m) = line.message else { return };
+                let result = line.tool_use_result;
                 let role = if line.kind == "user" { Role::User } else { Role::Assistant };
                 if role == Role::Assistant {
                     if let Some(model) = m.model.filter(|m| !m.is_empty() && !m.starts_with('<')) {
-                        t.model = Some(model);
+                        self.t.model = Some(model);
                     }
                     if let Some(effort) = line.effort.filter(|e| !e.is_empty()) {
-                        t.effort = Some(effort);
+                        self.t.effort = Some(effort);
                     }
                     if let Some(speed) = m.usage.as_ref().and_then(|u| u.speed.clone()).filter(|s| !s.is_empty()) {
-                        t.speed = Some(speed);
+                        self.t.speed = Some(speed);
                     }
                     // A reply streamed over several lines repeats its usage on each.
                     if let Some(u) = m.usage
                         && (m.id.is_none() || m.id != self.counted)
                     {
                         self.counted = m.id.clone();
-                        t.usage.input += u.input_tokens;
-                        t.usage.output += u.output_tokens;
-                        t.usage.cache_read += u.cache_read_input_tokens;
-                        t.usage.cache_write += u.cache_creation_input_tokens;
-                        t.usage.context = Some(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens);
+                        self.t.usage.input += u.input_tokens;
+                        self.t.usage.output += u.output_tokens;
+                        self.t.usage.cache_read += u.cache_read_input_tokens;
+                        self.t.usage.cache_write += u.cache_creation_input_tokens;
+                        self.t.usage.context = Some(u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens);
                     }
                 }
                 for chunk in m.content {
                     match chunk {
                         Chunk::Text(text) => {
+                            if role == Role::User
+                                && self.detail == Detail::Tools
+                                && let Some(notice) = task_notification(&text)
+                            {
+                                self.notified(&notice, &at);
+                                continue;
+                            }
                             if role == Role::User && !is_typed(&text) {
                                 if self.opening.is_none() {
                                     self.opening = command_of(&text);
@@ -1111,17 +1385,19 @@ impl ClaudeFold {
                                 self.opening.get_or_insert_with(|| text.clone());
                             }
                             if self.detail != Detail::Names {
-                                t.messages.push(message(role, &text, &at));
+                                self.t.messages.push(message(role, &text, &at));
                             }
                         }
-                        Chunk::Call { id, name, summary, about } if self.detail == Detail::Tools => {
-                            self.calls.insert(id, t.messages.len());
-                            t.messages.push(tool_message(&at, &name, summary, None, about));
+                        Chunk::Call { id, name, summary, about, task } if self.detail == Detail::Tools => {
+                            self.calls.insert(id.clone(), self.t.messages.len());
+                            self.t.messages.push(tool_message(&at, &id, &name, summary.clone(), None, about));
+                            self.call_started(&id, &name, &summary, &task, &at);
                         }
-                        Chunk::Result { id, ok } if self.detail == Detail::Tools => {
-                            if let Some(tool) = self.calls.get(&id).and_then(|i| t.messages.get_mut(*i)).and_then(|m| m.tool.as_mut()) {
+                        Chunk::Result { id, ok, head } if self.detail == Detail::Tools => {
+                            if let Some(tool) = self.calls.get(&id).and_then(|i| self.t.messages.get_mut(*i)).and_then(|m| m.tool.as_mut()) {
                                 tool.ok = Some(ok);
                             }
+                            self.call_ended(&id, ok, &head, result.as_ref(), &at);
                         }
                         _ => {}
                     }
@@ -1146,11 +1422,27 @@ pub struct Follow {
     fold: Option<ClaudeFold>,
     /// Any other format's transcript, as last read whole.
     read: Option<Transcript>,
+    /// A subagent's file, read as `read_subagent` reads it.
+    child: bool,
 }
 
 impl Follow {
     pub fn new(kind: Transcripts, path: &Path, detail: Detail) -> Self {
-        Follow { kind, path: path.to_path_buf(), detail, stamp: None, ident: None, offset: 0, fold: None, read: None }
+        Follow { kind, path: path.to_path_buf(), detail, stamp: None, ident: None, offset: 0, fold: None, read: None, child: false }
+    }
+
+    /// Follows a subagent's own transcript, which `new` would read as empty.
+    pub fn subagent(kind: Transcripts, path: &Path, detail: Detail) -> Self {
+        Follow { child: true, ..Follow::new(kind, path, detail) }
+    }
+
+    /// About how much the transcript it holds weighs in memory: its words and its calls' summaries.
+    pub fn bytes(&self) -> usize {
+        let held = match self.kind {
+            Transcripts::Claude => self.fold.as_ref().map(|f| &f.t),
+            _ => self.read.as_ref(),
+        };
+        held.map_or(0, |t| t.messages.iter().map(|m| m.text.len() + m.tool.as_ref().map_or(0, |c| c.summary.len())).sum())
     }
 
     /// The transcript as the file now holds it, as `read_detail` gives it; None when it cannot be read or holds
@@ -1176,12 +1468,12 @@ impl Follow {
         let grown = self.stamp.is_some_and(|(len, _)| now.0 >= len);
         self.stamp = None;
         if self.kind != Transcripts::Claude {
-            self.read = read_detail(self.kind, &self.path, self.detail);
+            self.read = read_in(self.kind, &self.path, self.detail, self.child);
             self.stamp = Some(now);
             return Some(());
         }
         if !grown || self.fold.is_none() {
-            (self.offset, self.fold) = (0, Some(ClaudeFold::new(self.detail)));
+            (self.offset, self.fold) = (0, Some(ClaudeFold::new_in(self.detail, self.child)));
         }
         let fold = self.fold.as_mut()?;
         self.offset = feed_from(&self.path, self.offset, fold)?;
@@ -1245,6 +1537,85 @@ fn feed_from(path: &Path, offset: u64, fold: &mut ClaudeFold) -> Option<u64> {
     }
 }
 
+/// A subagent's transcript found beside its parent's: the id in its name, and its file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub id: String,
+    pub path: PathBuf,
+}
+
+/// The subagent transcripts a session's agent wrote beside it: Claude Code's `<session>/subagents/agent-<id>.jsonl`
+/// (listed again only when that folder changed), Codex's rollouts spawned in the parent's folder.
+pub fn subagents_of(kind: Transcripts, path: &Path, parent: &Transcript) -> Vec<Found> {
+    match kind {
+        Transcripts::Claude => {
+            let Some(stem) = path.file_stem().map(|s| s.to_os_string()) else { return Vec::new() };
+            let dir = path.with_file_name(stem).join("subagents");
+            type Listed = HashMap<PathBuf, (Stamp, Vec<Found>)>;
+            static LISTED: Mutex<Option<Listed>> = Mutex::new(None);
+            let Ok(meta) = std::fs::metadata(&dir) else { return Vec::new() };
+            let now = stamp(&meta);
+            let mut listed = LISTED.lock().unwrap_or_else(|e| e.into_inner());
+            let listed = listed.get_or_insert_with(HashMap::new);
+            if let Some((at, found)) = listed.get(&dir)
+                && *at == now
+            {
+                return found.clone();
+            }
+            let found: Vec<Found> = children(&dir)
+                .into_iter()
+                .filter_map(|p| {
+                    let name = p.file_name()?.to_str()?;
+                    let id = name.strip_prefix("agent-")?.strip_suffix(".jsonl")?;
+                    (!id.is_empty() && p.is_file()).then(|| Found { id: id.to_string(), path: p.clone() })
+                })
+                .collect();
+            if listed.len() > 256 {
+                listed.clear();
+            }
+            listed.insert(dir, (now, found.clone()));
+            found
+        }
+        Transcripts::Codex => {
+            let Some(root) = root(kind) else { return Vec::new() };
+            let since = chrono::DateTime::parse_from_rfc3339(&parent.first).map(|t| t.timestamp_millis().max(0) as u64).unwrap_or(0);
+            let here = canonical(&parent.cwd);
+            let mut found: Vec<(u64, Found)> = codex_days(&root, since)
+                .iter()
+                .flat_map(|d| children(d))
+                .filter(|p| is_rollout(p) && *p != path)
+                .filter_map(|p| {
+                    let meta = codex_meta(&p)?;
+                    let spawned = codex_subagent(&meta) && canonical(meta["cwd"].as_str().unwrap_or_default()) == here;
+                    let id = id_of(kind, &p)?;
+                    spawned.then(|| (modified_ms(&p), Found { id, path: p.clone() }))
+                })
+                .collect();
+            found.sort_by_key(|(at, _)| *at);
+            found.into_iter().map(|(_, f)| f).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Lays the files found on the subagent tasks: by the id a result named, else in order, the first task without a
+/// file getting the first file no task claims.
+pub fn match_subagents(tasks: &mut [Task], found: &[Found]) {
+    let subagents = |t: &Task| t.kind == TaskKind::Subagent;
+    for task in tasks.iter_mut().filter(|t| subagents(t) && t.transcript.is_none()) {
+        if let Some(f) = found.iter().find(|f| f.id == task.id) {
+            task.transcript = Some(f.path.clone());
+        }
+    }
+    let mut free: Vec<&Found> = found.iter().filter(|f| !tasks.iter().any(|t| t.transcript.as_deref() == Some(f.path.as_path()))).collect();
+    for task in tasks.iter_mut().filter(|t| subagents(t) && t.transcript.is_none()) {
+        if free.is_empty() {
+            break;
+        }
+        task.transcript = Some(free.remove(0).path.clone());
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Codex: $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl, a record per line ({timestamp, type, payload});
 // thread names in $CODEX_HOME/session_index.jsonl
@@ -1267,10 +1638,12 @@ fn codex_usage(info: &Value) -> Option<Usage> {
     })
 }
 
-fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
+/// A rollout read whole; one Codex spawned itself is read only with `child`.
+fn read_codex_in(path: &Path, detail: Detail, child: bool) -> Option<Transcript> {
     let mut t = Transcript::default();
     let mut prompt: Option<String> = None;
     let mut window = None;
+    let tasks = (detail == Detail::Tools).then(|| crate::agent::tasks_of(Transcripts::Codex)).flatten();
     let mut lines = lines_of(path)?;
     let mut first_line = true;
     while let Some(raw) = lines.next() {
@@ -1279,6 +1652,7 @@ fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
         let mut names: Vec<&[u8]> = vec![&b"\"type\":\"message\""[..], b"token_count", b"turn_context", b"task_started", b"session_meta"];
         if detail == Detail::Tools {
             names.push(b"function_call");
+            names.push(b"function_call_output");
         }
         let wanted = first || names.iter().any(|n| contains(raw, n));
         if !wanted {
@@ -1300,7 +1674,7 @@ fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
         }
         match (kind, p["type"].as_str().unwrap_or_default()) {
             ("session_meta", _) => {
-                if codex_subagent(p) {
+                if codex_subagent(p) && !child {
                     return None;
                 }
                 t.id = p["id"].as_str().unwrap_or_default().to_string();
@@ -1326,7 +1700,30 @@ fn read_codex(path: &Path, detail: Detail) -> Option<Transcript> {
                 }
             }
             ("response_item", "function_call") if detail == Detail::Tools => {
-                t.messages.extend(json_call(p).as_ref().and_then(|c| chunk_message(c, &at)));
+                let call = json_call(p);
+                t.messages.extend(call.as_ref().and_then(|c| chunk_message(c, &at)));
+                if let (Some(table), Some(Chunk::Call { id, name, summary, task, .. })) = (tasks.as_ref(), call.as_ref())
+                    && let Some((kind, title)) = call_task(table, name, task.description.as_deref(), task.subagent_type.as_deref(), task.background, summary)
+                {
+                    t.tasks.push(Task {
+                        id: id.clone(),
+                        kind,
+                        name: title,
+                        state: TaskState::Running,
+                        started: at.clone(),
+                        ended: None,
+                        tool_use_id: id.clone(),
+                        summary: None,
+                        transcript: None,
+                    });
+                }
+            }
+            ("response_item", "function_call_output") if detail == Detail::Tools => {
+                let id = p["call_id"].as_str().unwrap_or_default();
+                if let Some(task) = t.tasks.iter_mut().find(|task| task.tool_use_id == id) {
+                    task.state = TaskState::Done;
+                    task.ended = Some(at.clone());
+                }
             }
             ("response_item", "message") => {
                 let role = match p["role"].as_str() {
@@ -1405,8 +1802,17 @@ fn json_call(v: &Value) -> Option<Chunk> {
     let name = ["name", "toolName", "tool"].iter().find_map(|k| v[*k].as_str()).filter(|n| !n.is_empty())?;
     let args = ["input", "arguments", "args", "parameters"].iter().map(|k| &v[*k]).find(|a| !a.is_null());
     let summary = args.map(arg_line).unwrap_or_default();
-    let about = args.and_then(|a| a["description"].as_str()).map(tool_line).filter(|d| !d.is_empty() && *d != summary);
-    Some(Chunk::Call { id: String::new(), name: name.to_string(), summary, about })
+    let parsed = args.and_then(|a| a.as_str()).and_then(|s| serde_json::from_str::<Value>(s).ok());
+    let args = parsed.as_ref().or(args);
+    let description = args.and_then(|a| a["description"].as_str()).map(tool_line).filter(|d| !d.is_empty());
+    let about = description.clone().filter(|d| *d != summary);
+    let id = ["call_id", "id", "toolCallId"].iter().find_map(|k| v[*k].as_str()).unwrap_or_default().to_string();
+    let task = CallTask {
+        description,
+        subagent_type: args.and_then(|a| a["subagent_type"].as_str().or(a["agent_type"].as_str())).map(str::to_string),
+        background: args.is_some_and(|a| a["run_in_background"] == true),
+    };
+    Some(Chunk::Call { id, name: name.to_string(), summary, about, task })
 }
 
 /// The telling field of a call's arguments, on one line; arguments written as a JSON string are read first.
@@ -1431,7 +1837,7 @@ pub fn arg_line(args: &Value) -> String {
 /// A chunk as a message, when it is a call.
 fn chunk_message(chunk: &Chunk, at: &str) -> Option<Message> {
     match chunk {
-        Chunk::Call { name, summary, about, .. } => Some(tool_message(at, name, summary.clone(), None, about.clone())),
+        Chunk::Call { id, name, summary, about, .. } => Some(tool_message(at, id, name, summary.clone(), None, about.clone())),
         _ => None,
     }
 }
@@ -1819,7 +2225,7 @@ fn read_gemini(path: &Path, detail: Detail) -> Option<Transcript> {
                             _ => None,
                         };
                         let name = call["displayName"].as_str().or(call["name"].as_str()).unwrap_or("tool");
-                        t.messages.push(tool_message(&at, name, summary, ok, None));
+                        t.messages.push(tool_message(&at, call["id"].as_str().unwrap_or_default(), name, summary, ok, None));
                     }
                 }
             }
@@ -2025,6 +2431,167 @@ mod tests {
             "the call sits where it was made, and its result says it failed"
         );
         assert_eq!(told.text(4096), t.text(4096), "a call is not words");
+    }
+
+    /// A parent's turn that spawns a subagent (launched async, its result naming the agent), runs a job in the
+    /// background, and gets both notifications.
+    fn claude_task_lines() -> Vec<Value> {
+        let call = |at: &str, id: &str, name: &str, input: Value| json!({"type": "assistant", "timestamp": at, "message": {"id": id, "content": [{"type": "tool_use", "id": id, "name": name, "input": input}]}});
+        vec![
+            json!({"type": "user", "cwd": "/r/api", "sessionId": "c-9", "timestamp": "2026-11-03T10:00:00Z", "message": {"role": "user", "content": "Find the slow quota test and run the suite meanwhile"}}),
+            call(
+                "2026-11-03T10:00:05Z",
+                "toolu_agent",
+                "Agent",
+                json!({"description": "Find the slow test", "subagent_type": "Explore", "prompt": "Find the slowest test under test/quotas"}),
+            ),
+            json!({"type": "user", "timestamp": "2026-11-03T10:00:06Z", "message": {"role": "user", "content": [{"tool_use_id": "toolu_agent", "type": "tool_result", "content": [{"type": "text", "text": "Async agent launched successfully.\nagentId: a1f2e3d4 (internal ID)"}]}]},
+                   "toolUseResult": {"isAsync": true, "status": "async_launched", "agentId": "a1f2e3d4", "description": "Find the slow test", "outputFile": "/tmp/tasks/a1f2e3d4.output"}}),
+            call(
+                "2026-11-03T10:00:07Z",
+                "toolu_bash",
+                "Bash",
+                json!({"command": "mix test test/quotas", "description": "Run the quota tests", "run_in_background": true}),
+            ),
+            json!({"type": "user", "timestamp": "2026-11-03T10:00:08Z", "message": {"role": "user", "content": [{"tool_use_id": "toolu_bash", "type": "tool_result", "content": "Command running in background with ID: b7k2m9xq1. Output is being written to: /tmp/tasks/b7k2m9xq1.output.", "is_error": false}]},
+                   "toolUseResult": {"stdout": "", "stderr": "", "interrupted": false, "backgroundTaskId": "b7k2m9xq1"}}),
+            call("2026-11-03T10:00:09Z", "toolu_ls", "Bash", json!({"command": "ls test/quotas"})),
+            json!({"type": "user", "timestamp": "2026-11-03T10:00:10Z", "message": {"role": "user", "content": [{"tool_use_id": "toolu_ls", "type": "tool_result", "content": "daily_test.exs", "is_error": false}]}}),
+            json!({"type": "assistant", "timestamp": "2026-11-03T10:00:11Z", "message": {"id": "m3", "content": [{"type": "text", "text": "Both run in the background; I will report when they finish."}]}}),
+            json!({"type": "user", "timestamp": "2026-11-03T10:02:00Z", "message": {"role": "user", "content": "<task-notification>\n<task-id>a1f2e3d4</task-id>\n<status>completed</status>\n<summary>The slowest test is daily_test.exs:41, at 3.2 s.</summary>\n<output-file>/tmp/tasks/a1f2e3d4.output</output-file>\n</task-notification>"}}),
+            json!({"type": "user", "timestamp": "2026-11-03T10:02:30Z", "message": {"role": "user", "content": "<task-notification>\n<task-id>b7k2m9xq1</task-id>\n<status>failed</status>\n<summary>Background command \"Run the quota tests\" failed (exit code 1)</summary>\n</task-notification>"}}),
+        ]
+    }
+
+    #[test]
+    fn a_claude_transcript_lists_the_subagents_and_background_jobs_its_turns_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut lines = claude_task_lines();
+        let path = write(dir.path(), "-r-api/c-9.jsonl", &lines[..8]);
+        let t = read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        fn shown(t: &Transcript) -> Vec<(TaskKind, &str, &str, TaskState, &str)> {
+            t.tasks.iter().map(|x| (x.kind, x.id.as_str(), x.name.as_str(), x.state, x.tool_use_id.as_str())).collect()
+        }
+        assert_eq!(
+            shown(&t),
+            [
+                (TaskKind::Subagent, "a1f2e3d4", "Find the slow test", TaskState::Running, "toolu_agent"),
+                (TaskKind::Background, "b7k2m9xq1", "Run the quota tests", TaskState::Running, "toolu_bash"),
+            ],
+            "the results name each task's id; a plain call starts none"
+        );
+        assert_eq!(t.tasks[0].started, "2026-11-03T10:00:05Z");
+        assert_eq!(
+            t.messages.iter().filter_map(|m| m.tool.as_ref()).map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["toolu_agent", "toolu_bash", "toolu_ls"],
+            "each call carries its id"
+        );
+
+        let path = write(dir.path(), "-r-api/c-9.jsonl", &lines);
+        let t = read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        assert_eq!(shown(&t).iter().map(|x| x.3).collect::<Vec<_>>(), [TaskState::Done, TaskState::Failed], "the notifications end each task by its id");
+        assert_eq!(
+            (t.tasks[0].ended.as_deref(), t.tasks[0].summary.as_deref()),
+            (Some("2026-11-03T10:02:00Z"), Some("The slowest test is daily_test.exs:41, at 3.2 s."))
+        );
+        assert_eq!(t.messages.iter().filter(|m| m.role == Role::User).count(), 1, "a notification is no message of the person's");
+        assert!(read(Transcripts::Claude, &path).unwrap().tasks.is_empty(), "tasks are read with the tool calls only");
+
+        // A spawn whose result comes back whole, and a background job that was not asked for.
+        lines[2]["toolUseResult"] = json!({"status": "completed"});
+        lines[2]["message"]["content"][0]["content"] = json!("The slowest test is daily_test.exs:41");
+        lines[3]["message"]["content"][0]["input"]["run_in_background"] = json!(false);
+        let path = write(dir.path(), "-r-api/c-10.jsonl", &lines[..6]);
+        let t = read_detail(Transcripts::Claude, &path, Detail::Tools).unwrap();
+        assert_eq!(
+            shown(&t),
+            [(TaskKind::Subagent, "toolu_agent", "Find the slow test", TaskState::Done, "toolu_agent")],
+            "a synchronous spawn is over with its result"
+        );
+        assert_eq!(
+            task_notification("<task-notification>\n<task-id>x1</task-id>\n<status>killed</status>\n</task-notification>"),
+            Some(Notice { id: "x1".into(), status: "killed".into(), summary: None, output_file: None })
+        );
+        assert_eq!(task_notification("Fix the rounding"), None);
+        assert_eq!(background_id("Command running in background with ID: b7k2m9xq1. Output is being written to: /tmp/x").as_deref(), Some("b7k2m9xq1"));
+    }
+
+    #[test]
+    fn a_subagent_s_file_reads_when_asked_and_is_found_beside_its_parent() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let parent = write(dir.path(), "-r-api/c-9.jsonl", &claude_task_lines()[..8]);
+        let child_lines = [
+            json!({"type": "user", "isSidechain": true, "agentId": "a1f2e3d4", "sessionId": "c-9", "cwd": "/r/api", "timestamp": "2026-11-03T10:00:06Z", "message": {"role": "user", "content": "Find the slowest test under test/quotas"}}),
+            json!({"type": "assistant", "isSidechain": true, "agentId": "a1f2e3d4", "timestamp": "2026-11-03T10:00:07Z", "message": {"id": "s1", "model": "claude-haiku-5-5", "content": [{"type": "tool_use", "id": "toolu_sub", "name": "Bash", "input": {"command": "mix test --slowest 1"}}]}}),
+            json!({"type": "user", "isSidechain": true, "agentId": "a1f2e3d4", "timestamp": "2026-11-03T10:00:09Z", "message": {"role": "user", "content": [{"tool_use_id": "toolu_sub", "type": "tool_result", "content": "daily_test.exs:41 3.2s"}]}}),
+            json!({"type": "assistant", "isSidechain": true, "agentId": "a1f2e3d4", "timestamp": "2026-11-03T10:00:10Z", "message": {"id": "s2", "content": [{"type": "text", "text": "The slowest test is daily_test.exs:41, at 3.2 s."}]}}),
+        ];
+        let child = write(dir.path(), "-r-api/c-9/subagents/agent-a1f2e3d4.jsonl", &child_lines);
+        // A followed file reads whole lines only: the agent ends each with a newline.
+        std::fs::OpenOptions::new().append(true).open(&child).unwrap().write_all(b"\n").unwrap();
+        assert_eq!(read_detail(Transcripts::Claude, &child, Detail::Tools), None, "the plain reader skips sidechain lines: nothing typed");
+        let t = read_subagent(Transcripts::Claude, &child, Detail::Tools).unwrap();
+        assert_eq!(t.title, "Find the slowest test under test/quotas");
+        assert_eq!(
+            t.messages.iter().map(|m| (m.role, m.text.as_str(), m.tool.as_ref().map(|c| c.name.as_str()))).collect::<Vec<_>>(),
+            [
+                (Role::User, "Find the slowest test under test/quotas", None),
+                (Role::Assistant, "", Some("Bash")),
+                (Role::Assistant, "The slowest test is daily_test.exs:41, at 3.2 s.", None)
+            ]
+        );
+        assert_eq!(t.model.as_deref(), Some("claude-haiku-5-5"));
+        let mut follow = Follow::subagent(Transcripts::Claude, &child, Detail::Tools);
+        assert_eq!(follow.read().map(|t| t.messages.len()), Some(3), "followed, the same");
+        let all = all_in(Transcripts::Claude, dir.path());
+        assert_eq!(all.len(), 1, "the session index lists the parent alone");
+        assert!(all.contains_key(parent.to_string_lossy().as_ref()));
+
+        let parent_t = read_detail(Transcripts::Claude, &parent, Detail::Tools).unwrap();
+        let found = subagents_of(Transcripts::Claude, &parent, &parent_t);
+        assert_eq!(found, [Found { id: "a1f2e3d4".into(), path: child.clone() }]);
+        let mut tasks = parent_t.tasks.clone();
+        match_subagents(&mut tasks, &found);
+        assert_eq!(tasks[0].transcript.as_deref(), Some(child.as_path()), "matched by the id the result named");
+        assert_eq!(tasks[1].transcript, None, "a background job has no file");
+        // A spawn whose result named no id gets the file in order.
+        let mut unnamed = parent_t.tasks.clone();
+        unnamed[0].id = "toolu_agent".into();
+        match_subagents(&mut unnamed, &found);
+        assert_eq!(unnamed[0].transcript.as_deref(), Some(child.as_path()));
+        assert!(
+            subagents_of(Transcripts::Claude, &write(dir.path(), "-r-api/c-11.jsonl", &claude_task_lines()[..1]), &parent_t).is_empty(),
+            "no folder, none found"
+        );
+    }
+
+    #[test]
+    fn a_codex_rollout_codex_spawned_reads_when_asked_and_is_found_in_its_parent_s_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let codex = dir.path().join("codex");
+        let today = chrono::Local::now().format("%Y/%m/%d").to_string();
+        let parent_id = "0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5b";
+        let child_id = "0aa1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5c";
+        let mut parent_lines = codex_lines(parent_id, "/r/api", "main");
+        parent_lines[7] = json!({"timestamp": "2026-11-03T10:00:11.000Z", "type": "response_item", "payload": {"type": "function_call", "name": "spawn_agent", "arguments": "{\"description\":\"Find the slow test\",\"prompt\":\"Find it\"}", "call_id": "c1"}});
+        parent_lines[8] = json!({"timestamp": "2026-11-03T10:00:12.000Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "c1", "output": "spawned"}});
+        let parent = write(&codex, &format!("sessions/{today}/rollout-2026-11-03T10-00-00-{parent_id}.jsonl"), &parent_lines);
+        let mut child_lines = codex_lines(child_id, "/r/api", "main");
+        child_lines[0]["payload"]["source"] = json!({"subagent": {"thread_spawn": {"parent_thread_id": parent_id, "depth": 1}}});
+        let child = write(&codex, &format!("sessions/{today}/rollout-2026-11-03T10-00-05-{child_id}.jsonl"), &child_lines);
+        let _homes = Homes::set(&[("CODEX_HOME", &codex)]);
+        assert_eq!(read_detail(Transcripts::Codex, &child, Detail::Tools), None, "the plain reader leaves it out");
+        let t = read_subagent(Transcripts::Codex, &child, Detail::Tools).unwrap();
+        assert_eq!((t.id.as_str(), t.messages.len()), (child_id, 3));
+        let parent_t = read_detail(Transcripts::Codex, &parent, Detail::Tools).unwrap();
+        assert_eq!(
+            parent_t.tasks.iter().map(|x| (x.kind, x.name.as_str(), x.state, x.tool_use_id.as_str())).collect::<Vec<_>>(),
+            [(TaskKind::Subagent, "Find the slow test", TaskState::Done, "c1")]
+        );
+        let found = subagents_of(Transcripts::Codex, &parent, &parent_t);
+        assert_eq!(found.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), [child_id], "the rollout it spawned in the same folder, not itself");
+        assert_eq!(all(Transcripts::Codex).len(), 2, "the index lists both files as before");
     }
 
     #[test]
