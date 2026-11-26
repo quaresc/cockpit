@@ -171,13 +171,15 @@ fn tend() {
     let claude = claude();
     let wanted = claude.is_some() && config::load().0["fetcher"] != false && !mcp_sources().is_empty();
     let current = std::fs::read_to_string(launched_by()).is_ok_and(|v| v.trim() == env!("CARGO_PKG_VERSION"));
-    // Nothing to ask herdr when nothing is wanted and no `hc` could hold a fetcher.
-    let Some(via) = (if wanted || hc_installed() { via() } else { None }) else { return };
+    // Nothing to ask herdr when nothing is wanted and no `hc` terminal or herdr space could hold a fetcher.
+    let Some(via) = (if wanted || hc_installed() || space_file().exists() { via() } else { None }) else { return };
     match (wanted, running(via)) {
         (true, false) => launch(via, &claude.unwrap_or_default()),
         // The next round launches it again, on this hub's plugin.
         (true, true) if !current => kill(via),
         (false, true) => kill(via),
+        // A space left without Claude Code, or a stale id, goes too.
+        (false, false) if via == Via::Herdr => kill(via),
         _ => {}
     }
 }
