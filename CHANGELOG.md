@@ -5,6 +5,13 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.6.1 (2026-11-26)
+
+- Fix "o" on an inbox PR opening nothing on Linux (#105)
+- feat: mark pinned apps in the monitor and answer pin and mute at once (#107)
+- feat: monitor.releaseDays sets how far back releases show (#106)
+- fix: run the fetcher through herdr when the Herdr app's hc is missing (#108)
+
 ## 1.6.0 (2026-11-26)
 
 - New: switching agents in Cockpit Chat is fast: the chat builds its one row, reads terminal screens between builds, pages the conversation with a cursor and sends the messages apart from what moves while a turn runs; the last conversation shows at once while the hub answers (#109)
