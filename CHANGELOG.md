@@ -7,10 +7,10 @@ must be here first.
 
 ## 1.6.1 (2026-11-26)
 
-- Fix "o" on an inbox PR opening nothing on Linux (#105)
-- feat: mark pinned apps in the monitor and answer pin and mute at once (#107)
-- feat: monitor.releaseDays sets how far back releases show (#106)
-- fix: run the fetcher through herdr when the Herdr app's hc is missing (#108)
+- New: pinned apps carry a pin in the monitor, and pinning or muting an app shows at once instead of after the next refresh (#107)
+- New: monitor.releaseDays sets how many days back releases show and an app stays watched after its last deploy, one by default (#106)
+- Fix: o on an inbox PR opens it in the browser on Linux again (#105)
+- Fix: with herdr alone and no Herdr app, the hub runs its fetcher session in a space of its own, so the monitor refreshes by itself (#108)
 
 ## 1.6.0 (2026-11-26)
 
