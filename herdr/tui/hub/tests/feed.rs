@@ -125,6 +125,8 @@ fn github_and_linear_land_in_the_caches_beside_the_mods_fields() {
     assert_eq!(inbox["direct"][0]["url"], "https://github.com/acme/web/pull/9");
     assert_eq!(inbox["team"][0]["url"], "https://github.com/acme/docs/pull/3");
     assert_eq!(inbox["botRepos"], json!(["api"]));
+    assert_eq!(inbox["botPrs"].as_array().map(Vec::len), Some(1), "the bot's request is kept as a PR the Review section lists");
+    assert_eq!(inbox["botPrs"][0]["repo"], "api");
     assert_eq!(inbox["mine"][0]["failedChecks"], json!(["lint", "ci/circleci: test"]));
     assert_eq!(inbox["merged"][0]["mergeSha"], "abc123");
     assert_eq!(inbox["tickets"].as_array().unwrap().len(), 4);

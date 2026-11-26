@@ -26,6 +26,17 @@ fn by_status() {
 }
 
 #[test]
+fn f_goes_round_the_review_requests_yours_team_bots_and_all() {
+    let mut app = app(false);
+    assert!(render(&mut app, 120, HEIGHT).contains("f me/team/bots"), "the legend names the key");
+    for word in ["yours", "team", "bots", "all"] {
+        typed(&mut app, "f");
+        let seen = render(&mut app, 120, HEIGHT);
+        assert!(seen.contains(&format!("Review requests: {word}")), "f once more says {word}: {seen}");
+    }
+}
+
+#[test]
 fn filtered_while_typing_and_kept() {
     let mut app = app(false);
     typed(&mut app, "/quota");

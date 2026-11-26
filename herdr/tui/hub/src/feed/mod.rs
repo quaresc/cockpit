@@ -255,7 +255,7 @@ impl Feed {
                     if plan.github_ci {
                         runs = Some(Ok(github_ci::runs(&data.mine_nodes, &prev_ci, &image_job, &mut |slug, job| github::failed_step(&token, slug, job))));
                     }
-                    part = Some(InboxPart { github: Some(merge::github_fields(&data)), ..InboxPart::default() });
+                    part = Some(InboxPart { github: Some(merge::github_fields(&data)), bots: data.bots.clone(), ..InboxPart::default() });
                 }
                 Err(_) => {
                     if plan.github_ci {

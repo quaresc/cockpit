@@ -71,7 +71,7 @@ pub fn model_of(inputs: &Inputs, config: &Config, by_status: bool, local: &mut L
     let data = model::usable(inputs).cloned().unwrap_or(Value::Null);
     let ids: Vec<String> = list(&data, "tickets").iter().map(|t| s(t, "id").to_string()).collect();
     let series = series(&ids);
-    let ctx = Ctx { config, by_status, compact: false, series: &series };
+    let ctx = Ctx { config, by_status, review: Default::default(), compact: false, series: &series };
     let (head, top) = model::model(inputs, &ctx, local);
     let state = match (&inputs.data, model::usable(inputs)) {
         (None, _) => "empty",
