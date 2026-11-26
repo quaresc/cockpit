@@ -7,18 +7,18 @@ must be here first.
 
 ## Unreleased
 
-- New: switching agents in Cockpit Chat is fast: the chat builds its one row, reads terminal screens between builds, pages the conversation with a cursor and sends the messages apart from what moves while a turn runs; the last conversation shows at once while the hub answers
-- New: every page a conversation cites stays in the links row, grouped per service (GitHub · 2, Notion · 3), each group a menu; GitHub PRs cited are links too
-- New: the ticket, PR and CI of an agent come from its session alone (what it cites or creates); `links.fromBranch` brings back the ones read from its branch name
-- New: Review and Changes say which repo and branch they show; Review picks among the session's repos and branches, and reviews a branch not checked out from its commits
-- New: a `/` command typed for a terminal agent is mirrored into its own box: its completion menu is the hints, and what the command opens (`/model`, `/effort`, `/resume`, `/config`, a yes or no) comes back as a card with its keys; a driven session takes `/model`, `/effort` and `/fast` as settings and refuses what only a terminal shows
-- New: the models, modes and effort levels Cockpit Chat offers are read from each CLI (`list_models`, `--help`) and kept per version; a driven session's commands get their descriptions from the files its agent reads
-- New: subagents and background jobs show on the turn that started them and in a strip above the box; a subagent's conversation opens in the chat
-- New: ⏎ in the chat box sends, ⇧⏎ is a new line
-- New: `cockpit hub view <name>` prints a view with its time, and `COCKPIT_HUB_TIMING=1` logs every build's
-- Fix: Mail shows unread mail again: unread comes from an `is:unread` listing and dates from a metadata read, since the Gmail connector's listing carries neither; the first refresh announces the current unread mail once
-- Fix: the "file opened last" button is gone from the side panel's bar; the file still opens there on a click
-- Note: `links.fromBranch` is asked once after the update; the mail mapping gains `listUnread` and `peek`
+- New: switching agents in Cockpit Chat is fast: the chat builds its one row, reads terminal screens between builds, pages the conversation with a cursor and sends the messages apart from what moves while a turn runs; the last conversation shows at once while the hub answers (#109)
+- New: every page a conversation cites stays in the links row, grouped per service (GitHub · 2, Notion · 3), each group a menu; GitHub PRs cited are links too (#109)
+- New: the ticket, PR and CI of an agent come from its session alone (what it cites or creates); `links.fromBranch` brings back the ones read from its branch name (#109)
+- New: Review and Changes say which repo and branch they show; Review picks among the session's repos and branches, and reviews a branch not checked out from its commits (#109)
+- New: a `/` command typed for a terminal agent is mirrored into its own box: its completion menu is the hints, and what the command opens (`/model`, `/effort`, `/resume`, `/config`, a yes or no) comes back as a card with its keys; a driven session takes `/model`, `/effort` and `/fast` as settings and refuses what only a terminal shows (#109)
+- New: the models, modes and effort levels Cockpit Chat offers are read from each CLI (`list_models`, `--help`) and kept per version; a driven session's commands get their descriptions from the files its agent reads (#109)
+- New: subagents and background jobs show on the turn that started them and in a strip above the box; a subagent's conversation opens in the chat (#109)
+- New: ⏎ in the chat box sends, ⇧⏎ is a new line (#109)
+- New: `cockpit hub view <name>` prints a view with its time, and `COCKPIT_HUB_TIMING=1` logs every build's (#109)
+- Fix: Mail shows unread mail again: unread comes from an `is:unread` listing and dates from a metadata read, since the Gmail connector's listing carries neither; the first refresh announces the current unread mail once (#109)
+- Fix: the "file opened last" button is gone from the side panel's bar; the file still opens there on a click (#109)
+- Note: `links.fromBranch` is asked once after the update; the mail mapping gains `listUnread` and `peek` (#109)
 
 ## 1.5.3 (2026-11-25)
 
