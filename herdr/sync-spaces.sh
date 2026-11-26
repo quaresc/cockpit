@@ -1,12 +1,15 @@
 #!/bin/sh
 # Names each single-tab space after its tab, so the sidebar's space list reads as the task list.
-# The pinned spaces and shell tabs keep their own names; automatic-rename adds the "[N] " prefix.
+# The pinned spaces, shell tabs and the hub's fetcher keep their own names; automatic-rename adds the "[N] " prefix.
 . "$(dirname "$0")/lib.sh"
 tabs=$("$H" tab list) || exit 0
-"$H" workspace list | jq -r --argjson tabs "$tabs" --arg pinned "$SPACES" '
+# The fetcher's space, by the id the hub wrote down: its tab is named after Claude Code, which would hide why it is there.
+fetcher=$(tr -d '[:space:]' <"$HOME/.cache/cockpit/fetcher.space" 2>/dev/null)
+"$H" workspace list | jq -r --argjson tabs "$tabs" --arg pinned "$SPACES" --arg fetcher "$fetcher" '
   def strip: sub("^\\[[0-9]+\\] "; "");
   .result.workspaces[]
   | select(.tab_count == 1)
+  | select($fetcher == "" or .workspace_id != $fetcher)
   | . as $w
   | ($tabs.result.tabs[] | select(.workspace_id == $w.workspace_id) | .label | strip) as $want
   | select(any($pinned | split("\n")[] | select(. != ""); . as $n | $w.label | endswith("  " + $n)) | not)
