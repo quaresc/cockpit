@@ -18,7 +18,16 @@ test('the work row keeps the CI progress, tightening and shortening the repo fir
 test('a topic drops whole words to fit', async () => {
   expect(fitWords('ops 4120 runbook step 11', 24)).toBe('ops 4120 runbook step 11')
   expect(fitWords('ops 4120 runbook step 11', 22)).toBe('ops 4120 runbook step')
+  expect(fitWords('Workspace icon for claude', 24)).toBe('Workspace icon for')
   expect(fitWords('refactoring', 5)).toBe('refactoring')
+})
+
+test('a topic whose whole words would leave less than half the room is cut inside, with an ellipsis', async () => {
+  const cut = fitWords('review observability-tf#156', 24)
+  expect(cut).toBe('review observability-tf…')
+  expect(cells(cut) <= 24).toBe(true)
+  expect(fitWords('review terraform#1108', 24)).toBe('review terraform#1108')
+  expect(cells(fitWords('averyveryverylongsinglewordfirst then more', 12)) <= 12).toBe(true)
 })
 
 const PR = { repo: 'api', number: 2198, title: 'Daily quotas', url: 'https://github.com/acme/api/pull/2198', author: 'me', updatedAt: '2026-11-20T10:00:00Z', isDraft: false, isDirect: false, review: null, ci: 'FAILURE', branch: 'me/eng-412-daily-quotas' }

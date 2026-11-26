@@ -77,7 +77,7 @@ fn an_action_runs_in_a_tab_of_the_actions_space() {
     let sandbox = with_herdr("{}");
     let (reply, calls) = act(&sandbox, "review", &format!("[{PR4}]"));
     let tab = find(&calls, &["tab", "create"]);
-    assert_eq!((after(tab, "--workspace"), after(tab, "--label")), ("w3", "review api#4"));
+    assert_eq!((after(tab, "--workspace"), after(tab, "--label")), ("w3", "\u{f441}  api#4"));
     let run = find(&calls, &["pane", "run"]);
     assert_eq!(run[2], "wT:p1");
     let script = script_of(&run[3]);
@@ -86,9 +86,9 @@ fn an_action_runs_in_a_tab_of_the_actions_space() {
         "{script}"
     );
     assert_eq!(prompt_of(&run[3]), "/code-review 4", "even a prompt of cockpit's own goes by file");
-    assert_eq!(reply["note"], "started \"review api#4\" in the actions space");
+    assert_eq!(reply["note"], "started \"\u{f441}  api#4\" in the actions space");
     let kept = std::fs::read_to_string(sandbox.home().join(".cache/cockpit/actions.json")).unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&kept).unwrap()["review api#4"], "wT:p1");
+    assert_eq!(serde_json::from_str::<Value>(&kept).unwrap()["\u{f441}  api#4"], "wT:p1");
 }
 
 #[test]

@@ -26,7 +26,7 @@
   "error": null,
   "files": {
     "home/.cache/cockpit/actions.json": {
-      "review web#9": "w9:p1",
+      "  web#9": "w9:p1",
       "talk eng-403": "w9:p4"
     }
   },

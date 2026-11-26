@@ -104,7 +104,7 @@ fn cases() -> Vec<Case> {
         case("review without the actions space", "inbox", "review", r#"[{"repo": "docs", "number": 3, "url": "https://github.com/acme/docs/pull/3"}]"#)
             .herdr(NO_ACTIONS),
         case("review whose space runs", "inbox", "review", r#"[{"repo": "docs", "number": 3, "url": "https://github.com/acme/docs/pull/3"}]"#)
-            .herdr(r#"{"workspace list": {"workspaces": [{"workspace_id": "w8", "label": "[8] review docs#3"}]}}"#),
+            .herdr(r#"{"workspace list": {"workspaces": [{"workspace_id": "w8", "label": "[8]   docs#3"}]}}"#),
         case("review with herdr failing", "inbox", "review", format!("[{PR4}]"))
             .herdr(r#"{"workspace": {"fail": "herdr is down"}}"#)
             .config(r#"{"spaces": ["inbox"]}"#),

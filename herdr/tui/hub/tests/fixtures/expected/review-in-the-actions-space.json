@@ -17,7 +17,7 @@
         "--cwd",
         "<BOX>/repos/api",
         "--label",
-        "review api#4",
+        "  api#4",
         "--focus"
       ],
       "cmd": "herdr",
@@ -55,7 +55,7 @@
         "pane",
         "run",
         "wT:p1",
-        "sh <BOX>/home/.cache/cockpit/prompts/review-api-4-<R>.sh"
+        "sh <BOX>/home/.cache/cockpit/prompts/api-4-<R>.sh"
       ],
       "cmd": "herdr",
       "stdin": null
@@ -65,14 +65,14 @@
   "files": {
     "home/.cache/cockpit/actions.json": {
       "plan eng-401": "w9:p2",
-      "review api#4": "wT:p1",
-      "review web#9": "w9:p1",
+      "  api#4": "wT:p1",
+      "  web#9": "w9:p1",
       "talk eng-403": "w9:p4"
     },
-    "home/.cache/cockpit/prompts/review-api-4-<R>.prompt": "/code-review 4",
-    "home/.cache/cockpit/prompts/review-api-4-<R>.sh": "# An agent on a prompt read from a file: nothing of it is typed into a shell.\nP=<BOX>/home/.cache/cockpit/prompts/review-api-4-<R>.prompt\nexec env COCKPIT_REVIEW_PR=https://github.com/acme/api/pull/4 COCKPIT_REVIEW_BRANCH=me/eng-401-login claude ''\"$(cat \"$P\")\"''\n"
+    "home/.cache/cockpit/prompts/api-4-<R>.prompt": "/code-review 4",
+    "home/.cache/cockpit/prompts/api-4-<R>.sh": "# An agent on a prompt read from a file: nothing of it is typed into a shell.\nP=<BOX>/home/.cache/cockpit/prompts/api-4-<R>.prompt\nexec env COCKPIT_REVIEW_PR=https://github.com/acme/api/pull/4 COCKPIT_REVIEW_BRANCH=me/eng-401-login claude ''\"$(cat \"$P\")\"''\n"
   },
-  "note": "started \"review api#4\" in the actions space",
+  "note": "started \"  api#4\" in the actions space",
   "pending": {},
   "refreshing": []
 }
