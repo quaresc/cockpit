@@ -28,10 +28,6 @@ const work = atom({ plugin: 'cockpit', key: 'work' } as const, null)
 
 // The footer under the prompt: chips for what this conversation works on, its views and the page beside it.
 
-const GITHUB_PR = /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/g
-
-const lastMatch = (text: string, pattern: RegExp) => [...text.matchAll(pattern)].at(-1)?.[0]
-
 async function conversationText($: $) {
   return (await $.session.messages())
     .slice(-40)
@@ -45,18 +41,21 @@ export async function refreshViews($: $) {
   if (JSON.stringify(next) !== JSON.stringify(await read($, views))) await update($, views, () => next)
 }
 
-// What this conversation works on: the ticket it names last (else its branch's), and the links it cites.
+// What this conversation works on: the ticket it names last (else its branch's, with `links.fromBranch`), and the
+// links it cites.
 export async function refreshLinks($: $, prompt = '') {
   const text = `${await conversationText($)}\n${prompt}`
   const data = await read($, inbox)
   const current = await read($, work)
   const branch = current ? await branchOf($, current) : undefined
-  const { tickets } = await loadConfig($)
-  const id = tickets.enabled ? (ticketsIn(text, data, tickets.keys).at(-1) ?? (branch ? ticketKey(branch, data, tickets.keys) : undefined)) : undefined
+  const { tickets, links: fromLinks } = await loadConfig($)
+  const named = ticketsIn(text, data, tickets.keys).at(-1)
+  const id = tickets.enabled ? (named ?? (branch && fromLinks.fromBranch ? ticketKey(branch, data, tickets.keys) : undefined)) : undefined
   // Without the ticket itself, its URL comes from the template or an assigned ticket's.
   const guessed = id ? (ticketUrl(tickets, id, data?.tickets) ?? '') : ''
   const fromTicket = id ? ((await linksFor($, id, data).catch(() => null)) ?? { id, title: '', url: guessed, at: 0 }) : null
-  const pr = lastMatch(text, GITHUB_PR) ?? (await reviewFocus($))?.url
+  const cited = citedIn([text], 'last')
+  const pr = cited.pr ?? (await reviewFocus($))?.url
   const found: TicketLinks = {
     id: id ?? '',
     tracker: tickets.name,
@@ -64,7 +63,7 @@ export async function refreshLinks($: $, prompt = '') {
     url: fromTicket?.url ?? '',
     pr: pr ? { url: pr, number: Number(pr.split('/').pop()) } : fromTicket?.pr,
     // The newest page of each site the conversation names wins over the ticket's own.
-    cited: { ...fromTicket?.cited, ...citedIn([text], 'last') },
+    cited: { ...fromTicket?.cited, ...cited },
     at: Date.now(),
   }
   const repo = current?.repo ?? found.pr?.url.match(/github\.com\/[^/]+\/([^/]+)\/pull/)?.[1]

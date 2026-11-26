@@ -1260,7 +1260,8 @@ impl Doctor {
         let hub_mail = self.config.as_ref().is_some_and(|c| c["servers"][mail_server.as_str()].is_object());
         if is_true(or(&mail["enabled"], &Value::Bool(false))) && !mail_server.is_empty() && !hub_mail {
             let prefix = format!("mcp__{}", rule_name(&mail_server));
-            let mut tools: Vec<&str> = ["listInbox", "get", "archive", "markRead"].iter().filter_map(|v| mail["tools"][*v]["tool"].as_str()).collect();
+            let mut tools: Vec<&str> =
+                ["listInbox", "listUnread", "peek", "get", "archive", "markRead"].iter().filter_map(|v| mail["tools"][*v]["tool"].as_str()).collect();
             // One check per tool, however many verbs it serves.
             let mut seen = std::collections::HashSet::new();
             tools.retain(|t| seen.insert(*t));

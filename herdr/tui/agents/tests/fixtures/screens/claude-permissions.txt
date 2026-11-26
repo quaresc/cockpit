@@ -1,0 +1,38 @@
+ ▝▝   ▝▝   /Users/me/code/api
+
+
+
+❯ /model
+  ⎿  Set model to Haiku 4.5 for this session only
+
+❯ /effort
+  ⎿  Cancelled
+
+❯ /model
+  ⎿  Set model to Opus 4.6 for this session only
+
+❯ /fast
+  ⎿  Fast mode OFF
+
+❯ /resume
+  ⎿  Resume cancelled
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
+   Permissions  Recently denied   Allow   Ask   Deny   Auto mode   Workspace
+
+   Claude Code won't ask before using allowed tools.
+   ╭──────────────────────────────────────────────────────────────────╮
+   │ ⌕ Search…                                                        │
+   ╰──────────────────────────────────────────────────────────────────╯
+
+     1.  Add a new rule…
+     2.  mcp__acme_deploy
+     3.  mcp__acme_ci
+     4.  mcp__acme_metrics__get_metric
+     5.  mcp__acme_metrics__search_errors
+     6.  mcp__acme_metrics__search_monitors
+     7.  mcp__acme_metrics_2__get_metric
+     8.  mcp__acme_metrics_2__search_errors
+     9.  mcp__acme_metrics_2__search_monitors
+   ↓ 10. mcp__acme_design__create_session
+
+   ←/→ to switch · ↓ to select · Esc to cancel

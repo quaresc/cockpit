@@ -674,11 +674,13 @@ const SHAPES = {
   "bell:*": ["bell:t3", "nav"], "cockpit.go:*": ["go:inbox", "nav"], "cockpit.go:needs": ["go:needs", "nav"],
   // Commands views parse that no menu lists: shells, other views and Herdr's toasts send them.
   "chat:open:*": ["chat:open:app:t3", "nav"], reply: ["reply", "nav"], "chat:earlier": ["chat:earlier", "nav"], "chat:end": ["chat:end", "nav"],
-  "chat:handover": ["chat:handover", "nav"], "chat:start:type:*": ["chat:start:type:hello", "nav"], "chat:start:send": ["chat:start:send", "act"],
+  "chat:handover": ["chat:handover", "nav"], "chat:back": ["chat:back", "nav"], "chat:start:type:*": ["chat:start:type:hello", "nav"], "chat:start:send": ["chat:start:send", "act"],
   "chat:merge:*": ["chat:merge:0", "act"], "chat:pr:open": ["chat:pr:open", "nav"], "chat:start:new:*": ["chat:start:new:Fix the login redirect", "nav"],
+  "chat:mirror:*": ["chat:mirror:/model", "act"],
   "start:type:*": ["start:type:ENG-412", "nav"], "palette:type:*": ["palette:type:fork", "act"], "show:go:*": ["show:go:deploy#go", "nav"],
   "show:ask:*": ["show:ask:1:A", "nav"], "show:hide:*": ["show:hide:deploy", "nav"], "review:submit": ["review:submit", "act"],
   "review:open:*": ["review:open:/Users/me/code/api", "nav"], "review:follow:*": ["review:follow:app:t3", "nav"], "review:scope:*": ["review:scope:branch", "nav"],
+  "review:branch:*|*": ["review:branch:feat|/Users/me/code/api", "nav"],
   "review:mode:*": ["review:mode:walkthrough", "nav"], "code:save": ["code:save", "act"], "routines:template:*": ["routines:template:standup", "act"],
   "routines:change:*": ["routines:change:sweep", "nav"], "runbook:book:*": ["runbook:book:eng-1:talk", "act"], "runbook:done:*": ["runbook:done:eng-1#2", "act"],
   "monitor:close-windows": ["monitor:close-windows", "nav"], "monitor:close:*": ["monitor:close:iss-1", "nav"],
@@ -746,11 +748,18 @@ function views(mod, f) {
     sessions: { session: { key: "claude:1", mode: "default", messages: [] } }, cancelFocus: focus(), handle: focus(), modeKey: null,
     starter: { start: () => f.effects.push("chat start"), command: (c) => f.effects.push(`starter ${c}`) }, row: () => null, hints: () => ({ items: [] }), merging: null,
     prMerges: { url: PR, arg: { url: PR, number: 9 }, base: "main", choices: [{ do: "merge", method: "squash", label: "Squash and merge" }] },
-    open() {}, earlier() {}, handover() {}, toEnd() {}, pick: (what) => what === "clipboard" && f.effects.push(`attach ${what}`), sessionAct: (action) => f.effects.push(`session ${action}`),
+    open() {}, earlier() {}, back() {}, handover() {}, toEnd() {}, pick: (what) => what === "clipboard" && f.effects.push(`attach ${what}`), sessionAct: (action) => f.effects.push(`session ${action}`),
     choose: (what) => f.effects.push(`chat pick ${what}`) });
   chat.session = () => chat.sessions.session;
   // The PR chip's menu was opened on t3's PR: its merges wait on their key.
   chat.row = () => ({ terminal: "app:t3", pr: { url: PR, number: 9 } });
+  // Its agent's modes, as the row's `picks` list them: ⇧⇥ cycles the first three.
+  chat.picksOf = () => ({ modes: [
+    { id: "default", aliases: ["manual"], label: "Asks first", icon: "shield-check", loud: false, offered: true, unasked: false, cycle: true },
+    { id: "acceptEdits", aliases: [], label: "Edits freely", icon: "triangle-alert", loud: true, offered: true, unasked: false, cycle: true },
+    { id: "plan", aliases: [], label: "Plan only", icon: "map", loud: false, offered: true, unasked: false, cycle: true },
+    { id: "bypassPermissions", aliases: [], label: "Full access", icon: "triangle-alert", loud: true, offered: true, unasked: true, cycle: false },
+  ] });
   const top = Object.create(mod.ChatTop.prototype);
   Object.assign(top, { sizes: new Map(), sessions: [], openTabs() {} });
   // The update dialog on the options an update brought, one picked differently, and Cockpit settings on its Options tab.
@@ -823,8 +832,9 @@ test("every registered command, sent from outside the window, does nothing but n
 
 test("every action, sent with the key its menu, the palette or a click minted, acts", async () => {
   const layoutOf = { "chat:mode": "cockpit-chat", "chat:stop": "cockpit-chat", session: "cockpit-chat" };
-  // Acts a sample cannot show here: a confirm's own key (agents|unasked, mode) and palette typing, which takes none.
-  const skip = new Set(["*", "mode:*:*", "palette:type:*", "chat:start:send"]);
+  // Acts a sample cannot show here: a confirm's own key (agents|unasked, mode), palette typing, which takes none, and a
+  // command typed through a terminal's mirror, which the fixture has none of.
+  const skip = new Set(["*", "mode:*:*", "palette:type:*", "chat:start:send", "chat:mirror:*"]);
   for (const [shape, [sample, kind]] of Object.entries(SHAPES)) {
     if (kind !== "act" || skip.has(shape)) continue;
     const layout = layoutOf[sample] ?? "cockpit";

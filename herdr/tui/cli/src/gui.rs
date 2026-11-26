@@ -15,7 +15,7 @@ use crate::proc::fail;
 pub fn register() {
     views::register(Def {
         name: "agents",
-        docs: &["inbox", "ci", "agents"],
+        docs: &["agents"],
         dirs: cockpit_agents::gui::dirs,
         build: cockpit_agents::gui::view,
         act: cockpit_agents::gui::act,
@@ -49,7 +49,7 @@ pub fn register() {
     cockpit_agents::session::on_queued(crate::queue::waiting);
     views::register(Def {
         name: "chat",
-        docs: &["inbox", "ci", "agents"],
+        docs: &["agents"],
         dirs: cockpit_agents::chat::dirs,
         build: cockpit_agents::chat::view,
         act: cockpit_agents::chat::act,
@@ -207,6 +207,19 @@ fn stop(pids: &[u64]) {
 pub fn hub_stop() {
     let _ = std::fs::write(cockpit_core::hub::stopped_file(), b"");
     stop(&hubs());
+}
+
+/// Prints a view as the hub builds it now, as JSON, and how long the round trip took on stderr; `args` is JSON.
+pub fn hub_view(args: &[String]) {
+    let Some(name) = args.first() else {
+        eprintln!("usage: cockpit hub view <name> [<args-json>]");
+        std::process::exit(2);
+    };
+    let view_args: Value = args.get(1).and_then(|a| serde_json::from_str(a).ok()).unwrap_or(Value::Null);
+    let started = std::time::Instant::now();
+    let answer = cockpit_core::hub::request(&json!({"op": "view", "name": name, "args": view_args}), Duration::from_secs(30)).unwrap_or_default();
+    eprintln!("{name}: {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
+    println!("{}", answer.get("value").cloned().unwrap_or(Value::Null));
 }
 
 /// Prints the args of every drawn copy of a view, as JSON: `[]` when none is, or no hub runs.

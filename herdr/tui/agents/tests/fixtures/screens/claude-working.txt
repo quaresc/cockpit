@@ -1,0 +1,36 @@
+ ▐▛███▛█   Claude Code v2.1.311
+▝▜██████▀  Opus 4.6 with high effort · Claude Team
+ ▝▝   ▝▝   /Users/me/code/api
+
+
+
+❯ /model
+  ⎿  Set model to Haiku 4.5 for this session only
+
+❯ /effort
+  ⎿  Cancelled
+
+❯ /model
+  ⎿  Set model to Opus 4.6 for this session only
+
+❯ /fast
+  ⎿  Fast mode OFF
+
+❯ /resume
+  ⎿  Resume cancelled
+
+❯ say hi
+
+
+
+
+
+
+
+✻ Bloviating…
+                                                   Update available! Run: brew upgrade claude-code
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                            5h 56%
+  ⏸ manual mode on

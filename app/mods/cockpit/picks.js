@@ -66,6 +66,40 @@ function typedLine(picks, setting, value) {
   return String(picks?.typed?.[setting]?.command ?? "").replace(`{${setting}}`, value);
 }
 
+/** The agent's permission modes as its `picks.modes` list them: `{id, aliases, label, icon, loud, offered, unasked, cycle}`. */
+function modesOf(picks) {
+  return Array.isArray(picks?.modes) ? picks.modes : [];
+}
+
+/** The mode `id` names, by its id or an alias, or null. */
+export function modeOf(picks, id) {
+  const want = String(id ?? "");
+  return want ? (modesOf(picks).find((m) => m.id === want || (m.aliases ?? []).includes(want)) ?? null) : null;
+}
+
+/** The modes a menu offers: the offered ones; a terminal's only those its ⇧⇥ goes through. */
+export function modeChoices(picks, { terminal = false } = {}) {
+  return modesOf(picks).filter((m) => m.offered && (!terminal || m.cycle));
+}
+
+/** The ids of the modes in which tools run without asking first: each waits for the person's yes. */
+export function unaskedModes(picks) {
+  return modesOf(picks).filter((m) => m.unasked).map((m) => m.id);
+}
+
+/** The ids of the modes that let it do more without asking: set only from a menu the person opened, or a confirm. */
+export function asksLess(picks) {
+  return modesOf(picks).filter((m) => m.loud).map((m) => m.id);
+}
+
+/** The mode ⇧⇥ moves to from `now`, a mode outside the cycle starting it again; null for an agent without a cycle. */
+export function nextMode(picks, now) {
+  const cycle = modesOf(picks).filter((m) => m.cycle);
+  if (!cycle.length) return null;
+  const at = Math.max(cycle.indexOf(modeOf({ modes: cycle }, now)), 0);
+  return cycle[(at + 1) % cycle.length].id;
+}
+
 /**
  * The chips the chat's box draws for the agent it shows, one per setting its agent offers: `{id, setting, label, icon,
  * tooltip, items, disabled}`, `items` the menu, each pick a `pick:<setting>:<value>` command, and null when `disabled`.
@@ -118,6 +152,9 @@ export function pickChips(row, { live = null, ran = null, asked = {}, about = ""
     const label = /^claude-/.test(now.model) ? modelName(now.model) : (current?.label ?? (now.model || "Model"));
     const what = [about ? `The model it answers with — ${about}` : "The model it answers with", limits].filter(Boolean).join("\n");
     const items = models.map((o) => ({ label: o.label, icon: o === current ? "check" : null, command: `pick:model:${o.id}` }));
+    // A terminal agent's own picker, opened in its terminal through the chat's mirror, for what the catalog lacks.
+    const own = !live && row?.terminal ? typedLine(picks, "model", "").trim() : "";
+    if (own) items.push("separator", { label: `Open ${own} in its terminal…`, icon: "terminal", command: `chat:mirror:${own}` });
     chip("model", label, null, what, items, models.length > 0);
   }
   // Effort: only for an agent that has levels; a model without them says so.

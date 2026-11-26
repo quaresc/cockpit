@@ -196,10 +196,11 @@ test("a 1 MB diff builds its rows in a few frames, faster with its large file he
   assert.ok(ms1 < 250, `every row of 21k lines in ${ms1.toFixed(1)} ms`);
 });
 
-// review.js in a VM: Herdr's natives and the hub stubbed, `answers` what the hub's review view gives, in turn.
-async function reviewModule(answers) {
+// review.js in a VM: Herdr's natives and the hub stubbed, `answers` what the hub's review view gives, in turn, each
+// call's arguments kept in `calls`; `stubs` stand in for the natives a test draws with.
+async function reviewModule(answers, { calls = [], stubs = {} } = {}) {
   const context = createContext({ console, performance });
-  const natives = { "./hub.js": { view: async () => { const a = answers.shift(); if (a instanceof Error) throw a; return a; } } };
+  const natives = { ...stubs, "./hub.js": { view: async (_name, args) => { calls.push(args); const a = answers.shift(); if (a instanceof Error) throw a; return a; } } };
   const sources = new Map();
   const folder = new URL("../mods/cockpit/", import.meta.url);
   for (const name of await readdir(folder)) {
@@ -249,4 +250,82 @@ test("the review reads the changes again by itself once the hub is back, and the
   await settle();
   assert.equal(r.error, null, "back with the same changes: the error goes");
   assert.equal(r.model, model);
+});
+
+/** Elements as gpui chains them, each keeping what was set on it, so a test finds the ids a view drew. */
+function drawing(state) {
+  const element = (kind = "div", path = null) => {
+    const value = { kind, path, kids: [], made: [] };
+    const el = new Proxy(value, { get: (t, name) => {
+      if (name in t) return t[name];
+      if (name === "when") return (yes, draw) => (yes ? draw(el) : el);
+      if (name === "child") return (child) => (value.kids.push(child), el);
+      if (name === "children") return (children) => (value.kids.push(...children), el);
+      return (...args) => (value.made.push([name, ...args]), el);
+    } });
+    return el;
+  };
+  const primitives = Object.fromEntries(["div", "svg", "image", "h_flex", "v_flex"].map((name) => [name, (path) => element(name, path)]));
+  const stubs = {
+    herdr: { shared: (key) => state.get(key), setShared: (key, value) => state.set(key, value), theme: () => ({ foreground: "#eeeeee", muted: "#aaaaaa", dim: "#888888", background: "#101010", border: "#333333" }) },
+    "gpui-kit": primitives,
+    "gpui-base": { ...primitives, VirtualListScrollHandle: { new: () => ({ scroll_to_item() {} }) } },
+  };
+  const flat = (el) => (typeof el === "string" ? [el] : [el, ...(el?.kids ?? []).flatMap(flat)]);
+  const ids = (el) => flat(el).flatMap((e) => (e?.made ?? []).filter(([name]) => name === "id").map(([, id]) => id));
+  return { stubs, flat, ids };
+}
+
+/** A review copy on `repo`, as `init` leaves it but for the parts a test stands in for. */
+function copy(Review, repo, extra = {}) {
+  const r = Object.create(Review.prototype);
+  Object.assign(r, { repo, picked: null, branch: null, scope: "uncommitted", mode: "diff", model: null, error: null, loading: false, next: 0, fresh: false, rows: [], loaded: new Set(), step: 0, width: 700,
+    terminal: "app:t41", diff: { whole: () => [], set() {}, review: () => [], composer: null }, applyStep() {}, withOpen: (d) => d, handle: { focus() {} }, ...extra });
+  return r;
+}
+
+test("with several repositories the review draws a pill per repository and a chip for the branch", async () => {
+  const state = new Map([["layout", "cockpit"], ["cockpit.panel.where", { cwd: API, repos: [{ path: API, name: "api", branch: "eng-412-quotas", branches: ["main", "eng-412-quotas"] }, { path: "/work/acme/web", name: "web" }] }]]);
+  const d = drawing(state);
+  const { Review } = await reviewModule([], { stubs: d.stubs });
+  const r = copy(Review, API, { model: { repo: API, name: "api", scope: "branch", files: [], about: { branch: "eng-412-quotas", head: "eng-412-quotas", base: "main", commits: 2, checked_out: true } } });
+  r.scope = "branch";
+  const ids = d.ids(r.header(new Proxy({}, { get: () => "#888888" }), false));
+  assert.ok(ids.includes(`review-repo-${API}`) && ids.includes("review-repo-/work/acme/web"), `a pill per repository: ${ids}`);
+  assert.ok(ids.includes("review-branch"), "the branch chip");
+  assert.ok(d.flat(r.header(new Proxy({}, { get: () => "#888888" }), false)).includes("eng-412-quotas · → main · 2 commits"), "the header's facts");
+  assert.deepEqual(JSON.parse(JSON.stringify(r.branches())), ["eng-412-quotas", "main"], "the branches to pick from: the head, then the repository's, each once");
+  // One repository: no pills, still the chip.
+  state.set("cockpit.panel.where", { cwd: API, repos: [{ path: API, name: "api" }] });
+  const one = d.ids(r.header(new Proxy({}, { get: () => "#888888" }), false));
+  assert.ok(!one.some((id) => String(id).startsWith("review-repo-")) && one.includes("review-branch"));
+});
+
+test("a branch picked from the menu is taken by the copy reviewing that repository alone, and goes with the next read", async () => {
+  const calls = [];
+  const model = (repo) => ({ repo, scope: "branch", hash: "h1", files: [], about: { branch: "feat", head: "main", base: "main", commits: 1, checked_out: false } });
+  const { Review } = await reviewModule([model("/r/api"), model("/r/api")], { calls, stubs: drawing(new Map()).stubs });
+  const api = copy(Review, "/r/api", { model: { repo: "/r/api", about: { branch: "main", head: "main", checked_out: true } } });
+  const web = copy(Review, "/r/web", { model: { repo: "/r/web", about: { branch: "main", head: "main", checked_out: true } } });
+  const work = [];
+  const cx = { spawn: (f) => work.push(f(cx)), notify() {} };
+  const settle = async () => { while (work.length) await work.shift(); };
+  for (const r of [api, web]) r.command("review:branch:feat|/r/api", cx);
+  assert.equal(api.branch, "feat");
+  assert.equal(web.branch, null, "the other repository's copy leaves it");
+  assert.equal(api.scope, "branch", "Uncommitted gives way: another branch has no working tree here");
+  await settle();
+  assert.equal(calls.at(-1).branch, "feat");
+  assert.equal(calls.at(-1).repo, "/r/api");
+  assert.equal(api.elsewhere(), true, "the hub says it is not checked out");
+  // Uncommitted asked while the branch is not checked out reads the branch instead; Uncommitted picked on purpose forgets the branch.
+  api.scope = "uncommitted";
+  api.load(cx);
+  await settle();
+  assert.equal(calls.at(-1).scope, "branch", "coerced before the request");
+  assert.equal(api.scope, "branch");
+  api.setScope("uncommitted", cx);
+  assert.equal(api.branch, null);
+  await settle();
+  assert.equal(calls.at(-1).branch, null);
 });

@@ -4,7 +4,7 @@
 //! turn (`interrupt`).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
@@ -224,12 +224,25 @@ fn ticket_pattern(config: &Value, inbox: &Value) -> Option<Regex> {
     Regex::new(&format!(r"(?i)(?:^|[^a-z])({})-(\d+)", keys.join("|"))).ok()
 }
 
-fn ticket_key(branch: Option<&str>, facts: &Value, pattern: Option<&Regex>) -> Option<String> {
+/// The agent's ticket: the one its conversation named last, else, only when links are read from the branch too, the
+/// plugin's fact or the key its branch is named after.
+fn ticket_key(from_branch: bool, cited: &[String], branch: Option<&str>, facts: &Value, pattern: Option<&Regex>) -> Option<String> {
+    if let Some(key) = cited.first() {
+        return Some(key.clone());
+    }
+    if !from_branch {
+        return None;
+    }
     if let Some(t) = facts["ticket"].as_str().filter(|t| !t.is_empty()) {
         return Some(t.to_uppercase());
     }
     let caps = pattern?.captures(branch?)?;
     Some(format!("{}-{}", caps[1].to_uppercase(), &caps[2]))
+}
+
+/// The ticket keys the agent's transcript names, the last first: none without a transcript.
+fn cited_tickets(transcript: Option<&Path>, pattern: Option<&Regex>) -> Vec<String> {
+    transcript.map(|t| crate::links::cited_tickets(t, pattern)).unwrap_or_default()
 }
 
 fn git_of(cwd: &str) -> Option<Git> {
@@ -375,14 +388,18 @@ pub fn poll() -> bool {
     // The ledger: who works on what.
     let (config, inbox) = (files::config(), files::load(&files::cache().join("inbox.json")).unwrap_or(Value::Null));
     let pattern = ticket_pattern(&config, &inbox);
+    let from_branch = cockpit_core::options::links_from_branch(&config) || term::demo_path().is_some();
     let working: Vec<(String, String)> = {
         let s = snap();
         s.agents
             .iter()
             .filter(|a| a.live.status == "working")
             .map(|a| {
+                let f = &facts[&a.live.handle];
                 let branch = s.git.get(&a.live.cwd).and_then(|(g, _)| g.as_ref()?.branch.clone());
-                let key = ticket_key(branch.as_deref(), &facts[&a.live.handle], pattern.as_ref()).unwrap_or_default();
+                let transcript = session_of(&a.live, f).and_then(|id| transcript_of(&a.live, f, &id));
+                let cited = cited_tickets(transcript.as_deref(), pattern.as_ref());
+                let key = ticket_key(from_branch, &cited, branch.as_deref(), f, pattern.as_ref()).unwrap_or_default();
                 (a.live.handle.clone(), key)
             })
             .collect()
@@ -719,25 +736,56 @@ pub fn stage(status: &str, snoozed: bool, seen: bool, pr: &Value, ci: &Value, ch
     }
 }
 
-fn pr_of(inbox: &Value, repo: &str, branch: Option<&str>) -> Value {
-    let Some(branch) = branch.filter(|b| !b.is_empty()) else { return Value::Null };
-    let open = inbox["mine"].as_array().into_iter().flatten().filter(|p| p["branch"] == branch);
-    let found = open.clone().find(|p| p["repo"] == repo).or_else(|| open.clone().next());
-    if let Some(p) = found {
-        return json!({"number": p["number"], "url": p["url"], "title": p["title"], "state": "open", "draft": p["isDraft"] == true, "review": p["review"], "ci": p["ci"], "repo": p["repo"]});
-    }
-    let merged = inbox["merged"].as_array().into_iter().flatten().find(|p| p["branch"] == branch);
-    merged.map(|p| json!({"number": p["number"], "url": p["url"], "title": p["title"], "state": "merged", "draft": false, "review": null, "ci": null, "repo": p["repo"]})).unwrap_or(Value::Null)
+/// The number and `owner/repo` a pull request URL names.
+fn pr_parts(url: &str) -> (Option<u64>, String) {
+    let path = url.split("://").nth(1).unwrap_or(url).split_once('/').map(|(_, p)| p).unwrap_or_default();
+    let number = path.trim_end_matches('/').rsplit('/').next().and_then(|n| n.parse().ok());
+    let repo =
+        ["/pull/", "/-/merge_requests/", "/pull-requests/", "/pullrequest/"].iter().find_map(|cut| path.split(cut).next().filter(|_| path.contains(cut)));
+    (number, repo.unwrap_or_default().to_string())
 }
 
-fn ci_of(ci: &Value, repo: &str, branch: Option<&str>, pr: &Value) -> Value {
-    let Some(branch) = branch else { return Value::Null };
-    let run = ci["runs"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|r| r["branch"] == branch && (repo.is_empty() || r["repo"] == repo))
-        .max_by_key(|r| r["createdAt"].as_str().unwrap_or_default().to_string());
+/// The agent's pull request: the one its conversation cited or created, looked up among mine and the merged ones, else,
+/// only when links are read from the branch too, the one on its branch.
+fn pr_of(from_branch: bool, cited: &[String], inbox: &Value, repo: &str, branch: Option<&str>) -> Value {
+    let open = |p: &Value| json!({"number": p["number"], "url": p["url"], "title": p["title"], "state": "open", "draft": p["isDraft"] == true, "review": p["review"], "ci": p["ci"], "repo": p["repo"], "branch": p["branch"]});
+    let merged = |p: &Value| json!({"number": p["number"], "url": p["url"], "title": p["title"], "state": "merged", "draft": false, "review": null, "ci": null, "repo": p["repo"], "branch": p["branch"]});
+    let at = |list: &str, url: &str| {
+        inbox[list].as_array().into_iter().flatten().find(|p| p["url"].as_str().is_some_and(|u| u.trim_end_matches('/') == url)).cloned()
+    };
+    for url in cited.iter().map(|u| u.trim_end_matches('/')) {
+        if let Some(p) = at("mine", url) {
+            return open(&p);
+        }
+        if let Some(p) = at("merged", url) {
+            return merged(&p);
+        }
+    }
+    if let Some(url) = cited.first() {
+        let (number, repo) = pr_parts(url);
+        return json!({"number": number, "url": url, "title": null, "state": null, "draft": false, "review": null, "ci": null, "repo": repo, "branch": null});
+    }
+    let Some(branch) = branch.filter(|b| !b.is_empty() && from_branch) else { return Value::Null };
+    let mine = inbox["mine"].as_array().into_iter().flatten().filter(|p| p["branch"] == branch);
+    if let Some(p) = mine.clone().find(|p| p["repo"] == repo).or_else(|| mine.clone().next()) {
+        return open(p);
+    }
+    inbox["merged"].as_array().into_iter().flatten().find(|p| p["branch"] == branch).map(merged).unwrap_or(Value::Null)
+}
+
+/// The CI run of the agent's PR's branch, else of its own branch only when links are read from the branch too, else
+/// what the PR itself says of its checks.
+fn ci_of(from_branch: bool, ci: &Value, repo: &str, branch: Option<&str>, pr: &Value) -> Value {
+    let on = pr["branch"].as_str().filter(|b| !b.is_empty()).or_else(|| branch.filter(|_| from_branch));
+    let repo = pr["repo"].as_str().filter(|r| !r.is_empty()).unwrap_or(repo);
+    let run = on.and_then(|branch| {
+        ci["runs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["branch"] == branch && (repo.is_empty() || r["repo"] == repo))
+            .max_by_key(|r| r["createdAt"].as_str().unwrap_or_default().to_string())
+    });
     if let Some(r) = run {
         let (done, total) = (r["done"].as_u64().unwrap_or(0), r["total"].as_u64().unwrap_or(0));
         return match () {
@@ -784,135 +832,196 @@ fn stretches(now: u64) -> Vec<ledger::Stretch> {
     all
 }
 
+/// What every row of a build reads once: the documents, the config laid over the agent table, the ledger totals, the
+/// `show` views, the usage read and the demo world.
+struct Context {
+    now: u64,
+    inbox: Value,
+    ci: Value,
+    facts: Value,
+    config: Value,
+    pattern: Option<Regex>,
+    /// Whether a ticket, PR and CI come from the branch too: the option, and always in the demo world, which has no transcripts.
+    from_branch: bool,
+    totals: ledger::Totals,
+    demo: Option<Value>,
+    table: Vec<cockpit_core::agent::Agent>,
+    shown: Vec<Value>,
+    auto: bool,
+    given: HashMap<String, String>,
+    usage: Vec<cockpit_core::usage::Provider>,
+    zone: Option<String>,
+}
+
+impl Context {
+    fn read(doc: &dyn Fn(&str) -> Value) -> Context {
+        let now = now_ms();
+        let or_file = |name: &str| {
+            let v = doc(name);
+            if v.is_null() { files::load(&files::cache().join(format!("{name}.json"))).unwrap_or(Value::Null) } else { v }
+        };
+        let (inbox, ci, facts, config) = (or_file("inbox"), or_file("ci"), or_file("agents"), files::config());
+        let pattern = ticket_pattern(&config, &inbox);
+        let totals = ledger::totals(&stretches(now), now);
+        let demo = term::demo().map(|w| w.clone());
+        let from_branch = cockpit_core::options::links_from_branch(&config) || demo.is_some();
+        let table = cockpit_core::agent::in_config(&config);
+        let shown = crate::links::shown();
+        let (auto, given) = (names::on(&config), names::given());
+        let usage = cockpit_core::usage::providers(&cockpit_core::usage::read(now), now);
+        let zone = prompt::local_zone();
+        Context { now, inbox, ci, facts, config, pattern, from_branch, totals, demo, table, shown, auto, given, usage, zone }
+    }
+}
+
+/// One terminal's row of the agents view.
+fn terminal_row(a: &Agent, s: &Snap, st: &State, cx: &Context) -> Value {
+    let now = cx.now;
+    let l = &a.live;
+    let f = &cx.facts[&l.handle];
+    let mock = cx.demo.as_ref().and_then(|w| w["agents"].as_array()?.iter().find(|x| x["terminal"] == l.handle.as_str()).cloned()).unwrap_or(Value::Null);
+    let git = s.git.get(&l.cwd).and_then(|(g, _)| g.clone());
+    let branch = git
+        .as_ref()
+        .and_then(|g| g.branch.clone())
+        .or_else(|| f["branch"].as_str().map(str::to_string))
+        .or_else(|| mock["branch"].as_str().map(str::to_string));
+    let repo = git
+        .as_ref()
+        .map(|g| g.repo.clone())
+        .filter(|r| !r.is_empty())
+        .or_else(|| f["repo"].as_str().map(str::to_string))
+        .or_else(|| mock["repo"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let changes = match (&git, &mock["changes"]) {
+        (Some(g), _) => json!({"files": g.files, "add": g.add, "del": g.del, "ahead": g.ahead, "behind": g.behind}),
+        (None, m) if m.is_object() => m.clone(),
+        _ => Value::Null,
+    };
+    let session = session_of(l, f).or_else(|| mock["session"].as_str().map(str::to_string));
+    let transcript = session.as_ref().and_then(|id| transcript_of(l, f, id));
+    let key = ticket_key(cx.from_branch, &cited_tickets(transcript.as_deref(), cx.pattern.as_ref()), branch.as_deref(), f, cx.pattern.as_ref())
+        .or_else(|| mock["ticket"].as_str().map(str::to_string));
+    let ticket = key.as_ref().map(|k| {
+        let t = cx.inbox["tickets"].as_array().into_iter().flatten().find(|t| t["id"] == k.as_str()).cloned().unwrap_or(Value::Null);
+        json!({"key": k, "title": t["title"], "url": t["url"], "status": t["status"]})
+    });
+    let cited_prs = transcript.as_deref().map(crate::links::cited_prs).unwrap_or_default();
+    let pr = pr_of(cx.from_branch, &cited_prs, &cx.inbox, &repo, branch.as_deref());
+    let ci = ci_of(cx.from_branch, &cx.ci, &repo, branch.as_deref(), &pr);
+    let entry = st.agents.get(&l.handle).cloned().unwrap_or_default();
+    let snoozed = entry.snooze.as_ref().map(|z| json!({"until": z.until, "label": state::until_label(z.until, now)}));
+    let seen = entry.seen();
+    let stage = stage(&l.status, snoozed.is_some(), seen, &pr, &ci, &changes);
+    let unread = matches!(stage, "needs_you" | "failed" | "done") && !seen;
+    let agent = cx.table.iter().find(|x| x.id == l.agent || x.aliases.contains(&l.agent));
+    // A turn the person stopped rests as done, and says so.
+    let interrupted =
+        mock["interrupted"] == true || (matches!(l.status.as_str(), "done" | "idle") && transcript.as_ref().is_some_and(|p| stopped(&l.agent, p)));
+    let recap = match &session {
+        Some(_) if !mock.is_null() => {
+            if mock["recap"].is_string() {
+                json!({"text": mock["recap"], "at": cx.now.saturating_sub(120_000), "fresh": true, "running": false, "error": null})
+            } else {
+                Value::Null
+            }
+        }
+        Some(id) => recap::shown(id, transcript.as_deref()),
+        None => Value::Null,
+    };
+    let ticket_secs = key.as_ref().and_then(|k| cx.totals.tickets.get(k)).copied().unwrap_or((0, 0));
+    let (title, named_by) = name_of(l, agent, transcript.as_deref(), cx.auto, &cx.given);
+    // The fingerprint goes out with the question and comes back with its answer, so an answer meets the question it saw.
+    let blocked = l.status == "blocked";
+    let asked = a.question.as_ref().filter(|q| blocked && q.asks());
+    let question = asked.map(|q| asked_json(q, counted(&l.handle, q))).unwrap_or(Value::Null);
+    // Blocked with nothing to answer here: it says what it waits on instead.
+    let waits = if blocked && asked.is_none() {
+        let says = limit_says(&cx.usage, if l.agent.is_empty() { &l.program } else { &l.agent }, now);
+        waits_json(a.question.as_ref().and_then(|q| q.limit.as_ref()), &says, cx.zone.as_deref())
+    } else {
+        Value::Null
+    };
+    let links = crate::links::of(ticket.as_ref(), &pr, &ci, &repo, branch.as_deref(), &cx.inbox, &cx.config, transcript.as_deref());
+    json!({
+        "terminal": l.handle, "address": l.address, "frontend": l.frontend,
+        "space": {"id": l.space_id, "name": l.space_name}, "tab": {"id": l.tab_id, "name": l.tab_name},
+        "title": title, "title_source": named_by.word(), "program": l.program, "agent": l.agent, "status": l.status,
+        // Herdr's logo and the name people read, from the agent cockpit knows it as, else what the frontend reports.
+        "icon": cockpit_core::agent::icon_in(&cx.table, if l.agent.is_empty() { &l.program } else { &l.agent }),
+        "agent_name": cockpit_core::agent::display_name_in(&cx.table, if l.agent.is_empty() { &l.program } else { &l.agent }),
+        "reports_limits": cockpit_core::agent::reports(if l.agent.is_empty() { &l.program } else { &l.agent }).is_some(),
+        "since": entry.since, "waiting_since": if l.status == "blocked" { json!(entry.since) } else { Value::Null },
+        "question": question, "waits": waits, "said": a.said,
+        "identity": if blocked { a.question.as_ref().map_or(json!("terminal"), |q| json!(q.identity())) } else { Value::Null }, "recap": recap, "stage": stage,
+        "repo": repo, "branch": branch, "cwd": l.cwd, "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
+        // What the session cost so far as cockpit estimates it everywhere, never the figure the agent reports.
+        "context": f["context"].as_f64().or(l.context),
+        "cost": session.as_deref().and_then(cockpit_core::usage::session_estimate).or(mock["cost"].as_f64()),
+        "page": f["page"].as_str().or(mock["page"].as_str()),
+        "time": time(cx.totals.agents.get(&l.handle).copied().unwrap_or(0), ticket_secs),
+        "snoozed": snoozed, "dismissed": Value::Null, "seen": seen, "unread": unread, "session": session, "interrupted": interrupted,
+        "stoppable": stop_keys(agent, &l.status).is_ok(), "interrupt": agent.and_then(|a| a.interrupt.as_ref()).map_or(Value::Null, |keys| json!(keys)),
+        "error": if l.status == "failed" { mock["error"].clone() } else { Value::Null },
+        "load": crate::load::of(l, session.as_deref()),
+        "transcript": transcript.as_deref().map(|p| p.to_string_lossy().into_owned()),
+        "links": links, "documents": crate::links::documents(&cx.shown, &[&l.handle, &l.address]),
+        "picks": agent.map_or(Value::Null, |a| a.catalog_picks(touch)),
+    })
+}
+
+/// What a row gets once every row is built: its wait, whether it is set aside, and whether its agent reports its limits.
+fn finish_row(r: &mut Value, st: &State, cx: &Context) {
+    let entry = r["terminal"].as_str().and_then(|handle| st.agents.get(handle));
+    r["wait"] = wait_of(r, entry);
+    set_aside(r, entry);
+    // Whether the row's agent reports its limits here, as the usage sources read now say.
+    let agent = r["agent"].as_str().filter(|a| !a.is_empty()).or(r["program"].as_str()).unwrap_or_default().to_string();
+    let limits = cockpit_core::usage::limits_of(&cx.usage, &agent, cx.now);
+    (r["limits"], r["reports_limits"]) = (json!(limits), json!(limits != "unreported"));
+}
+
+/// The row of the one agent `terminal` names (a handle, an address or a driven session's key), among those of
+/// `frontend` when given; None when the agents view lists none. Built alone: a chat reads it without the other rows.
+pub fn row_of(terminal: &str, frontend: Option<&str>, doc: &dyn Fn(&str) -> Value) -> Option<Value> {
+    if !snap().polled {
+        poll();
+    }
+    let cx = Context::read(doc);
+    let s = snap();
+    let st = states();
+    let found = s.agents.iter().filter(|a| frontend.is_none_or(|f| a.live.frontend == f)).find(|a| a.live.handle == terminal || a.live.address == terminal);
+    let mut row = match found {
+        Some(a) => terminal_row(a, &s, &st, &cx),
+        None => {
+            let summary = crate::session::summary(terminal)?;
+            let git = s.git.get(summary["cwd"].as_str().unwrap_or_default()).and_then(|(g, _)| g.as_ref());
+            driven_row(&summary, git, &cx.inbox, &cx.ci, cx.pattern.as_ref(), &cx.config)
+        }
+    };
+    finish_row(&mut row, &st, &cx);
+    Some(row)
+}
+
 /// The view model: see docs/app.md, "View `agents`".
 pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
     if !snap().polled {
         poll();
     }
-    let now = now_ms();
     let only = args["frontend"].as_str();
-    let or_file = |name: &str| {
-        let v = doc(name);
-        if v.is_null() { files::load(&files::cache().join(format!("{name}.json"))).unwrap_or(Value::Null) } else { v }
-    };
-    let (inbox, ci, facts, config) = (or_file("inbox"), or_file("ci"), or_file("agents"), files::config());
-    let pattern = ticket_pattern(&config, &inbox);
-    let totals = ledger::totals(&stretches(now), now);
-    let demo = term::demo().map(|w| w.clone());
-    // Read once for every row: the agent table (the config laid over it) and the views `show` keeps.
-    let table = cockpit_core::agent::in_config(&config);
-    let shown = crate::links::shown();
-    let (auto, given) = (names::on(&config), names::given());
-    let usage = cockpit_core::usage::providers(&cockpit_core::usage::read(now), now);
-    let zone = prompt::local_zone();
+    let cx = Context::read(doc);
+    let now = cx.now;
     let s = snap();
     let st = states();
-    let mut rows: Vec<Value> = Vec::new();
-    for a in s.agents.iter().filter(|a| only.is_none_or(|f| a.live.frontend == f)) {
-        let l = &a.live;
-        let f = &facts[&l.handle];
-        let mock = demo.as_ref().and_then(|w| w["agents"].as_array()?.iter().find(|x| x["terminal"] == l.handle.as_str()).cloned()).unwrap_or(Value::Null);
-        let git = s.git.get(&l.cwd).and_then(|(g, _)| g.clone());
-        let branch = git
-            .as_ref()
-            .and_then(|g| g.branch.clone())
-            .or_else(|| f["branch"].as_str().map(str::to_string))
-            .or_else(|| mock["branch"].as_str().map(str::to_string));
-        let repo = git
-            .as_ref()
-            .map(|g| g.repo.clone())
-            .filter(|r| !r.is_empty())
-            .or_else(|| f["repo"].as_str().map(str::to_string))
-            .or_else(|| mock["repo"].as_str().map(str::to_string))
-            .unwrap_or_default();
-        let changes = match (&git, &mock["changes"]) {
-            (Some(g), _) => json!({"files": g.files, "add": g.add, "del": g.del, "ahead": g.ahead, "behind": g.behind}),
-            (None, m) if m.is_object() => m.clone(),
-            _ => Value::Null,
-        };
-        let key = ticket_key(branch.as_deref(), f, pattern.as_ref()).or_else(|| mock["ticket"].as_str().map(str::to_string));
-        let ticket = key.as_ref().map(|k| {
-            let t = inbox["tickets"].as_array().into_iter().flatten().find(|t| t["id"] == k.as_str()).cloned().unwrap_or(Value::Null);
-            json!({"key": k, "title": t["title"], "url": t["url"], "status": t["status"]})
-        });
-        let pr = pr_of(&inbox, &repo, branch.as_deref());
-        let ci = ci_of(&ci, &repo, branch.as_deref(), &pr);
-        let entry = st.agents.get(&l.handle).cloned().unwrap_or_default();
-        let snoozed = entry.snooze.as_ref().map(|z| json!({"until": z.until, "label": state::until_label(z.until, now)}));
-        let seen = entry.seen();
-        let stage = stage(&l.status, snoozed.is_some(), seen, &pr, &ci, &changes);
-        let unread = matches!(stage, "needs_you" | "failed" | "done") && !seen;
-        let session = session_of(l, f).or_else(|| mock["session"].as_str().map(str::to_string));
-        let transcript = session.as_ref().and_then(|id| transcript_of(l, f, id));
-        let agent = table.iter().find(|x| x.id == l.agent || x.aliases.contains(&l.agent));
-        // A turn the person stopped rests as done, and says so.
-        let interrupted =
-            mock["interrupted"] == true || (matches!(l.status.as_str(), "done" | "idle") && transcript.as_ref().is_some_and(|p| stopped(&l.agent, p)));
-        let recap = match &session {
-            Some(_) if !mock.is_null() => {
-                if mock["recap"].is_string() {
-                    json!({"text": mock["recap"], "at": now.saturating_sub(120_000), "fresh": true, "running": false, "error": null})
-                } else {
-                    Value::Null
-                }
-            }
-            Some(id) => recap::shown(id, transcript.as_deref()),
-            None => Value::Null,
-        };
-        let ticket_secs = key.as_ref().and_then(|k| totals.tickets.get(k)).copied().unwrap_or((0, 0));
-        let (title, named_by) = name_of(l, agent, transcript.as_deref(), auto, &given);
-        // The fingerprint goes out with the question and comes back with its answer, so an answer meets the question it saw.
-        let blocked = l.status == "blocked";
-        let asked = a.question.as_ref().filter(|q| blocked && q.asks());
-        let question = asked.map(|q| asked_json(q, counted(&l.handle, q))).unwrap_or(Value::Null);
-        // Blocked with nothing to answer here: it says what it waits on instead.
-        let waits = if blocked && asked.is_none() {
-            let says = limit_says(&usage, if l.agent.is_empty() { &l.program } else { &l.agent }, now);
-            waits_json(a.question.as_ref().and_then(|q| q.limit.as_ref()), &says, zone.as_deref())
-        } else {
-            Value::Null
-        };
-        let links = crate::links::of(ticket.as_ref(), &pr, &ci, &repo, branch.as_deref(), &inbox, &config, transcript.as_deref());
-        rows.push(json!({
-            "terminal": l.handle, "address": l.address, "frontend": l.frontend,
-            "space": {"id": l.space_id, "name": l.space_name}, "tab": {"id": l.tab_id, "name": l.tab_name},
-            "title": title, "title_source": named_by.word(), "program": l.program, "agent": l.agent, "status": l.status,
-            // Herdr's logo and the name people read, from the agent cockpit knows it as, else what the frontend reports.
-            "icon": cockpit_core::agent::icon_in(&table, if l.agent.is_empty() { &l.program } else { &l.agent }),
-            "agent_name": cockpit_core::agent::display_name_in(&table, if l.agent.is_empty() { &l.program } else { &l.agent }),
-            "reports_limits": cockpit_core::agent::reports(if l.agent.is_empty() { &l.program } else { &l.agent }).is_some(),
-            "since": entry.since, "waiting_since": if l.status == "blocked" { json!(entry.since) } else { Value::Null },
-            "question": question, "waits": waits, "said": a.said,
-            "identity": if blocked { a.question.as_ref().map_or(json!("terminal"), |q| json!(q.identity())) } else { Value::Null }, "recap": recap, "stage": stage,
-            "repo": repo, "branch": branch, "cwd": l.cwd, "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
-            // What the session cost so far as cockpit estimates it everywhere, never the figure the agent reports.
-            "context": f["context"].as_f64().or(l.context),
-            "cost": session.as_deref().and_then(cockpit_core::usage::session_estimate).or(mock["cost"].as_f64()),
-            "page": f["page"].as_str().or(mock["page"].as_str()),
-            "time": time(totals.agents.get(&l.handle).copied().unwrap_or(0), ticket_secs),
-            "snoozed": snoozed, "dismissed": Value::Null, "seen": seen, "unread": unread, "session": session, "interrupted": interrupted,
-            "stoppable": stop_keys(agent, &l.status).is_ok(), "interrupt": agent.and_then(|a| a.interrupt.as_ref()).map_or(Value::Null, |keys| json!(keys)),
-            "error": if l.status == "failed" { mock["error"].clone() } else { Value::Null },
-            "load": crate::load::of(l, session.as_deref()),
-            "links": links, "documents": crate::links::documents(&shown, &[&l.handle, &l.address]),
-            "picks": agent.map_or(Value::Null, |a| a.catalog_picks(touch)),
-        }));
-    }
+    let mut rows: Vec<Value> = s.agents.iter().filter(|a| only.is_none_or(|f| a.live.frontend == f)).map(|a| terminal_row(a, &s, &st, &cx)).collect();
     for summary in crate::session::keys().iter().filter_map(|key| crate::session::summary(key)) {
         let git = s.git.get(summary["cwd"].as_str().unwrap_or_default()).and_then(|(g, _)| g.as_ref());
-        rows.push(driven_row(&summary, git, &inbox, &ci, pattern.as_ref(), &config));
+        rows.push(driven_row(&summary, git, &cx.inbox, &cx.ci, cx.pattern.as_ref(), &cx.config));
     }
     for r in rows.iter_mut() {
-        let entry = r["terminal"].as_str().and_then(|handle| st.agents.get(handle));
-        r["wait"] = wait_of(r, entry);
-        set_aside(r, entry);
+        finish_row(r, &st, &cx);
     }
-    // Whether each row's agent reports its limits here, as the usage sources read now say.
-    for r in rows.iter_mut() {
-        let agent = r["agent"].as_str().filter(|a| !a.is_empty()).or(r["program"].as_str()).unwrap_or_default().to_string();
-        let limits = cockpit_core::usage::limits_of(&usage, &agent, now);
-        (r["limits"], r["reports_limits"]) = (json!(limits), json!(limits != "unreported"));
-    }
+    let (totals, usage) = (&cx.totals, &cx.usage);
     let rank = |stage: &str| STAGES.iter().position(|(id, _)| *id == stage).unwrap_or(99);
     rows.sort_by(|x, y| {
         let (sx, sy) = (x["stage"].as_str().unwrap_or_default(), y["stage"].as_str().unwrap_or_default());
@@ -946,7 +1055,7 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         "stages": stages,
         "counts": counts,
         "next": next,
-        "quota": cockpit_core::usage::quota(&usage, now),
+        "quota": cockpit_core::usage::quota(usage, now),
         "tickets": tickets,
         "week": {"days": totals.days, "rows": week_rows},
     })
@@ -1058,12 +1167,14 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
     let branch = git.and_then(|g| g.branch.clone());
     let repo = git.map(|g| g.repo.clone()).unwrap_or_default();
     let changes = git.map_or(Value::Null, |g| json!({"files": g.files, "add": g.add, "del": g.del, "ahead": g.ahead, "behind": g.behind}));
-    let ticket = ticket_key(branch.as_deref(), &Value::Null, pattern).map(|k| {
+    let from_branch = cockpit_core::options::links_from_branch(config);
+    let ticket = ticket_key(from_branch, &cited_tickets(transcript.as_deref(), pattern), branch.as_deref(), &Value::Null, pattern).map(|k| {
         let t = inbox["tickets"].as_array().into_iter().flatten().find(|t| t["id"] == k.as_str()).cloned().unwrap_or(Value::Null);
         json!({"key": k, "title": t["title"], "url": t["url"], "status": t["status"]})
     });
-    let pr = pr_of(inbox, &repo, branch.as_deref());
-    let ci = ci_of(ci, &repo, branch.as_deref(), &pr);
+    let cited_prs = transcript.as_deref().map(crate::links::cited_prs).unwrap_or_default();
+    let pr = pr_of(from_branch, &cited_prs, inbox, &repo, branch.as_deref());
+    let ci = ci_of(from_branch, ci, &repo, branch.as_deref(), &pr);
     let links = crate::links::of(ticket.as_ref(), &pr, &ci, &repo, branch.as_deref(), inbox, config, transcript.as_deref());
     json!({
         "terminal": s["key"], "address": s["key"], "frontend": "app", "driven": true,
@@ -1081,6 +1192,7 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
         "said": "", "recap": recap, "paused": s["paused"], "cwd": cwd, "branch": branch, "repo": repo,
         "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
         "cost": s["session"].as_str().and_then(cockpit_core::usage::session_estimate), "session": s["session"].clone(), "seen": true,
+        "transcript": transcript.as_deref().map(|p| p.to_string_lossy().into_owned()),
         "unread": asking_unread(s) || status == "failed",
         "links": links, "documents": crate::links::documents(&crate::links::shown(), &[s["key"].as_str().unwrap_or_default()]), "snoozed": Value::Null,
         "dismissed": Value::Null,
@@ -1143,6 +1255,121 @@ fn count_of(handle: &str, q: &Question) -> u64 {
 }
 
 /// The count `q`'s fingerprint goes out with, the way `count_of` reads it: a shape not taken yet counts as the next.
+/// The fingerprint an answer to this question must bring back, as the row sends it with its question.
+pub(crate) fn asked_fingerprint(handle: &str, q: &Question) -> String {
+    q.fingerprint(counted(handle, q))
+}
+
+/// What cockpit last typed into each terminal's box, and until when the terminal counts as being typed into.
+fn mirrored() -> MutexGuard<'static, HashMap<String, (String, u64)>> {
+    static MIRRORED: OnceLock<Mutex<HashMap<String, (String, u64)>>> = OnceLock::new();
+    MIRRORED.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// How long after a key cockpit pressed a terminal's screen is read fast, in ms.
+const MIRROR_MS: u64 = 3_000;
+
+/// Whether cockpit typed or pressed something in this terminal lately: its screen is then read every half second.
+pub fn mirroring(handle: &str) -> bool {
+    mirrored().get(handle).is_some_and(|(_, until)| *until > now_ms())
+}
+
+/// Forgets what was typed into a terminal: the next line cockpit types there starts from an emptied box.
+fn unmirror(handle: &str) {
+    mirrored().remove(handle);
+}
+
+/// The keys an agent's terminal takes from a chat: what moves through a dialog or a menu, and what a dialog's own hint
+/// names. Never what quits or suspends the agent.
+fn pressable(key: &str) -> bool {
+    const NAMED: &[&str] =
+        &["up", "down", "left", "right", "enter", "escape", "esc", "tab", "shift+tab", "space", "backspace", "delete", "home", "end", "pageup", "pagedown"];
+    let key = key.to_ascii_lowercase();
+    NAMED.contains(&key.as_str())
+        || (key.chars().count() == 1 && !key.chars().all(char::is_control))
+        || key.strip_prefix("ctrl+").is_some_and(|k| k.len() == 1 && k.bytes().all(|b| b.is_ascii_alphabetic()) && !matches!(k, "c" | "d" | "z"))
+}
+
+/// Presses keys in an agent's terminal, under the lock its answers take.
+fn press(handle: &str, arg: &Value) -> Result<String, String> {
+    if crate::session::summary(handle).is_some() {
+        return Err("a session cockpit drives has no terminal to press keys in".into());
+    }
+    let keys: Vec<String> = arg["keys"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+    if keys.is_empty() {
+        return Err("which keys? pass {keys: [...]}".into());
+    }
+    if let Some(bad) = keys.iter().find(|k| !pressable(k)) {
+        return Err(format!("{bad} is not a key a chat presses"));
+    }
+    let lock = answering(handle);
+    let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+    term::keys(handle, &keys)?;
+    let now = now_ms();
+    let mut held = mirrored();
+    let entry = held.entry(handle.to_string()).or_insert_with(|| (String::new(), now));
+    entry.1 = now + MIRROR_MS;
+    // Enter sends the line, Escape drops the menu; either way the box is the agent's again.
+    if keys.iter().any(|k| matches!(k.as_str(), "enter" | "escape" | "esc" | "ctrl+u")) {
+        entry.0.clear();
+    }
+    drop(held);
+    touch();
+    Ok(format!("pressed {}", keys.join(" ")))
+}
+
+/// Keeps an agent's box showing `text`, as a chat types it: the line typed last is extended or emptied and typed
+/// again, and nothing goes in while the person types there themselves or a dialog is up.
+fn type_into(handle: &str, arg: &Value) -> Result<String, String> {
+    if crate::session::summary(handle).is_some() {
+        return Err("a session cockpit drives has no box to type into".into());
+    }
+    let text = arg["text"].as_str().unwrap_or_default();
+    if text.contains(['\n', '\r']) {
+        return Err("one line: the box takes no newline".into());
+    }
+    let a = find(handle).ok_or("no such agent")?;
+    let lock = answering(handle);
+    let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let screen = term::screen(handle, 0).ok_or(UNREAD)?;
+    let shapes = prompt::Shapes::of(&a.live.agent);
+    let last = mirrored().get(handle).map(|(t, _)| t.clone()).unwrap_or_default();
+    let draft = prompt::draft(&screen).unwrap_or_default();
+    // The person's own words in the box, not cockpit's: they stay.
+    if !draft.is_empty() && !last.is_empty() && !draft.starts_with(&last) && !last.starts_with(&draft) {
+        return Err(TYPED.into());
+    }
+    if !draft.is_empty() && last.is_empty() {
+        return Err(TYPED.into());
+    }
+    if a.live.status == "blocked" || a.question.as_ref().is_some_and(|q| q.asks()) {
+        return Err(format!("{} waits on a question: answer it first", title_of(&a)));
+    }
+    if crate::dialog::read(&screen, &shapes).is_some_and(|d| d.kind != crate::dialog::Kind::Menu) {
+        return Err(format!("{} shows a dialog: answer or close it first", title_of(&a)));
+    }
+    let clear = cockpit_core::agent::get(&a.live.agent).and_then(|x| x.clear).unwrap_or_else(|| vec!["ctrl+u".into()]);
+    match text.strip_prefix(last.as_str()) {
+        Some(more) if !last.is_empty() || !text.is_empty() => term::type_text(handle, more)?,
+        _ => {
+            if !draft.is_empty() {
+                term::keys(handle, &clear)?;
+            }
+            term::type_text(handle, text)?;
+        }
+    }
+    let now = now_ms();
+    let mut held = mirrored();
+    if text.is_empty() {
+        held.remove(handle);
+    } else {
+        held.insert(handle.to_string(), (text.to_string(), now + MIRROR_MS));
+    }
+    drop(held);
+    touch();
+    Ok(if text.is_empty() { "emptied".into() } else { "typed".into() })
+}
+
 fn counted(handle: &str, q: &Question) -> u64 {
     prompts().get(handle).map(|p| if p.shape == q.shape() { p.count } else { p.count + 1 }).unwrap_or(1)
 }
@@ -1887,7 +2114,8 @@ fn dismiss(handle: &str, wait: Option<&str>, undo: bool) -> Result<String, Strin
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let arg = args.first().cloned().unwrap_or(Value::Null);
     let handle = arg["terminal"].as_str().or(arg.as_str()).unwrap_or_default().to_string();
-    let known = ["answer", "deliver", "recap", "snooze", "seen", "dismiss", "fork", "focus", "interrupt", "refresh", "pick", "mode", "focus_mode"];
+    let known =
+        ["answer", "deliver", "recap", "snooze", "seen", "dismiss", "fork", "focus", "interrupt", "refresh", "pick", "mode", "focus_mode", "keys", "type"];
     if !known.contains(&action) {
         return None;
     }
@@ -1906,12 +2134,19 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
             by_a_person("fast mode is turned on by a person, not by an agent's tools").and_then(|()| may_touch(&handle))
         }
         "pick" | "focus_mode" => may_touch(&handle),
+        // Keys and typing reach an agent's own box and dialogs: a person's hand, on their own agent.
+        "keys" => by_a_person("keys are pressed in an agent's terminal by a person, not by an agent's tools").and_then(|()| may_touch(&handle)),
+        "type" => by_a_person("an agent's box is typed into by a person, not by an agent's tools").and_then(|()| may_touch(&handle)),
         // A mode lets an agent do more or less without asking: a person changes it.
         "mode" => by_a_person("an agent's mode is changed by a person, not by an agent's tools").and_then(|()| may_touch(&handle)),
         _ => Ok(()),
     };
     if let Err(why) = checked {
         return Some(Err(why));
+    }
+    // An answer, words or a setting reaching the terminal end what cockpit was typing into its box.
+    if matches!(action, "answer" | "deliver" | "pick" | "mode" | "focus_mode" | "interrupt") {
+        unmirror(&handle);
     }
     let done = match action {
         "answer" => {
@@ -1956,6 +2191,16 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
         "pick" => pick(&handle, &arg),
         "mode" => set_mode(&handle, &arg),
         "focus_mode" => toggle_focus(&handle),
+        "keys" => {
+            let done = press(&handle, &arg);
+            log_delivery(
+                &handle,
+                &json!({"text": arg["keys"].as_array().map(|k| k.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")).unwrap_or_default(), "source": arg["source"]}),
+                &done.as_ref().map(|_| ()).map_err(Clone::clone),
+            );
+            done
+        }
+        "type" => type_into(&handle, &arg),
         "focus" => {
             let shown = term::demo_path().is_some() || frontend::focus(&handle);
             let mut st = states();
@@ -2317,10 +2562,44 @@ mod tests {
     }
 
     #[test]
-    fn a_ticket_comes_from_the_facts_else_the_branch() {
+    fn a_ticket_comes_from_the_session_else_only_by_option_from_the_facts_or_the_branch() {
         let p = ticket_pattern(&json!({"tickets": {"keys": ["ENG"]}}), &Value::Null);
-        assert_eq!(ticket_key(Some("me/eng-412-daily-quotas"), &Value::Null, p.as_ref()).as_deref(), Some("ENG-412"));
-        assert_eq!(ticket_key(Some("main"), &json!({"ticket": "eng-9"}), p.as_ref()).as_deref(), Some("ENG-9"));
-        assert_eq!(ticket_key(Some("main"), &Value::Null, p.as_ref()), None);
+        let cited = ["ENG-7".to_string()];
+        assert_eq!(
+            ticket_key(false, &cited, Some("me/eng-412-daily-quotas"), &json!({"ticket": "eng-9"}), p.as_ref()).as_deref(),
+            Some("ENG-7"),
+            "what the session names wins"
+        );
+        assert_eq!(ticket_key(false, &[], Some("me/eng-412-daily-quotas"), &json!({"ticket": "eng-9"}), p.as_ref()), None, "nothing from the branch when off");
+        assert_eq!(ticket_key(true, &[], Some("me/eng-412-daily-quotas"), &Value::Null, p.as_ref()).as_deref(), Some("ENG-412"));
+        assert_eq!(ticket_key(true, &[], Some("main"), &json!({"ticket": "eng-9"}), p.as_ref()).as_deref(), Some("ENG-9"));
+        assert_eq!(ticket_key(true, &[], Some("main"), &Value::Null, p.as_ref()), None);
+    }
+
+    #[test]
+    fn a_pr_created_in_the_session_is_the_rows_pr() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("t.jsonl");
+        std::fs::write(
+            &transcript,
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"content\":\"https://github.com/acme/api/pull/2198\\n\"}]}}\n",
+        )
+        .unwrap();
+        let inbox = json!({"mine": [{"number": 2198, "url": "https://github.com/acme/api/pull/2198", "title": "Daily quotas", "branch": "me/eng-412-daily-quotas", "repo": "api", "isDraft": false, "review": "APPROVED", "ci": "SUCCESS"}]});
+        let cited = crate::links::cited_prs(&transcript);
+        assert_eq!(cited, ["https://github.com/acme/api/pull/2198"]);
+        let pr = pr_of(false, &cited, &inbox, "api", Some("main"));
+        assert_eq!((pr["title"].as_str(), pr["state"].as_str(), pr["branch"].as_str()), (Some("Daily quotas"), Some("open"), Some("me/eng-412-daily-quotas")));
+        let ci = json!({"runs": [{"repo": "api", "branch": "me/eng-412-daily-quotas", "isRunning": true, "done": 3, "total": 9, "createdAt": "2026-11-20T10:00:00Z"}]});
+        assert_eq!(ci_of(false, &ci, "api", Some("main"), &pr)["label"], "CI 3/9", "the run is found by the PR's branch");
+        assert_eq!(pr_of(false, &[], &inbox, "api", Some("me/eng-412-daily-quotas")), Value::Null, "nothing from the branch when off");
+        assert_eq!(pr_of(true, &[], &inbox, "api", Some("me/eng-412-daily-quotas"))["number"], 2198);
+        let bare = pr_of(false, &["https://github.com/acme/web/pull/7/".to_string()], &inbox, "api", None);
+        assert_eq!(
+            (&bare["number"], &bare["repo"], &bare["state"], &bare["title"]),
+            (&json!(7), &json!("acme/web"), &Value::Null, &Value::Null),
+            "a PR of no one's is still the link"
+        );
+        assert_eq!(ci_of(false, &json!({"runs": []}), "api", Some("me/eng-412-daily-quotas"), &json!({"ci": "FAILURE"}))["state"], "fail");
     }
 }

@@ -8,7 +8,7 @@ import { run, shared, setShared, focused, spaces, agents, machines, hc, panes, t
 import * as hub from "./hub.js";
 import { followBrowser } from "./web.js";
 import { deliver } from "./notify.js";
-import { rowsOf, countsOf, agentStatus, needing, showBadge } from "./fleet.js";
+import { rowsOf, countsOf, agentStatus, needing, showBadge, childTerminals } from "./fleet.js";
 import { option } from "./config.js";
 import { show, showWork, showPanes, screens, layoutName } from "./screens.js";
 import { togglePalette, openRecap, hint, keyFor, keyText, lend } from "./commands.js";
@@ -514,7 +514,7 @@ export default class Sidebar {
   /** Sub-agents an agent started (`hc run`), under it with tree lines; a click peeks. */
   subRows(k, r) {
     if (r.remote) return [];
-    const kids = (terminals() ?? []).filter((t) => t.parent === r.address && t.state === "live");
+    const kids = childTerminals(r.address);
     return kids.map((t, i) =>
       h_flex()
         .id(`sub-${t.address}`)

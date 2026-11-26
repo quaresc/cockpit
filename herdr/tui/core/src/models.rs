@@ -1,40 +1,48 @@
 //! The one catalog of models: what each agent offers wherever a person picks one (Start work, the chat's chips, a
 //! routine). An agent with a listing command (`Agent::model_listing`) is asked in the background and its answer kept in
-//! `~/.cache/cockpit/models.json`; any other offers the models its table row names.
+//! `~/.cache/cockpit/models.json`; one with a catalog request over its stream (`Listing::Probe`) is asked that way and
+//! kept by its version, asked again only once that changed; any other offers the models its table row names.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::io::{BufRead, BufReader, Read as _, Write};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::channel;
 use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-use crate::agent::{self, Agent, Offer};
+use crate::agent::{self, Agent, Listing, Offer};
 use crate::files;
 
-/// How long a list is kept before the agent is asked again, in ms.
-const KEPT: u64 = 24 * 3_600_000;
+/// How long a list is kept before the agent is asked again, in ms; for a probe, how long before its version is checked.
+pub(crate) const KEPT: u64 = 24 * 3_600_000;
 /// How long after a listing failed the agent is asked again, in ms.
 const RETRY: u64 = 30 * 60_000;
-/// The most an agent's listing may take.
+/// The most an agent's listing, or its catalog probe, may take.
 const LIMIT: Duration = Duration::from_secs(30);
+/// The most a version takes to print.
+const VERSION_LIMIT: Duration = Duration::from_secs(20);
 /// The most of a listing read: Codex's catalog comes close to a megabyte.
 const LISTING_CAP: usize = 8 << 20;
+/// The request id a probe's catalog request goes under, which its answer names.
+const PROBE_ID: &str = "cockpit-catalog";
 
 /// Whether this process asks agents for their models.
 static ASKS: AtomicBool = AtomicBool::new(false);
-type Asking = HashMap<String, Vec<fn()>>;
 /// The agents being asked now, each with whom to tell once it answered.
-static ASKING: Mutex<Option<Asking>> = Mutex::new(None);
+static ASKING: Askers = Askers::new();
 static WRITING: Mutex<()> = Mutex::new(());
 type Read = HashMap<PathBuf, (Option<SystemTime>, u64, Value)>;
 /// Each file as last read, with its modification time and size: read again only once it changed.
 static READ: Mutex<Option<Read>> = Mutex::new(None);
 type Tried = HashMap<(PathBuf, String), (u64, bool)>;
-/// When this process last asked each agent, and whether that failed or its answer could not be kept, by file.
+/// When this process last asked each agent (its models, or `help:<id>` its help), and whether that failed or its answer
+/// could not be kept, by file.
 static TRIED: Mutex<Option<Tried>> = Mutex::new(None);
 
 /// What an agent offers: its models, and whether its own listing is being read now.
@@ -44,14 +52,53 @@ pub struct Listed {
     pub loading: bool,
 }
 
-fn path() -> PathBuf {
+/// Who to tell once each agent being asked answered, by id.
+type Told = HashMap<String, Vec<fn()>>;
+
+/// The agents a process is asking something of in the background, by id, each with whom to tell once it answered.
+pub(crate) struct Askers(Mutex<Option<Told>>);
+
+impl Askers {
+    pub(crate) const fn new() -> Askers {
+        Askers(Mutex::new(None))
+    }
+
+    /// Joins the ask of `id`, `ready` told once it answers, beginning it when `start` and nobody asks yet: (whether it
+    /// is being asked, whether this call began it and runs it).
+    pub(crate) fn join(&self, id: &str, ready: fn(), start: bool) -> (bool, bool) {
+        let mut asking = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let asking = asking.get_or_insert_with(HashMap::new);
+        let begun = start && !asking.contains_key(id);
+        if begun {
+            asking.insert(id.to_string(), Vec::new());
+        }
+        let loading = asking.get_mut(id).is_some_and(|told| {
+            if !told.iter().any(|known| std::ptr::fn_addr_eq(*known, ready)) {
+                told.push(ready);
+            }
+            true
+        });
+        (loading, begun)
+    }
+
+    /// Ends the ask of `id`: whom to tell.
+    pub(crate) fn finish(&self, id: &str) -> Vec<fn()> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).as_mut().and_then(|asking| asking.remove(id)).unwrap_or_default()
+    }
+}
+
+pub(crate) fn path() -> PathBuf {
     files::cache().join("models.json")
 }
 
-/// Lets this process ask agents for their models, as the hub does at its start. It stays off in the demo world and with
-/// COCKPIT_HUB_MODELS=off, which the sandbox and the tests set, so neither runs an agent found on the machine.
+/// Lets this process ask agents for their models and help, as the hub does at its start. It stays off in the demo world
+/// and with COCKPIT_HUB_MODELS=off, which the sandbox and the tests set, so neither runs an agent found on the machine.
 pub fn ask_agents() {
     ASKS.store(may_ask(std::env::var_os("COCKPIT_AGENTS_DEMO").as_deref(), std::env::var_os("COCKPIT_HUB_MODELS").as_deref()), Ordering::SeqCst);
+}
+
+pub(crate) fn asks() -> bool {
+    ASKS.load(Ordering::SeqCst)
 }
 
 fn may_ask(demo: Option<&OsStr>, switch: Option<&OsStr>) -> bool {
@@ -59,9 +106,10 @@ fn may_ask(demo: Option<&OsStr>, switch: Option<&OsStr>) -> bool {
 }
 
 /// The models the agent offers: the ones it listed when last asked, else its table's. A listing over a day old (half an
-/// hour for one that failed) is asked again in the background, `ready` called once it answered.
+/// hour for one that failed) is asked again in the background, `ready` called once it answered; a probed catalog a day
+/// old has the agent's version checked instead, and is asked again only once that changed.
 pub fn of(agent: &Agent, ready: fn()) -> Listed {
-    of_in(&path(), agent, crate::seen::now_ms(), ASKS.load(Ordering::SeqCst), ready)
+    of_in(&path(), agent, crate::seen::now_ms(), asks(), ready)
 }
 
 /// The models a routine of the agent picks from, its own default first (""): the ones only a routine takes, then the
@@ -77,36 +125,66 @@ fn of_in(file: &Path, agent: &Agent, now: u64, asks: bool, ready: fn()) -> Liste
     let kept = load(file);
     let entry = &kept[&agent.id];
     let listed: Vec<Offer> = entry["models"].as_array().into_iter().flatten().filter_map(Offer::of_json).collect();
-    let every = if entry["failed"] == true { RETRY } else { KEPT };
-    let fresh = entry["attempted"].as_u64().or_else(|| entry["at"].as_u64()).is_some_and(|at| now.saturating_sub(at) < every);
-    // A file that could not be written still holds this process back, as after a failed listing.
-    let tried = TRIED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).get(&(file.to_path_buf(), agent.id.clone())).copied();
-    let fresh = fresh || tried.is_some_and(|(at, failed)| now.saturating_sub(at) < if failed { RETRY } else { KEPT });
-    let mut asking = ASKING.lock().unwrap_or_else(|e| e.into_inner());
-    let asking = asking.get_or_insert_with(HashMap::new);
-    if asks && !fresh && !asking.contains_key(&agent.id) && agent.installed() {
-        asking.insert(agent.id.clone(), Vec::new());
-        let (id, file) = (agent.id.clone(), file.to_path_buf());
+    let start = asks && !fresh(file, entry, &agent.id, now) && agent.installed();
+    let (loading, begun) = ASKING.join(&agent.id, ready, start);
+    if begun {
+        let (id, file, agent, kept_version) = (agent.id.clone(), file.to_path_buf(), agent.clone(), entry["version"].as_str().map(str::to_string));
         std::thread::spawn(move || {
-            let models = run(&argv).and_then(|out| agent::listed_models(&out, how));
-            keep(&file, &id, models.as_deref(), now);
-            let told = ASKING.lock().unwrap_or_else(|e| e.into_inner()).as_mut().and_then(|asking| asking.remove(&id)).unwrap_or_default();
-            for ready in told {
+            let answer = match how {
+                Listing::Probe => match version(&agent, kept_version) {
+                    Version::Same => Answer::Unchanged,
+                    Version::Changed(v) => Answer::Models(probe(&argv, agent.catalog_request().unwrap_or_default()).map(|r| agent::catalog(&id, &r)), v),
+                },
+                _ => Answer::Models(run(&argv).and_then(|out| agent::listed_models(&out, how)), None),
+            };
+            keep(&file, &id, &answer, now);
+            for ready in ASKING.finish(&id) {
                 ready();
             }
         });
     }
-    let loading = asking.get_mut(&agent.id).is_some_and(|told| {
-        if !told.iter().any(|known| std::ptr::fn_addr_eq(*known, ready)) {
-            told.push(ready);
-        }
-        true
-    });
     Listed { offers: if listed.is_empty() { agent.offers() } else { listed }, loading }
 }
 
+/// Whether what `entry` holds, asked under `key` (an agent id, or `help:<id>`), is recent enough not to ask again: a
+/// day since it was last attempted, half an hour after a failure. A file that could not be written holds this process
+/// back the same way (`tried`).
+pub(crate) fn fresh(file: &Path, entry: &Value, key: &str, now: u64) -> bool {
+    let every = if entry["failed"] == true { RETRY } else { KEPT };
+    let fresh = entry["attempted"].as_u64().or_else(|| entry["at"].as_u64()).is_some_and(|at| now.saturating_sub(at) < every);
+    let tried = TRIED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).get(&(file.to_path_buf(), key.to_string())).copied();
+    fresh || tried.is_some_and(|(at, failed)| now.saturating_sub(at) < if failed { RETRY } else { KEPT })
+}
+
+/// Whether an agent's version is the one something was kept under.
+pub(crate) enum Version {
+    Same,
+    /// Its version now, None where it prints none or printed nothing.
+    Changed(Option<String>),
+}
+
+/// The agent's version against the one `kept`: an agent without a version command, or whose printed none, reads as
+/// changed, so what was kept of it is asked again as before.
+pub(crate) fn version(agent: &Agent, kept: Option<String>) -> Version {
+    let now =
+        agent.version_argv().and_then(|argv| run_for(&argv, VERSION_LIMIT, 64 << 10)).and_then(|out| out.lines().next().map(|l| crate::text::clean(l, 128)));
+    match now.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        Some(v) if kept.as_deref() == Some(v.as_str()) => Version::Same,
+        Some(v) => Version::Changed(Some(v)),
+        None => Version::Changed(None),
+    }
+}
+
+/// What a background ask ended with.
+enum Answer {
+    /// The models listed (None: the ask failed), under the agent's version where one is known.
+    Models(Option<Vec<Offer>>, Option<String>),
+    /// The agent's version is the one kept: nothing new.
+    Unchanged,
+}
+
 /// The kept file, from memory while it has not changed since it was last read.
-fn load(file: &Path) -> Value {
+pub(crate) fn load(file: &Path) -> Value {
     let meta = std::fs::metadata(file).ok();
     let stamp = (meta.as_ref().and_then(|m| m.modified().ok()), meta.as_ref().map_or(0, |m| m.len()));
     let mut read = READ.lock().unwrap_or_else(|e| e.into_inner());
@@ -121,29 +199,89 @@ fn load(file: &Path) -> Value {
     value
 }
 
-/// Writes what a listing answered, or that it failed: a failure keeps the models of the last one that answered.
-fn keep(file: &Path, id: &str, models: Option<&[Offer]>, now: u64) {
+/// Changes the agent's entry of the kept file under one lock, `change` given the entry as an object: whether the file
+/// was written.
+pub(crate) fn update(file: &Path, id: &str, change: impl FnOnce(&mut Value)) -> bool {
     let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let mut kept = files::load(file).filter(Value::is_object).unwrap_or_else(|| json!({}));
-    if let Some(models) = models {
-        kept[id] = json!({"at": now, "models": models.iter().map(Offer::json).collect::<Vec<_>>()});
-    }
     if !kept[id].is_object() {
         kept[id] = json!({});
     }
-    kept[id]["attempted"] = json!(now);
-    kept[id]["failed"] = json!(models.is_none());
-    let written = files::write(file, &kept).is_ok();
+    change(&mut kept[id]);
+    files::write(file, &kept).is_ok()
+}
+
+/// Notes that this process asked under `key` at `now`, and whether that failed or its answer was not kept.
+pub(crate) fn tried(file: &Path, key: &str, now: u64, failed: bool) {
     let mut tried = TRIED.lock().unwrap_or_else(|e| e.into_inner());
-    tried.get_or_insert_with(HashMap::new).insert((file.to_path_buf(), id.to_string()), (now, models.is_none() || !written));
+    tried.get_or_insert_with(HashMap::new).insert((file.to_path_buf(), key.to_string()), (now, failed));
+}
+
+/// Writes what a listing answered, that it failed, or that the version is the one kept: a failure keeps the models of
+/// the last one that answered.
+fn keep(file: &Path, id: &str, answer: &Answer, now: u64) {
+    let failed = matches!(answer, Answer::Models(None, _));
+    let written = update(file, id, |entry| {
+        if let Answer::Models(Some(models), version) = answer {
+            entry["at"] = json!(now);
+            entry["models"] = json!(models.iter().map(Offer::json).collect::<Vec<_>>());
+            entry["version"] = version.as_deref().map_or(Value::Null, Value::from);
+        }
+        entry["attempted"] = json!(now);
+        entry["failed"] = json!(failed);
+    });
+    tried(file, id, now, failed || !written);
 }
 
 /// The listing's output, None when it failed or ran past its limit.
 fn run(argv: &[String]) -> Option<String> {
+    run_for(argv, LIMIT, LISTING_CAP)
+}
+
+fn run_for(argv: &[String], limit: Duration, cap: usize) -> Option<String> {
     let mut cmd = Command::new(argv.first()?);
     cmd.args(&argv[1..]);
-    let out = crate::run::output(&mut cmd, LIMIT, LISTING_CAP, &Default::default()).ok()?;
+    let out = crate::run::output(&mut cmd, limit, cap, &Default::default()).ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The answer to the agent's catalog `request` over its stream: `argv` opened apart from any session (`run::untie`) in a
+/// group of its own, the request written as the first line, its events read until the `control_response` to it, then
+/// the group ended. None when it failed, answered otherwise, or ran past LIMIT.
+fn probe(argv: &[String], request: &str) -> Option<Value> {
+    let mut cmd = Command::new(argv.first()?);
+    cmd.args(&argv[1..]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).process_group(0);
+    crate::run::untie(&mut cmd);
+    let mut child = cmd.spawn().ok()?;
+    let pid = child.id();
+    let line = json!({"type": "control_request", "request_id": PROBE_ID, "request": {"subtype": request}}).to_string() + "\n";
+    // Its input stays open until it answered: an end of input would end the session first.
+    let mut stdin = child.stdin.take();
+    if let Some(stdin) = stdin.as_mut() {
+        let _ = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
+    }
+    let stdout = child.stdout.take();
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let Some(stdout) = stdout else { return };
+        let mut reader = BufReader::new(stdout.take(LISTING_CAP as u64));
+        let mut buf = String::new();
+        while matches!(reader.read_line(&mut buf), Ok(n) if n > 0) {
+            if let Ok(event) = serde_json::from_str::<Value>(&buf)
+                && event["type"] == "control_response"
+                && event["response"]["request_id"] == PROBE_ID
+            {
+                let _ = tx.send((event["response"]["subtype"] == "success").then(|| event["response"]["response"].clone()));
+                return;
+            }
+            buf.clear();
+        }
+    });
+    let answer = rx.recv_timeout(LIMIT).ok().flatten();
+    crate::run::kill_group(pid);
+    drop(stdin);
+    let _ = child.wait();
+    answer
 }
 
 #[cfg(test)]
@@ -153,7 +291,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     // The agents being asked are one list for the process, by agent id: a test that asks an agent (`asks` true) or reads
-    // `loading` keeps an id no other such test uses (opencode, codex, omp, maki, kilo, pi); the others read offers only.
+    // `loading` keeps an id no other such test uses (opencode, codex, omp, maki, kilo, pi, claude); the others read offers only.
     fn nobody() {}
 
     /// A table row under an id of this test's own, its executable a script in `dir`.
@@ -198,6 +336,64 @@ mod tests {
     }
 
     #[test]
+    fn a_catalog_is_probed_over_the_stream_once_and_again_only_on_a_new_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let (version, probed, args) = (dir.path().join("version"), dir.path().join("probed"), dir.path().join("args"));
+        std::fs::write(&version, "1.0.0 (Acme Code)\n").unwrap();
+        let answer = json!({"type": "control_response", "response": {"subtype": "success", "request_id": PROBE_ID, "response": {"models": [
+            {"value": "default", "resolvedModel": "acme-large-2", "displayName": "Default (recommended)", "supportsEffort": true, "supportedEffortLevels": ["low", "high"], "supportsFastMode": true},
+            {"value": "acme-small", "displayName": "Acme Small", "description": "Fastest for quick answers"},
+        ]}}});
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then cat '{}'; exit 0; fi\nprintf '%s\\n' \"$*\" > '{}'\nread -r line\necho x >> '{}'\nprintf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"init\"}}'\nprintf '%s\\n' '{}'\nsleep 30\n",
+            version.display(),
+            args.display(),
+            probed.display(),
+            answer
+        );
+        let agent = stub(dir.path(), "claude", &script);
+        let file = dir.path().join("models.json");
+        assert_eq!(ids(&of_in(&file, &agent, 1_000, true, nobody)), ["opus", "sonnet", "haiku", "fable"], "its table's until it answered");
+        let settled = |want: usize| {
+            for _ in 0..400 {
+                let count = std::fs::read_to_string(&probed).map(|c| c.lines().count()).unwrap_or(0);
+                if count >= want && !ASKING.join("claude", nobody, false).0 {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            panic!("not probed {want} times");
+        };
+        settled(1);
+        let kept = files::load(&file).unwrap();
+        assert_eq!(kept["claude"]["version"], "1.0.0 (Acme Code)");
+        assert_eq!(
+            kept["claude"]["models"][1],
+            json!({"id": "acme-small", "label": "Acme Small", "efforts": [], "fast": false, "description": "Fastest for quick answers"})
+        );
+        let listed = of_in(&file, &agent, 2_000, true, nobody);
+        assert_eq!(ids(&listed), ["default", "acme-small"]);
+        assert_eq!((listed.offers[0].resolved.as_deref(), listed.offers[0].fast), (Some("acme-large-2"), Some(true)));
+        let argv = std::fs::read_to_string(&args).unwrap();
+        assert!(argv.contains("--input-format stream-json") && !argv.contains("--permission-mode") && !argv.contains("--session-id"), "{argv}");
+        // A day on, its version is checked and found the same: not probed again.
+        of_in(&file, &agent, 1_000 + KEPT, true, nobody);
+        for _ in 0..400 {
+            if files::load(&file).unwrap()["claude"]["attempted"] == 1_000 + KEPT {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert_eq!(std::fs::read_to_string(&probed).unwrap().lines().count(), 1, "the same version: not probed again");
+        assert_eq!(files::load(&file).unwrap()["claude"]["at"], 1_000);
+        std::fs::write(&version, "2.0.0 (Acme Code)\n").unwrap();
+        of_in(&file, &agent, 1_000 + 2 * KEPT, true, nobody);
+        settled(2);
+        assert_eq!(files::load(&file).unwrap()["claude"]["version"], "2.0.0 (Acme Code)", "a new version: probed again");
+        assert!(!of_in(&file, &agent, 1_000 + 2 * KEPT + 1, true, nobody).loading);
+    }
+
+    #[test]
     fn every_surface_reads_the_same_models_of_an_agent() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("models.json");
@@ -205,12 +401,15 @@ mod tests {
         let row = |id: &str| table.iter().find(|a| a.id == id).unwrap().clone();
         let catalog =
             json!({"models": [{"slug": "gpt-acme-1", "display_name": "GPT Acme 1", "visibility": "list", "supported_reasoning_levels": [{"effort": "low"}]}]});
-        keep(&file, "codex", agent::listed_models(&catalog.to_string(), agent::Listing::Codex).as_deref(), 1);
-        keep(&file, "opencode", agent::listed_models("acme/large\nacme/small\n", agent::Listing::Lines).as_deref(), 1);
+        keep(&file, "codex", &Answer::Models(agent::listed_models(&catalog.to_string(), agent::Listing::Codex), None), 1);
+        keep(&file, "opencode", &Answer::Models(agent::listed_models("acme/large\nacme/small\n", agent::Listing::Lines), None), 1);
         let codex = of_in(&file, &row("codex"), 2, false, nobody);
-        assert_eq!(codex.offers, [Offer { id: "gpt-acme-1".into(), label: "GPT Acme 1".into(), efforts: Some(vec!["low".into()]), fast: Some(false) }]);
+        assert_eq!(
+            codex.offers,
+            [Offer { id: "gpt-acme-1".into(), label: "GPT Acme 1".into(), efforts: Some(vec!["low".into()]), fast: Some(false), ..Offer::default() }]
+        );
         assert_eq!(ids(&of_in(&file, &row("opencode"), 2, false, nobody)), ["acme/large", "acme/small"]);
-        assert_eq!(ids(&of_in(&file, &row("claude"), 2, false, nobody)), ["opus", "sonnet", "haiku", "fable"], "no listing: its table's");
+        assert_eq!(ids(&of_in(&file, &row("claude"), 2, false, nobody)), ["opus", "sonnet", "haiku", "fable"], "not probed yet: its table's");
         assert!(of_in(&file, &row("cursor"), 2, false, nobody).offers.is_empty(), "neither a listing nor a table list");
         // What the pickers send and what a routine picks from are that one list.
         for a in table.iter().filter(|a| a.model_listing().is_none()) {
@@ -276,7 +475,7 @@ mod tests {
         let mark = dir.path().join("ran");
         let agent = stub(dir.path(), "kilo", &format!("#!/bin/sh\ntouch '{}'\nprintf 'acme/large\\n'\n", mark.display()));
         let file = dir.path().join("models.json");
-        assert_eq!(of_in(&file, &agent, 1, ASKS.load(Ordering::SeqCst), nobody), Listed { offers: vec![], loading: false });
+        assert_eq!(of_in(&file, &agent, 1, asks(), nobody), Listed { offers: vec![], loading: false });
         std::thread::sleep(Duration::from_millis(300));
         assert!(!mark.exists() && !file.exists(), "its listing never ran");
     }
@@ -357,17 +556,20 @@ mod tests {
     fn a_failed_refresh_preserves_the_last_good_models_and_is_tried_again_sooner() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("models.json");
-        let large = [Offer::named("acme/large".into())];
-        keep(&file, "opencode", Some(&large), 1);
-        keep(&file, "opencode", None, 2);
+        let large = vec![Offer::named("acme/large".into())];
+        keep(&file, "opencode", &Answer::Models(Some(large.clone()), None), 1);
+        keep(&file, "opencode", &Answer::Models(None, None), 2);
         let kept = files::load(&file).unwrap();
-        assert_eq!(kept["opencode"], json!({"models": [{"id": "acme/large", "label": "acme/large"}], "at": 1, "attempted": 2, "failed": true}));
+        assert_eq!(
+            kept["opencode"],
+            json!({"models": [{"id": "acme/large", "label": "acme/large"}], "at": 1, "attempted": 2, "failed": true, "version": null})
+        );
         // Asked again half an hour after a failure, a day after an answer: the stub answers the second ask.
         let mut agent = stub(dir.path(), "opencode", "#!/bin/sh\nprintf 'acme/new\\n'\n");
         agent.id = "omp".into();
         assert!(agent.model_listing().is_some());
-        keep(&file, "omp", Some(&large), 1);
-        keep(&file, "omp", None, 2);
+        keep(&file, "omp", &Answer::Models(Some(large), None), 1);
+        keep(&file, "omp", &Answer::Models(None, None), 2);
         assert!(!of_in(&file, &agent, 2 + RETRY - 1, true, nobody).loading, "not yet");
         assert!(of_in(&file, &agent, 2 + RETRY, true, nobody).loading, "asked again");
     }

@@ -897,7 +897,8 @@ fn options_ask_changes_only_the_picked_options_and_tries_the_layout_on_yes() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(b"n\n\ny\n\n\ny\n").unwrap();
+    // One answer per toggle (links.fromBranch, queue.drain, ci.tellAgents, chat.nextSteps, chat.projectPanels, dockBadge), then the layout.
+    child.stdin.take().unwrap().write_all(b"\nn\n\ny\n\n\ny\n").unwrap();
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success(), "{}", common::stderr(&out));
     let said = stdout(&out);

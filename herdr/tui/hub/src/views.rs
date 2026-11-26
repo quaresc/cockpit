@@ -54,10 +54,25 @@ fn read_doc(name: &str) -> Value {
 
 /// The view model, or {error} for an unknown view.
 pub fn build(name: &str, args: &Value) -> Value {
-    match def(name) {
-        Some(def) => (def.build)(args, &read_doc),
-        None => json!({"error": format!("no view {name:?}")}),
+    let Some(def) = def(name) else { return json!({"error": format!("no view {name:?}")}) };
+    let started = std::time::Instant::now();
+    let value = (def.build)(args, &read_doc);
+    if timed() {
+        eprintln!("cockpit hub: view {name} {} built in {:.1} ms", short(args), started.elapsed().as_secs_f64() * 1000.0);
     }
+    value
+}
+
+/// Whether each build's time goes to the hub's log (`COCKPIT_HUB_TIMING` set).
+fn timed() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("COCKPIT_HUB_TIMING").is_some_and(|v| !v.is_empty()))
+}
+
+/// A view's args in a few characters for the log.
+fn short(args: &Value) -> String {
+    let s = args.to_string();
+    if s.len() > 80 { format!("{}…", &s[..s.char_indices().nth(79).map_or(s.len(), |(i, _)| i)]) } else { s }
 }
 
 /// Runs a view's own action and rebuilds that view for its subscribers; None when the view knows no such action.
@@ -166,14 +181,33 @@ fn wanted(request: &Value) -> Vec<(String, Value, Option<Vec<String>>)> {
 /// Sends the views now, then each new value of them, as {view, args, value} lines; also {focus, target} lines when
 /// the palette or a notification asks the view's app to bring something into view.
 pub fn subscribe(request: &Value, tx: Outbox) {
+    let started = std::time::Instant::now();
+    // A view asked for twice with different picks is built once.
+    let mut built: Vec<((String, Value), Value)> = Vec::new();
     let views: Vec<Followed> = wanted(request)
         .into_iter()
         .map(|(name, args, pick)| {
-            let value = picked(&build(&name, &args), &pick);
+            let key = (name.clone(), args.clone());
+            let whole = match built.iter().find(|(k, _)| *k == key) {
+                Some((_, v)) => v.clone(),
+                None => {
+                    let v = build(&name, &args);
+                    built.push((key, v.clone()));
+                    v
+                }
+            };
+            let value = picked(&whole, &pick);
             let _ = tx.send(json!({"view": name, "args": args, "value": value}).to_string());
             Followed { name, args, pick, last: value }
         })
         .collect();
+    if timed() && !views.is_empty() {
+        eprintln!(
+            "cockpit hub: first push of {} in {:.1} ms",
+            views.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(","),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
     let notify = request["notify"] == true;
     if !views.is_empty() || notify {
         let person = !views.is_empty() && matches!(cockpit_core::peer::who(), cockpit_core::peer::Who::Person);
@@ -401,6 +435,23 @@ mod tests {
         std::thread::sleep(Duration::from_millis(500));
         touch("noisy-view");
         assert_eq!(next(), Some(json!({"count": 1})), "a build that moved only `noise` sends nothing");
+    }
+
+    static TWICE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    fn counted(_: &Value, _: Doc) -> Value {
+        json!({"a": 1, "b": 2, "builds": TWICE.fetch_add(1, std::sync::atomic::Ordering::SeqCst)})
+    }
+
+    #[test]
+    fn a_view_asked_twice_with_different_picks_is_built_once_per_subscribe() {
+        register(Def { name: "twice-view", docs: &[], dirs: Vec::new, build: counted, act: no_act });
+        let (tx, rx) = channel();
+        let before = TWICE.load(std::sync::atomic::Ordering::SeqCst);
+        subscribe(&json!({"views": [{"name": "twice-view", "pick": ["a"]}, {"name": "twice-view", "pick": ["b"]}]}), tx);
+        let lines: Vec<Value> = rx.try_iter().filter(|l| !l.is_empty()).map(|l| serde_json::from_str::<Value>(&l).unwrap()["value"].clone()).collect();
+        assert_eq!(lines, vec![json!({"a": 1}), json!({"b": 2})]);
+        assert_eq!(TWICE.load(std::sync::atomic::Ordering::SeqCst), before + 1, "one build for both picks");
     }
 
     #[test]

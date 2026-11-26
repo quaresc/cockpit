@@ -1,0 +1,36 @@
+ ▐▛███▛█   Claude Code v2.1.311
+▝▜██████▀  Fable 5.1 with high effort · Claude Team
+ ▝▝   ▝▝   /Users/me/code/api
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    Ctrl+Y to paste deleted text · Update available! Run: brew upgrade claude-code
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ /model  [model]
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                            5h 56%
+  ⏵⏵ auto mode on (shift+tab to cycle)

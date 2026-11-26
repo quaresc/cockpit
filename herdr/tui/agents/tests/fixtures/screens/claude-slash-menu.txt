@@ -1,0 +1,36 @@
+ ▐▛███▛█   Claude Code v2.1.311
+▝▜██████▀  Fable 5.1 with high effort · Claude Team
+ ▝▝   ▝▝   /Users/me/code/api
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ❯ /model                                  Set the AI model for Claude Code (currently Fable 5.1)
+    /mobile                                 Show QR code to download the Claude mobile app
+    /morning                                Render the user's morning brief as a styled HTML
+                                            artifact, or set it up as a recurring weekday task. U…
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ /mo
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                            5h 56%
+  ⏵⏵ auto mode on (shift+tab to cycle)

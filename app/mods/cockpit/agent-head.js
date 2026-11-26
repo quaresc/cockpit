@@ -133,8 +133,15 @@ export default class AgentHead {
       .when(Boolean(a.branch), (e) => e.child(div().min_w(0).truncate().child(Mono(a.branch, { color: k.dim }))))
       .children(
         (a.row?.links ?? [])
-          .filter((l) => l.kind === "ticket" || l.kind === "pr")
-          .map((l) => Chip(l.label ?? l.name, { id: `head-${l.kind}`, icon: l.icon, tooltip: hint(l.detail ? `${l.name} · ${l.detail}` : l.name, l.kind === "pr" ? "cockpit.pr" : "cockpit.ticket"), onClick: (_e, cx) => cx.spawn(async () => hub.openUrl(l.url)) })),
+          .filter((g) => g.kind === "ticket" || g.kind === "pr")
+          .map((g, i) => {
+            // A group's chip opens its first item (the row's own PR or ticket) and counts the rest.
+            const items = g.items ?? [g];
+            const first = items[0] ?? {};
+            const label = items.length > 1 ? `${g.label ?? g.name} · ${items.length}` : (g.label ?? g.name);
+            const tip = items.length > 1 ? `${g.name} · ${items.length}` : first.detail ? `${g.name} · ${first.detail}` : g.name;
+            return Chip(label, { id: `head-${g.kind}-${i}`, icon: g.icon, tooltip: hint(tip, g.kind === "pr" ? "cockpit.pr" : "cockpit.ticket"), onClick: (_e, cx) => cx.spawn(async () => hub.openUrl(first.url)) });
+          }),
       )
       .child(div().flex_1())
       .when(queue, (e) =>

@@ -1,7 +1,8 @@
 // The review view: the followed agent's changes in one of three scopes (uncommitted, its branch against the base, its
-// pull request), commented line by line and sent as one message (Submit review · N) to any agent working in that
-// repository, a driven session among them, or a new agent; or read as a guided walkthrough: the hunks grouped into steps
-// in reading order, each explained, written by an agent run headless in the background through the hub.
+// pull request), in any of the repositories it works in and on any branch there, commented line by line and sent as
+// one message (Submit review · N) to any agent working in that repository, a driven session among them, or a new agent;
+// or read as a guided walkthrough: the hunks grouped into steps in reading order, each explained, written by an agent
+// run headless in the background through the hub.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
@@ -11,6 +12,8 @@ import { take } from "./person.js";
 import { sharing } from "./feed.js";
 import { openCode } from "./code.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Badge, Button, Kbd, Tabs, Empty, Toaster, Spinner, Overline, openMenu } from "./ui.js";
+import { Pills } from "./pills.js";
+import { where } from "./projects.js";
 import { DiffView } from "./diff.js";
 import { CHOICES, SUBJECT, agentsIn, isRow, menuItems, nameOf, newAgentRequest, plainError, recipient, recipientLabel } from "./sendto.js";
 import { layoutName } from "./screens.js";
@@ -73,6 +76,9 @@ export default class Review {
     this.repo = pr.repo ?? null;
     this.terminal = pr.terminal ?? null;
     this.scope = pr.scope ?? "uncommitted";
+    // The repository picked among the agent's, and the branch picked there: null follows the agent and its checkout.
+    this.picked = null;
+    this.branch = null;
     this.mode = "diff";
     this.model = null;
     this.error = null;
@@ -118,24 +124,59 @@ export default class Review {
     return { terminal, cwd: terminal ? f.cwd ?? panes().find((x) => x.terminal === terminal)?.cwd ?? null : null };
   }
 
-  /** Where the focused agent works: its terminal and folder, kept while the focus is on a panel. */
+  /** The repositories the followed agent works in, the latest first, as the chat shares them (projects.js). */
+  repos() {
+    return where().repos ?? [];
+  }
+
+  /** Where the focused agent works: its terminal and folder, kept while the focus is on a panel; a repository picked
+   * among the agent's is kept until the focus moves to another agent or the agent leaves it. */
   follow(cx) {
     if (this.fixed) return;
     const { terminal, cwd } = this.focusFacts();
     if (!terminal) return;
+    if (this.seen && terminal !== this.seen.terminal) {
+      this.picked = null;
+      this.branch = null;
+    }
+    const picked = this.repos().find((r) => r.path === this.picked)?.path ?? null;
+    const want = picked ?? cwd;
     // Only a move of the focus (another agent, or the agent's own cd) changes the repo, not each render.
-    if (terminal === this.seen?.terminal && cwd === this.seen?.cwd) return;
-    this.seen = { terminal, cwd };
+    if (terminal === this.seen?.terminal && want === this.seen?.cwd) return;
+    this.seen = { terminal, cwd: want };
     this.terminal = terminal;
-    if (cwd && cwd !== this.repo) {
-      this.repo = cwd;
+    if (want && want !== this.repo) {
+      // The header names it at once; the diff starts over outside the render, which makes no view state.
+      this.repo = want;
       this.model = null;
       this.error = null;
-      this.loaded = new Set();
-      this.diff = this.withOpen(new DiffView("review", this.input));
-      this.next = 0;
-      cx.timer.after(0, (cx) => this.load(cx));
+      cx.timer.after(0, (cx) => {
+        this.review(want);
+        this.load(cx);
+        cx.notify();
+      });
     }
+  }
+
+  /** Reviews another repository: the diff and what was read start over, on the branch checked out there. */
+  review(repo) {
+    this.repo = repo;
+    this.branch = null;
+    this.model = null;
+    this.error = null;
+    this.loaded = new Set();
+    this.diff = this.withOpen(new DiffView("review", this.input));
+    this.step = 0;
+    this.next = 0;
+  }
+
+  /** Shows one of the agent's repositories, picked with its pill. */
+  pick(path, cx) {
+    if (path === this.repo || path === this.reviewed()) return;
+    this.picked = path;
+    this.seen = { terminal: this.terminal, cwd: path };
+    this.review(path);
+    this.load(cx);
   }
 
   tick(cx) {
@@ -145,8 +186,10 @@ export default class Review {
 
   load(cx) {
     if (!this.repo || this.loading) return;
+    // A branch that is not checked out has no working tree: its committed changes show instead.
+    if (this.scope === "uncommitted" && this.branch && this.model?.about?.checked_out === false) this.scope = "branch";
     this.loading = true;
-    const scope = this.scope, repo = this.repo;
+    const scope = this.scope, repo = this.repo, branch = this.branch;
     cx.spawn(async (cx) => {
       try {
         // A large file asked for is read again in full: the changes did not move, what is sent did.
@@ -155,11 +198,12 @@ export default class Review {
         const load = this.diff.whole(this.loaded);
         // Which agents work in this repo is git's to say, by each folder's toplevel: the view answers with their handles.
         const agents = this.rows.filter((r) => r.cwd).map((r) => ({ handle: r.terminal, cwd: r.cwd }));
-        const m = await hub.view("review", { repo, scope, since, load, agents });
-        if (repo === this.repo && scope === this.scope) {
+        const m = await hub.view("review", { repo, scope, branch, since, load, agents });
+        if (repo === this.repo && scope === this.scope && branch === this.branch) {
           if (m?.error && !m.files) {
             this.error = m.error;
-            this.model = null;
+            // What the hub still says of the branch (head, checked out) keeps the header and the menu right.
+            this.model = m.about ? { about: m.about, repo: m.repo, scope, files: null } : null;
           } else if (m?.same) {
             // The same changes as before an error: the hub answers again, so the error goes.
             this.error = null;
@@ -195,6 +239,8 @@ export default class Review {
   setScope(scope, cx) {
     if (scope === this.scope) return;
     this.scope = scope;
+    // Uncommitted changes are the working tree's: the branch checked out, whatever was picked.
+    if (scope === "uncommitted") this.branch = null;
     this.model = null;
     this.error = null;
     this.loaded = new Set();
@@ -202,6 +248,46 @@ export default class Review {
     this.step = 0;
     this.next = 0;
     this.load(cx);
+  }
+
+  /** Reviews `name` in the repository shown: its committed changes or its pull request, read without checking it out. */
+  setBranch(name, cx) {
+    const branch = name || null;
+    if (branch === this.branch) return;
+    this.branch = branch;
+    if (this.scope === "uncommitted" && branch && branch !== this.model?.about?.head) this.scope = "branch";
+    this.model = null;
+    this.error = null;
+    this.loaded = new Set();
+    this.diff = this.withOpen(new DiffView("review", this.input));
+    this.step = 0;
+    this.next = 0;
+    this.load(cx);
+  }
+
+  /** The branches to pick from: the one checked out, the ones the chat lists per repository, the followed agent's PR's,
+   * and the one shown, each once. */
+  branches() {
+    const about = this.model?.about ?? {};
+    const repo = this.reviewed();
+    const listed = this.repos().filter((r) => r.path === repo || r.path === this.repo).flatMap((r) => r.branches ?? []);
+    const pr = this.rows.find((r) => isRow(r, this.terminal))?.pr?.branch;
+    return [...new Set([about.head, ...listed, pr, about.branch].filter((b) => typeof b === "string" && b))];
+  }
+
+  /** The menu of branches to review in the repository shown: each a command naming the repo, so only its copy takes it. */
+  openBranches(byKey = false) {
+    const current = this.branch ?? this.model?.about?.branch ?? null;
+    const head = this.model?.about?.head;
+    const repo = this.reviewed() ?? "";
+    const items = this.branches().map((b) => ({ label: b === head ? `${b} · checked out` : b, icon: b === current ? "check" : undefined, command: `review:branch:${b}|${repo}` }));
+    if (!items.length) return;
+    openMenu(items, { width: 300, byKey });
+  }
+
+  /** Whether the branch picked is not the one checked out, as the hub last said. */
+  elsewhere() {
+    return Boolean(this.branch) && this.model?.about?.checked_out === false;
   }
 
   badge() {
@@ -339,7 +425,7 @@ export default class Review {
 
   generate(cx) {
     cx.spawn(async (cx) => {
-      const r = await hub.act("review", "walkthrough", [this.repo, this.scope, this.walkModel]).catch((e) => ({ error: String(e?.message ?? e) }));
+      const r = await hub.act("review", "walkthrough", [this.repo, this.scope, this.walkModel, this.branch]).catch((e) => ({ error: String(e?.message ?? e) }));
       if (r.error) this.toasts.push(cx, r.error, { kind: "error" });
       else this.toasts.push(cx, r.note || "Writing the walkthrough", { kind: "info" });
       this.next = 0;
@@ -349,7 +435,7 @@ export default class Review {
 
   stopWalk(cx) {
     cx.spawn(async (cx) => {
-      await hub.act("review", "stop_walkthrough", [this.repo, this.scope]).catch(() => {});
+      await hub.act("review", "stop_walkthrough", [this.repo, this.scope, this.branch]).catch(() => {});
       this.next = 0;
       this.load(cx);
     });
@@ -398,14 +484,16 @@ export default class Review {
         this.choose(handle, repo || this.reviewed());
       } else if (action === "to") this.openRecipients(!take(c, key));
       else if (action === "follow") followInReview(arg || null);
+      else if (action === "branch" && arg) {
+        // Every copy hears the menu's pick; only the one reviewing that repo takes it.
+        const [name, repo] = arg.split("|");
+        if (!repo || repo === this.reviewed() || repo === this.repo) this.setBranch(name, cx);
+      } else if (action === "branch") this.openBranches(!take(c, key));
       else if (action === "open" && arg.startsWith("/")) {
         // Another view (the palette, show's diff) asks for a repo's review: it stays on it until the focus moves.
-        this.repo = arg;
+        this.picked = null;
         this.seen = this.focusFacts();
-        this.model = null;
-        this.error = null;
-        this.diff = this.withOpen(new DiffView("review", this.input));
-        this.next = 0;
+        this.review(arg);
         this.load(cx);
       } else if (action === "scope") this.setScope(arg, cx);
       else if (action === "mode") this.setMode(arg, cx);
@@ -436,6 +524,7 @@ export default class Review {
       case "w": this.setMode(this.mode === "walk" ? "diff" : "walk", cx); return true;
       case "shift-s": case "ctrl-enter": this.submit(cx); return true;
       case "shift-t": this.openRecipients(); return true;
+      case "b": this.openBranches(true); return true;
       case "left": case "h": this.moveStep(-1); return true;
       case "right": case "l": this.moveStep(1); return true;
       case "r": this.next = 0; this.load(cx); return true;
@@ -478,7 +567,12 @@ export default class Review {
     const m = this.model;
     const about = m?.about ?? {};
     const name = m?.name ?? (this.repo ? this.repo.split("/").pop() : "Review");
-    const facts = [about.branch, this.scope === "branch" && about.base ? `→ ${about.base}` : null, this.scope === "branch" && about.commits !== undefined ? `${about.commits} commit${about.commits === 1 ? "" : "s"}` : null].filter(Boolean).join(" ");
+    const facts = [
+      about.branch,
+      this.scope !== "uncommitted" && about.base ? `→ ${about.base}` : null,
+      this.scope === "branch" && about.commits !== undefined ? `${about.commits} commit${about.commits === 1 ? "" : "s"}` : null,
+      about.checked_out === false ? "not checked out" : null,
+    ].filter(Boolean).join(" · ");
     const top = h_flex().h(44).flex_none().px(12).gap(8).items_center()
       .child(h_flex().size(24).flex_none().rounded(RADIUS.md).items_center().justify_center().bg(alpha(k.ring, 0.14)).child(Icon("git-compare", { size: 14, color: k.ring })))
       .child(v_flex().flex_1().min_w(0)
@@ -489,13 +583,22 @@ export default class Review {
         .child(div().text_color(k.success).child(`+${m.added}`)).child(div().text_color(k.destructive).child(`−${m.removed}`))))
       .when(Boolean(this.loading), (e) => e.child(Spinner({ size: 12, color: k.mutedFg })))
       .child(Button("review-refresh", { icon: "refresh-cw", size: "icon-sm", variant: "ghost", tooltip: "Read again (r)", onClick: (_e, cx) => { this.next = 0; this.load(cx); } }));
+    const repos = this.fixed ? [] : this.repos();
+    const current = repos.find((r) => r.path === this.reviewed() || r.path === this.repo)?.path ?? this.repo;
+    const pills = repos.length > 1
+      ? Pills("review-repo", repos.map((r) => ({ value: r.path, label: r.name ?? r.path.split("/").pop(), tooltip: r.path })), current, (path, cx) => this.pick(path, cx)).flex_none().px(12).pb(6)
+      : null;
     const pr = about.pr;
+    const elsewhere = this.elsewhere();
+    const branch = this.branch ?? about.branch;
+    const cut = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
     const bar = h_flex().h(40).flex_none().px(12).gap(8).items_center().border_b_1().border_color(k.border)
-      .child(Tabs("review-scope", { items: SCOPES.map((s, i) => ({ ...s, label: narrow && s.value === "uncommitted" ? "Local" : s.label, kbd: String(i + 1) })), value: this.scope, onChange: (v, cx) => { this.setScope(v, cx); cx.notify(); } }))
+      .child(Tabs("review-scope", { items: SCOPES.map((s, i) => ({ ...s, label: narrow && s.value === "uncommitted" ? "Local" : s.label, kbd: String(i + 1), muted: elsewhere && s.value === "uncommitted", tooltip: elsewhere && s.value === "uncommitted" ? `${branch} is not checked out` : undefined })), value: this.scope, onChange: (v, cx) => { this.setScope(v, cx); cx.notify(); } }))
       .child(div().flex_1())
+      .when(Boolean(branch), (e) => e.child(Badge(cut(branch ?? "", narrow ? 16 : 28), elsewhere ? "warning" : "outline", { id: "review-branch", icon: "git-branch", tooltip: elsewhere ? `${branch} is not checked out · pick a branch (b)` : "Pick a branch to review (b)", onClick: () => this.openBranches() })))
       .when(Boolean(pr?.number) && !narrow, (e) => e.child(Badge(`#${pr.number}${pr.isDraft ? " draft" : ""}`, "outline", { id: "review-pr", icon: "git-pull-request", tooltip: pr.title, onClick: () => hub.openUrl(pr.url) })))
       .child(Tabs("review-mode", { items: [{ value: "diff", label: narrow ? "" : "Diff", icon: "file-diff" }, { value: "walk", label: narrow ? "" : "Walkthrough", icon: "route" }], value: this.mode, onChange: (v, cx) => this.setMode(v, cx) }));
-    return v_flex().flex_none().border_b_1().border_color(k.border).child(top).child(bar);
+    return v_flex().flex_none().border_b_1().border_color(k.border).child(top).when(Boolean(pills), (e) => e.child(pills)).child(bar);
   }
 
   footer(k, narrow) {
