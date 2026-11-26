@@ -337,7 +337,7 @@ impl App {
             let note = if app.pinned {
                 "pinned: its deploys and Datadog numbers load with the next refresh, within a couple of minutes"
             } else {
-                "not watched: no release in the last 24 h; pin it to follow it anyway"
+                "not watched: no recent release; pin it to follow it anyway"
             };
             lines.push(Line::styled(note, dim()));
             return lines;
