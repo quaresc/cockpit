@@ -11,6 +11,7 @@ must be here first.
 - New: monitor.releaseDays sets how many days back releases show and an app stays watched after its last deploy, one by default (#106)
 - Fix: o on an inbox PR opens it in the browser on Linux again (#105)
 - Fix: with herdr alone and no Herdr app, the hub runs its fetcher session in a space of its own, so the monitor refreshes by itself (#108)
+- Fix: in Cockpit Chat, a background job or subagent that ends while the agent runs a tool leaves the strip instead of spinning on (#112)
 
 ## 1.6.0 (2026-11-26)
 
