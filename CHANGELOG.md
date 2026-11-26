@@ -5,7 +5,7 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
-## Unreleased
+## 1.6.0 (2026-11-26)
 
 - New: switching agents in Cockpit Chat is fast: the chat builds its one row, reads terminal screens between builds, pages the conversation with a cursor and sends the messages apart from what moves while a turn runs; the last conversation shows at once while the hub answers (#109)
 - New: every page a conversation cites stays in the links row, grouped per service (GitHub · 2, Notion · 3), each group a menu; GitHub PRs cited are links too (#109)
