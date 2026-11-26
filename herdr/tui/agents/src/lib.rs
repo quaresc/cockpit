@@ -6,6 +6,7 @@
 
 pub mod chat;
 pub mod cli;
+pub mod dialog;
 pub mod events;
 pub mod gui;
 pub mod ledger;

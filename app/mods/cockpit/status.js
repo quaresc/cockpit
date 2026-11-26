@@ -115,7 +115,7 @@ export default class Status {
       w >= 640 && item("st-done", [dot(count("done") ? k.done : k.border), div().child(`${count("done")} done`)], { onClick: (_e, cx) => this.command("next:done", cx), tooltip: hint("Next finished agent", "cockpit.next:done") }),
     ].filter(Boolean);
 
-    // The branch and links of the agent in view on the right, always in the hub's order (PR, ticket, CI, deploy, cited pages);
+    // The branch and links of the agent in view on the right, always in the hub's order (PRs, ticket, CI, deploy, cited pages);
     // past the room left, the rest in a "+N" menu. Documents come last.
     const right = [];
     const open = (url) => (url ? (_e, cx) => cx.spawn(async () => hub.openUrl(url)) : undefined);
@@ -125,25 +125,31 @@ export default class Status {
       right.push(item("st-branch", [Icon("git-branch", { size: 14 }), Mono(me.branch ?? me.space_name ?? me.address, { size: TEXT.sm }).flex_shrink(1).min_w(0).truncate()], { tooltip: `${me.title} · ${me.branch ?? ""}` }).flex_shrink(1).min_w(60));
       if (w >= 900 && (ch.ahead || ch.behind)) right.push(item("st-ahead", [Mono(`↑${ch.ahead ?? 0} ↓${ch.behind ?? 0}`, { size: TEXT.sm })], { tooltip: "Commits ahead of and behind its base" }));
       if (w >= 900 && ch.files) right.push(item("st-files", [Mono(`±${ch.files}`, { size: TEXT.sm })], { tooltip: `${ch.files} files changed`, onClick: () => togglePanel("changes") }));
-      const links = me.row?.links ?? [];
+      // Each link is a group of one kind (its PRs, its tickets, the Slack threads it cites); one of several reads `Name · N`.
+      const links = (me.row?.links ?? []).map((g) => ({ ...g, items: g.items ?? [g] })).filter((g) => g.items.length);
+      const caption = (g) => (g.items.length > 1 ? `${g.label ?? g.name} · ${g.items.length}` : (g.label ?? g.name));
+      const entries = (g) => g.items.map((it) => ({ label: [g.name, it.detail || it.title].filter(Boolean).join(" · "), icon: g.icon || "link", command: `link:${it.url}` }));
+      const click = (g) => (g.items.length > 1 ? () => openMenu(entries(g), { width: 320 }) : open(g.items[0].url));
       // As many links as the bar has room for beside the counts, the branch and the documents, by their labels' width.
       const docsCount = me.row?.documents?.length ?? 0;
       let budget = w - 440 - 140 - (w >= 900 ? 110 : 0) - (docsCount ? (w >= 800 ? 150 : 60) : 0);
-      const wide = (l) => 46 + (l.label ?? l.name).length * 7.5;
-      const fits = links.reduce((n, l, i) => (n === i && (budget -= wide(l)) >= 0 ? n + 1 : n), 0);
+      const wide = (g) => 46 + caption(g).length * 7.5;
+      const fits = links.reduce((n, g, i) => (n === i && (budget -= wide(g)) >= 0 ? n + 1 : n), 0);
       const shown = fits >= links.length ? links : links.slice(0, Math.max(1, fits - 1));
       const ciColor = (state) => (state === "pass" ? k.success : state === "fail" ? k.destructive : k.warning);
-      shown.forEach((l, i) => {
-        const mark = l.kind === "ci" ? dot(ciColor(l.state), l.state === "running") : Icon(l.icon || "link", { size: 14 });
-        right.push(item(`st-link-${i}`, [mark, div().child(l.label ?? l.name)], { tooltip: l.detail ? `${l.name} · ${l.detail}` : l.name, onClick: open(l.url), button: true }));
+      shown.forEach((g, i) => {
+        const first = g.items[0];
+        const mark = g.kind === "ci" ? dot(ciColor(first.state), first.state === "running") : Icon(g.icon || "link", { size: 14 });
+        const tooltip = g.items.length > 1 ? `${g.name} · ${g.items.length}` : first.detail ? `${g.name} · ${first.detail}` : g.name;
+        right.push(item(`st-link-${i}`, [mark, div().child(caption(g))], { tooltip, onClick: click(g), button: true }));
       });
       const rest = links.slice(shown.length);
       if (rest.length)
         right.push(
           item("st-links-more", [div().child(`+${rest.length}`)], {
-            tooltip: rest.map((l) => l.label ?? l.name).join(", "),
-          button: true,
-            onClick: () => openMenu(rest.map((l) => ({ label: l.detail ? `${l.label ?? l.name} · ${l.detail}` : l.label ?? l.name, icon: l.icon || "link", command: `link:${l.url}` })), { width: 320 }),
+            tooltip: rest.map(caption).join(", "),
+            button: true,
+            onClick: () => openMenu(rest.flatMap(entries), { width: 320 }),
           }),
         );
     }

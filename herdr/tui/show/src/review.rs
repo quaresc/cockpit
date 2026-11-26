@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::gui::diff_model_with;
-use crate::patch::{File, git_diff};
+use crate::patch::{File, git_diff, git_diff_range};
 use crate::walkthrough;
 
 /// How long a pull request's facts and diff are kept before `gh` is asked again.
@@ -96,31 +96,60 @@ fn pull_request(repo: &str, branch: &str) -> Result<(Value, String), String> {
     {
         return found.clone();
     }
-    let found = gh(repo, &["pr", "view", "--json", "number,title,url,baseRefName,headRefName,state,isDraft"]).and_then(|facts| {
+    // The branch named, so a branch other than the one checked out has its own pull request read.
+    let named: &[&str] = if branch.is_empty() { &[] } else { std::slice::from_ref(&branch) };
+    let found = gh(repo, &[&["pr", "view"], named, &["--json", "number,title,url,baseRefName,headRefName,state,isDraft"]].concat()).and_then(|facts| {
         let facts: Value = serde_json::from_str(&facts).map_err(|e| e.to_string())?;
-        let patch = gh(repo, &["pr", "diff", "--color", "never"])?;
+        let patch = gh(repo, &[&["pr", "diff"], named, &["--color", "never"]].concat())?;
         Ok((facts, patch))
     });
     PRS.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), found.clone()));
     found
 }
 
-/// The scope's patch and what the header says about it.
-pub fn patch_of(repo: &str, scope: &str) -> Result<(String, Value), String> {
-    let branch = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
-    match scope {
+/// The branch reviewed and the one checked out: `{branch, head, checked_out}`, `branch` the one asked for, else the
+/// head.
+fn heads(repo: &str, branch: Option<&str>) -> Value {
+    let head = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+    let on = branch.filter(|b| !b.is_empty()).unwrap_or(&head).to_string();
+    json!({"branch": on, "head": head, "checked_out": on == head})
+}
+
+/// The walkthrough's place for a scope: the scope itself on the branch checked out, else the scope and the branch.
+fn place_of(scope: &str, about: &Value) -> String {
+    if about["checked_out"] == false { format!("{scope}@{}", about["branch"].as_str().unwrap_or_default()) } else { scope.to_string() }
+}
+
+/// The scope's patch and what the header says about it, on the branch checked out or on `branch`: a branch that is
+/// not checked out shows its committed changes (branch) or its pull request, never a working tree.
+pub fn patch_of(repo: &str, scope: &str, branch: Option<&str>) -> Result<(String, Value), String> {
+    let mut about = heads(repo, branch);
+    let on = about["branch"].as_str().unwrap_or_default().to_string();
+    let checked_out = about["checked_out"] == true;
+    let patch = match scope {
         "branch" => {
             let base = base_of(repo).ok_or("no base branch found (origin/HEAD, main or master)")?;
-            let fork = git(repo, &["merge-base", "HEAD", &base]).ok_or_else(|| format!("{branch} shares no history with {base}"))?;
-            let ahead = git(repo, &["rev-list", "--count", &format!("{fork}..HEAD")]).and_then(|n| n.parse::<u64>().ok()).unwrap_or(0);
-            Ok((git_diff(repo, Some(&fork))?, json!({"branch": branch, "base": base, "commits": ahead})))
+            let fork = git(repo, &["merge-base", &on, &base]).ok_or_else(|| format!("{on} shares no history with {base}"))?;
+            let commits = git(repo, &["rev-list", "--count", &format!("{fork}..{on}")]).and_then(|n| n.parse::<u64>().ok()).unwrap_or(0);
+            about["base"] = json!(base);
+            about["commits"] = json!(commits);
+            if checked_out { git_diff(repo, Some(&fork))? } else { git_diff_range(repo, &fork, &on)? }
         }
         "pr" => {
-            let (facts, patch) = pull_request(repo, &branch)?;
-            Ok((patch, json!({"branch": branch, "base": facts["baseRefName"], "pr": facts})))
+            let (facts, patch) = pull_request(repo, &on)?;
+            about["base"] = facts["baseRefName"].clone();
+            about["pr"] = facts;
+            patch
         }
-        _ => Ok((git_diff(repo, None)?, json!({"branch": branch, "base": "HEAD"}))),
-    }
+        _ => {
+            if !checked_out {
+                return Err(format!("{on} is not checked out: pick Branch or PR"));
+            }
+            about["base"] = json!("HEAD");
+            git_diff(repo, None)?
+        }
+    };
+    Ok((patch, about))
 }
 
 /// A scope's changes read for the TUI's review space: the files painted (None when the patch hashes to the `since`
@@ -151,7 +180,7 @@ pub fn read(folder: &str, scope: &str, since: Option<u64>) -> Read {
         return out;
     };
     out.repo = repo;
-    match patch_of(&out.repo, scope) {
+    match patch_of(&out.repo, scope, None) {
         Ok((patch, about)) => {
             out.hash = crate::diff::hash(&patch);
             let files = || crate::patch::prepare(&patch);
@@ -160,7 +189,7 @@ pub fn read(folder: &str, scope: &str, since: Option<u64>) -> Read {
             out.about = about;
         }
         Err(error) => {
-            out.about = json!({"branch": git(&out.repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default()});
+            out.about = heads(&out.repo, None);
             out.error = Some(error);
         }
     }
@@ -183,9 +212,10 @@ pub fn forget(repo: &str) {
     PRS.lock().unwrap_or_else(|e| e.into_inner()).retain(|(r, _), _| r != repo);
 }
 
-/// `{repo, scope, since, load}`: the changes (`{same: true}` with the walkthrough when the patch hashes to `since`), a
-/// large file's lines only once `load` names it, where they come from, and the walkthrough of that scope over them.
-/// `{prompt: {scope, comments}}` is the review as an agent reads it, for a new agent started on it.
+/// `{repo, scope, branch, since, load}`: the changes (`{same: true}` with the walkthrough when the patch hashes to
+/// `since`), a large file's lines only once `load` names it, where they come from (`about`), and the walkthrough of
+/// that scope over them; `branch` reads another branch than the one checked out. `{prompt: {scope, comments}}` is the
+/// review as an agent reads it, for a new agent started on it.
 pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     if args["prompt"].is_object() {
         return match message(&args["prompt"]) {
@@ -196,9 +226,10 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     let Some(asked) = args["repo"].as_str().filter(|r| r.starts_with('/')) else { return json!({"error": "no repository: focus an agent working in one"}) };
     let Some(repo) = toplevel(asked) else { return json!({"error": format!("{asked} is not in a git repository")}) };
     let scope = args["scope"].as_str().filter(|s| matches!(*s, "branch" | "pr")).unwrap_or("uncommitted");
-    let (patch, about) = match patch_of(&repo, scope) {
+    let branch = args["branch"].as_str().filter(|b| !b.is_empty());
+    let (patch, about) = match patch_of(&repo, scope, branch) {
         Ok(found) => found,
-        Err(error) => return json!({"repo": repo, "scope": scope, "error": error}),
+        Err(error) => return json!({"repo": repo, "scope": scope, "about": heads(&repo, branch), "error": error}),
     };
     let load: HashSet<String> = args["load"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_string)).collect();
     // A PR's binary files are not the working tree's: their size is left out rather than guessed.
@@ -209,14 +240,14 @@ pub fn view(args: &Value, _doc: &dyn Fn(&str) -> Value) -> Value {
     out["repo"] = json!(repo);
     out["name"] = json!(name);
     out["scope"] = json!(scope);
+    out["walkthrough"] = walkthrough::state(&repo, &place_of(scope, &about), &patch);
     out["about"] = about;
-    out["walkthrough"] = walkthrough::state(&repo, scope, &patch);
     out
 }
 
 /// `send [handle, {scope, repo, comments: [{path, line, old, code, text}], to}]` hands the review to the agent as one
 /// message through `deliver` (a terminal's or a driven session's), the note naming `to`; `walkthrough [repo, scope,
-/// model]` starts one; `stop_walkthrough [repo, scope]` stops it.
+/// model, branch?]` starts one; `stop_walkthrough [repo, scope, branch?]` stops it.
 pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
     let first = args.first().and_then(Value::as_str).unwrap_or_default();
     // A walkthrough starts an agent and stops one: the person's to do.
@@ -230,11 +261,18 @@ pub fn act(action: &str, args: &[Value]) -> Option<Result<String, String>> {
         "walkthrough" => {
             let scope = args.get(1).and_then(Value::as_str).unwrap_or("uncommitted");
             let model = args.get(2).and_then(Value::as_str).unwrap_or("haiku");
+            let branch = args.get(3).and_then(Value::as_str).filter(|b| !b.is_empty());
             let repo = toplevel(first).ok_or_else(|| format!("{first} is not in a git repository"));
-            repo.and_then(|repo| patch_of(&repo, scope).and_then(|(patch, about)| walkthrough::start(&repo, scope, model, &patch, &about)))
+            repo.and_then(|repo| {
+                patch_of(&repo, scope, branch).and_then(|(patch, about)| walkthrough::start(&repo, &place_of(scope, &about), model, &patch, &about))
+            })
         }
         "stop_walkthrough" => {
-            walkthrough::stop(&toplevel(first).unwrap_or_else(|| first.to_string()), args.get(1).and_then(Value::as_str).unwrap_or("uncommitted"))
+            let scope = args.get(1).and_then(Value::as_str).unwrap_or("uncommitted");
+            let branch = args.get(2).and_then(Value::as_str).filter(|b| !b.is_empty());
+            let repo = toplevel(first).unwrap_or_else(|| first.to_string());
+            let place = place_of(scope, &heads(&repo, branch));
+            walkthrough::stop(&repo, &place)
         }
         _ => return None,
     })
@@ -334,6 +372,33 @@ mod tests {
         let again = view(&json!({"repo": repo, "since": v["hash"]}), &|_| Value::Null);
         assert_eq!(again["same"], true);
         assert!(view(&json!({"repo": "/nonexistent-dir"}), &|_| Value::Null)["error"].is_string());
+    }
+
+    #[test]
+    fn a_branch_that_is_not_checked_out_reads_its_committed_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().to_string_lossy().into_owned();
+        let run = |args: &[&str]| {
+            assert!(Command::new("git").args(["-C", &repo, "-c", "user.email=a@b", "-c", "user.name=a"]).args(args).output().unwrap().status.success())
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["commit", "-q", "--allow-empty", "-m", "start"]);
+        run(&["checkout", "-q", "-b", "feat"]);
+        std::fs::write(root.path().join("feat.txt"), "hello\n").unwrap();
+        run(&["add", "feat.txt"]);
+        run(&["commit", "-q", "-m", "feat"]);
+        run(&["checkout", "-q", "main"]);
+        let v = view(&json!({"repo": repo, "scope": "branch", "branch": "feat"}), &|_| Value::Null);
+        assert_eq!(v["files"][0]["path"], "feat.txt", "the branch's commits, read without checking it out");
+        assert_eq!(v["about"], json!({"branch": "feat", "head": "main", "base": "main", "commits": 1, "checked_out": false}));
+        let no_tree = view(&json!({"repo": repo, "scope": "uncommitted", "branch": "feat"}), &|_| Value::Null);
+        assert_eq!(no_tree["error"], "feat is not checked out: pick Branch or PR");
+        assert_eq!(no_tree["about"]["checked_out"], false, "the error still says which branch and head");
+        let here = view(&json!({"repo": repo, "scope": "branch"}), &|_| Value::Null);
+        assert_eq!(here["about"]["checked_out"], true, "no branch asked: the one checked out");
+        assert_eq!(here["about"]["branch"], "main");
+        assert_eq!(place_of("branch", &v["about"]), "branch@feat");
+        assert_eq!(place_of("branch", &here["about"]), "branch");
     }
 
     #[test]

@@ -6,11 +6,13 @@ type Site = { kind: string; icon: string; host: string; path: string; label?: (r
 const GOOGLE_FILES: Record<string, string> = { document: 'doc', spreadsheets: 'sheet', presentation: 'slides', forms: 'form' }
 
 const SITES: Site[] = [
-  // Code review, beside the GitHub PR chip
+  // Code review: the GitHub PR is the footer's own chip, the others sit beside it
+  { kind: 'pr', icon: '\u{f407}', host: 'github\\.com', path: '/[\\w.-]+/[\\w.-]+/pull/(?<ref>\\d+)', label: ref => `#${ref}` },
   { kind: 'mr', icon: '\u{f0ba0}', host: 'gitlab\\.[\\w.-]+', path: '/[^\\s?#]+?/-/merge_requests/(?<ref>\\d+)', label: ref => `!${ref}` },
   { kind: 'bitbucket', icon: '\u{f00a8}', host: 'bitbucket\\.org', path: '/[\\w.-]+/[\\w.-]+/pull-requests/(?<ref>\\d+)', label: ref => `#${ref}` },
   { kind: 'azure-pr', icon: '\u{f0fd5}', host: 'dev\\.azure\\.com|[\\w-]+\\.visualstudio\\.com', path: '/[^\\s?#]+?/_git/[^\\s?#]+?/pullrequest/(?<ref>\\d+)', label: ref => `!${ref}` },
-  // Tickets
+  // Tickets: the one this session works on is the footer's own chip
+  { kind: 'linear', icon: '\u{f0343}', host: 'linear\\.app', path: '/[\\w-]+/issue/(?<ref>[A-Z][A-Z0-9]+-\\d+)', label: ref => ref },
   { kind: 'jira', icon: '\u{f0303}', host: '[\\w-]+\\.atlassian\\.net|jira\\.[\\w.-]+', path: '/(?:browse/|[^\\s"\'`]*?selectedIssue=)(?<ref>[A-Z][A-Z0-9]+-\\d+)', label: ref => ref },
   { kind: 'issue', icon: '', host: 'github\\.com', path: '/[\\w.-]+/[\\w.-]+/issues/(?<ref>\\d+)', label: ref => `#${ref}` },
   { kind: 'gitlab-issue', icon: '\u{f0ba0}', host: 'gitlab\\.[\\w.-]+', path: '/[^\\s?#]+?/-/(?:issues|work_items)/(?<ref>\\d+)', label: ref => `#${ref}` },
@@ -69,7 +71,7 @@ export function citedIn(texts: string[], pick: 'first' | 'last') {
 
 // Each site's service, as the footer names it; the Rust side keeps the same names (crates/core sites.rs).
 const NAMES: Record<string, string> = {
-  mr: 'GitLab', bitbucket: 'Bitbucket', 'azure-pr': 'Azure DevOps', jira: 'Jira', issue: 'GitHub', 'gitlab-issue': 'GitLab',
+  pr: 'GitHub', mr: 'GitLab', linear: 'Linear', bitbucket: 'Bitbucket', 'azure-pr': 'Azure DevOps', jira: 'Jira', issue: 'GitHub', 'gitlab-issue': 'GitLab',
   'azure-item': 'Azure DevOps', trello: 'Trello', asana: 'Asana', clickup: 'ClickUp', shortcut: 'Shortcut', figma: 'Figma',
   miro: 'Miro', excalidraw: 'Excalidraw', notion: 'Notion', confluence: 'Confluence', coda: 'Coda', loom: 'Loom',
   slack: 'Slack', teams: 'Teams', discord: 'Discord', sentry: 'Sentry', datadog: 'Datadog', grafana: 'Grafana',
@@ -78,9 +80,12 @@ const NAMES: Record<string, string> = {
 }
 const GOOGLE_NAMES: Record<string, string> = { document: 'Google Docs', spreadsheets: 'Google Sheets', presentation: 'Google Slides', forms: 'Google Forms' }
 
+// The kinds the footer draws as its own ticket and PR chips, never as a cited page's.
+const OWN = ['pr', 'linear']
+
 // The footer chips for the cited URLs, in the table's order, each named after its service.
 export function chipsFor(cited: Record<string, string>) {
-  return COMPILED.filter(site => cited[site.kind]).map(site => {
+  return COMPILED.filter(site => !OWN.includes(site.kind) && cited[site.kind]).map(site => {
     const url = cited[site.kind]!
     const ref = url.match(site.one)?.groups?.ref
     const label = site.kind === 'google' ? (GOOGLE_NAMES[ref ?? ''] ?? 'Google Docs') : (NAMES[site.kind] ?? site.kind)

@@ -40,9 +40,6 @@ pub fn add(ctx: &mut Ctx, args: &[Value]) -> Res {
     Ok(())
 }
 
-/// The permission modes a routine runs in, as Claude Code's `--permission-mode` names them.
-const MODES: [&str; 6] = ["default", "acceptEdits", "plan", "bypassPermissions", "auto", "dontAsk"];
-
 fn create(setup: &Setup, args: &[Value]) -> Res<String> {
     let field = |n: usize| opt(args, n).as_str().unwrap_or_default().trim().to_string();
     let (when, body, cwd) = (field(1), field(2), field(3));
@@ -50,9 +47,6 @@ fn create(setup: &Setup, args: &[Value]) -> Res<String> {
         return Err("a routine needs a prompt".into());
     }
     let mode = field(11);
-    if !mode.is_empty() && !MODES.contains(&mode.as_str()) {
-        return Err(format!("no mode {mode:?}: one of {}", MODES.join(", ")));
-    }
     When::parse(&when)?;
     let name = Some(field(0)).filter(|n| !n.is_empty()).unwrap_or_else(|| cut(&body, 40));
     std::fs::create_dir_all(&setup.routines).map_err(|e| e.to_string())?;
@@ -65,6 +59,12 @@ fn create(setup: &Setup, args: &[Value]) -> Res<String> {
         let agent = agent_field(setup, &kind)?;
         if !agent.is_empty() {
             file = routines::set_field(&file, "agent", &agent);
+        }
+        // The permission modes its agent takes (`modes`), the default agent's when none is named.
+        let runs_as = if agent.is_empty() { setup.default_agent.as_str() } else { agent.as_str() };
+        let words = setup.agents.iter().find(|a| a.id == runs_as).map_or(runs_as, cockpit_core::modes::words_of);
+        if !mode.is_empty() && cockpit_core::modes::of(words, &mode).is_none() {
+            return Err(format!("no mode {mode:?}: one of {}", cockpit_core::modes::ids(words).join(", ")));
         }
         if !field(5).is_empty() {
             file = routines::set_field(&file, "model", &model(setup, &agent, &field(5))?);
@@ -150,12 +150,12 @@ fn agent_field(setup: &Setup, id: &str) -> Res<String> {
     setup.agents.iter().find(|a| a.id == id || a.aliases.contains(&id)).map(|a| a.id.clone()).ok_or_else(|| format!("no agent {id:?}"))
 }
 
-/// A model the routine's agent takes: one of those its table names (and a routine's own, as Claude Code's lightest), or
-/// a plain model name for an agent that lists its own or none.
+/// A model the routine's agent takes: one of those it offers (its table's, or its own catalog once read, and a
+/// routine's own, as Claude Code's lightest), or a plain model name for an agent whose table names none.
 fn model(setup: &Setup, agent: &str, name: &str) -> Res<String> {
     let name = name.trim().to_string();
     let id = if agent.is_empty() { setup.default_agent.as_str() } else { agent };
-    if let Some(named) = setup.agents.iter().find(|a| a.id == id && a.model_listing().is_none() && !a.offered.is_empty()) {
+    if let Some(named) = setup.agents.iter().find(|a| a.id == id && !a.offered.is_empty()) {
         let (name, known) = (name.to_lowercase(), cockpit_core::models::for_routine(named, || {}));
         return if known.contains(&name) { Ok(name) } else { Err(format!("no model {name:?}: one of {}", known[1..].join(", "))) };
     }

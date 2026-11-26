@@ -14,54 +14,30 @@ import * as hub from "./hub.js";
 import { take, testKeys } from "./person.js";
 import { openUrl } from "./hub.js";
 import { openPanel } from "./status.js";
-import { AgentsModel, QuestionCard, UndoRow, oneTimeKey, pendView } from "./agentsui.js";
+import { AgentsModel, QuestionCard, DialogCard, UndoRow, oneTimeKey, pendView } from "./agentsui.js";
 import { inFront } from "./front.js";
 import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent } from "./screens.js";
+import { childTerminals } from "./fleet.js";
 import { followInReview } from "./review.js";
 import { showWhere } from "./projects.js";
 import { windowsWords } from "./usage.js";
 import { Started } from "./doctor.js";
 import { ChatStart } from "./chatstart.js";
-import { modelName, pickChips } from "./picks.js";
+import { modelName, pickChips, modeOf, modeChoices, unaskedModes, asksLess, nextMode } from "./picks.js";
 import { statusMark } from "./chat-top.js";
 import { hint, keyText } from "./commands.js";
 import { pasteImage, thumbnail, IMAGE_LINE } from "./paste.js";
 import { linkify, imagesIn, pathOf, fileAndLine, expand } from "./textlinks.js";
 import { openCode } from "./code.js";
 import { TOOK, boxTakesBack } from "./browser.js";
-import { tokens, TEXT, RADIUS, Icon, Spinner, Chip, Empty, Card, Button, HubDown, openMenu, AgentLogo } from "./ui.js";
+import { tokens, TEXT, RADIUS, Icon, Spinner, Chip, Empty, Card, Button, HubDown, openMenu, AgentLogo, dur } from "./ui.js";
 import { NEXT_KEYS, NextSteps, nextKey, nextShown } from "./next-steps.js";
-
-/** The permission modes the chip wears: what it says, how it looks, and whether the menu offers it. */
-const MODES = {
-  default: { label: "Asks first", icon: "shield-check", loud: false, offered: true },
-  acceptEdits: { label: "Edits freely", icon: "triangle-alert", loud: true, offered: true },
-  plan: { label: "Plan only", icon: "map", loud: false, offered: true },
-  bypassPermissions: { label: "Full access", icon: "triangle-alert", loud: true, offered: true },
-  manual: { label: "Asks first", icon: "shield-check", loud: false, offered: false },
-  dontAsk: { label: "Never asks", icon: "triangle-alert", loud: true, offered: false },
-  auto: { label: "Auto", icon: "zap", loud: true, offered: false },
-};
 
 /** The subject of a start box the palette opened: no agent, the box is Start work. */
 const BLANK = "start:";
 
-/** The modes in which tools run without asking first: each waits for the person's yes. */
-const UNASKED = ["bypassPermissions", "auto"];
-
-/** The modes that let it do more without asking: set only from the mode menu the person opened, or a confirm. */
-const ASKS_LESS = ["acceptEdits", "bypassPermissions", "auto", "dontAsk"];
-
-/** The modes a terminal's menu offers: its ⇧⇥ goes through them, Auto only where the agent has it on. */
-const TERMINAL_MODES = ["default", "acceptEdits", "plan", "auto"];
-
-/** ⇧⇥'s cycle, as the session's own (`session::CYCLE`). */
-const CYCLE = ["default", "acceptEdits", "plan"];
-
-/** The mode ⇧⇥ moves to from `now`. */
-function nextMode(now) {
-  return CYCLE[(Math.max(CYCLE.indexOf(now), 0) + 1) % CYCLE.length];
-}
+/** What the mode chip wears for a mode its agent's `picks.modes` do not name: shown as the agent reports it. */
+const UNKNOWN_MODE = (id) => ({ id, label: id || "Mode", icon: "shield-check", loud: false });
 
 /**
  * The choice a digit the person pressed answers, or null: with the empty box focused for a question, with its card
@@ -81,7 +57,9 @@ export function digitAnswers(event, { question, typed = "", focused = false, car
  * The chat's own keys and the flag of its key context each one needs. GPUI gives a key to the deepest binding before any
  * `on_key_down`, so the box's own Tab, ⏎ and ⎋ and the window's focus moves would take them first.
  */
-const OWN_KEYS = { tab: "chat_tab", "shift-tab": "chat_cycle", escape: "chat_escape", enter: "chat_complete" };
+const OWN_KEYS = { tab: "chat_tab", "shift-tab": "chat_cycle", escape: "chat_escape", enter: "chat_complete", up: "chat_up", down: "chat_down", left: "chat_left", right: "chat_right" };
+/** The keys a dialog or a completion menu in the agent's terminal takes while the chat mirrors it. */
+const DIALOG_KEYS = ["up", "down", "left", "right"];
 
 /** The flag of the keys that pick a next step (1, 2, 3) or put them away (0), while next steps show. */
 const NEXT_FLAG = "chat_next";
@@ -104,13 +82,15 @@ export function chatBindings() {
  * The chat's key context: a flag for each key it has a use for now, so any other key, or one it has nothing to do with,
  * keeps doing what it does elsewhere. Behind another screen, or while it does not hold the keyboard, the chat takes none.
  */
-export function chatContext({ front = true, holds = true, hints = false, question = false, live = false, closes = false, confirm = false, next = false } = {}) {
+export function chatContext({ front = true, holds = true, hints = false, question = false, live = false, closes = false, confirm = false, next = false, dialog = false } = {}) {
   const flags = [];
   // A popup over the chat (the palette, a menu) has the keyboard: its keys are its own.
   if (!holds) return "CockpitChat";
-  if (front && !confirm && (hints || question)) flags.push(OWN_KEYS.tab);
+  if (front && !confirm && (hints || question || dialog)) flags.push(OWN_KEYS.tab);
   if (front && !confirm && live) flags.push(OWN_KEYS["shift-tab"]);
-  if ((front && (hints || closes || next)) || confirm) flags.push(OWN_KEYS.escape);
+  if ((front && (hints || closes || next || dialog)) || confirm) flags.push(OWN_KEYS.escape);
+  // The arrows move through what the terminal shows, while it shows a dialog or completes a command.
+  if (front && !confirm && dialog) flags.push(...DIALOG_KEYS.map((key) => OWN_KEYS[key]));
   // ⏎ is the chat's while it holds the box: it completes a hint, else sends, and ⇧⏎ stays the box's new line.
   if (front && !confirm) flags.push(OWN_KEYS.enter);
   // Next steps take 1, 2, 3 and 0 only while they show, which is with the box empty: typed digits stay digits.
@@ -133,7 +113,13 @@ const ASKED_MS = 10 * 60_000;
 
 
 /** The most of a conversation's latest messages the hub's chat view sends, however many are asked for. */
-const CEILING = 20_000;
+/** The chat view's fields that move while a turn runs, and the ones that move only with the transcript. */
+const CHAT_META = ["agent", "session", "question", "more", "next", "tasks"];
+const CHAT_MESSAGES = ["messages", "cursor"];
+/** No messages, the same every time, so a page without any is seen as unchanged. */
+const EMPTY = Object.freeze([]);
+/** How long after the last key a `/` command typed here goes into the terminal's own box. */
+const MIRROR_MS = 120;
 
 /** The most rows drawn at once: a window of the conversation slides over the rest as the reader moves. */
 export const DRAW = 300;
@@ -174,11 +160,16 @@ const askOf = (q) => (q ? (q.ask ?? q.asked ?? q.text ?? null) : null);
 /** The line an agent's transcript records when the person stops a turn: a marker, not something they said. */
 const INTERRUPTED = /^\[Request interrupted by user\b[^\]]*\]$/;
 
+/** The icon a task's kind wears: a subagent, a background job, a workflow. */
+export const TASK_ICONS = { subagent: "bot", background: "terminal", workflow: "workflow" };
+
 /**
  * The messages as the chat draws them. A turn is what you said, then everything the agent did and thought folded
- * into one row, then the one thing it answers with, or a "stopped" mark when you interrupted it or it failed.
+ * into one row, then the one thing it answers with, or a "stopped" mark when you interrupted it or it failed. The
+ * `tasks` the view lists (subagents, background jobs) ride on the work row holding the call that started each, as
+ * `call.task`, `row.tasks` and `row.running` (how many still run).
  */
-export function rowsOf(messages, { working = false, now = null, stopped = false, failed = false, error = null } = {}) {
+export function rowsOf(messages, { working = false, now = null, stopped = false, failed = false, error = null, tasks = [] } = {}) {
   const rows = [];
   let turn = null;
   const open = (at, first) => (turn ??= { calls: [], notes: [], steps: [], from: at, to: at, first, ids: [] });
@@ -228,11 +219,28 @@ export function rowsOf(messages, { working = false, now = null, stopped = false,
   if (ended && rows.at(-1)?.kind !== "stopped") rows.push(failed ? { kind: "stopped", failed: true, error: error || null, ids: [], base: "stopped:end" } : { kind: "stopped", ids: [], base: "stopped:end" });
   // A row's key comes from its own messages, not its place: folds and the reading position hold when earlier ones load.
   const seen = new Map();
+  const byCall = new Map((tasks ?? []).filter((t) => t?.tool_use_id).map((t) => [t.tool_use_id, t]));
   return rows.map(({ base, ...r }) => {
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
-    return { ...r, key: n === 1 ? base : `${base}#${n}` };
+    const out = { ...r, key: n === 1 ? base : `${base}#${n}` };
+    if (r.kind === "work" && byCall.size) {
+      out.calls = r.calls.map((c) => (byCall.has(c.id) ? { ...c, task: byCall.get(c.id) } : c));
+      out.steps = r.steps.map((st) => (st.call && byCall.has(st.call.id) ? { call: { ...st.call, task: byCall.get(st.call.id) } } : st));
+      out.tasks = out.calls.filter((c) => c.task).map((c) => c.task);
+      out.running = out.tasks.filter((t) => t.state === "running").length;
+    }
+    return out;
   });
+}
+
+/** "2 subagents running", for a folded turn whose tasks still run; "" with none. */
+export function runningWord(row) {
+  const n = row?.running ?? 0;
+  if (!n) return "";
+  const kinds = new Set((row.tasks ?? []).filter((t) => t.state === "running").map((t) => t.kind));
+  const what = kinds.size === 1 && kinds.has("background") ? "background job" : kinds.size === 1 && kinds.has("workflow") ? "workflow" : "subagent";
+  return `${n} ${what}${n > 1 ? "s" : ""} running`;
 }
 
 /** Seconds between two RFC 3339 stamps, or null when either is missing or unreadable. */
@@ -324,6 +332,8 @@ export default class Chat {
     this.pointed = false;
     // What a window command typed in the empty box, {target, text}: ⏎ does not start it, a click on ↑ does.
     this.typedOutside = null;
+    // What the box mirrors into a terminal agent's own box (a `/` command as it is typed), and why it stopped.
+    this.mirror = null;
     // Full access waits for a yes: {mode} while the confirm is up.
     this.confirm = null;
     this.value = null;
@@ -341,7 +351,6 @@ export default class Chat {
     this.seenMsg = null;
     // A conversation's messages as the reader holds them while reading back: what slid out of the hub's latest page
     // stays, so nothing above the reader goes.
-    this.kept = null;
     this.rows = [];
     this.all = [];
     // The drawn window's first row while the reader is away from the end ({key}), and the row a load from the hub
@@ -354,7 +363,6 @@ export default class Chat {
     // A driven session's older pages, fetched as the reader reaches the top: {key, messages, from, to, more}.
     this.older = null;
     // How many of the latest messages the hub sends; "Show earlier" asks for more.
-    this.limit = null;
     // Files to send with the next prompt, as paths, and why the last image pasted was not attached ({why, detail}).
     this.files = [];
     this.pasteNote = null;
@@ -381,8 +389,9 @@ export default class Chat {
     this.multiLine = Boolean(base.Textarea && base.TextareaState);
     this.input = this.multiLine ? base.TextareaState.new({ placeholder, rows: 1 }) : InputState.new({ placeholder });
     this.input.set_auto_grow?.(1, 8);
-    // The multi-line box says "submit" for ⇧⏎ too, after its new line: ⏎ sends through the chat's own binding instead.
-    this.input.on("submit", (_e, cx) => this.multiLine || this.send(cx, "key"));
+    // The box says "submit" for ⏎ and ⇧⏎ alike, after its new line: ⏎ sends (the new line it put in taken out), ⇧⏎
+    // keeps the new line. The chat's own ⏎ binding sends first where it holds the keys; what is left then is nothing.
+    this.input.on("submit", (e, cx) => this.submitted(e, cx));
     // ⌘V with no text on the clipboard: its image, if any, rides with the prompt as the + menu's does.
     this.input.on("paste_other", (_e, cx) => this.pasteKey(cx));
     // Where the keyboard is decides which keys the chat binds (`chatContext`): each move draws them again.
@@ -391,6 +400,7 @@ export default class Chat {
     // Emptied, the box holds the person's words again. Each change draws the hints again, and with them the keys.
     this.input.on("change", (_e, cx) => {
       if (!this.input.value().trim()) this.typedOutside = null;
+      this.mirrorSync(cx);
       cx.notify();
     });
     // The chat follows its subject: its subscriptions are remade when that changes.
@@ -481,6 +491,147 @@ export default class Chat {
     if (key !== this.target) this.watch(key, cx);
   }
 
+  /** Reads a subagent's own conversation in place of its parent's: the chat view asked with `subagent`. */
+  openTask(task, cx) {
+    const id = task?.open?.subagent ?? task?.id;
+    if (!id || !this.target) return;
+    this.subagent = { id, name: task.name ?? "", kind: task.kind ?? "subagent" };
+    this.sessions = null;
+    this.older = null;
+    this.value = null;
+    this.stale = false;
+    this.folds = new Map();
+    this.watch(this.target, cx, true);
+    cx.notify();
+  }
+
+  /** Back from a subagent to its parent's conversation. */
+  back(cx) {
+    if (!this.subagent) return;
+    this.subagent = null;
+    this.older = null;
+    this.value = null;
+    this.stale = false;
+    this.folds = new Map();
+    if (this.target && this.target !== BLANK) this.watch(this.target, cx, true);
+    cx.notify();
+  }
+
+  /** Asks the hub to stop a task of the session cockpit drives; a terminal's is stopped in its terminal. */
+  stopTask(task, cx) {
+    const terminal = this.subjectHandle();
+    if (!terminal || !task?.id) return;
+    cx.spawn(async (cx) => {
+      try {
+        const r = await hub.act("chat", "task-stop", [{ terminal, task: task.id }]);
+        if (r?.error) notify({ title: "Not stopped", body: String(r.error).replace(/^[a-z]+: /, ""), level: "warning", timeout: 5000 });
+      } catch (e) {
+        notify({ title: "Not stopped", body: String(e?.message ?? e), level: "warning" });
+      }
+      cx.notify();
+    });
+  }
+
+  /**
+   * The subagents, background jobs and child terminals still running, above the box while any does: each with its
+   * kind, its name, how long it has run, and Open (its conversation) or Stop (a driven session's) where that applies.
+   */
+  taskStrip(k) {
+    const tasks = (this.value?.tasks ?? []).filter((t) => t?.state === "running");
+    const kids = childTerminals(this.value?.agent?.address ?? "");
+    if (!tasks.length && !kids.length) return null;
+    const now = Date.now();
+    const driven = Boolean(this.watchedDriven);
+    const line = (id, icon, name, age, buttons) =>
+      h_flex()
+        .id(id)
+        .w_full()
+        .h(26)
+        .gap(8)
+        .items_center()
+        .text_size(TEXT.sm)
+        .child(Spinner({ size: 11, color: k.mutedFg }))
+        .child(Icon(icon, { size: 13, color: k.mutedFg }))
+        .child(div().flex_1().min_w(0).truncate().text_color(k.foreground).child(name))
+        .when(Boolean(age), (e) => e.child(div().flex_none().text_size(TEXT.xs).text_color(k.dim).child(age)))
+        .children(buttons);
+    const rows = tasks.map((t) => {
+      const started = Date.parse(t.started ?? "");
+      const age = Number.isNaN(started) ? "" : dur(Math.max(0, now - started));
+      const buttons = [];
+      if (t.open) buttons.push(Button(`task-open-${t.id}`, { label: "Open", icon: "external", variant: "ghost", size: "sm", tooltip: "Read its conversation", onClick: (_e, cx) => this.openTask(t, cx) }));
+      if (driven) buttons.push(Button(`task-stop-${t.id}`, { label: "Stop", icon: "circle-stop", variant: "ghost", size: "sm", tooltip: "Stop it", onClick: (_e, cx) => this.stopTask(t, cx) }));
+      return line(`task-${t.id}`, TASK_ICONS[t.kind] ?? "bot", t.name || t.id, age, buttons);
+    });
+    for (const t of kids) {
+      const name = t.name || t.template || t.program?.name || t.address;
+      const peek = Button(`task-peek-${t.address}`, { label: "Open", icon: "external", variant: "ghost", size: "sm", tooltip: "Peek at its terminal", onClick: () => run("terminal.peek", { terminal: t.address }) });
+      rows.push(line(`task-term-${t.address}`, "terminal", name, "", [peek]));
+    }
+    return h_flex()
+      .w_full()
+      .px(GUTTER)
+      .pt(6)
+      .justify_center()
+      .child(v_flex().id("chat-tasks").w_full().max_w(READ_W).px(12).py(4).rounded(RADIUS.lg).bg(k.muted).children(rows));
+  }
+
+  /** In place of the box while a subagent is read: its conversation takes no words. */
+  subagentNote(k) {
+    const sub = this.value?.session?.subagent ?? this.subagent ?? {};
+    const state = sub.state === "running" ? "still running" : sub.state === "failed" ? "stopped with an error" : "done";
+    return h_flex()
+      .w_full()
+      .px(GUTTER)
+      .py(10)
+      .justify_center()
+      .child(
+        h_flex()
+          .id("chat-subagent-note")
+          .w_full()
+          .max_w(READ_W)
+          .gap(8)
+          .px(12)
+          .py(8)
+          .items_center()
+          .rounded(RADIUS.lg)
+          .bg(k.muted)
+          .text_size(TEXT.sm)
+          .text_color(k.mutedFg)
+          .child(Icon(TASK_ICONS[sub.kind ?? this.subagent?.kind] ?? "bot", { size: 13 }))
+          .child(div().flex_1().min_w(0).child(`A subagent's conversation, ${state}: it takes no messages. Its parent does.`))
+          .child(Button("chat-subagent-back", { label: "Back", icon: "chevron-left", variant: "outline", size: "sm", onClick: (_e, cx) => this.back(cx) })),
+      );
+  }
+
+  /** The header while a subagent is read: back to its parent, then which subagent and how it stands. */
+  subagentHeader(k, row) {
+    const sub = this.value?.session?.subagent ?? {};
+    const name = sub.name || this.subagent?.name || this.subagent?.id || "";
+    const state = sub.state === "running" ? "running" : sub.state === "failed" ? "failed" : "done";
+    return h_flex()
+      .id("chat-head")
+      .w_full()
+      .h(40)
+      .flex_none()
+      .px(GUTTER)
+      .justify_center()
+      .child(
+        h_flex()
+          .w_full()
+          .max_w(READ_W)
+          .gap(8)
+          .items_center()
+          .text_size(TEXT.sm)
+          .text_color(k.mutedFg)
+          .child(Button("chat-head-back", { label: `Back to ${row.title || row.tab?.name || "its parent"}`, icon: "chevron-left", variant: "ghost", size: "sm", tooltip: "Its parent's conversation", onClick: (_e, cx) => this.back(cx) }))
+          .child(div().flex_none().text_color(k.dim).child("·"))
+          .child(Icon(TASK_ICONS[sub.kind ?? this.subagent?.kind] ?? "bot", { size: 13 }))
+          .child(div().flex_shrink(1).min_w(0).truncate().font_medium().text_color(k.foreground).child(`Subagent · ${name} · ${state}`))
+          .when(state === "running", (e) => e.child(Spinner({ size: 11, color: k.mutedFg }))),
+      );
+  }
+
   /** Whether the agents view lists this key as a session cockpit drives: null before it says. */
   driven(key) {
     if (!key) return false;
@@ -527,17 +678,35 @@ export default class Chat {
     showWhere(null);
   }
 
+  /** The live page of the conversation, `{key, messages, cursor}`: a driven session's, else the chat's own. */
+  page(live = this.session()) {
+    if (live) return { key: live.key, messages: live.messages ?? EMPTY, cursor: live.cursor };
+    return this.chatPage(this.value);
+  }
+
+  /** A chat value as a page, keyed by the subject. */
+  chatPage(value) {
+    return value ? { key: this.target, messages: value.messages ?? EMPTY, cursor: value.cursor } : null;
+  }
+
+  /** The `limit` messages before message `before` of the conversation `key` names, as a page. */
+  async fetchPage(key, before, limit) {
+    if (this.session()?.key === key) return (await hub.view("session", { key, before, limit }))?.session;
+    const v = await hub.view("chat", { terminal: key, frontend: "app", before, limit });
+    return v?.cursor ? { key, messages: v.messages ?? [], cursor: v.cursor } : null;
+  }
+
   /** Whether older messages come before the first one shown. */
   hasEarlier() {
-    const live = this.session();
-    // The hub sends at most CEILING of a conversation's latest messages: past it, nothing earlier is offered.
-    if (!live) return Boolean(this.value?.more) && (this.limit ?? 400) < CEILING;
-    return Boolean(this.older?.key === live.key ? this.older.more : live.cursor?.more);
+    const page = this.page();
+    if (!page) return false;
+    // A hub that pages not yet says only whether there is more.
+    if (!page.cursor) return Boolean(this.value?.more);
+    return Boolean(this.older?.key === page.key ? this.older.more : page.cursor.more);
   }
 
   /**
-   * Reads further back, once at a time, keeping the first row shown where it is: a conversation asks the hub for more
-   * of its latest messages, a driven session for the page before the oldest it has.
+   * Reads further back, once at a time, keeping the first row shown where it is: the page before the oldest it has.
    */
   earlier(cx) {
     const first = this.topMessage();
@@ -558,20 +727,15 @@ export default class Chat {
     // Reading back: the newest rows no longer pull the view down.
     this.pinned = false;
     this.seenMsg ??= this.lastMessage();
-    const live = this.session();
-    if (!live) {
-      this.limit = Math.min((this.limit ?? 400) * 4, CEILING);
-      this.watch(this.target, cx, true);
-      return cx.notify();
-    }
-    const key = live.key;
+    const page = this.page();
+    const key = page.key;
     const had = this.older?.key === key ? this.older : null;
     cx.spawn(async (cx) => {
       try {
-        const page = (await hub.view("session", { key, before: had ? had.from : live.cursor?.from, limit: 400 }))?.session;
-        if (page?.key === key && this.session()?.key === key) {
-          const c = page.cursor ?? {};
-          this.older = { key, messages: [...(page.messages ?? []), ...(had?.messages ?? [])], from: c.from ?? 0, to: had ? had.to : c.to, more: Boolean(c.more) };
+        const got = await this.fetchPage(key, had ? had.from : page.cursor?.from, 400);
+        if (got?.key === key && this.page()?.key === key) {
+          const c = got.cursor ?? {};
+          this.older = { key, messages: [...(got.messages ?? []), ...(had?.messages ?? [])], from: c.from ?? 0, to: had ? had.to : c.to, more: Boolean(c.more) };
         } else this.restoring = null;
       } catch {
         this.restoring = null;
@@ -583,19 +747,19 @@ export default class Chat {
   }
 
   /**
-   * The live page of a driven session moves on as messages come; what slid out of it between the older pages and it
-   * is fetched, so nothing goes missing in the middle.
+   * The live page moves on as messages come; what slid out of it between the older pages and it is fetched, so
+   * nothing goes missing in the middle.
    */
   fillGap(cx) {
-    const live = this.session();
+    const page = this.page();
     const o = this.older;
-    const from = live?.cursor?.from;
-    if (!o || o.key !== live?.key || this.filling || typeof from !== "number" || from <= o.to) return;
+    const from = page?.cursor?.from;
+    if (!o || o.key !== page?.key || this.filling || typeof from !== "number" || from <= o.to) return;
     this.filling = true;
     cx.spawn(async (cx) => {
       try {
-        const page = (await hub.view("session", { key: o.key, before: from, limit: from - o.to }))?.session;
-        if (page && this.older === o) this.older = { ...o, messages: [...o.messages, ...(page.messages ?? [])], to: page.cursor?.to ?? from };
+        const got = await this.fetchPage(o.key, from, from - o.to);
+        if (got && this.older === o) this.older = { ...o, messages: [...o.messages, ...(got.messages ?? [])], to: got.cursor?.to ?? from };
       } catch {}
       this.filling = false;
       // The live page may have moved again while this was on its way.
@@ -605,11 +769,10 @@ export default class Chat {
   }
 
   /**
-   * A driven session's new live page: what slid out of the last one goes after the older pages, so no message goes
-   * missing between them; a session that holds fewer messages than they say (a restart) starts them over.
+   * A new live page: what slid out of the last one goes after the older pages, so no message goes missing between
+   * them; a conversation that holds fewer messages than they say (a restart) starts them over.
    */
-  slide(next) {
-    const prev = this.sessions?.session;
+  slide(prev, next) {
     const o = this.older;
     if (!o || !next || o.key !== next.key) return;
     const total = next.cursor?.total;
@@ -625,17 +788,18 @@ export default class Chat {
     if (add.length) this.older = { ...o, messages: [...o.messages, ...add], to: o.to + add.length };
   }
 
-  /** The messages drawn: a conversation's, or a driven session's older pages then its live one. */
+  /** The messages drawn: the older pages read back, then the live one. */
   messagesOf(live) {
-    if (!live) return this.kept ?? this.value?.messages;
-    const o = this.older?.key === live.key ? this.older : null;
-    if (!o) return live.messages;
+    const page = this.page(live);
+    if (!page) return undefined;
+    const o = this.older?.key === page.key ? this.older : null;
+    if (!o) return page.messages;
     const memo = this.joined;
-    if (memo?.older === o && memo.live === live.messages) return memo.all;
+    if (memo?.older === o && memo.live === page.messages) return memo.all;
     // Older pages end where the live one starts; any overlap is the live page's.
-    const from = live.cursor?.from ?? o.to;
-    const all = [...o.messages.slice(0, Math.max(0, Math.min(o.messages.length, from - o.from))), ...(live.messages ?? [])];
-    this.joined = { older: o, live: live.messages, all };
+    const from = page.cursor?.from ?? o.to;
+    const all = [...o.messages.slice(0, Math.max(0, Math.min(o.messages.length, from - o.from))), ...page.messages];
+    this.joined = { older: o, live: page.messages, all };
     return all;
   }
 
@@ -659,12 +823,19 @@ export default class Chat {
         this.edits.delete(this.target);
         this.drafts.set(this.target, edit ? edit.draft : { text: this.input.value(), files: this.files });
       }
+      // A command mirrored into the terminal left behind is emptied there; the new subject starts with nothing mirrored.
+      if (this.mirror?.text) this.mirrorType("", cx);
+      this.mirror?.timer?.cancel?.();
+      this.mirror = null;
       const draft = this.drafts.get(subject);
       this.input.set_value(draft?.text ?? "");
       this.files = draft?.files ?? [];
-      this.limit = null;
       this.reviewed = null;
-      this.value = null;
+      // What the subject showed last time is drawn at once, until the hub's first push for it.
+      this.lastValues ??= new Map();
+      if (this.target && this.value?.agent) this.lastValues.set(this.target, this.value);
+      this.value = this.lastValues.get(subject) ?? null;
+      this.stale = Boolean(this.value);
       this.sessions = null;
       this.older = null;
       this.restoring = null;
@@ -673,13 +844,14 @@ export default class Chat {
       this.pinned = true;
       this.lost = false;
       this.seenMsg = null;
-      this.kept = null;
       this.folds = new Map();
       this.cardAsk = null;
       this.pasteNote = null;
       this.ending = null;
       this.windowTop = null;
       this.windowAround = null;
+      // Another subject: back to its own conversation, not a subagent's of the last one.
+      if (subject !== this.target) this.subagent = null;
     }
     this.target = subject;
     // The blank subject is a start box of its own, with no agent to follow until it starts one.
@@ -691,8 +863,16 @@ export default class Chat {
     }
     setShared(CHAT_SUBJECT, subject);
     this.follows(cx);
-    const views = [{ name: "chat", args: { terminal: subject, frontend: "app", limit: this.limit } }, "queue"];
-    this.watchedDriven = this.driven(subject);
+    // The chat view twice, picked apart: what moves while a turn runs (the row, the step, the question) comes without
+    // the messages, which come only when the transcript did.
+    // A subagent's conversation is the chat view with its id: read-only, so its queue and session go unfollowed.
+    const args = { terminal: subject, frontend: "app", ...(this.subagent ? { subagent: this.subagent.id } : {}) };
+    const views = [
+      { name: "chat", args, pick: CHAT_META },
+      { name: "chat", args, pick: CHAT_MESSAGES },
+    ];
+    if (!this.subagent) views.push("queue");
+    this.watchedDriven = this.driven(subject) && !this.subagent;
     if (this.watchedDriven) views.push({ name: "session", args: { key: subject } });
     this.chat = hub.subscribe(
       cx,
@@ -700,14 +880,20 @@ export default class Chat {
       (m, cx) => {
         if (this.watchGeneration !== generation) return;
         if (m.view === "chat") {
-          // Reading back, the messages held stay, and the page's new ones go after them.
-          this.kept = !this.pinned && this.value ? joinPages(this.kept ?? this.value.messages, m.value?.messages ?? []) : null;
-          this.value = m.value;
-          this.loadingEarlier = false;
+          const prev = this.stale ? null : this.value;
+          const next = { ...(prev ?? {}), ...(m.value ?? {}) };
+          const paged = m.value && "messages" in m.value;
+          if (paged && !this.watchedDriven) this.slide(this.chatPage(prev), this.chatPage(next));
+          this.value = next;
+          this.stale = false;
+          if (paged) {
+            this.loadingEarlier = false;
+            if (!this.watchedDriven) this.fillGap(cx);
+          }
         }
         if (m.view === "queue") this.queues = m.value;
         if (m.view === "session") {
-          this.slide(m.value?.session);
+          this.slide(this.page(this.sessions?.session), this.page(m.value?.session));
           this.sessions = m.value;
           this.fillGap(cx);
         }
@@ -776,6 +962,7 @@ export default class Chat {
     }
     else if (c === "reply") (this.input.focus(), (this.pointed = !take(c, key)));
     else if (c === "chat:earlier") this.earlier(cx);
+    else if (c === "chat:back") this.back(cx);
     else if (c === "chat:handover") this.handover(cx);
     else if (c === "chat:end") this.toEnd(cx);
     // The palette's ⇧⇥ and ⎋ entries reach the session the chat shows, and only while the chat is in front; without
@@ -808,6 +995,11 @@ export default class Chat {
       else cx.spawn(async (cx) => (await testKeys()) && start(cx));
     } else if (c.startsWith("chatstart:") && take(c, key)) this.starter.command(c, cx);
     else if (c.startsWith("chat:merge:") && take(c, key)) this.askMerge(Number(c.slice("chat:merge:".length)), cx);
+    // A command of the agent's own, typed into its terminal and run there: its dialog comes back to the chat.
+    else if (c.startsWith("chat:mirror:") && take(c, key)) {
+      const text = c.slice("chat:mirror:".length).trim();
+      if (text.startsWith("/") && this.row() && !this.session()) this.mirrorType(text, cx, (cx) => this.pressKeys(["enter"], cx, () => (this.mirror = null)));
+    }
     else if (c === "chat:pr:open") this.row()?.pr?.url && openUrl(this.row().pr.url);
     cx.notify();
   }
@@ -817,10 +1009,17 @@ export default class Chat {
     return inFront("chat") && Boolean(this.session());
   }
 
+  /** The subject's agent's picks (its row's `picks`), which name its permission modes; null while none is known. */
+  picksOf() {
+    const live = this.session();
+    const row = live?.key ? this.model?.row?.(live.key) : this.row();
+    return row?.picks ?? this.value?.agent?.picks ?? null;
+  }
+
   /** ⇧⇥: the next mode of the cycle, through the confirm when it asks less than the one before. */
   cycleMode(cx) {
-    const next = nextMode(this.session()?.mode ?? "default");
-    this.askMode(next, null, cx);
+    const next = nextMode(this.picksOf(), this.session()?.mode ?? "default");
+    if (next) this.askMode(next, null, cx);
   }
 
   /**
@@ -829,8 +1028,7 @@ export default class Chat {
    */
   modeItems(terminal = false) {
     this.modeKey = oneTimeKey();
-    const ids = terminal ? TERMINAL_MODES : Object.keys(MODES).filter((id) => MODES[id].offered);
-    return ids.map((id) => ({ label: MODES[id].label, icon: MODES[id].icon, command: `mode:${id}:${this.modeKey}` }));
+    return modeChoices(this.picksOf(), { terminal }).map((m) => ({ label: m.label, icon: m.icon, command: `mode:${m.id}:${this.modeKey}` }));
   }
 
   /**
@@ -845,7 +1043,10 @@ export default class Chat {
     const fromMenu = Boolean(key) && key === this.modeKey;
     this.modeKey = null;
     if (!live && !row) return cx.notify();
-    if (UNASKED.includes(mode) || (ASKS_LESS.includes(mode) && !fromMenu)) {
+    // A mode its agent's picks do not name is taken as one that runs tools unasked: it waits for the yes too.
+    const picks = this.picksOf();
+    const unasked = unaskedModes(picks).includes(mode) || !modeOf(picks, mode);
+    if (unasked || (asksLess(picks).includes(mode) && !fromMenu)) {
       const first = live ? (live.title ?? live.messages?.find((m) => m.role === "user")?.text?.split("\n")[0] ?? "") : (row.title ?? "");
       const asked = first.length > 60 ? `${first.slice(0, 59).trimEnd()}…` : first;
       const cwd = live ? live.cwd : row.cwd;
@@ -889,7 +1090,28 @@ export default class Chat {
     const key = e.keystroke;
     // A chat hidden behind another screen keeps its copy, and may keep the keyboard: its keys answer nothing then.
     if (!this.confirm && !inFront("chat")) return false;
-    const hints = this.hints().items;
+    const found = this.hints();
+    const hints = found.items;
+    // A dialog in its terminal: the keys move through it there, and ⎋ closes it there.
+    if (!this.confirm && this.dialog() && ["up", "down", "left", "right", "tab", "enter", "escape"].includes(key)) {
+      this.pressKeys([key], cx);
+      return true;
+    }
+    // Its own completion menu, mirrored: Tab and the arrows move in it, ⏎ runs the command, ⎋ empties both boxes.
+    if (!this.confirm && found.kind === "mirror") {
+      if (["tab", "up", "down"].includes(key)) {
+        this.pressKeys([key], cx);
+        return true;
+      }
+      if (key === "enter") {
+        this.mirrorEnter(cx);
+        return true;
+      }
+      if (key === "escape") {
+        this.mirrorOff(cx);
+        return true;
+      }
+    }
     if (key === "escape") return this.escape(hints, cx);
     if (this.confirm) return false;
     if ((key === "tab" || key === "enter") && hints.length > 0) {
@@ -1106,9 +1328,138 @@ export default class Chat {
       if (this.hintsOff === typed) return { kind: null, items: [] };
       this.hintsOff = null;
     }
+    // A terminal agent's `/` command: the hints are its own completion menu, read off its screen.
+    const menu = this.menu();
+    if (!live && this.mirror?.text && menu && typed.startsWith("/")) {
+      const items = (menu.items ?? []).map((m) => ({ label: m.label, hint: m.hint ?? "", put: null }));
+      return { kind: "mirror", items, selected: Math.min(Math.max(0, Number(menu.selected) || 0), Math.max(0, items.length - 1)) };
+    }
     const out = hintsFor(typed, { commands: live?.commands, files: this.fileList });
     if (out.kind === "file") this.wantFiles = true;
     return out;
+  }
+
+  /** The box's own submit: ⏎ sends what is typed without the new line the box just put in; ⇧⏎ is a new line. */
+  submitted(e, cx) {
+    if (e?.shift) return;
+    if (this.multiLine) {
+      const typed = this.input.value();
+      if (typed.endsWith("\n")) this.input.set_value(typed.slice(0, -1));
+      if (!this.input.value().trim() && !this.files.length) return;
+    }
+    this.send(cx, "key");
+  }
+
+  /** The dialog the subject's terminal shows (a command's picker, a confirm, a settings table), as the hub read it. */
+  dialog() {
+    return this.session() ? null : (this.value?.session?.dialog ?? null);
+  }
+
+  /** The terminal's own completion menu for the `/` command the box mirrors into it. */
+  menu() {
+    return this.session() ? null : (this.value?.session?.menu ?? null);
+  }
+
+  /**
+   * Keeps a terminal agent's box showing the `/` command typed here, a beat after each change, so its own completion
+   * menu and the dialog the command opens come back to the chat; words that stop starting with `/` empty it again.
+   */
+  mirrorSync(cx) {
+    const row = this.row();
+    if (!row || this.session() || this.typedOutside) return;
+    const text = this.input.value();
+    const slash = text.startsWith("/") && !text.includes("\n");
+    if (!slash && !this.mirror?.text) return;
+    if (row.status === "blocked" || this.dialog()) return;
+    this.mirror?.timer?.cancel?.();
+    const want = slash ? text : "";
+    this.mirror = { ...(this.mirror ?? {}), timer: cx.timer.after(MIRROR_MS, (cx) => this.mirrorType(want, cx)) };
+  }
+
+  /** Types `text` into the subject's box through the hub (empty: empties it), and notes why it was refused. */
+  mirrorType(text, cx, then = null) {
+    const terminal = this.row()?.terminal;
+    if (!terminal) return;
+    cx.spawn(async (cx) => {
+      let r;
+      try {
+        r = await hub.act("agents", "type", [{ terminal, text, source: "chat:type" }]);
+      } catch (e) {
+        r = { error: String(e?.message ?? e) };
+      }
+      if (r?.error) {
+        this.mirror = { text: null, off: text, why: String(r.error).replace(/^[a-z_]+: /, "") };
+      } else {
+        this.mirror = { text: text || null };
+        if (then) then(cx);
+      }
+      cx.notify();
+    });
+  }
+
+  /** Presses keys in the subject's terminal: what moves through its dialog or its menu. */
+  pressKeys(keys, cx, then = null) {
+    const terminal = this.row()?.terminal;
+    if (!terminal) return;
+    cx.spawn(async (cx) => {
+      try {
+        const r = await hub.act("agents", "keys", [{ terminal, keys, source: "chat:key" }]);
+        if (r?.error) notify({ title: "Its terminal did not take it", body: String(r.error).replace(/^[a-z_]+: /, ""), level: "warning", timeout: 5000 });
+        else if (then) then(cx);
+      } catch (e) {
+        notify({ title: "Its terminal did not take it", body: String(e?.message ?? e), level: "warning", timeout: 5000 });
+      }
+      cx.notify();
+    });
+  }
+
+  /** ⏎ on a mirrored command: the terminal runs it, the box empties; the dialog it opens comes back on its own. */
+  mirrorEnter(cx) {
+    this.pressKeys(["enter"], cx);
+    this.mirror = null;
+    this.hintsOff = null;
+    this.clearBox();
+  }
+
+  /** ⎋ on a mirrored command: the terminal's box and this one empty together. */
+  mirrorOff(cx) {
+    this.mirror?.timer?.cancel?.();
+    this.mirror = null;
+    this.mirrorType("", cx);
+    this.clearBox();
+  }
+
+  /**
+   * A row of the terminal's dialog, clicked: a list answers as a question does (the cursor moves to it, ⏎), checked
+   * against what the card showed; a menu or a plain dialog moves there with the arrows.
+   */
+  dialogPick(dialog, option, cx) {
+    const row = this.row();
+    if (!row) return;
+    if (dialog.asked && (dialog.kind === "select" || dialog.kind === "confirm")) {
+      cx.spawn(async (cx) => {
+        try {
+          const r = await hub.act("agents", "answer", [{ terminal: row.terminal, choice: option.n, asked: dialog.asked, source: "chat:dialog" }]);
+          if (r?.error) notify({ title: "Its terminal did not take it", body: String(r.error).replace(/^[a-z_]+: /, ""), level: "warning", timeout: 5000 });
+        } catch (e) {
+          notify({ title: "Its terminal did not take it", body: String(e?.message ?? e), level: "warning", timeout: 5000 });
+        }
+        cx.notify();
+      });
+      return;
+    }
+    const options = dialog.options ?? [];
+    const at = options.findIndex((o) => o.selected);
+    const from = at < 0 ? 0 : at;
+    const to = options.indexOf(option);
+    const moves = Array.from({ length: Math.abs(to - from) }, () => (to > from ? "down" : "up"));
+    this.pressKeys([...moves, "enter"], cx);
+  }
+
+  /** A row of the terminal's completion menu, clicked: the cursor moves to it and Tab completes it. */
+  menuPick(i, selected, cx) {
+    const moves = Array.from({ length: Math.abs(i - selected) }, () => (i > selected ? "down" : "up"));
+    this.pressKeys([...moves, "tab"], cx);
   }
 
   /** The folder's files, for "@". Read once per session: git's list where there is one, else everything not hidden. */
@@ -1228,7 +1579,6 @@ export default class Chat {
     // Back at the end, a load from further back that comes in later moves nothing.
     this.restoring = null;
     this.seenMsg = null;
-    this.kept = null;
     this.top = this.maxTop();
     this.jump(cx, [this.rows.length]);
     cx.notify();
@@ -1271,7 +1621,6 @@ export default class Chat {
       this.pinned = atEnd;
       this.windowTop = atEnd ? null : (this.rows[0]?.ids?.[0] ?? null);
       this.seenMsg = atEnd ? null : this.lastMessage();
-      if (atEnd) this.kept = null;
       cx.notify();
     }
     if (this.top <= 0 && dy > 0) this.earlier(cx);
@@ -1441,6 +1790,8 @@ export default class Chat {
    * others while it works. The words leave the box once the hub took them; refused, they stay with "Not sent · Retry".
    */
   send(cx, how = "click") {
+    // A command mirrored into a terminal is run there: ⏎ is the terminal's.
+    if (this.mirror?.text && this.hints().kind === "mirror") return this.mirrorEnter(cx);
     // ⏎ with a hint showing completes it: a half-typed command is never sent.
     if (how === "key" && this.hints().items.length > 0) {
       this.complete(this.hints().items[0].put, cx);
@@ -1594,6 +1945,7 @@ export default class Chat {
    * with CI. A session cockpit drives can also be resumed in a terminal of its own.
    */
   header(k, row, live) {
+    if (this.subagent) return this.subagentHeader(k, row);
     const cwd = live?.cwd || this.value?.session?.cwd || row.cwd || "";
     const place = row.repo || String(cwd).split("/").filter(Boolean).pop() || null;
     const branch = row.branch || this.value?.session?.branch || null;
@@ -1929,7 +2281,9 @@ export default class Chat {
       if (row.ids?.[0]) this.folds.set(row.ids[0], open);
       cx.notify();
     };
-    const mark = (c) => (c.ok === false ? Icon("x", { size: 12, color: k.destructive }) : c.ok === true ? Icon("check", { size: 12, color: k.success }) : Spinner({ size: 11, color: k.mutedFg }));
+    // A call that started a task shows how the task stands, not how the call went: it is over long before the task.
+    const done = (c) => (c.task ? (c.task.state === "failed" ? false : c.task.state === "done" ? true : null) : c.ok);
+    const mark = (c) => (done(c) === false ? Icon("x", { size: 12, color: k.destructive }) : done(c) === true ? Icon("check", { size: 12, color: k.success }) : Spinner({ size: 11, color: k.mutedFg }));
     const call = (c) =>
       h_flex()
         .h(26)
@@ -1937,10 +2291,16 @@ export default class Chat {
         .items_center()
         .text_size(TEXT.sm)
         .child(div().flex_none().w(78).truncate().text_color(k.foreground).child(c.name))
+        .when(Boolean(c.task), (e) => e.child(Icon(TASK_ICONS[c.task.kind] ?? "bot", { size: 12, color: k.mutedFg })))
         .child(
-          c.about
+          c.task
+            ? div().flex_1().min_w(0).truncate().text_color(k.mutedFg).child(c.task.name || c.about || c.summary || "—")
+            : c.about
             ? div().flex_1().min_w(0).truncate().text_color(k.mutedFg).child(c.about)
             : div().flex_1().min_w(0).truncate().font_family("JetBrains Mono").text_size(TEXT.xs).text_color(k.mutedFg).child(c.summary || "—"),
+        )
+        .when(Boolean(c.task?.open), (e) =>
+          e.child(Button(`work-open-${row.key}-${c.task.id}`, { label: "Open", icon: "external", variant: "ghost", size: "sm", tooltip: "Read its conversation", onClick: (_e, cx) => (cx.stop_propagation?.(), this.openTask(c.task, cx)) })),
         )
         .child(div().flex_none().child(mark(c)));
     const note = (n, i) =>
@@ -1995,7 +2355,8 @@ export default class Chat {
       .on_click(toggle)
       .child(div().child(`${more} more`))
       .child(Icon("chevron-down", { size: 12, color: k.dim }));
-    const label = workedFor(row.done ? row.secs : secondsBetween(row.from, new Date().toISOString()), row.done);
+    const running = !open && !row.done ? runningWord(row) : "";
+    const label = `${workedFor(row.done ? row.secs : secondsBetween(row.from, new Date().toISOString()), row.done)}${running ? ` · ${running}` : ""}`;
     return this.column(
       v_flex()
         .w_full()
@@ -2055,26 +2416,38 @@ export default class Chat {
   }
 
   /**
-   * Where the agent's work lives: its ticket, PR, CI run and whatever else its conversation cites. Their names repeat
-   * (two things on GitHub are both "GitHub"), so they are icons in a row, each saying what it is on hover.
+   * Where the agent's work lives: its ticket, PR, CI run and whatever else its conversation cites, grouped by kind.
+   * Their names repeat (two things on GitHub are both "GitHub"), so each group is an icon in a row, saying what it is on
+   * hover; a group of several carries its count and opens a menu of them.
    */
   links(k) {
     const links = this.value?.agent?.links ?? [];
     if (links.length === 0) return [];
-    const one = (l, i) =>
-      div()
+    const one = (g, i) => {
+      const items = g.items ?? [g];
+      const first = items[0] ?? {};
+      const several = items.length > 1;
+      const el = h_flex()
         .id(`chat-link-${i}`)
-        .size(24)
-        .flex()
+        .h(24)
+        .px(several ? 7 : 5)
+        .gap(5)
         .items_center()
-        .justify_center()
+        .flex_none()
         .rounded(RADIUS.md)
         .cursor_pointer()
+        .text_size(11.5)
         .text_color(k.mutedFg)
         .hover((s) => s.bg(k.accent).text_color(k.foreground))
-        .tooltip([l.name, l.detail].filter(Boolean).join(" · ") || l.url)
-        .on_click(() => openUrl(l.url))
-        .child(Icon(l.icon || "link", { size: 14 }));
+        .tooltip(several ? `${g.name} · ${items.length}` : [g.name, first.detail].filter(Boolean).join(" · ") || first.url)
+        .on_click((_e, cx) => {
+          if (several) openMenu(items.map((it) => ({ label: [g.name, it.detail || it.title].filter(Boolean).join(" · "), icon: g.icon, command: `link:${it.url}` })), { width: 320 });
+          else openUrl(first.url);
+          cx.notify();
+        })
+        .child(Icon(g.icon || "link", { size: 14 }));
+      return several ? el.child(div().child(String(items.length))) : el;
+    };
     return links.map(one);
   }
 
@@ -2294,7 +2667,7 @@ export default class Chat {
     const ran = this.value?.session ?? {};
     const can = ran.switch ?? {};
     const out = [];
-    const mode = ran.mode ? (MODES[ran.mode] ?? { label: ran.mode, icon: "shield-check", loud: false }) : null;
+    const mode = ran.mode ? (modeOf(this.picksOf(), ran.mode) ?? UNKNOWN_MODE(ran.mode)) : null;
     if (mode && can.mode)
       out.push(this.picker("chat-mode-shown", { label: mode.label, icon: mode.icon, color: mode.loud ? k.blocked : null, tooltip: "What it may do without asking", items: () => this.modeItems(true) }, k));
     else if (mode) out.push(this.chip("chat-mode-shown", mode.icon, mode.label, "What it may do without asking — ⇧⇥ in its terminal changes it", mode.loud ? k.blocked : null, k));
@@ -2362,9 +2735,10 @@ export default class Chat {
     const stoppable = this.stoppable();
     const empty = !this.input.value().trim();
     const hints = this.hints();
+    const dialog = this.dialog();
     // Not over the hints: a "/" typed is the box's own.
-    const offer = hints.items.length ? null : this.nextOffer();
-    const mode = MODES[live?.mode] ?? MODES.default;
+    const offer = hints.items.length || dialog ? null : this.nextOffer();
+    const mode = modeOf(this.picksOf(), live?.mode) ?? modeOf(this.picksOf(), "default") ?? UNKNOWN_MODE(live?.mode);
     // Its cost is cockpit's estimate from the transcript, as everywhere, not the figure the agent reports.
     const seat = { ...(live ? { cwd: live.cwd } : (this.value?.session ?? {})), cost: row?.cost };
     const agent = this.value?.agent ?? {};
@@ -2403,7 +2777,33 @@ export default class Chat {
       .pt(6)
       .gap(6)
       .items_center()
-      .when(hints.items.length > 0, (e) =>
+      .when(Boolean(dialog), (e) =>
+        e.child(
+          div()
+            .w_full()
+            .max_w(READ_W)
+            .child(
+              DialogCard(`chat-dialog-${row?.terminal ?? ""}`, dialog, {
+                onOption: (o, cx) => this.dialogPick(dialog, o, cx),
+                onKey: (keys, cx) => this.pressKeys(keys, cx),
+              }),
+            ),
+        ),
+      )
+      .when(Boolean(this.mirror?.why), (e) =>
+        e.child(
+          h_flex()
+            .w_full()
+            .max_w(READ_W)
+            .gap(6)
+            .items_center()
+            .text_size(TEXT.xs)
+            .text_color(k.dim)
+            .child(Icon("circle-x", { size: 13 }))
+            .child(div().flex_1().min_w(0).truncate().child(`Not typed into its terminal — ${this.mirror.why}`)),
+        ),
+      )
+      .when(!dialog && hints.items.length > 0, (e) =>
         e.child(
           v_flex()
             .w_full()
@@ -2426,9 +2826,9 @@ export default class Chat {
                   .rounded(RADIUS.md)
                   .cursor_pointer()
                   .text_size(TEXT.sm)
-                  .when(i === 0, (e) => e.bg(k.selected))
+                  .when(i === (hints.selected ?? 0), (e) => e.bg(k.selected))
                   .hover((s) => s.bg(k.accent))
-                  .on_click((_e, cx) => this.complete(c.put, cx))
+                  .on_click((_e, cx) => (hints.kind === "mirror" ? this.menuPick(i, hints.selected ?? 0, cx) : this.complete(c.put, cx)))
                   .child(div().flex_none().font_medium().text_color(k.foreground).child(c.label))
                   .child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(c.hint)),
               ),
@@ -2546,16 +2946,18 @@ export default class Chat {
     // The confirm was asked for one session or terminal: another one in front takes it away.
     if (this.confirm && (live?.key ?? this.row()?.terminal) !== this.confirm.key) this.confirm = null;
     const row = this.row();
-    const working = live ? live.working === true : row?.status === "working";
+    // A subagent read works while its task runs, whatever its parent does.
+    const working = this.subagent ? this.value?.session?.subagent?.state === "running" : live ? live.working === true : row?.status === "working";
     if (this.wantFiles) this.loadFiles(cx);
     const failed = live ? Boolean(live.failed) : row?.status === "failed";
     const end = { stopped: live ? live.interrupted === true : false, failed, error: live ? live.failed : row?.error };
     // The rows of the conversation are made again only when its messages or its end changed, not on every redraw.
     const messages = this.messagesOf(live) ?? [];
     this.messagesNow = messages;
-    const shape = `${working}|${end.stopped}|${end.failed}|${end.error ?? ""}`;
+    const tasks = this.subagent ? EMPTY : (this.value?.tasks ?? EMPTY);
+    const shape = `${working}|${end.stopped}|${end.failed}|${end.error ?? ""}|${tasks.map((t) => `${t.tool_use_id}=${t.state}${t.open ? "+" : ""}`).join(",")}`;
     const memo = this.made;
-    const all = memo?.messages === messages && memo.length === messages.length && memo.shape === shape ? memo.rows : rowsOf(messages, { working, ...end });
+    const all = memo?.messages === messages && memo.length === messages.length && memo.shape === shape ? memo.rows : rowsOf(messages, { working, ...end, tasks });
     this.made = { messages, length: messages.length, shape, rows: all };
     const rows = this.drawn(all);
     const named = (r) => (r.kind === "said" ? String(r.text).split("\n") : r.kind === "answered" ? imagesIn(r.text, home()) : []);
@@ -2638,6 +3040,7 @@ export default class Chat {
           front: inFront("chat"),
           holds: this.boxFocused || this.handle.is_focused() || this.cardFocus.is_focused() || this.cancelFocus.is_focused(),
           hints: this.hints().items.length > 0,
+          dialog: Boolean(this.dialog()) || this.hints().kind === "mirror",
           question: Boolean(row && this.model.shown(row)),
           live: Boolean(live),
           closes: Boolean(this.ending || this.handing || this.stoppable()),
@@ -2649,6 +3052,10 @@ export default class Chat {
       .on_action("cockpit_chat_cycle", (_e, cx) => this.action("shift-tab", cx))
       .on_action("cockpit_chat_escape", (_e, cx) => this.action("escape", cx))
       .on_action("cockpit_chat_complete", (_e, cx) => this.action("enter", cx))
+      .on_action("cockpit_chat_up", (_e, cx) => this.action("up", cx))
+      .on_action("cockpit_chat_down", (_e, cx) => this.action("down", cx))
+      .on_action("cockpit_chat_left", (_e, cx) => this.action("left", cx))
+      .on_action("cockpit_chat_right", (_e, cx) => this.action("right", cx))
       .on_action("cockpit_chat_next_1", (_e, cx) => this.action("1", cx))
       .on_action("cockpit_chat_next_2", (_e, cx) => this.action("2", cx))
       .on_action("cockpit_chat_next_3", (_e, cx) => this.action("3", cx))
@@ -2691,14 +3098,15 @@ export default class Chat {
         }
       })
       .child(body)
-      .children(this.queuedRows(k))
+      .children(this.subagent ? [] : this.queuedRows(k))
       // A dismissal's Undo, above the card it came from: the chat keeps key hints out of it, as everywhere here.
       .when(Boolean(UndoRow("chat-undo", this.model)), (e) => e.child(h_flex().w_full().px(GUTTER).pt(8).justify_center().child(div().w_full().max_w(READ_W).child(UndoRow("chat-undo", this.model)))))
       .when(Boolean(row?.question?.view), (e) => (this.planInPanel(row, cx), e))
-      .when(Boolean(row?.question || row?.waits), (e) =>
+      .when(!this.subagent && Boolean(row?.question || row?.waits), (e) =>
         e.child(h_flex().w_full().px(GUTTER).pt(8).justify_center().child(div().w_full().max_w(READ_W).child(QuestionCard(`chat-card-${row.terminal}-${row.question?.ask ?? row.question?.text?.length ?? ""}`, row, this.model, { wide: true, focus: this.cardFocus })))),
       )
-      .child(this.composer(k))
+      .when(!this.subagent && Boolean(row) && Boolean(this.taskStrip(k)), (e) => e.child(this.taskStrip(k)))
+      .child(this.subagent ? this.subagentNote(k) : this.composer(k))
       .when(Boolean(this.confirm), (e) => e.child(this.fullAccess(k, this.confirm)));
   }
 
@@ -2783,8 +3191,9 @@ export default class Chat {
 
   /** The confirm before Full access: what it lets the agent do, Cancel, and the one action. Keys in the tooltips. */
   fullAccess(k, c) {
-    const full = c.mode === "bypassPermissions";
-    const edits = c.mode === "acceptEdits";
+    const mode = modeOf(this.picksOf(), c.mode);
+    const full = Boolean(mode?.unasked) && mode?.label === "Full access";
+    const edits = Boolean(mode?.loud) && !mode?.unasked && mode?.cycle;
     return div()
       .id("chat-confirm")
       .absolute()

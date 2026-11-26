@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pickChips, howPick, startPicks, keptPicks, currentOffer, effortName } from "../mods/cockpit/picks.js";
+import { pickChips, howPick, startPicks, keptPicks, currentOffer, effortName, modeOf, modeChoices, unaskedModes, asksLess, nextMode } from "../mods/cockpit/picks.js";
 
 // An agent's `picks` as the hub sends them: Claude Code's table and Codex's, whose fast mode is a toggle in its terminal.
 const LEVELS = ["low", "medium", "high", "xhigh", "max"];
@@ -110,4 +110,42 @@ test("the chat's own fields never take the name of one of its methods", async ()
   const methods = new Set([...body.matchAll(/^ {2}(?:async |get )?([a-zA-Z]+)\(/gm)].map((m) => m[1]));
   const fields = new Set([...body.matchAll(/this\.([a-zA-Z]+) = /g)].map((m) => m[1]));
   assert.deepEqual([...fields].filter((f) => methods.has(f)), [], "a field named like a method hides it: the chat's clock calls asked(cx)");
+});
+
+// Claude Code's modes as the hub's `picks.modes` list them, `default` named `manual` as its help lists it.
+const MODES = [
+  { id: "manual", aliases: ["default"], label: "Asks first", icon: "shield-check", loud: false, offered: true, unasked: false, cycle: true },
+  { id: "acceptEdits", aliases: [], label: "Edits freely", icon: "triangle-alert", loud: true, offered: true, unasked: false, cycle: true },
+  { id: "plan", aliases: [], label: "Plan only", icon: "map", loud: false, offered: true, unasked: false, cycle: true },
+  { id: "bypassPermissions", aliases: [], label: "Full access", icon: "triangle-alert", loud: true, offered: true, unasked: true, cycle: false },
+  { id: "auto", aliases: [], label: "Auto", icon: "zap", loud: true, offered: false, unasked: true, cycle: false },
+  { id: "dontAsk", aliases: [], label: "Never asks", icon: "triangle-alert", loud: true, offered: false, unasked: false, cycle: false },
+];
+
+test("the modes come from the agent's picks: the menus, the confirms and ⇧⇥'s cycle read one list", () => {
+  const picks = { ...claude, modes: MODES };
+  assert.deepEqual(modeChoices(picks).map((m) => m.id), ["manual", "acceptEdits", "plan", "bypassPermissions"], "the offered ones");
+  assert.deepEqual(modeChoices(picks, { terminal: true }).map((m) => m.id), ["manual", "acceptEdits", "plan"], "a terminal's ⇧⇥ goes through these");
+  assert.equal(modeOf(picks, "default")?.label, "Asks first", "found by an alias: what the session reports");
+  assert.equal(modeOf(picks, "yolo"), null);
+  assert.deepEqual(unaskedModes(picks), ["bypassPermissions", "auto"]);
+  assert.deepEqual(asksLess(picks), ["acceptEdits", "bypassPermissions", "auto", "dontAsk"]);
+  assert.equal(nextMode(picks, "default"), "acceptEdits");
+  assert.equal(nextMode(picks, "acceptEdits"), "plan");
+  assert.equal(nextMode(picks, "plan"), "manual", "back to the first, under the name the help lists");
+  assert.equal(nextMode(picks, "bypassPermissions"), "acceptEdits", "a mode outside the cycle starts it again");
+  for (const picksOf of [null, {}, { modes: [] }, codex]) {
+    assert.deepEqual([modeChoices(picksOf), unaskedModes(picksOf), asksLess(picksOf), nextMode(picksOf, "default"), modeOf(picksOf, "plan")], [[], [], [], null, null], "no modes known");
+  }
+});
+
+test("a terminal agent's model chip ends with its own picker, opened in its terminal", () => {
+  const chips = byId(pickChips({ picks: claude, status: "idle", terminal: "app:t3" }, { ran: { model: "claude-opus-5-5" } }));
+  assert.deepEqual(chips.model.items.at(-2), "separator");
+  assert.deepEqual(chips.model.items.at(-1), { label: "Open /model in its terminal…", icon: "terminal", command: "chat:mirror:/model" });
+  assert.deepEqual(commands(chips.model).slice(0, 4), ["pick:model:opus", "pick:model:sonnet", "pick:model:haiku", "pick:model:fable"], "the catalog's picks stay first");
+  const live = byId(pickChips({ picks: claude, status: "working", terminal: "claude:1" }, { live: { key: "claude:1", model: "claude-opus-5-5" } }));
+  assert.ok(!live.model.items.some((i) => i?.command?.startsWith("chat:mirror:")), "a driven session has no terminal to open it in");
+  const bare = byId(pickChips({ picks: plain, status: "idle", terminal: "app:t4" }, { ran: { model: "acme/large" } }));
+  assert.ok(!(bare.model?.items ?? []).some((i) => i?.command?.startsWith("chat:mirror:")), "an agent without a model command offers none");
 });

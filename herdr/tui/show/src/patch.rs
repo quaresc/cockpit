@@ -269,21 +269,28 @@ fn new_file(repo: &str, path: &str) -> String {
     format!("{head}--- /dev/null\n+++ b/{path}\n@@ -0,0 +{count} @@\n{body}")
 }
 
-/// The repo's changes against `base`, untracked files included as new ones.
+/// What `git diff` prints for `revs` in the repo, or why it failed.
+fn diff(repo: &str, revs: &[&str]) -> Result<String, String> {
+    let out = Command::new("git").arg("-C").arg(repo).arg("diff").args(revs).arg("--").output().map_err(|err| format!("git did not answer: {err}"))?;
+    if out.status.success() {
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+    }
+    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    Err(if err.is_empty() { format!("git diff {} failed", revs.join(" ")) } else { err })
+}
+
+/// The repo's working tree against `base`, untracked files included as new ones.
 pub fn git_diff(repo: &str, base: Option<&str>) -> Result<String, String> {
-    let base = base.unwrap_or("HEAD");
-    let run = |args: &[&str]| Command::new("git").arg("-C").arg(repo).args(args).output();
-    let patch = match run(&["diff", base, "--"]) {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
-        Ok(out) => {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            return Err(if err.is_empty() { format!("git diff {base} failed") } else { err });
-        }
-        Err(err) => return Err(format!("git did not answer: {err}")),
-    };
-    let untracked = run(&["ls-files", "--others", "--exclude-standard"]).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let patch = diff(repo, &[base.unwrap_or("HEAD")])?;
+    let untracked = Command::new("git").arg("-C").arg(repo).args(["ls-files", "--others", "--exclude-standard"]).output();
+    let untracked = untracked.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
     let extra: String = untracked.lines().filter(|f| !f.is_empty()).take(30).map(|f| new_file(repo, f)).collect();
     Ok(patch + &extra)
+}
+
+/// The committed changes from `from` to `to`, two revisions: a branch that is not checked out has no working tree to add.
+pub fn git_diff_range(repo: &str, from: &str, to: &str) -> Result<String, String> {
+    diff(repo, &[from, to])
 }
 
 /// About 1 MB of diff: 30 files of 10 hunks, then one file of 1500 small hunks.

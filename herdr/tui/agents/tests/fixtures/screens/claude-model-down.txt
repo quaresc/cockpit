@@ -1,0 +1,37 @@
+ ▐▛███▛█   Claude Code v2.1.311
+▝▜██████▀  Fable 5.1 with high effort · Claude Team
+ ▝▝   ▝▝   /Users/me/code/api
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ Ctrl+Y to paste deleted text ▔
+   Select model
+   Switch between Claude models. Your pick becomes the default for new sessions. For
+   other/previous model names, specify with --model.
+
+     1.  Default (recommended)  Fable 5.1
+     2.  Opus 5.5               For complex work and everyday tasks
+     3.  Fable 5.2              For your toughest challenges
+     4.  Sonnet 5.5             Most efficient for simpler tasks
+     5.  Haiku 5.5              Fastest for quick answers
+     6.  Fable 5.1 ✔            Most capable for your hardest and longest-running tasks
+   ❯ 7.  Haiku 4.5              Fastest for quick answers
+     8.  Sonnet 5               Efficient for routine tasks
+     9.  Opus 5                 Best for everyday, complex tasks
+   ↓ 10. Fable 5                Most capable for your hardest and longest-running tasks
+      … +4 models
+
+   ○ Effort not supported for Haiku 4.5
+
+   Enter to set as default · s to use this session only · Esc to cancel

@@ -222,7 +222,8 @@ pub fn start_in(root: &Path, repo: &str, scope: &str, model: &str, patch: &str, 
     }
     let _ = std::fs::remove_dir_all(&job);
     std::fs::create_dir_all(&job).map_err(err)?;
-    let what = match scope {
+    // A place of a branch not checked out ("branch@feat") is worded by its scope.
+    let what = match scope.split('@').next().unwrap_or(scope) {
         "branch" => format!("the branch {} against {}", about["branch"].as_str().unwrap_or("?"), about["base"].as_str().unwrap_or("its base")),
         "pr" => format!("pull request #{} \"{}\"", about["pr"]["number"], about["pr"]["title"].as_str().unwrap_or_default()),
         _ => "uncommitted changes in a working tree".into(),

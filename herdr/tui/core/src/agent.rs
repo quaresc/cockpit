@@ -82,6 +82,8 @@ pub struct Agent {
     pub mode: Option<Vec<String>>,
     /// The keys that stop a turn in its own terminal, as hc and herdr name them ("esc"). None where not measured.
     pub interrupt: Option<Vec<String>>,
+    /// The keys that empty its input line ("ctrl+u"). None where not measured: ctrl+u is pressed then.
+    pub clear: Option<Vec<String>>,
     /// How its permission prompts read: patterns (regex) of the text above a menu that asks before a tool runs, edits
     /// go in, a plan is carried out or a folder is trusted. Empty where not measured.
     pub permission: Vec<String>,
@@ -109,6 +111,18 @@ pub struct Agent {
     pub live: Vec<Setting>,
     /// How each setting changes in its own terminal while it runs.
     pub typing: Typing,
+    /// The tools that start a subagent, a background job or a workflow, where measured. None where it has none known.
+    pub tasks: Option<Tasks>,
+}
+
+/// The tools of an agent that start work beside its turn: a subagent, a background job, a workflow. Each list names
+/// the tools as the transcript spells them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tasks {
+    pub spawn: Vec<String>,
+    /// Background only when the call's input says so (`run_in_background: true`).
+    pub background: Vec<String>,
+    pub workflow: Vec<String>,
 }
 
 /// What a person picks beside a prompt: the model, the effort level, fast mode.
@@ -164,7 +178,7 @@ impl Typing {
 }
 
 /// One model a picker offers: what the agent takes, what people read, and what it supports where its catalog says.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Offer {
     pub id: String,
     pub label: String,
@@ -172,12 +186,16 @@ pub struct Offer {
     pub efforts: Option<Vec<String>>,
     /// Whether it has a fast mode, where its catalog says.
     pub fast: Option<bool>,
+    /// The model an alias stands for, where its catalog says ("opus" is "claude-opus-5-5").
+    pub resolved: Option<String>,
+    /// One line on what it is for, where its catalog says.
+    pub description: Option<String>,
 }
 
 impl Offer {
     /// A model known by its id alone, named as people read it ("opus" is "Opus").
     pub fn named(id: String) -> Offer {
-        Offer { label: label_of(&id), id, efforts: None, fast: None }
+        Offer { label: label_of(&id), id, ..Offer::default() }
     }
 
     /// An offer as `json` writes it, or a bare id; None for an id no agent could take as one word (`model_id`).
@@ -188,7 +206,9 @@ impl Offer {
         let id = v["id"].as_str().filter(|id| model_id(id))?.to_string();
         let label = shown_label(v["label"].as_str(), &id);
         let efforts = v["efforts"].as_array().map(|l| l.iter().filter_map(|e| e.as_str().map(str::to_string)).collect());
-        Some(Offer { id, label, efforts, fast: v["fast"].as_bool() })
+        let resolved = v["resolved"].as_str().filter(|r| model_id(r)).map(str::to_string);
+        let description = v["description"].as_str().map(|d| crate::text::clean(&crate::text::without_sequences(d), 120)).filter(|d| !d.trim().is_empty());
+        Some(Offer { id, label, efforts, fast: v["fast"].as_bool(), resolved, description })
     }
 
     pub fn json(&self) -> Value {
@@ -198,6 +218,12 @@ impl Offer {
         }
         if let Some(fast) = self.fast {
             out["fast"] = serde_json::json!(fast);
+        }
+        if let Some(resolved) = &self.resolved {
+            out["resolved"] = serde_json::json!(resolved);
+        }
+        if let Some(description) = &self.description {
+            out["description"] = serde_json::json!(description);
         }
         out
     }
@@ -273,6 +299,7 @@ impl Row<'_> {
             signed_out: v(signed_out(self.id)),
             mode: None,
             interrupt: None,
+            clear: None,
             permission: vec![],
             stream: None,
             new_session: vec![],
@@ -285,6 +312,7 @@ impl Row<'_> {
             fast: None,
             live: vec![],
             typing: Typing::default(),
+            tasks: None,
         }
     }
 }
@@ -299,14 +327,20 @@ fn signed_out(id: &str) -> &'static [&'static str] {
 
 const NONE: &[&str] = &[];
 
+/// An agent's id and three lists of words measured for it.
+type Lists<'a> = (&'a str, &'a [&'a str], &'a [&'a str], &'a [&'a str]);
+
 /// What was measured of an agent beyond its argv: (id, how a permission mode is passed at start, the keys that stop a
-/// turn in its terminal). An empty list is not measured, and an agent not listed has neither.
-const CONTROLS: &[(&str, &[&str], &[&str])] = &[
-    // Claude Code 2.1.322: `--permission-mode` (driven sessions start with it); esc is `chat:cancel` in its keymap,
-    // its "esc to interrupt", while ctrl+c twice quits.
-    ("claude", &["--permission-mode", "{mode}"], &["esc"]),
-    // Codex 0.162: esc ends the turn ("Conversation interrupted"); its sandbox and approval switches are not one mode.
-    ("codex", NONE, &["esc"]),
+/// turn in its terminal, the keys that empty its input line). An empty list is not measured, and an agent not listed
+/// has none of them.
+type ControlRow = (&'static str, &'static [&'static str], &'static [&'static str], &'static [&'static str]);
+const CONTROLS: &[ControlRow] = &[
+    // Claude Code 2.1.311: `--permission-mode` (driven sessions start with it); esc is `chat:cancel` in its keymap,
+    // its "esc to interrupt", while ctrl+c twice quits; ctrl+u empties the line ("Ctrl+Y to paste deleted text").
+    ("claude", &["--permission-mode", "{mode}"], &["esc"], &["ctrl+u"]),
+    // Codex 0.162: esc ends the turn ("Conversation interrupted"); its sandbox and approval switches are not one mode;
+    // ctrl+u is the readline clear its composer documents.
+    ("codex", NONE, &["esc"], &["ctrl+u"]),
 ];
 
 /// How an agent is driven over its streaming protocol, as measured: (id, the switches that open the stream, how a new
@@ -373,6 +407,80 @@ const ASIDE: &[(&str, &[&str])] = &[
     ),
 ];
 
+/// What a slash command typed to a driven session does, as measured: (id, the commands cockpit applies as a setting,
+/// the commands that only a terminal can show). A command in neither list goes to the agent as words when it lists it.
+type SlashRow = (&'static str, &'static [(&'static str, Setting)], &'static [&'static str]);
+const DRIVEN_SLASH: &[SlashRow] = &[
+    // Claude Code 2.1.311 in -p mode: `/model`, `/effort` and `/fast` are its stream's `set_model` and settings
+    // requests; these open a dialog or leave the session, which a stream has no screen for.
+    (
+        "claude",
+        &[("model", Setting::Model), ("effort", Setting::Effort), ("fast", Setting::Fast)],
+        &[
+            "resume",
+            "config",
+            "permissions",
+            "login",
+            "logout",
+            "vim",
+            "theme",
+            "terminal-setup",
+            "exit",
+            "quit",
+            "doctor",
+            "bug",
+            "mobile",
+            "statusline",
+            "hooks",
+            "mcp",
+            "agents",
+            "plugin",
+        ],
+    ),
+];
+
+/// The setting a slash command sets on a driven session of agent `id`, if it is one cockpit applies itself.
+pub fn slash_setting(id: &str, command: &str) -> Option<Setting> {
+    let own = get(id).map(|a| a.id).unwrap_or_else(|| id.to_string());
+    DRIVEN_SLASH.iter().find(|(a, _, _)| *a == own).and_then(|(_, picks, _)| picks.iter().find(|(c, _)| *c == command).map(|(_, s)| *s))
+}
+
+/// Whether a slash command needs the agent's own terminal to show what it opens.
+pub fn slash_needs_terminal(id: &str, command: &str) -> bool {
+    let own = get(id).map(|a| a.id).unwrap_or_else(|| id.to_string());
+    DRIVEN_SLASH.iter().find(|(a, _, _)| *a == own).is_some_and(|(_, _, refused)| refused.contains(&command))
+}
+
+/// Where each agent reads the commands and skills a person adds, as path patterns with `{home}` and `{cwd}`, `*` one
+/// name and `**` any folders: their front matter describes them.
+const COMMAND_FILES: &[(&str, &[&str])] = &[
+    // Claude Code 2.1: commands and skills of the person, the project, and the plugins it installed.
+    (
+        "claude",
+        &[
+            "{home}/.claude/commands/**/*.md",
+            "{cwd}/.claude/commands/**/*.md",
+            "{home}/.claude/skills/*/SKILL.md",
+            "{cwd}/.claude/skills/*/SKILL.md",
+            "{home}/.claude/plugins/**/commands/*.md",
+            "{home}/.claude/plugins/**/skills/*/SKILL.md",
+        ],
+    ),
+    // Codex 0.9x: custom prompts, one Markdown file each.
+    ("codex", &["{home}/.codex/prompts/*.md"]),
+    // Gemini CLI 0.x: TOML commands of the person and the project.
+    ("gemini", &["{home}/.gemini/commands/**/*.toml", "{cwd}/.gemini/commands/**/*.toml"]),
+    // OpenCode and Kilo: Markdown commands of the person and the project.
+    ("opencode", &["{home}/.config/opencode/command/*.md", "{cwd}/.opencode/command/*.md"]),
+    ("kilo", &["{home}/.config/kilo/command/*.md", "{cwd}/.kilo/command/*.md"]),
+];
+
+/// The path patterns agent `id` reads its added commands from; none for an agent not measured.
+pub fn command_files(id: &str) -> Vec<String> {
+    let own = get(id).map(|a| a.id).unwrap_or_else(|| id.to_string());
+    COMMAND_FILES.iter().find(|(a, _)| *a == own).map(|(_, files)| v(files)).unwrap_or_default()
+}
+
 /// The agents cockpit's plugin serves: its tools and the statusline's limits reach them through it, not an MCP config.
 const PLUGIN: &[&str] = &["claude"];
 
@@ -391,6 +499,8 @@ pub enum Listing {
     Json,
     /// `{models: [{slug, display_name, visibility, supported_reasoning_levels, additional_speed_tiers}]}`.
     Codex,
+    /// Not a command's text: its catalog request over its stream (`CATALOG`), answered in events `catalog` reads.
+    Probe,
 }
 
 /// How an agent lists the models it can use, as its own help says: (id, the switches after its executable, how the
@@ -409,6 +519,26 @@ const MODEL_LIST: &[(&str, &[&str], Listing)] = &[
     ("maki", &["models"], Listing::Lines),
     // Codex 0.167: its catalog, each model with its effort levels and speed tiers.
     ("codex", &["debug", "models"], Listing::Codex),
+    // Claude Code 2.1.311: no listing command; its `list_models` request over the stream answers instead.
+    ("claude", NONE, Listing::Probe),
+];
+
+/// How an agent's catalog is asked over its stream, where its table has one: (id, the control request's subtype, the
+/// switches that open the stream for that one request and keep nothing of it). Its answer reads as `catalog` says.
+const CATALOG: &[(&str, &str, &[&str])] = &[
+    // Claude Code 2.1.311: `list_models` as the first stdin line answers `{models: [{value, resolvedModel, displayName,
+    // description, supportsEffort, supportedEffortLevels, supportsFastMode}]}`, no session written.
+    ("claude", "list_models", &["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]),
+];
+
+/// How an agent prints its version, where its help says: (id, the switches). What it printed keys what was read of it
+/// (its catalog, its help): asked again only once the version changed.
+const VERSIONED: &[(&str, &[&str])] = &[
+    // Claude Code 2.1.311: "2.1.311 (Claude Code)".
+    ("claude", &["--version"]),
+    // Codex 0.167 and Gemini CLI 0.68: `--version` prints the version alone.
+    ("codex", &["--version"]),
+    ("gemini", &["--version"]),
 ];
 
 /// The most models a listing gives.
@@ -419,6 +549,8 @@ pub const MAX_MODELS: usize = 500;
 pub fn listed_models(out: &str, how: Listing) -> Option<Vec<Offer>> {
     let mut found: Vec<String> = match how {
         Listing::Codex => return codex_catalog(out).filter(|offers| !offers.is_empty()),
+        // A probe answers in events, read by `catalog`, never as text.
+        Listing::Probe => return None,
         Listing::Lines => out.lines().filter_map(|l| l.split_whitespace().next()).map(str::to_string).collect(),
         Listing::Table => out
             .lines()
@@ -486,6 +618,16 @@ const TERMINAL: &[(&str, &[&str], &str)] = &[("claude", &["shift+tab"], "/focus"
 /// The settings a running session accepts and when each applies: the next model call or by the next turn.
 const LIVE: &[(&str, &[(Setting, &str)])] = &[("claude", &[(Setting::Model, "call"), (Setting::Effort, "turn"), (Setting::Fast, "turn")])];
 
+/// The tools that start work beside a turn, as measured: (id, subagents, background jobs, workflows). A background
+/// tool starts one only when its input has `run_in_background: true`.
+const TASKS: &[Lists] = &[
+    // Claude Code 2.1.311: `Agent` (`Task` in older sessions) spawns a subagent whose result names its `agentId`, a
+    // `Bash` call with `run_in_background` answers with a `backgroundTaskId`, and `Workflow` runs a script.
+    ("claude", &["Agent", "Task"], &["Bash"], &["Workflow"]),
+    // Codex: `spawn_agent` is its spawn tool by name only, not measured against a rollout.
+    ("codex", &["spawn_agent"], NONE, NONE),
+];
+
 /// How each setting changes in an agent's own terminal while it runs, as measured.
 fn typing(id: &str) -> Typing {
     let typed = |c: &str| Some(Typed::Command(c.into()));
@@ -507,8 +649,8 @@ pub fn builtin() -> Vec<Agent> {
     ROWS.iter()
         .map(|row| {
             let mut agent = row.agent();
-            if let Some((_, mode, interrupt)) = CONTROLS.iter().find(|(id, _, _)| *id == row.id) {
-                (agent.mode, agent.interrupt) = (control(mode), control(interrupt));
+            if let Some((_, mode, interrupt, clear)) = CONTROLS.iter().find(|(id, _, _, _)| *id == row.id) {
+                (agent.mode, agent.interrupt, agent.clear) = (control(mode), control(interrupt), control(clear));
             }
             if let Some((_, shapes)) = PERMISSION.iter().find(|(id, _)| *id == row.id) {
                 agent.permission = v(shapes);
@@ -526,9 +668,19 @@ pub fn builtin() -> Vec<Agent> {
             }
             agent.live = LIVE.iter().find(|(id, _)| *id == row.id).map(|(_, l)| l.iter().map(|(setting, _)| *setting).collect()).unwrap_or_default();
             agent.typing = typing(row.id);
+            agent.tasks = TASKS.iter().find(|(id, _, _, _)| *id == row.id).map(|(_, spawn, background, workflow)| Tasks {
+                spawn: v(spawn),
+                background: v(background),
+                workflow: v(workflow),
+            });
             agent
         })
         .collect()
+}
+
+/// The task tools of the agent that writes transcripts of this format, from the table; None where none is measured.
+pub fn tasks_of(kind: Transcripts) -> Option<Tasks> {
+    builtin().into_iter().find(|a| a.transcripts == kind && kind != Transcripts::None).and_then(|a| a.tasks)
 }
 
 /// `{opts}` marks where switches go when they must precede a subcommand; elsewhere they follow the template.
@@ -1008,6 +1160,7 @@ fn laid_over(mut list: Vec<Agent>, overrides: &serde_json::Map<String, Value>) -
             signed_out: vec![],
             mode: None,
             interrupt: None,
+            clear: None,
             permission: vec![],
             stream: None,
             new_session: vec![],
@@ -1020,6 +1173,7 @@ fn laid_over(mut list: Vec<Agent>, overrides: &serde_json::Map<String, Value>) -
             fast: None,
             live: vec![],
             typing: Typing::default(),
+            tasks: None,
         });
         let strs = |x: &Value| x.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect::<Vec<_>>());
         if let Some(s) = o["name"].as_str() {
@@ -1118,10 +1272,32 @@ pub struct Screen {
     pub limit: Vec<String>,
     /// The limit is over.
     pub lifted: Vec<String>,
+    /// One row of the menu that completes a slash command as it is typed: the command in group 1, its description
+    /// in group 2 when the row has one.
+    pub completion: Vec<String>,
+    /// The hint under a dialog it opened (`/model`, `/config`): the keys that confirm, move or close it.
+    pub dialog_hint: Vec<String>,
+    /// The title line a dialog of its opens with.
+    pub dialog_title: Vec<String>,
 }
 
-/// How each agent's screen reads around its words, as seen: (id, footer, busy, limit, lifted).
-type ScreenRow = (&'static str, &'static [&'static str], &'static [&'static str], &'static [&'static str], &'static [&'static str]);
+/// How each agent's screen reads around its words, as seen: (id, footer, busy, limit, lifted, completion, dialog hint,
+/// dialog title).
+type ScreenRow = (
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+/// A slash completion row as most agents draw it, the cursor or not in front: `❯ /model   Set the AI model`.
+pub const COMPLETION_ROW: &str = r"^\s*(?:[❯›>]\s*)?(/[\w:.-]+)(?:\s{2,}(\S.*))?$";
+/// The hint most agents end a dialog with.
+pub const DIALOG_HINT: &str = r"(?i)\b(esc|escape) to (cancel|close|exit|go back|clear)\b|\benter to (confirm|select|submit|set|continue|save)\b";
 
 const SCREENS: &[ScreenRow] = &[
     // Claude Code 2.1: "⏵⏵ auto mode on (shift+tab to cycle)", "⏸ plan mode on", "? for shortcuts"; "✻ Crunched for
@@ -1140,30 +1316,54 @@ const SCREENS: &[ScreenRow] = &[
             r"(?i)\bAPI Error: 429\b|\brate_limit_error\b",
         ],
         &[r"(?i)\blimit has reset\b"],
+        // 2.1.311: "❯ /model    Set the AI model for Claude Code (currently Fable 5.1)", a wrapped description indented
+        // under it; a dialog ends "Enter to set as default · s to use this session only · Esc to cancel", "←/→ to
+        // adjust · Enter to confirm", "Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear", and opens with
+        // "Select model", "Effort", "Resume session", "Settings".
+        &[COMPLETION_ROW],
+        &[DIALOG_HINT, r"(?i)\benter(/↓)? to (set as default|select|confirm)\b", r"(?i)\btype to (search|filter)\b"],
+        &[r"^(Select model|Effort|Resume session|Settings|Fast mode|Permissions|Select effort level)\b"],
     ),
     // Codex: "? for shortcuts", "41% context left"; "• Working (12s • esc to interrupt)"; "You've hit your usage limit".
+    // Its slash popup draws "/model    choose what model and reasoning effort to use"; its dialogs are unmeasured and
+    // read by the shapes every agent shares.
     (
         "codex",
         &[r"^\? for shortcuts(\s{2,}.*)?$", r"(?i)(^|\s{2,})\d{1,3}% context left$"],
         &[r"(?i)^[•◦]\s+Working\b.*\besc to interrupt\)?$"],
         &[r"(?i)\byou.ve hit your usage limit\b"],
         &[],
+        &[COMPLETION_ROW],
+        &[DIALOG_HINT],
+        &[],
     ),
 ];
 
 /// The screen shapes of agent `id`; for a program the table does not know, every agent's furniture and no limit words.
 pub fn screen(id: &str) -> Screen {
-    let of = |row: &ScreenRow| Screen { footer: v(row.1), busy: v(row.2), limit: v(row.3), lifted: v(row.4) };
+    let of = |row: &ScreenRow| Screen {
+        footer: v(row.1),
+        busy: v(row.2),
+        limit: v(row.3),
+        lifted: v(row.4),
+        completion: v(row.5),
+        dialog_hint: v(row.6),
+        dialog_title: v(row.7),
+    };
     let own = get(id).map(|a| a.id).unwrap_or_else(|| id.to_string());
     if let Some(row) = SCREENS.iter().find(|row| row.0 == own) {
         return of(row);
     }
-    // Every agent's furniture; a limit only in its own words, which an agent without a row has none of.
-    SCREENS.iter().map(of).fold(Screen::default(), |mut all, s| {
+    // Every agent's furniture, and the completion row and dialog hint most share; a limit only in its own words, which
+    // an agent without a row has none of.
+    let mut all = SCREENS.iter().map(of).fold(Screen::default(), |mut all, s| {
         all.footer.extend(s.footer);
         all.busy.extend(s.busy);
         all
-    })
+    });
+    all.completion = vec![COMPLETION_ROW.to_string()];
+    all.dialog_hint = vec![DIALOG_HINT.to_string()];
+    all
 }
 
 /// The agent a Herdr terminal runs, from its `program` (or the agent's own report, or its name as the app shows it).
@@ -1333,9 +1533,16 @@ impl Agent {
         ASIDE.iter().find(|(id, _)| *id == self.id).map(|(_, switches)| v(switches)).unwrap_or_default()
     }
 
-    /// Its start switches for permission mode `mode`, from the `mode` column; None where that was not measured.
+    /// Its start switches for permission mode `mode`, from the `mode` column, the mode named as its help lists it
+    /// (`manual` for `default` where the help lists no `default`); None where that was not measured.
     pub fn mode_argv(&self, mode: &str) -> Option<Vec<String>> {
-        Some(self.mode.as_ref()?.iter().map(|a| a.replace("{mode}", mode)).collect())
+        self.mode_argv_listed(mode, &crate::switches::of(self, || {}).modes)
+    }
+
+    /// `mode_argv` with the modes its help lists given (`known`), rather than read from what was kept of its help.
+    pub fn mode_argv_listed(&self, mode: &str, known: &[String]) -> Option<Vec<String>> {
+        let listed = crate::modes::listed(crate::modes::words_of(self), mode, known);
+        Some(self.mode.as_ref()?.iter().map(|a| a.replace("{mode}", &listed)).collect())
     }
 
     pub fn installed(&self) -> bool {
@@ -1483,13 +1690,15 @@ impl Agent {
     }
 
     /// What a person may pick for it and how each reaches it, as the views send it: `{agent, models: [{id, label, efforts?,
-    /// fast?}], efforts, fast, start: {model, effort, fast}, live: [setting], typed: {setting: {command}|{byHand}|null}}`.
-    /// `models` are the ones given, else the table's.
-    pub fn picks_json(&self, models: Option<&[Offer]>) -> Value {
+    /// fast?, resolved?, description?}], efforts, fast, modes: [{id, label, …}], start: {model, effort, fast}, live:
+    /// [setting], typed: {setting: {command}|{byHand}|null}}`. `models` are the ones given, else the table's; `efforts`
+    /// the table's, else what its `help` lists; `modes` its table's (`modes::json`), offered as its help lists them.
+    pub fn picks_json(&self, models: Option<&[Offer]>, help: &crate::switches::Help) -> Value {
         let models: Vec<Value> = match models.filter(|c| !c.is_empty()) {
             Some(listed) => listed.iter().map(Offer::json).collect(),
             None => self.offers().iter().map(Offer::json).collect(),
         };
+        let efforts = if self.efforts.is_empty() { &help.efforts } else { &self.efforts };
         let typed = |s: Setting| match self.typing.of(s) {
             Some(Typed::Command(c)) => serde_json::json!({"command": c}),
             Some(Typed::ByHand(c)) => serde_json::json!({"byHand": c}),
@@ -1504,22 +1713,58 @@ impl Agent {
             .map(|(setting, when)| (setting.id().to_string(), Value::from(*when)))
             .collect();
         serde_json::json!({
-            "agent": self.name, "models": models, "efforts": self.efforts, "fast": self.fast.is_some(),
-            "start": {"model": !self.model.is_empty(), "effort": self.effort.is_some() && !self.efforts.is_empty(), "fast": self.fast.is_some()},
+            "agent": self.name, "models": models, "efforts": efforts, "fast": self.fast.is_some(),
+            "modes": crate::modes::json(crate::modes::words_of(self), &help.modes),
+            "start": {"model": !self.model.is_empty(), "effort": self.effort.is_some() && !efforts.is_empty(), "fast": self.fast.is_some()},
             "live": self.live.iter().map(|s| s.id()).collect::<Vec<_>>(),
             "applies": applies,
             "typed": {"model": typed(Setting::Model), "effort": typed(Setting::Effort), "fast": typed(Setting::Fast)},
         })
     }
 
-    /// Its picks on the models it offers everywhere (`models::of`); `loading` is true while its own listing is read, and
-    /// `ready` is called once that ends.
+    /// Its picks on the models it offers everywhere (`models::of`) and what its help lists (`switches::of`); `loading`
+    /// is true while its own listing is read, and `ready` is called once that or its help was read.
     pub fn catalog_picks(&self, ready: fn()) -> Value {
         let listed = crate::models::of(self, ready);
-        let mut picks = self.picks_json(Some(&listed.offers));
+        let help = crate::switches::of(self, ready);
+        let mut picks = self.picks_json(Some(&listed.offers), &help);
         picks["loading"] = Value::Bool(listed.loading);
         picks
     }
+}
+
+/// The models a catalog answer offers, in its order, each a well-formed id (`model_id`), the ones it shows but lets
+/// nobody pick left out, MAX_MODELS at most. `response` is the answer to the request `CATALOG` names for the agent `id`;
+/// empty for an agent whose table names none.
+pub fn catalog(id: &str, response: &Value) -> Vec<Offer> {
+    match CATALOG.iter().find(|(agent, _, _)| *agent == id).map(|(_, request, _)| *request) {
+        Some("list_models") => list_models(response),
+        _ => Vec::new(),
+    }
+}
+
+/// A `list_models` answer: `{models: [{value, resolvedModel, displayName, description, supportsEffort,
+/// supportedEffortLevels, supportsFastMode, disabled}]}`; `efforts` is empty for a model without levels.
+fn list_models(response: &Value) -> Vec<Offer> {
+    response["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| m["disabled"] != true)
+        .filter_map(|m| {
+            let id = m["value"].as_str().filter(|v| model_id(v))?.to_string();
+            let label = shown_label(m["displayName"].as_str(), &id);
+            let efforts = if m["supportsEffort"] == true {
+                m["supportedEffortLevels"].as_array().map(|l| l.iter().filter_map(|e| e.as_str().map(str::to_string)).collect())
+            } else {
+                None
+            };
+            let resolved = m["resolvedModel"].as_str().filter(|r| model_id(r)).map(str::to_string);
+            let description = m["description"].as_str().map(|d| crate::text::clean(&crate::text::without_sequences(d), 120)).filter(|d| !d.trim().is_empty());
+            Some(Offer { id, label, efforts: Some(efforts.unwrap_or_default()), fast: Some(m["supportsFastMode"] == true), resolved, description })
+        })
+        .take(MAX_MODELS)
+        .collect()
 }
 
 /// The models `codex debug models` prints that its pickers list, each with its effort levels and whether it has a fast
@@ -1535,7 +1780,7 @@ pub fn codex_catalog(text: &str) -> Option<Vec<Offer>> {
             let label = shown_label(m["display_name"].as_str(), &id);
             let efforts = m["supported_reasoning_levels"].as_array().map(|l| l.iter().filter_map(|e| e["effort"].as_str().map(str::to_string)).collect());
             let tiers = |k: &str| m[k].as_array().is_some_and(|t| !t.is_empty());
-            Some(Offer { id, label, efforts, fast: Some(tiers("additional_speed_tiers") || tiers("service_tiers")) })
+            Some(Offer { id, label, efforts, fast: Some(tiers("additional_speed_tiers") || tiers("service_tiers")), ..Offer::default() })
         })
         .take(MAX_MODELS)
         .collect();
@@ -1584,10 +1829,32 @@ impl Agent {
         ROUTINE_ONLY.iter().find(|(id, _)| *id == self.id).map(|(_, models)| v(models)).unwrap_or_default()
     }
 
-    /// The command that lists the models it can use, and how its answer reads; None when it has none.
+    /// The command that lists the models it can use, and how its answer reads; None when it has none. A `Probe` is the
+    /// stream opened for its catalog request (`probe_argv`).
     pub fn model_listing(&self) -> Option<(Vec<String>, Listing)> {
         let (_, args, how) = MODEL_LIST.iter().find(|(id, _, _)| *id == self.id)?;
+        if *how == Listing::Probe {
+            return Some((self.probe_argv()?, Listing::Probe));
+        }
         Some((std::iter::once(self.path()).chain(args.iter().map(|a| a.to_string())).collect(), *how))
+    }
+
+    /// Its command line for one catalog request over its stream: the executable and the switches `CATALOG` names, none
+    /// of a session's (no permission mode, no replay, no session id). None where its table names no request.
+    pub fn probe_argv(&self) -> Option<Vec<String>> {
+        let (_, _, switches) = CATALOG.iter().find(|(id, _, _)| *id == self.id)?;
+        Some(std::iter::once(self.path()).chain(switches.iter().map(|a| a.to_string())).collect())
+    }
+
+    /// The control request that answers with its catalog over its stream (`list_models`); None where none is known.
+    pub fn catalog_request(&self) -> Option<&'static str> {
+        CATALOG.iter().find(|(id, _, _)| *id == self.id).map(|(_, request, _)| *request)
+    }
+
+    /// Its command line printing its version, from the `VERSIONED` table; None where not known.
+    pub fn version_argv(&self) -> Option<Vec<String>> {
+        let (_, switches) = VERSIONED.iter().find(|(id, _)| *id == self.id)?;
+        Some(std::iter::once(self.path()).chain(switches.iter().map(|a| a.to_string())).collect())
     }
 
     /// An unattended run, None when the agent has no headless mode or cannot fork when asked to. Switches it lacks are
@@ -1725,6 +1992,7 @@ pub fn source_words(source: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::switches::Help;
 
     fn row(id: &str) -> Agent {
         let mut a = builtin().into_iter().find(|a| a.id == id).unwrap();
@@ -1855,7 +2123,7 @@ mod tests {
         for a in builtin().into_iter().filter(|a| a.id != "claude" && a.id != "codex") {
             assert!(a.efforts.is_empty() && a.effort.is_none() && a.fast.is_none() && a.live.is_empty(), "{} was not measured", a.id);
             assert_eq!(a.typing, Typing::default(), "{}", a.id);
-            assert!(a.picks_json(None)["efforts"].as_array().unwrap().is_empty(), "{} shows no effort picker", a.id);
+            assert!(a.picks_json(None, &Help::default())["efforts"].as_array().unwrap().is_empty(), "{} shows no effort picker", a.id);
         }
     }
 
@@ -1876,7 +2144,7 @@ mod tests {
     fn a_setting_changes_live_in_a_driven_session_or_by_its_own_command_in_a_terminal() {
         let claude = row("claude");
         assert_eq!(claude.live, [Setting::Model, Setting::Effort, Setting::Fast]);
-        assert_eq!(claude.picks_json(None)["applies"], serde_json::json!({"model": "call", "effort": "turn", "fast": "turn"}));
+        assert_eq!(claude.picks_json(None, &Help::default())["applies"], serde_json::json!({"model": "call", "effort": "turn", "fast": "turn"}));
         assert_eq!(claude.typed_for(Setting::Model, "sonnet"), Some(Ok("/model sonnet".into())));
         assert_eq!(claude.typed_for(Setting::Effort, "max"), Some(Ok("/effort max".into())));
         assert_eq!(claude.typed_for(Setting::Fast, "off"), Some(Ok("/fast off".into())));
@@ -1885,7 +2153,7 @@ mod tests {
         assert_eq!(codex.typed_for(Setting::Effort, "high"), Some(Ok("/model --reasoning=high".into())));
         assert_eq!(codex.typed_for(Setting::Fast, "on"), Some(Err("/fast".into())), "a toggle: changed by hand");
         assert_eq!(row("opencode").typed_for(Setting::Model, "x"), None);
-        let json = codex.picks_json(None);
+        let json = codex.picks_json(None, &Help::default());
         assert_eq!((json["typed"]["fast"]["byHand"].as_str(), json["typed"]["model"]["command"].as_str()), (Some("/fast"), Some("/model {model}")));
         assert_eq!(json["start"], serde_json::json!({"model": true, "effort": true, "fast": true}));
     }
@@ -1906,8 +2174,83 @@ mod tests {
         );
         assert_eq!((offers[0].efforts.clone().unwrap(), offers[0].fast, offers[1].fast), (v(&["low", "high"]), Some(true), Some(false)));
         assert_eq!(codex_catalog("not json"), None);
-        let json = row("codex").picks_json(Some(&offers));
+        let json = row("codex").picks_json(Some(&offers), &Help::default());
         assert_eq!(json["models"][0], serde_json::json!({"id": "gpt-acme-1", "label": "GPT Acme 1", "efforts": ["low", "high"], "fast": true}));
+    }
+
+    const LIST_MODELS: &str = include_str!("../tests/fixtures/claude-list-models.json");
+
+    #[test]
+    fn claude_s_catalog_is_its_list_models_answer_each_model_with_what_it_supports() {
+        let event: Value = serde_json::from_str(LIST_MODELS).unwrap();
+        let offers = catalog("claude", &event["response"]["response"]);
+        assert_eq!(offers.len(), 14);
+        let by = |id: &str| offers.iter().find(|o| o.id == id).unwrap_or_else(|| panic!("{id}"));
+        assert_eq!((by("default").label.as_str(), by("default").resolved.as_deref()), ("Default (recommended)", Some("claude-fable-5-1")));
+        assert_eq!((by("opus").fast, by("sonnet").fast), (Some(true), Some(false)), "only some have a fast mode");
+        assert_eq!(by("opus").efforts.as_deref(), Some(&v(&["low", "medium", "high", "xhigh", "max"])[..]));
+        assert_eq!(by("claude-haiku-4-5-20251001").efforts.as_deref(), Some(&[][..]), "no effort levels");
+        assert_eq!(by("claude-opus-4-6").efforts.as_deref().map(|e| e.len()), Some(4));
+        assert_eq!(by("haiku").description.as_deref(), Some("Fastest for quick answers"));
+        // As the views read it: the shape a driven session's `models` had, plus the description.
+        let json = by("opus").json();
+        assert_eq!(json["id"], "opus");
+        assert_eq!((json["fast"].as_bool(), json["resolved"].as_str()), (Some(true), Some("claude-opus-5-5")));
+        assert_eq!(json["efforts"].as_array().map(|e| e.len()), Some(5));
+        assert_eq!(Offer::of_json(&json), Some(by("opus").clone()), "kept and read back whole");
+        assert!(catalog("codex", &event["response"]["response"]).is_empty(), "no catalog request in its table");
+        let disabled = serde_json::json!({"models": [{"value": "opus", "disabled": true}, {"value": "-p"}, {"value": "haiku", "displayName": "Haiku"}]});
+        assert_eq!(catalog("claude", &disabled).iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["haiku"], "disabled and switch-like values left out");
+    }
+
+    #[test]
+    fn claude_s_catalog_is_probed_over_its_stream_and_kept_by_its_version() {
+        let claude = row("claude");
+        let (argv, how) = claude.model_listing().unwrap();
+        assert_eq!(how, Listing::Probe);
+        assert_eq!(argv, ["/bin/claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]);
+        assert!(!argv.iter().any(|a| a.contains("permission") || a.contains("session-id") || a.contains("replay")), "none of a session's switches: {argv:?}");
+        assert_eq!(claude.catalog_request(), Some("list_models"));
+        assert_eq!(claude.version_argv().unwrap(), ["/bin/claude", "--version"]);
+        assert_eq!((row("codex").catalog_request(), row("codex").probe_argv()), (None, None));
+        assert_eq!(row("pi").version_argv(), None, "not known: kept a day instead");
+        assert_eq!(listed_models("{}", Listing::Probe), None, "a probe is not text");
+        assert!(
+            CATALOG
+                .iter()
+                .chain(VERSIONED.iter().map(|(id, s)| (*id, "", *s)).collect::<Vec<_>>().iter())
+                .all(|(id, _, _)| builtin().iter().any(|a| a.id == *id))
+        );
+    }
+
+    #[test]
+    fn a_mode_is_passed_as_the_help_lists_it_and_the_picks_carry_every_mode() {
+        let claude = row("claude");
+        let help = Help {
+            modes: v(&["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"]),
+            efforts: v(&["low", "medium", "high", "xhigh", "max"]),
+        };
+        assert_eq!(claude.mode_argv_listed("default", &help.modes).unwrap(), ["--permission-mode", "manual"], "this version lists manual, not default");
+        assert_eq!(claude.mode_argv_listed("plan", &help.modes).unwrap(), ["--permission-mode", "plan"]);
+        assert_eq!(claude.mode_argv_listed("default", &[]).unwrap(), ["--permission-mode", "default"], "no help read yet");
+        assert_eq!(row("codex").mode_argv_listed("read-only", &[]), None, "no one mode switch");
+        let picks = claude.picks_json(None, &help);
+        let modes = picks["modes"].as_array().unwrap();
+        assert_eq!(
+            modes.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["manual", "acceptEdits", "plan", "bypassPermissions", "auto", "dontAsk"]
+        );
+        assert_eq!((modes[0]["label"].as_str(), modes[0]["offered"].as_bool(), modes[4]["offered"].as_bool()), (Some("Asks first"), Some(true), Some(false)));
+        assert_eq!(picks["efforts"], serde_json::json!(["low", "medium", "high", "xhigh", "max"]), "the table's");
+        let mut bare = claude.clone();
+        bare.efforts.clear();
+        let fallen = bare.picks_json(None, &Help { modes: vec![], efforts: v(&["low", "high"]) });
+        assert_eq!(
+            (fallen["efforts"].clone(), fallen["start"]["effort"].clone()),
+            (serde_json::json!(["low", "high"]), serde_json::json!(true)),
+            "else the help's"
+        );
+        assert_eq!(row("pi").picks_json(None, &Help::default())["modes"], serde_json::json!([]), "no modes known");
     }
 
     #[test]
@@ -1938,7 +2281,7 @@ mod tests {
         for a in builtin().into_iter().filter(|a| a.id != "claude" && a.id != "codex") {
             assert_eq!((a.mode.as_ref(), a.interrupt.as_ref()), (None, None), "{} was not measured", a.id);
         }
-        assert!(CONTROLS.iter().all(|(id, _, _)| builtin().iter().any(|a| a.id == *id)), "every measured agent has a row");
+        assert!(CONTROLS.iter().all(|(id, _, _, _)| builtin().iter().any(|a| a.id == *id)), "every measured agent has a row");
     }
 
     #[test]
@@ -2051,7 +2394,7 @@ mod tests {
     fn only_agents_with_a_listing_command_list_their_models() {
         assert_eq!(row("opencode").model_listing().unwrap(), (vec!["/bin/opencode".to_string(), "models".into()], Listing::Lines));
         assert_eq!(row("omp").model_listing().unwrap().0[1..], ["models", "--json"]);
-        assert!(row("claude").model_listing().is_none() && row("copilot").model_listing().is_none());
+        assert!(row("claude").model_listing().is_some_and(|(_, how)| how == Listing::Probe) && row("copilot").model_listing().is_none());
         assert!(MODEL_LIST.iter().all(|(id, _, _)| builtin().iter().any(|a| a.id == *id)), "every listing has a row");
         assert!(ASIDE.iter().all(|(id, _)| builtin().iter().any(|a| a.id == *id)));
         assert!(row("codex").aside().is_empty() && row("pi").aside().is_empty(), "no verified text-only restrictions");

@@ -11,13 +11,15 @@ const USAGE: &str = "An agent cockpit drives itself, over its streaming protocol
 
     cockpit session run <agent> <cwd> <prompt>...   starts it, sends the prompt, prints what comes back, ends it
     cockpit session answer <ask> allow|deny         answers a permission it asks, at a terminal
-    cockpit session modes                           the permission modes an agent takes";
+    cockpit session modes [agent]                   the permission modes an agent takes (the default agent's)";
 
 pub fn main(args: &[String]) {
     match args.first().map(String::as_str) {
         Some("run") => run(&args[1..]),
         Some("answer") => answer(&args[1..]),
-        Some("modes") => println!("acceptEdits auto bypassPermissions manual dontAsk plan"),
+        Some("modes") => {
+            println!("{}", cockpit_core::modes::ids(cockpit_core::modes::words_of(&cockpit_core::agent::pick(args.get(1).map(String::as_str)))).join(" "))
+        }
         _ => fail(USAGE),
     }
 }

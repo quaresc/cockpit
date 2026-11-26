@@ -237,7 +237,15 @@ test("a mode that runs tools without asking waits for a yes about its own sessio
   const chat = Object.create(mod.Chat.prototype);
   const focus = { focus() {}, is_focused: () => true };
   const session = { key: "claude:demo-421", mode: "default", cwd: "/Users/me/code/api", messages: [{ role: "user", text: "Make the daily quota configurable per plan" }] };
-  Object.assign(chat, { confirm: null, sessions: { session }, handle: focus, cancelFocus: focus });
+  // Its agent's modes, as the row's `picks` list them (Claude Code's).
+  const modes = [
+    { id: "default", aliases: ["manual"], label: "Asks first", icon: "shield-check", loud: false, offered: true, unasked: false, cycle: true },
+    { id: "acceptEdits", aliases: [], label: "Edits freely", icon: "triangle-alert", loud: true, offered: true, unasked: false, cycle: true },
+    { id: "plan", aliases: [], label: "Plan only", icon: "map", loud: false, offered: true, unasked: false, cycle: true },
+    { id: "bypassPermissions", aliases: [], label: "Full access", icon: "triangle-alert", loud: true, offered: true, unasked: true, cycle: false },
+    { id: "auto", aliases: [], label: "Auto", icon: "zap", loud: true, offered: false, unasked: true, cycle: false },
+  ];
+  Object.assign(chat, { confirm: null, sessions: { session }, handle: focus, cancelFocus: focus, model: { row: () => ({ picks: { modes } }) } });
   const { cx, settled } = context();
   chat.command("mode:bypassPermissions", cx);
   await settled();

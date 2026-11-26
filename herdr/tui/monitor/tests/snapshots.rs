@@ -290,3 +290,37 @@ fn a_row_a_focus_request_selected_runs_nothing_until_a_move() {
     key(&mut app, KeyCode::Enter);
     assert_eq!(last(&app).action, "investigate", "moved to, its main action runs");
 }
+
+#[test]
+fn pin_and_mute_answer_before_the_refresh() {
+    let mut app = app(Density::Comfortable);
+    let pin = "\u{f08d}";
+    let markers = |app: &mut App| render(app, 90, 30).matches(pin).count();
+    select(&mut app, "billing-production");
+    assert_eq!(markers(&mut app), 1, "only api is pinned at first");
+    press(&mut app, 'p');
+    let after = render(&mut app, 90, 30);
+    assert_eq!(after.matches(pin).count(), 2, "billing shows its marker at once, beside api's");
+    assert!(after.contains("unpin"), "its button reads unpin now");
+    assert!(after.contains("pinned: its deploys and Datadog numbers load with the next refresh"), "{after}");
+    press(&mut app, 'p');
+    assert_eq!(markers(&mut app), 1, "a second press takes the pin off again");
+    press(&mut app, 'm');
+    let muted = render(&mut app, 90, 30);
+    assert!(muted.contains("unmute"), "{muted}");
+    press(&mut app, 'p');
+    let back = render(&mut app, 90, 30);
+    assert!(!back.contains("unmute"), "pinning unmutes it");
+    assert_eq!(back.matches(pin).count(), 2);
+    // A document from before the press does not undo it; one that agrees clears it.
+    let mut before = data();
+    before["apps"][2]["pinned"] = json!(false);
+    app.set_doc(&before);
+    assert_eq!(markers(&mut app), 2, "the pin stays on show until the document has it");
+    let mut agrees = data();
+    agrees["apps"][2]["pinned"] = json!(true);
+    app.set_doc(&agrees);
+    assert_eq!(markers(&mut app), 2);
+    app.set_doc(&before);
+    assert_eq!(markers(&mut app), 1, "once the document agreed, what it says goes");
+}

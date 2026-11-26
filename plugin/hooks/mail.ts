@@ -20,6 +20,10 @@ const MAX_HTML = 400_000
 const KEEP_THREADS_MS = 7 * 86_400_000
 // How many threads one refresh reads ahead, so a full inbox fills over a few refreshes.
 const READ_AHEAD = 10
+// How many undated threads one refresh peeks for a date, unread ones and the rest, each once ever.
+const PEEK_UNREAD = 15
+const PEEK_OTHERS = 15
+const KEEP_DATES = 300
 
 export type MailMessage = {
   id: string
@@ -35,7 +39,8 @@ export type MailMessage = {
 }
 
 export type ThreadMessage = { id: string; from: string; fromName: string; date: string; html: string; text: string }
-type MailState = { at: number; messages: MailMessage[]; notified: string[]; error?: string; by?: 'hub' | 'plugin' }
+// `dates` keeps the date a peek gave each listed thread, as a listing may carry none.
+type MailState = { at: number; messages: MailMessage[]; notified: string[]; dates?: Record<string, string>; error?: string; by?: 'hub' | 'plugin' }
 
 async function readMail($: $): Promise<MailState | null> {
   try {
@@ -67,7 +72,12 @@ const isUnread = (v: unknown) =>
 
 const listOf = (v: unknown) => (Array.isArray(v) ? v.filter((l): l is string => typeof l === 'string') : [])
 
-export function messagesOf(mail: Mail, answer: unknown): MailMessage[] {
+// The key a message's thread goes by in `dates` and the unread set: its thread id, else its own.
+export const threadKey = (m: Pick<MailMessage, 'id' | 'threadId'>) => m.threadId || m.id
+
+// One listing's messages in its order. A message is unread when the unread listing holds its thread, or when a
+// mapped unread field says so; without an unread listing, a mapping with no unread field lists unread mail only.
+function listed(mail: Mail, answer: unknown, unreadThreads?: Set<string>): MailMessage[] {
   const f = mail.fields
   const out: MailMessage[] = []
   for (const raw of listAt(answer, f.messages)) {
@@ -76,6 +86,7 @@ export function messagesOf(mail: Mail, answer: unknown): MailMessage[] {
     const threadId = text(pick(raw, f.threadId)) ?? ''
     const [address, named] = sender(text(pick(raw, f.from)) ?? '')
     const date = text(pick(raw, f.date)) ?? ''
+    const flagged = Boolean(f.unread) && isUnread(pick(raw, f.unread))
     out.push({
       id,
       threadId,
@@ -85,11 +96,54 @@ export function messagesOf(mail: Mail, answer: unknown): MailMessage[] {
       snippet: unescape(text(pick(raw, f.snippet)) ?? '').split(/\s+/).join(' ').trim().slice(0, MAX_SNIPPET),
       url: text(pick(raw, f.url)) || mail.urlTemplate.replace('{id}', id).replace('{threadId}', threadId),
       date: isoDate(date),
-      unread: !f.unread || isUnread(pick(raw, f.unread)),
+      unread: unreadThreads ? unreadThreads.has(threadId || id) || flagged : !f.unread || flagged,
       labels: listOf(pick(raw, f.labels)),
     })
   }
-  return out.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)).slice(0, MAX_MESSAGES)
+  return out
+}
+
+// The inbox as listed: the unread listing's messages first when there is one, then the inbox's others, each once.
+export function messagesOf(mail: Mail, inbox: unknown, unread?: unknown): MailMessage[] {
+  const unreadThreads = unread === undefined ? undefined : new Set(listed(mail, unread).map(threadKey))
+  const out = unread === undefined ? [] : listed(mail, unread, unreadThreads)
+  const seen = new Set(out.map(m => m.id))
+  for (const m of listed(mail, inbox, unreadThreads)) {
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    out.push(m)
+  }
+  return out
+}
+
+// The messages with their threads' kept dates where they had none, newest first, the undated after the dated in the
+// order they were listed, at most fifty.
+export function dated(messages: MailMessage[], dates: Record<string, string>): MailMessage[] {
+  return messages
+    .map(m => (m.date || !dates[threadKey(m)] ? m : { ...m, date: dates[threadKey(m)]! }))
+    .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
+    .slice(0, MAX_MESSAGES)
+}
+
+// The undated messages a refresh peeks for a date: the first unread ones and the first others, never a thread peeked
+// before, as `dates` holds it even when the peek gave none.
+export function toPeek(messages: MailMessage[], dates: Record<string, string>): MailMessage[] {
+  const out: MailMessage[] = []
+  let [unread, others] = [PEEK_UNREAD, PEEK_OTHERS]
+  for (const m of messages) {
+    if (m.date || threadKey(m) in dates) continue
+    if (m.unread ? unread-- > 0 : others-- > 0) out.push(m)
+  }
+  return out
+}
+
+// The newest date in a peeked thread, '' when it has none.
+export const latestDate = (mail: Mail, answer: unknown) => threadOf(mail, answer).at(-1)?.date ?? ''
+
+// The kept dates for the listed threads only, at most a few hundred.
+export function keptDates(dates: Record<string, string>, messages: MailMessage[]): Record<string, string> {
+  const keys = new Set(messages.map(threadKey))
+  return Object.fromEntries(Object.entries(dates).filter(([key]) => keys.has(key)).slice(0, KEEP_DATES))
 }
 
 let inflight: Promise<void> | undefined
@@ -105,19 +159,31 @@ export function refreshMail($: $, isForced = false) {
       const every = Math.max(15, Number((await loadConfig($)).refresh?.mail ?? 60)) * 1000
       if (!isForced && prev && Date.now() - prev.at < Math.min(every, STALE_MS)) return
       await withLease($, 'mail', async () => {
-        const messages = await callMapped($, mail, 'listInbox')
-          .then(answer => messagesOf(mail, answer))
-          .catch(async (err: Error) => {
-            if (!isMcpNotReady(err)) await writeDoc($, 'mail', { ...(prev ?? { messages: [], notified: [] }), at: prev?.at ?? 0, error: `${mail.name} ${shortError(err)}` })
-            return null
-          })
-        if (!messages) return
+        const dates = { ...(prev?.dates ?? {}) }
+        const listing = await (async () => {
+          const inbox = await callMapped($, mail, 'listInbox')
+          const unread = mail.tools.listUnread?.tool ? await callMapped($, mail, 'listUnread') : undefined
+          return messagesOf(mail, inbox, unread)
+        })().catch(async (err: Error) => {
+          if (!isMcpNotReady(err)) await writeDoc($, 'mail', { ...(prev ?? { messages: [], notified: [] }), at: prev?.at ?? 0, error: `${mail.name} ${shortError(err)}` })
+          return null
+        })
+        if (!listing) return
+        if (mail.tools.peek?.tool) {
+          for (const m of toPeek(listing, dates)) {
+            const key = threadKey(m)
+            dates[key] = await callMapped($, mail, 'peek', { message: m.id, thread: key })
+              .then(answer => latestDate(mail, answer))
+              .catch(() => '')
+          }
+        }
+        const messages = dated(listing, dates)
         const unread = messages.filter(m => m.unread).map(m => m.id)
         const known = new Set(prev?.notified ?? [])
         // Only mail newer than any listed before: a longer listing brings older unread mail in, which is not news.
         const newest = Math.max(0, ...(prev?.messages ?? []).map(m => Date.parse(m.date) || 0))
         const fresh = prev ? messages.filter(m => m.unread && !known.has(m.id) && (Date.parse(m.date) || 0) > newest) : []
-        await writeDoc($, 'mail', { at: Date.now(), messages, notified: unread, by: 'plugin' })
+        await writeDoc($, 'mail', { at: Date.now(), messages, notified: unread, dates: keptDates(dates, listing), by: 'plugin' })
         if (fresh.length > 3) await notify($, `✉️ ${fresh.length} new mails`, fresh.slice(0, 3).map(m => `${m.fromName}: ${m.subject}`).join('\n'), 'space:mail')
         else for (const m of fresh) await notify($, `✉️ ${m.fromName}`, m.subject || m.snippet, `mail:${m.id}`)
         await readAhead($, messages)
@@ -170,12 +236,13 @@ async function keptFresh($: $, m: MailMessage) {
   return isFresh(doc, m)
 }
 
-// The threads of the listed messages read ahead, so opening one is instant: the newest first, a few per refresh.
+// The threads of the listed messages read ahead, so opening one is instant: the unread first, then the newest, a few
+// per refresh.
 async function readAhead($: $, messages: MailMessage[]) {
   const { mail } = await loadConfig($)
   if (!mail.tools.get?.tool) return
   let read = 0
-  for (const m of messages) {
+  for (const m of [...messages].sort((a, b) => Number(b.unread) - Number(a.unread))) {
     if (read >= READ_AHEAD) return
     if (await keptFresh($, m)) continue
     read++

@@ -41,7 +41,11 @@ pub fn shorthand(action: &str, mut args: Vec<Value>) -> Vec<Value> {
         args = vec![pr.clone()];
         args.extend(["method", "place"].iter().filter_map(|k| first.get(*k).cloned()));
     }
-    if let Some(url) = args.first().and_then(Value::as_str).filter(|u| u.contains("/pull/")).map(str::to_string) {
+    // `open_url` takes the URL itself: opening a PR's page must not turn its URL into the PR's record, which
+    // would hand the browser a blob of JSON.
+    if action != "open_url"
+        && let Some(url) = args.first().and_then(Value::as_str).filter(|u| u.contains("/pull/")).map(str::to_string)
+    {
         let inbox = config::read_inbox();
         let known = ["mine", "direct", "team"].iter().flat_map(|f| list(&inbox[*f]).iter()).find(|pr| pr["url"] == url.as_str()).cloned();
         args[0] = known.unwrap_or_else(|| json!({"url": url}));
@@ -572,6 +576,12 @@ mod tests {
         assert_eq!(args, vec![json!({"url": "https://github.com/acme/web/pull/12"}), json!("squash")]);
         let args = shorthand("fix_ci", vec![json!({"url": "u", "repo": "web", "branch": "b"})]);
         assert_eq!((args.len(), &args[2]), (3, &json!("here")));
+    }
+
+    #[test]
+    fn opening_a_pr_keeps_its_url() {
+        let url = "https://github.com/acme/web/pull/12";
+        assert_eq!(shorthand("open_url", vec![json!(url)]), vec![json!(url)]);
     }
 
     #[test]
