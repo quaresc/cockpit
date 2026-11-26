@@ -380,7 +380,9 @@ pub fn review(ctx: &mut Ctx, args: &[Value]) -> Res {
             "Review the pull request {target} ({url}): read its diff and discussion, then list the bugs and risks you find, most serious first. Post nothing."
         )
     };
-    start_action(ctx, &dir, &format!("review {repo}#{number}"), &prompt, &launch);
+    // The inbox's review icon, then two spaces as in the pinned spaces' "<icon>  <name>", in place of the word "review":
+    // a long repo then fits the sidebar's agent row whole.
+    start_action(ctx, &dir, &format!("\u{f441}  {repo}#{number}"), &prompt, &launch);
     Ok(())
 }
 

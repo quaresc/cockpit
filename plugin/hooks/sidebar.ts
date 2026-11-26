@@ -84,12 +84,16 @@ export function fitWork(repo: string, named: string | undefined, ci: string | un
   return candidates.find(c => cells(c) <= room) ?? candidates[candidates.length - 1]
 }
 
-// A topic in `room` cells, whole words only.
+// A topic in `room` cells: whole words while they still fill half the room, else cut inside the text with "…", so
+// "review observability-tf#156" reads "review observability-tf…", not "review".
 export function fitWords(text: string, room: number) {
   if (cells(text) <= room) return text
   const words = text.split(' ')
+  if (words.length === 1) return text
   while (words.length > 1 && cells(words.join(' ')) > room) words.pop()
-  return words.join(' ')
+  const kept = words.join(' ')
+  if (cells(kept) * 2 >= room && cells(kept) <= room) return kept
+  return `${[...text].slice(0, room - 1).join('').trimEnd()}…`
 }
 
 // What the context gauge takes on the agent row, with herdr's " · " before it; the topic leaves it that room.

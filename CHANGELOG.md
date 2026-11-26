@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## Unreleased
+
+- Fix: a review's tab is named with the review icon and the repo and number, and a long agent name in the herdr sidebar is cut inside with "…" instead of losing all but its first word
+
 ## 1.6.1 (2026-11-26)
 
 - New: pinned apps carry a pin in the monitor, and pinning or muting an app shows at once instead of after the next refresh (#107)
