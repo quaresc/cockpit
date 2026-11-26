@@ -574,6 +574,28 @@ pub fn keys(handle: &str, keys: &[String]) -> Result<(), String> {
     if ok { Ok(()) } else { Err(format!("could not press {} in {handle}", keys.join(" "))) }
 }
 
+/// Types text into a terminal's box, one key per character, and presses nothing: what lands there stays typed.
+pub fn type_text(handle: &str, text: &str) -> Result<(), String> {
+    let keys: Vec<String> = text.chars().filter(|c| !c.is_control()).map(|c| if c == ' ' { "space".to_string() } else { c.to_string() }).collect();
+    if keys.is_empty() {
+        return Ok(());
+    }
+    if let Some(mut world) = demo() {
+        demo_typed(&mut world, handle, text);
+        return Ok(());
+    }
+    let ok = match handle.strip_prefix(APP) {
+        // `--` ends hc's own switches, so a dash is a key.
+        Some(t) => {
+            let mut args = vec!["keys", t, "--"];
+            args.extend(keys.iter().map(String::as_str));
+            hc(&args).is_some()
+        }
+        None => herdr(&["pane", "send-text", handle, text]).is_some(),
+    };
+    if ok { Ok(()) } else { Err(format!("could not type into {handle}")) }
+}
+
 /// Pastes text and presses Enter (accents and all: key names cannot type them). `into_menu` types into a menu's own
 /// field; otherwise a screen showing a menu refuses it, so words never land on a highlighted choice.
 pub fn paste(handle: &str, text: &str, into_menu: bool) -> Result<(), String> {
@@ -599,6 +621,18 @@ pub fn paste(handle: &str, text: &str, into_menu: bool) -> Result<(), String> {
 }
 
 /// A demo agent that got its answer goes back to work.
+/// The demo agent's box shows what was typed into it, on its screen's input line.
+fn demo_typed(world: &mut Value, handle: &str, text: &str) {
+    for a in world["agents"].as_array_mut().into_iter().flatten() {
+        if a["terminal"] != handle {
+            continue;
+        }
+        let screen = a["screen"].as_str().unwrap_or_default();
+        let kept: Vec<&str> = screen.lines().filter(|l| !l.trim_start().starts_with("❯ ")).collect();
+        a["screen"] = json!(format!("{}\n❯ {text}", kept.join("\n")));
+    }
+}
+
 fn demo_answered(world: &mut Value, handle: &str, done: bool) {
     let now = cockpit_core::seen::now_ms();
     for a in world["agents"].as_array_mut().into_iter().flatten() {

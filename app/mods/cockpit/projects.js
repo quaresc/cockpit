@@ -4,7 +4,7 @@
 import { exec, focused, panes, readTextFile, shared, setShared, spaces } from "herdr";
 import * as hub from "./hub.js";
 
-/** The shared key the chat writes its subject's place to: {cwd, repos: [{path, name}]}, or null for none. */
+/** The shared key the chat writes its subject's place to: {cwd, repos: [{path, name, branch?, branches?}]}, or null for none. */
 export const WHERE = "cockpit.panel.where";
 
 /** Git reads that write nothing under .git (no index refresh or lock, no fsmonitor cookie). */
@@ -59,6 +59,12 @@ export async function reposOf(w) {
   const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: w.cwd }).catch(() => null);
   const path = top?.code === 0 ? top.stdout.trim() : null;
   return path ? [{ path, name: path.split("/").pop() }] : [];
+}
+
+/** The branch checked out in a repository, as git names it; null when git cannot say. */
+export async function branchOf(root) {
+  const r = await exec("git", [...READ, "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root }).catch(() => null);
+  return r?.code === 0 ? r.stdout.trim() || null : null;
 }
 
 /** A status entry's letter: U a conflict, D deleted, A added or new, else M. */

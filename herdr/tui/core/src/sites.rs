@@ -23,8 +23,9 @@ struct Site {
     path: &'static str,
 }
 
-const SITES: [Site; 32] = [
+const SITES: [Site; 33] = [
     // Code review and issues
+    Site { kind: "pr", name: "GitHub", icon: "git-pull-request", host: r"github\.com", path: r"/[\w.-]+/[\w.-]+/pull/(?<ref>\d+)" },
     Site { kind: "mr", name: "GitLab", icon: "git-pull-request", host: r"gitlab\.[\w.-]+", path: r"/[^\s?#]+?/-/merge_requests/(?<ref>\d+)" },
     Site { kind: "bitbucket", name: "Bitbucket", icon: "git-pull-request", host: r"bitbucket\.org", path: r"/[\w.-]+/[\w.-]+/pull-requests/(?<ref>\d+)" },
     Site {
@@ -100,13 +101,23 @@ fn clean(url: &str) -> &str {
     url.trim_end_matches(['.', ',', ';', ':', '!', '?'])
 }
 
-/// The page each kind of site gets in this text, the last one cited winning, in the table's order.
+/// How many pages of one kind a text keeps, the last cited first.
+pub const PER_KIND: usize = 12;
+
+/// The pages each kind of site gets in this text, in the table's order: every distinct URL, the last one cited first,
+/// up to PER_KIND of a kind.
 pub fn cited(text: &str) -> Vec<Link> {
-    COMPILED
-        .iter()
-        .filter_map(|(site, re)| {
-            let m = re.captures_iter(text).last()?;
-            let url = clean(m.get(0)?.as_str()).to_string();
+    let mut out = Vec::new();
+    for (site, re) in COMPILED.iter() {
+        let mut seen: Vec<String> = Vec::new();
+        for m in re.captures_iter(text).collect::<Vec<_>>().into_iter().rev() {
+            let Some(whole) = m.get(0) else { continue };
+            let url = clean(whole.as_str()).to_string();
+            let key = url.trim_end_matches('/').to_string();
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
             let reference = m.name("ref").map(|r| r.as_str()).unwrap_or_default();
             let (name, detail) = match (site.kind, reference) {
                 ("google", "document") => ("Google Docs".to_string(), String::new()),
@@ -114,13 +125,17 @@ pub fn cited(text: &str) -> Vec<Link> {
                 ("google", "presentation") => ("Google Slides".to_string(), String::new()),
                 ("google", "forms") => ("Google Forms".to_string(), String::new()),
                 ("mr" | "azure-pr", r) if !r.is_empty() => (site.name.to_string(), format!("!{r}")),
-                ("issue" | "gitlab-issue" | "bitbucket" | "azure-item", r) if !r.is_empty() => (site.name.to_string(), format!("#{r}")),
+                ("pr" | "issue" | "gitlab-issue" | "bitbucket" | "azure-item", r) if !r.is_empty() => (site.name.to_string(), format!("#{r}")),
                 ("shortcut", r) if !r.is_empty() => (site.name.to_string(), format!("sc-{r}")),
                 (_, r) => (site.name.to_string(), r.to_string()),
             };
-            Some(Link { kind: site.kind, name, icon: site.icon, detail, url })
-        })
-        .collect()
+            out.push(Link { kind: site.kind, name, icon: site.icon, detail, url });
+            if seen.len() == PER_KIND {
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// A dashboard's service, by its host.
@@ -159,16 +174,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_site_keeps_its_last_page_named_after_its_service() {
+    fn each_site_keeps_every_page_named_after_its_service_the_last_cited_first() {
         let text = r#"see https://acme.slack.com/archives/C1/p1. Then {"url":"https://acme.slack.com/archives/C2/p2\"} and
             https://docs.google.com/spreadsheets/d/abc/edit, https://github.com/acme/api/issues/42 and
-            https://linear.app/acme/issue/ENG-7/quota"#;
+            https://linear.app/acme/issue/ENG-7/quota, https://github.com/acme/api/pull/12/ again https://github.com/acme/api/pull/12"#;
         let links = cited(text);
-        let pick = |kind: &str| links.iter().find(|l| l.kind == kind).cloned().unwrap();
-        assert_eq!(pick("slack").url, "https://acme.slack.com/archives/C2/p2");
-        assert_eq!((pick("google").name.as_str(), pick("issue").name.as_str(), pick("issue").detail.as_str()), ("Google Sheets", "GitHub", "#42"));
-        assert_eq!((pick("linear").name.as_str(), pick("linear").detail.as_str()), ("Linear", "ENG-7"));
-        assert_eq!(links.iter().map(|l| l.kind).collect::<Vec<_>>(), ["issue", "linear", "google", "slack"]);
+        let of = |kind: &str| links.iter().filter(|l| l.kind == kind).cloned().collect::<Vec<_>>();
+        assert_eq!(
+            of("slack").iter().map(|l| l.url.as_str()).collect::<Vec<_>>(),
+            ["https://acme.slack.com/archives/C2/p2", "https://acme.slack.com/archives/C1/p1"]
+        );
+        assert_eq!(
+            of("pr").iter().map(|l| (l.detail.as_str(), l.url.as_str())).collect::<Vec<_>>(),
+            [("#12", "https://github.com/acme/api/pull/12")],
+            "cited twice is one page"
+        );
+        let (google, issue, linear) = (&of("google")[0], &of("issue")[0], &of("linear")[0]);
+        assert_eq!((google.name.as_str(), issue.name.as_str(), issue.detail.as_str()), ("Google Sheets", "GitHub", "#42"));
+        assert_eq!((linear.name.as_str(), linear.detail.as_str()), ("Linear", "ENG-7"));
+        assert_eq!(links.iter().map(|l| l.kind).collect::<Vec<_>>(), ["pr", "issue", "linear", "google", "slack", "slack"]);
+        let many: String = (1..=14).map(|n| format!("https://github.com/acme/api/pull/{n} ")).collect();
+        let kept: Vec<String> = cited(&many).iter().map(|l| l.detail.clone()).collect();
+        assert_eq!(kept.len(), PER_KIND);
+        assert_eq!((kept[0].as_str(), kept[11].as_str()), ("#14", "#3"));
     }
 
     #[test]

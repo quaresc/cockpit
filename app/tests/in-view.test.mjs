@@ -34,7 +34,13 @@ const LIVE = [
 ];
 const ROWS = {
   agents: [
-    { terminal: "app:t1", address: "t1", title: "Enforce daily quotas", branch: "me/eng-412-daily-quotas", documents: [{ name: "quota-plan", title: "Quota rollout plan" }], links: [{ name: "GitHub", label: "GitHub", url: "https://github.com/acme/api/pull/2198" }] },
+    {
+      terminal: "app:t1", address: "t1", title: "Enforce daily quotas", branch: "me/eng-412-daily-quotas", documents: [{ name: "quota-plan", title: "Quota rollout plan" }],
+      links: [
+        { kind: "pr", name: "GitHub", icon: "git-pull-request", label: "GitHub", items: [{ detail: "#2198 · Daily quotas", url: "https://github.com/acme/api/pull/2198" }, { detail: "#2201", title: "Quota alerts", url: "https://github.com/acme/api/pull/2201" }] },
+        { kind: "slack", name: "Slack", icon: "message-square", label: "Slack", items: [{ detail: "", url: "https://acme.slack.com/archives/C1/p1" }] },
+      ],
+    },
     { terminal: "app:t4", address: "t4", title: "Flaky checkout e2e test", branch: "me/eng-405-flaky-checkout", documents: [{ name: "flaky-runs", title: "Checkout e2e runs" }] },
     { terminal: "app:t9", address: "t9", title: "Quota model", documents: [] },
   ],
@@ -51,9 +57,11 @@ async function fixture({ layoutName = "cockpit" } = {}) {
   };
   const context = createContext({ console });
   const subscriptions = [];
+  const overlays = [];
   const imports = {
     herdr: {
       run: () => null,
+      openOverlay: (spec) => overlays.push(spec),
       layout: () => tree,
       shared: (key) => state.get(key) ?? null,
       setShared: (key, value) => state.set(key, value),
@@ -106,7 +114,7 @@ async function fixture({ layoutName = "cockpit" } = {}) {
   const list = () => fleet.fleet(ROWS, null);
   // What the bar draws at its right end: the agent's documents, or none.
   const docs = () => ids(bar.render()).filter((id) => id === "st-docs" || id === "st-branch");
-  return { screens, list, bar, docs, tree, focus, state, Show, followed, subscriptions, node: (id) => find(tree, id) };
+  return { screens, list, bar, docs, tree, focus, state, Show, followed, subscriptions, overlays, node: (id) => find(tree, id) };
 }
 
 test("the document panel clears on a subject change and ignores a late reply from the previous session", async () => {
@@ -147,6 +155,37 @@ test("closing a document drawer cancels the subscription queued for its new subj
   timers.shift()(cx);
   assert.equal(f.subscriptions.length, 1, "a closed drawer cannot start a background subscription");
   assert.equal(f.subscriptions[0].stopped, true);
+});
+
+/** The element with this id among a drawn element's children, with every call made on it. */
+function drawn(el, id) {
+  for (const [name, ...args] of el?.made ?? []) {
+    if (name === "id" && args[0] === id) return el;
+    for (const a of args.flat()) {
+      const found = a?.made ? drawn(a, id) : null;
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+test("a group of several links is one button with its count, opening a menu of them", async () => {
+  const f = await fixture();
+  f.focus.value = { tab: "tA", pane: "p1", terminal: "t1", agent: "t1", shown: null };
+  const bar = f.bar.render();
+  const pr = drawn(bar, "st-link-0");
+  const texts = (el) => (el?.made ?? []).flatMap(([name, ...args]) => (name === "child" || name === "children" ? args.flat().flatMap((a) => (typeof a === "string" ? [a] : texts(a))) : []));
+  assert.deepEqual(texts(pr), ["GitHub · 2"]);
+  assert.deepEqual(texts(drawn(bar, "st-link-1")), ["Slack"], "a group of one stays a plain link");
+  assert.equal(ids(bar).filter((id) => id.startsWith("st-link-")).length, 2);
+  const click = pr.made.find(([name]) => name === "on_click")[1];
+  click({}, { spawn() {} });
+  assert.equal(f.overlays.length, 1);
+  assert.deepEqual(
+    // The menu keys each command with the person's own suffix (person.js); the command itself is what the test reads.
+    f.overlays[0].props.items.map((it) => [it.label, it.command.replace(/~[0-9a-f]+$/, "")]),
+    [["GitHub · #2198 · Daily quotas", "link:https://github.com/acme/api/pull/2198"], ["GitHub · #2201", "link:https://github.com/acme/api/pull/2201"]],
+  );
 });
 
 test("a tab running no agent shows no agent's documents, though Herdr names its first agent for the blocks", async () => {

@@ -85,6 +85,11 @@ fn signal(pid: u32) {
     }
 }
 
+/// Ends the process group led by `pid` at once, before its leader is reaped.
+pub fn kill_group(pid: u32) {
+    signal(pid);
+}
+
 /// Runs `cmd` apart from any terminal or agent session (`untie`), its input empty, in a process group `group` can stop,
 /// and gives its output once it ends, each stream cut at `cap` bytes. Past `limit` the whole group is stopped.
 pub fn output(cmd: &mut Command, limit: Duration, cap: usize, group: &Group) -> Result<Output, String> {

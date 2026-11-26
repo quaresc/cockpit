@@ -168,6 +168,8 @@ def conversation(cwd, sid, turns):
             role = turn["role"]
             line = {"type": role, "cwd": cwd, "sessionId": sid, "gitBranch": turn.get("branch", "me/eng-412-quotas"),
                     "timestamp": iso(minutes=(n - i) * 3), "message": {"role": role, "content": turn["content"]}}
+            if "toolUseResult" in turn:
+                line["toolUseResult"] = turn["toolUseResult"]
             if role == "assistant":
                 line["message"]["model"] = "claude-opus-4-5"
                 line["message"]["usage"] = {"input_tokens": 900, "output_tokens": 300, "cache_read_input_tokens": 62000, "cache_creation_input_tokens": 0}
@@ -202,6 +204,34 @@ conversation("/Users/me/code/api", "demo-412", [
     {"role": "user", "content": results("t0", "t1")},
     {"role": "assistant", "content": says("Fixed: the counter increments once per job id, and a retry reuses the one it already took. The test covers the retry.")},
 ])
+
+# A working agent with a subagent still running and a background job over: the chat's task strip, and the subagent's
+# own conversation beside its parent's (`<session>/subagents/agent-<id>.jsonl`), which the chat opens.
+conversation("/Users/me/code/billing", "demo-398", [
+    {"role": "user", "content": says("Export invoices as CSV, one row per line item, and find why the export job times out on big accounts.")},
+    {"role": "assistant", "content": says("I'll have a subagent look for the timeout while I write the export.")},
+    {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_demo_agent", "name": "Agent", "input": {"description": "Find the export timeout", "subagent_type": "Explore", "prompt": "Find why ExportJob times out on accounts with over 10k invoices."}},
+                                      {"type": "tool_use", "id": "toolu_demo_bg", "name": "Bash", "input": {"command": "mix test test/billing", "description": "Run the billing tests", "run_in_background": True}}]},
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_demo_agent", "content": "Async agent launched successfully."},
+                                 {"type": "tool_result", "tool_use_id": "toolu_demo_bg", "content": "Command running in background with ID: bg-demo-398."}],
+     "toolUseResult": {"isAsync": True, "status": "async_launched", "agentId": "demo-sub-398", "description": "Find the export timeout"}},
+    {"role": "assistant", "content": calls(("Read", {"file_path": "/Users/me/code/billing/lib/invoices/export.ex"}))},
+    {"role": "user", "content": results("t0")},
+    {"role": "user", "content": says("<task-notification>\n<task-id>bg-demo-398</task-id>\n<status>completed</status>\n<summary>Background command \"Run the billing tests\" completed (exit code 0)</summary>\n</task-notification>")},
+    {"role": "assistant", "content": calls(("Edit", {"file_path": "/Users/me/code/billing/lib/invoices/export.ex"}))},
+])
+helper = os.path.join(home, ".claude", "projects", "-Users-me-code-billing", "demo-398", "subagents")
+os.makedirs(helper, exist_ok=True)
+with open(os.path.join(helper, "agent-demo-sub-398.jsonl"), "w") as f:
+    sub = [("user", [{"type": "text", "text": "Find why ExportJob times out on accounts with over 10k invoices."}]),
+           ("assistant", [{"type": "tool_use", "id": "ts0", "name": "Grep", "input": {"pattern": "ExportJob"}}]),
+           ("user", [{"type": "tool_result", "tool_use_id": "ts0", "content": "lib/invoices/export_job.ex"}]),
+           ("assistant", [{"type": "text", "text": "The job loads every invoice with its line items in one query, then builds the CSV in memory."}]),
+           ("assistant", [{"type": "tool_use", "id": "ts1", "name": "Read", "input": {"file_path": "/Users/me/code/billing/lib/invoices/export_job.ex"}}]),
+           ("user", [{"type": "tool_result", "tool_use_id": "ts1", "content": "ok"}])]
+    for n, (role, content) in enumerate(sub):
+        f.write(json.dumps({"type": role, "isSidechain": True, "agentId": "demo-sub-398", "sessionId": "demo-398", "cwd": "/Users/me/code/billing",
+                            "timestamp": iso(minutes=20 - n * 2), "message": {"role": role, "content": content, **({"model": "claude-haiku-5-5"} if role == "assistant" else {})}}) + "\n")
 
 conversation("/Users/me/code/web", "demo-413", [
     {"role": "user", "content": says("Show the quota banner when the API answers 429, with what resets and when.")},

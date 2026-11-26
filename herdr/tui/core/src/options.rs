@@ -158,6 +158,17 @@ pub const ALL: &[Setting] = &[
     ),
     brought(
         toggle(
+            "links.fromBranch",
+            "Agents",
+            "Read links from the branch too",
+            "An agent's ticket, PR and CI also come from its branch name and the pull requests on it. Off, only what its conversation \
+             cites or creates counts.",
+            false,
+        ),
+        NEXT,
+    ),
+    brought(
+        toggle(
             "queue.drain",
             "Queue and CI",
             "Send queued prompts on their own",
@@ -466,6 +477,11 @@ pub fn value(config: &Value, setting: &Setting) -> Value {
 /// Whether a switch is on in a config.
 pub fn is_on(config: &Value, setting: &Setting) -> bool {
     value(config, setting) == true
+}
+
+/// Whether an agent's ticket, PR and CI are read from its branch too (`links.fromBranch`), off unless `true`.
+pub fn links_from_branch(config: &Value) -> bool {
+    config["links"]["fromBranch"] == true
 }
 
 /// Whether config.json holds an object or a list there, which no switch or field shows (a model per agent): set by
@@ -847,11 +863,15 @@ mod tests {
         assert!(SECTIONS.iter().all(|name| ALL.iter().any(|s| s.section == *name)), "no empty section");
         assert_eq!(
             since("0.40.3").iter().map(|s| s.key).collect::<Vec<_>>(),
-            ["queue.drain", "ci.tellAgents", "chat.nextSteps", "chat.projectPanels", "dockBadge", "sideBrowser", "links.open"]
+            ["links.fromBranch", "queue.drain", "ci.tellAgents", "chat.nextSteps", "chat.projectPanels", "dockBadge", "sideBrowser", "links.open"]
         );
-        assert_eq!(since("1.0.1").iter().map(|s| s.key).collect::<Vec<_>>(), ["chat.projectPanels", "dockBadge", "sideBrowser", "links.open"]);
-        assert_eq!(since("1.2.0").iter().map(|s| s.key).collect::<Vec<_>>(), ["chat.projectPanels", "dockBadge", "links.open"]);
-        assert_eq!(since("1.4.1").iter().map(|s| s.key).collect::<Vec<_>>(), ["dockBadge", "links.open"]);
+        assert_eq!(
+            since("1.0.1").iter().map(|s| s.key).collect::<Vec<_>>(),
+            ["links.fromBranch", "chat.projectPanels", "dockBadge", "sideBrowser", "links.open"]
+        );
+        assert_eq!(since("1.2.0").iter().map(|s| s.key).collect::<Vec<_>>(), ["links.fromBranch", "chat.projectPanels", "dockBadge", "links.open"]);
+        assert_eq!(since("1.4.1").iter().map(|s| s.key).collect::<Vec<_>>(), ["links.fromBranch", "dockBadge", "links.open"]);
+        assert!(!links_from_branch(&json!({})) && links_from_branch(&json!({"links": {"fromBranch": true}})));
         assert_eq!(get("chat.nextSteps").map(|s| s.default), Some(Def::Off));
         assert!(get("nope").is_none());
         for (key, line) in IN_FILE {

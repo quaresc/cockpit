@@ -378,9 +378,12 @@ mod tests {
         let git = cockpit_agents::gui::Git { repo: "api".into(), branch: Some(branch.into()), ..Default::default() };
         let summary = json!({"key": "claude:1794-0", "agent": "claude", "cwd": "/w/.herdr/worktrees/api/me-eng-412-daily-quotas", "title": "Enforce daily quotas",
             "session": "", "working": false, "pending": [], "started": 1});
+        // Its PR comes from the branch only with `links.fromBranch`; the news still finds it on its branch without.
         let row = cockpit_agents::gui::driven_row(&summary, Some(&git), &inbox, &Value::Null, None, &Value::Null);
-        assert_eq!((row["repo"].as_str(), row["branch"].as_str(), row["pr"]["url"].as_str()), (Some("api"), Some(branch), Some(PR)), "{row}");
-        assert_eq!(row["stage"], "review", "at rest, its open PR says whose move it is");
+        assert_eq!((row["repo"].as_str(), row["branch"].as_str(), row["pr"].is_null()), (Some("api"), Some(branch), true), "{row}");
+        let shown = cockpit_agents::gui::driven_row(&summary, Some(&git), &inbox, &Value::Null, None, &json!({"links": {"fromBranch": true}}));
+        assert_eq!(shown["pr"]["url"].as_str(), Some(PR), "{shown}");
+        assert_eq!(shown["stage"], "review", "at rest, its open PR says whose move it is");
         let view = json!({"agents": [row]});
         let pr = &inbox["mine"][0];
         assert_eq!(crate::act::pick_agent(&view, pr).unwrap()["terminal"], "claude:1794-0", "Fix CI and Address review find it");

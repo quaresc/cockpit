@@ -291,8 +291,9 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
 - **Status bar** (`status.js`): Home's counts (`fleet.counts`, each a click) on the left; on the right the agent in
   view's (`agentInView`: the agent block's while one is on screen, else the focused pane's, else one in the tab in
   front; never the first agent Herdr names for its blocks when that tab runs none) branch, ↑↓ and files, its links
-  (the agents view's `links`: PR, ticket, CI, deploy dashboard and run, then the
-  pages its transcript cites, each named after its service, always in that order), queued prompts, agents to resume,
+  (the agents view's `links`: PRs, ticket, CI, deploy dashboard and run, then the
+  pages its transcript cites, each group named after its service, always in that order; a group of several reads
+  `Name · N` and opens a menu of them), queued prompts, agents to resume,
   the hub only while it does not answer, and its `documents` at the right end. It is this layout's runner (`commands.js`):
   `cmd-alt-0` → `cockpit.home` (Home ↔ work), `cmd-alt-a` `agent-view`, `cmd-alt-b` `panel`, `ctrl-cmd-1..5`
   `panel:<show|review|runbook|files|changes>`, `cmd-j` `next-waiting`, `cmd-shift-j`/`cmd-shift-u` `next:blocked`/
@@ -305,7 +306,7 @@ bar); floating on the root, the `queue` drawer (right edge, 44px peek, shown onl
   Review opens the file under the cursor, and `cockpit.code:open:<path>` any file. In Cockpit Chat the file opens in
   the side panel beside the chat instead (`{app: "code", panel: true}` in `panel-body`, reading shared
   `cockpit.code.panel` = {file, line, terminal, at, back}); its Close gives the panel back to what it showed, or closes
-  it, and the activity bar gets a button for the file. The chat's messages link their bare paths and URLs, and a code
+  it. The chat's messages link their bare paths and URLs, and a code
   span holding only one (`textlinks.js`): a path opens here (`path:12` on its line), a folder or an image in the system's
   own app, a URL in the browser; the local images an answer names show under it, each opened full size with a click.
   Ported from yama-lei/herdr-editor-layout's editor (Apache-2.0);
@@ -400,7 +401,12 @@ doing, and for the providers' own logos.
   it is paused or its agent takes that setting only at a start. A terminal gets its agent's own command typed through
   `agents pick` while it rests; working, the chip says to wait, and one its agent changes only by hand (Codex's `/fast`)
   is shown, not offered, with "Change it in Codex's terminal" in its tooltip. A terminal's values come from its
-  transcript (`chat` view `session.effort`, `session.fast`), what was typed showing until the transcript says so.
+  transcript (`chat` view `session.effort`, `session.fast`), what was typed showing until the transcript says so. A
+  terminal agent's model menu ends with "Open /model in its terminal…" (`chat:mirror:<command>`, typed through the
+  terminal's mirror), for what its catalog lacks.
+  **Mode.** The mode chip, its menu, ⇧⇥'s cycle and the confirms read the row's `picks.modes` (`picks.js`
+  `modeChoices`, `nextMode`, `unaskedModes`, `asksLess`): a terminal's menu offers the modes its ⇧⇥ goes through, a
+  driven session's every offered one; a mode the list does not name is set only through the confirm.
   **Reading.** Each row lists the messages it holds (`msgId`: an id, else role, time and words), and what must hold
   while rows change (folds, the message kept at the top, the drawn window, the last message the reader saw) is kept by
   message, not by row, since a turn's row grows when its earlier messages come in. The view stays on the newest row
@@ -473,25 +479,85 @@ doing, and for the providers' own logos.
  "question": {…the same shape the agents view emits…},
  "more": false,
  "next": {"turn": "b5999e0a90930fb0", "state": "ready",
-          "items": [{"label": "Fix the lint failure", "prompt": "Fix the lint failure on the unused import, then run lint again."}]}}
+          "items": [{"label": "Fix the lint failure", "prompt": "Fix the lint failure on the unused import, then run lint again."}]},
+ "tasks": [{"id": "a1f2e3d4", "kind": "subagent", "name": "Find the slow test", "state": "running", "started": "…", "ended": null,
+            "summary": null, "tool_use_id": "toolu_01…", "open": {"terminal": "app:t3", "subagent": "a1f2e3d4"}}]}
 ```
 
-`args`: `{terminal, frontend, limit?}`, where `terminal` is the chat's subject (a handle, an address or a driven
-session's key); without one, or for one the agents view does not list, `agent` is null and nothing else is shown.
-`limit` is how many of the latest messages to send (400 by default, 20 000 at most); reading further back raises it.
-Built again when the agents view moves and when a transcript it follows grows (a long turn writes for minutes while
-its agent's status stays the same), in `herdr/tui/agents/src/chat.rs` from a `transcripts::Follow` per transcript (the
-eight last read are kept):
+`args`: `{terminal, frontend, limit?, before?}`, where `terminal` is the chat's subject (a handle, an address or a
+driven session's key); without one, or for one the agents view does not list, `agent` is null and nothing else is
+shown. `limit` is how many messages to send (400 by default, 20 000 at most), the latest or those before message
+`before`; `cursor: {from, to, total, more}` says where the page sits, so reading further back asks `view` for the page
+before it (`chat.js earlier`), as a driven session's `session` view does. `session` also carries `repos`
+(`[{path, name, branch, branches}]`, the repositories the agent works in, the latest first), `mode`, `focus`, `switch`
+(whether its mode and focus can be set from the chat), and what its terminal shows now: `task` and `detail` (the step
+above its spinner while it works), `dialog` (what a command opened there, see below), `menu` (its own completion of the
+`/` command the chat typed into it: `{items: [{label, hint}], selected}`) and `input` (what its box holds). The chat
+subscribes to the view twice with `pick`: `agent, session, question, more, next, tasks` move while a turn runs and come
+without the messages, which come with `cursor` only when the transcript did, so a step read every 2 s never re-sends
+400 messages (the hub builds the view once for both). The row is built alone (`gui::row_of`), the transcript's path
+comes with it (`agent.transcript`), and the terminal's screen is read by the view's own thread between builds — a
+subject's first within 250 ms, a working one's every 2 s, one showing a dialog or being typed into every 500 ms — so a
+build never waits on a terminal.
+
+**Tasks.** `tasks` lists what the agent started beside its turns, as its transcript (a terminal) or its stream (a driven
+session) tells it: `kind` is `subagent`, `background` (a shell command run in the background) or `workflow`, `state`
+`running`, `done` or `failed`, `started` and `ended` RFC 3339, `summary` what it reported when it ended, `tool_use_id`
+the call that started it (each message's `tool` carries its `id`, so the chat lays a task on its call). Which tools
+start one is the agent table's `tasks` row (`core/src/agent.rs`: Claude Code's `Agent`/`Task`, `Bash` with
+`run_in_background`, `Workflow`; Codex's `spawn_agent`, unmeasured). A Claude transcript names a subagent's id in the
+call's result (`toolUseResult.agentId`, the task running while `isAsync`), a background job's in
+`backgroundTaskId`, and ends each with the `<task-notification>` the agent gets as a user message, which is no message
+of the person's. A subagent's own transcript sits beside its parent's (`<session>/subagents/agent-<id>.jsonl`, a Codex
+rollout whose meta says `source.subagent`, in the parent's folder): found, matched by id (else in order) and listed
+as `open`; the session index and the palette never list those files. With `subagent: <id>`, the view is that
+subagent's conversation instead: the parent's `agent` row, `session` with the parent's facts and `subagent: {id, name,
+state, started, ended, summary, parent, title}`, its `messages` paged like a parent's, and `question`, `next` and
+`tasks` empty. Act `task-stop {terminal, task}` stops a task of a session cockpit drives (its `stop_task` control
+request); a terminal's answers "stop it in its terminal".
+
+Built again when the agents view moves and when a transcript it follows grows (a long
+turn writes for minutes while its agent's status stays the same), in `herdr/tui/agents/src/chat.rs` from a
+`transcripts::Follow` per transcript (the 24 last read are kept, up to about 96 MB of them):
 a Claude transcript folds only the lines written since the last build, any other format is read again whole only when
 its file changed, always with tool calls (`Detail::Tools`), which the session index and recaps never pay for. On 5,000
 messages a build takes 0.8 ms with nothing new and 1 ms after a turn, against 38 ms reading it whole (debug build,
 `chat::tests::measure_a_5000_message_chat`). The last 400 messages, `more` true when there were more. It has no
-actions: a chat answers through `agents` and sends through `queue`.
+actions: a chat answers through `agents` and sends through `queue`. Switching to another agent draws what it showed
+last time at once, until the hub's first push for it. `COCKPIT_HUB_TIMING=1` logs each build's time in `hub.log`, and
+`cockpit hub view chat '{"terminal": "app:t3", "frontend": "app"}'` prints one with its round trip.
+
+**What its terminal shows** (`session.dialog`, `herdr/tui/agents/src/dialog.rs`). A command run in a terminal agent
+opens things only its screen shows — Claude Code's `/model` picker, `/effort` slider, `/resume` list, `/config`
+table, a yes or no — so the chat reads them off the screen under the agent's shapes (`completion`, `dialog_hint`,
+`dialog_title` in `core/src/agent.rs`'s screen table, with the shapes most agents share for one without a row) and
+draws them as a card above the box: `{kind: "select" | "confirm" | "text", title, body, options: [{n, label, hint,
+selected}], numbered, footer, keys: [{key, does}], asked}`. A list or a yes-or-no answers like a question
+(`agents answer` with `choice` and `asked`, the fingerprint checked against the screen again); anything else is its
+lines with ↑ ↓ ← → ⏎ ⎋ and the keys its own hint names (`s use this session only`) as buttons, so nothing is ever
+stuck. A permission ask is never a dialog: the question card owns it. While a dialog shows, the arrows, Tab, ⏎ and ⎋
+in the chat go to the terminal (`agents keys`).
+
+**A `/` command for a terminal agent** is mirrored: a beat after each key the chat types the box's text into the
+agent's own box (`agents type`), the agent's completion menu comes back as the hints (`session.menu`, the row its
+cursor is on marked; Tab, ↑ and ↓ move it there, a click moves and completes), ⏎ runs the command there and empties
+the box (its dialog then comes back as above), ⎋ empties both boxes. A driven session has no terminal: its commands
+go as words through the queue, except what its table routes (`DRIVEN_SLASH` in `core/src/agent.rs`): `/model X`,
+`/effort X` and `/fast on|off` become the session's own setting, and `/resume`, `/config`, `/login`… are refused with
+the way out (hand the session over to a terminal). Its commands' descriptions come from the files its agent reads
+(`COMMAND_FILES`: `~/.claude/commands`, skills, plugins; Codex prompts; Gemini TOML…) where the stream lists names
+only. The model chip of a terminal agent ends with "Open /model in its terminal…" (`cockpit.chat:mirror:/model`).
 
 **How a turn draws** (`app/mods/cockpit/chat.js`, `rowsOf`). A turn is what you said, then one row for everything
 the agent did and thought, then the one thing it answers with — its last words. The work row says how long it took
 ("Worked for 2m 14s") and opens on a click to every call it made and everything it said on the way; a rule under it
-separates the work from the answer. A turn still running keeps all its words in the fold and counts up to now; under
+separates the work from the answer. A call that started a task wears the task's kind and name and how the task
+stands (a spinner, a check, a cross), with Open for a subagent whose conversation was found; a folded running row adds
+"· 2 subagents running". While any task runs, a strip above the box lists each (kind, name, how long, Open, and Stop
+for a driven session through `chat task-stop`), and the terminals the agent started under its own (`hc run`, from
+`fleet.js`'s `childTerminals`, a click peeking at one). Open reads the subagent in place of its parent: the header
+turns into "← Back to <parent>" and "Subagent · <name> · running", the box into a note that it takes no messages,
+and `chat:back` or the button returns to the parent. A turn still running keeps all its words in the fold and counts up to now; under
 it shows only the step the agent is on, as its terminal words it ("Reading the config" over `$ cat config.json`,
 read off the screen by the chat view's `task` and `detail`), else the transcript's last call, with "N more" opening
 the rest. The box's bar shows the mode a terminal agent runs in and its focus mode, from its footer and transcript;
@@ -501,11 +567,14 @@ that types `/focus` once it rests.
 
 **Files and Changes** (`files.js`, `changes.js`, `projects.js`). In Cockpit Chat the side panel's Files and Changes are
 cockpit's, unless `chat.projectPanels` is off. The chat view's `session.repos` names the git repositories its agent
-works in, the latest first: its folder's own and those its calls changed or went into (a file written, a `cd`, a path
-under its folder in a command), never one only read. The chat shares them with its folder (`cockpit.panel.where`);
-Files lists the folder as a tree opened down to each of them, marked, with a repository outside the folder listed above
-it and every changed file coloured by its git status, and Changes shows their uncommitted changes one at a time, a
-switcher on top, with each file's diff and a commit of the one shown. Review follows the latest of them too.
+works in, the latest first, as `[{path, name, branch?, branches?}]`: its folder's own and those its calls changed or
+went into (a file written, a `cd`, a path under its folder in a command), never one only read. The chat shares them
+with its folder (`cockpit.panel.where`); Files lists the folder as a tree opened down to each of them, marked, with a
+repository outside the folder listed above it and every changed file coloured by its git status, and Changes shows
+their uncommitted changes one at a time, a switcher of pills on top (`Pills` from `pills.js`, each repo with its count
+of changed files), its header naming the one shown and its branch (`name · branch`, the chat's `branch`, else `git
+rev-parse --abbrev-ref HEAD`), with each file's diff and a commit of the one shown. Review follows the latest of them
+too, with the same pills to pick another.
 
 **The box** carries what the agent may do and which model answers it, both read from the session and set on it:
 `+` for a file, the permission mode, where it is, the model, and send. `/` completes the agent's own commands and
@@ -580,7 +649,9 @@ pills come from the agents view's driven rows):
     "fast": true, "fast_on": false,         // fast mode as set (null: never), and as it reports serving (null: not yet)
     "fast_why": "model_not_allowed",        // why it does not serve, in the agent's words, while it says so
     "models": [{"id": "opus", "label": "Opus", "resolved": "claude-opus-5-5", "efforts": ["low", …], "fast": true}], // its `list_models`
-    "restart": false                        // a setting it takes only at a start waits: its next message at rest resumes it
+    "restart": false,                       // a setting it takes only at a start waits: its next message at rest resumes it
+    "tasks": [{"id": "a1f2e3d4", "kind": "subagent", "name": "List files in repo", "state": "running", "started": "…", "ended": null,
+               "summary": null, "tool_use_id": "toolu_01…", "progress": "Running ls", "last_tool": "Bash"}] // the chat view's shape, without `open`
   }],
   "session": {                              // the one `key` names, else the first: the same fields, and a page
     "messages": [{"role": "user", "at": "…", "text": "…", "tool": null}, …],
@@ -614,6 +685,14 @@ back paused in the next hub. What the agent writes on stderr goes to the session
 it from that transcript, and its row carries the recap. A restored session keeps its first start's `started`, so it
 keeps its place in `sessions`.
 
+**Tasks.** The stream tells each task a turn starts beside itself: a spawn or background call starts one (the agent
+table's `tasks`), `system/task_started {task_id, tool_use_id, description, subagent_type?, task_type}` names it,
+`task_progress` says what it is on (`progress`, `last_tool`), `task_updated {patch: {status}}` and `task_notification
+{status, summary}` end it, and `background_tasks_changed {tasks}` is a snapshot of those still running, which ends any
+named task it leaves out. A subagent's own lines come down the same pipe with `parent_tool_use_id` set: they never enter
+the parent's `messages`. `stop_task` goes as a control request (`chat task-stop`, `session::stop_task`). A restored
+session reads its tasks back from its transcript with its history.
+
 Beyond the words, the stream carries what the reader had to guess at: `system/init` names the session, its tools and
 its slash commands, `system/commands_changed` republishes those commands with their descriptions when they change —
 together they are what the box completes `/` from, so the list is the agent's own and never goes stale —
@@ -635,8 +714,9 @@ choice is drawn as picked. An allow carries the arguments back unchanged, taken 
 caller. An ask whose tool call came back, or that the agent took back (`control_cancel_request`, after an interrupt),
 leaves `pending`: no card may stay up offering an answer nothing is waiting for. The card shows what the ask would do,
 in full (`preview`: the command, the diff, the file, the plan, an MCP tool's input). The modes that run tools without
-asking, `bypassPermissions` and `auto`, are set by `start` or `mode` only with `confirm: true`; the chat asks first,
-naming the session, and ⇧⇥'s cycle never reaches them. Each session writes what it asked, what it was answered and
+asking (`modes::unasked`: `bypassPermissions` and `auto` for Claude Code), or that its agent's table does not know,
+are set by `start` or `mode` only with `confirm: true`; the chat asks first, naming the session, and ⇧⇥'s cycle
+(`modes::next`) never reaches them. Each session writes what it asked, what it was answered and
 from where to `~/.cache/cockpit/driven/<key>.log` (kept 14 days). `cockpit session answer <ask> allow|deny` answers one
 from a shell, at a terminal only: without a verdict, or with no terminal on its input, it refuses. The session runs
 without the hub's terminal variables (`HC_*`, `HERDR_*`, `CLAUDECODE`, …), the hub stays up while one runs (idle exit
@@ -811,9 +891,16 @@ transcript as before. `cockpit session run <agent> <cwd> <prompt>` drives one fr
   whose screen shows a menu, read or not), looking and typing under the lock answers to that terminal take. Outside
   the hub it asks the hub (`agents deliver {terminal, text}`), so every caller meets the same refusals.
 - **The agent table** (`core/src/agent.rs`) says, where it was measured, how a permission mode is passed at start
-  (`mode`: Claude Code's `--permission-mode {mode}`), which keys stop a turn in the agent's own terminal (`interrupt`:
-  `esc` for Claude Code and Codex) and how its permission prompts read (`permission`). An agent with none of them does
-  without what needs them; `agents.commands.<id>.mode|interrupt|permission` in the config overrides them.
+  (`mode`: Claude Code's `--permission-mode {mode}`, the mode named as its help lists it, `manual` for `default` where
+  the help lists no `default`), which keys stop a turn in the agent's own terminal (`interrupt`: `esc` for Claude Code
+  and Codex) and how its permission prompts read (`permission`). An agent with none of them does without what needs
+  them; `agents.commands.<id>.mode|interrupt|permission` in the config overrides them. Beside it: `CATALOG` (the
+  control request that answers with its models over its stream, and the switches that open the stream for that one
+  request: Claude Code's `list_models`), `VERSIONED` (how it prints its version, which keys what was read of it),
+  `switches::HELP` (which of its `--help` options list its permission modes and effort levels) and `modes::MODES` (its
+  permission modes, one row each: id, aliases, label, icon, loud, offered, unasked, cycle; an agent with a `mode`
+  column and no rows of its own runs in Claude Code's words). Every surface that names a mode (the chat's chip and
+  ⇧⇥, Start work's pills, a routine's mode, `cockpit session modes`) reads `modes`, offered as the help lists them.
 
 - **Servers** (`connectors/`, `hub/src/feed/mcp.rs`): the hub is an MCP client. A source whose `server` names an entry
   of `servers` in `config.json` (a URL cockpit logged in to with `cockpit connector login`, a URL with headers or a
@@ -910,6 +997,18 @@ question, the herdr TUI runs or the events are not followed), when the `inbox`/`
     "ticket": {"key": "ENG-412", "title": "…", "url": "…", "status": "In Progress"},          // or null
     "pr": {"number": 2198, "url": "…", "title": "…", "state": "open", "draft": false, "review": "APPROVED", "ci": "SUCCESS"},  // or null
     "ci": {"state": "fail", "label": "lint failing", "done": 9, "total": 9},                 // running | pass | fail, or null
+    "links": [{                              // what it works with, grouped by kind and named after the service, always in this
+                                             // order: its PRs, its tickets, CI, deploy dashboard, deploy run, then the pages its
+                                             // transcript cites kind by kind (`core/src/sites.rs`, up to 12 of a kind, the last
+                                             // cited first). The ticket, PR and CI come from the conversation (what it cites or
+                                             // creates), from the branch too only with `links.fromBranch`
+      "kind": "pr", "name": "GitHub", "icon": "git-pull-request",
+      "label": "GitHub",                     // what a chip reads: the name, with the first item's detail when two groups share a name
+      "items": [{"detail": "#2198 · Daily quotas", "url": "https://…", "title": "Daily quotas", "state": "open"}, …]
+    }, {"kind": "ticket", "name": "Linear", "icon": "ticket", "label": "Linear", "items": [{"detail": "ENG-412 · Daily quotas", "url": "…", "title": "…", "state": "In Progress"}]},
+       {"kind": "ci", "name": "CircleCI", "icon": "circle-dot", "label": "CircleCI", "items": [{"detail": "lint failing", "url": "…/checks", "state": "fail"}]},
+       {"kind": "slack", "name": "Slack", "icon": "message-square", "label": "Slack", "items": [{"detail": "", "url": "…"}]}],
+    "documents": [{"name": "quota-plan", "title": "Quota rollout plan"}],                   // the views it showed beside itself this week, newest first
     "changes": {"files": 3, "add": 214, "del": 38, "ahead": 2, "behind": 0},                 // or null
     "context": 41,                           // the plugin's figure (percent), or null
     "cost": 1.84,                            // the session's estimate from its transcript (USD, view `usage`), or null
@@ -925,10 +1024,18 @@ question, the herdr TUI runs or the events are not followed), when the `inbox`/`
     "interrupt": ["esc"],                    // the keys the agent table says stop its turn (driven rows too), or null where none is measured
     "paused": false,                         // a driven session brought back after a restart: the next prompt picks it up
     "picks": {                               // what a person picks for its agent and how (`Agent::picks_json`), or null
-      "agent": "Claude Code", "models": [{"id": "opus", "label": "Opus"}, …],  // the one catalog (`core::models::of`), which Start work and the routines read too: the
-                                                                               // agent's own listing (`Agent::model_listing`) once it answered, else its table's; a
-                                                                               // driven session shows the models it says it can switch to
-      "efforts": ["low", "medium", "high", "xhigh", "max"], "fast": true,      // [] and false: no such picker
+      "agent": "Claude Code", "models": [{"id": "opus", "label": "Opus", "resolved": "claude-opus-5-5", "efforts": […], "fast": true, "description": "…"}, …],
+                                                                               // the one catalog (`core::models::of`), which Start work and the routines read too: the
+                                                                               // agent's own listing (`Agent::model_listing`) once it answered, or its catalog request
+                                                                               // over its stream (`Listing::Probe`, Claude Code's `list_models`, read by `agent::catalog`
+                                                                               // and kept by the agent's `--version`), else its table's; a driven session shows the
+                                                                               // models it says it can switch to
+      "efforts": ["low", "medium", "high", "xhigh", "max"], "fast": true,      // [] and false: no such picker; the table's levels, else the ones its `--help` lists
+      "modes": [{"id": "manual", "aliases": ["default"], "label": "Asks first", "icon": "shield-check", "loud": false, "offered": true, "unasked": false, "cycle": true}, …],
+                                                                           // its permission modes (`core::modes`), in menu order: `id` as its help lists it (`switches`),
+                                                                           // the table's other names in `aliases`; `offered` in the menus (only when the help lists it),
+                                                                           // `loud` asks less (set from a menu or through a confirm), `unasked` runs tools unasked
+                                                                           // (set only confirmed), `cycle` what ⇧⇥ goes through; [] for an agent with none known
       "loading": false,                                                    // true while the agent's own listing is being read; forms refresh until it finishes
       "start": {"model": true, "effort": true, "fast": true},                  // taken at start (the Start work forms)
       "live": ["model", "effort", "fast"],                                      // a driven session takes them over its stream
@@ -973,6 +1080,8 @@ Actions: `hub.act("agents", action, [{…}])`, one object argument.
 | `focus` | `{terminal}` | Brings the agent's tab into view, and marks it seen |
 | `pick` | `{terminal, setting: "model" \| "effort" \| "fast", value, source}` | A model, an effort level or fast mode (`value` a bool): a driven session takes it itself (`session::pick`); a terminal gets its agent's own command (`picks.typed`) typed through `deliver` while it rests (idle, done or failed), refused while it works or waits on a question, and for a setting its agent changes only by hand ("change it in Codex's terminal: /fast") or a value it does not take. Fast mode on only from a person; logged in `answers.log` |
 | `interrupt` | `{terminal}` | Stops a working agent's turn: a driven session's interrupt request, else its agent's `interrupt` keys from `core/src/agent.rs` (Claude Code and Codex: esc), pressed between answers once its screen, read again, shows no menu; refused for an agent not working or with no measured key (`stoppable` false), while a stop already waits (5 s, or until it leaves its turn), and to another agent's process tree. The note is "asked it to stop", since the turn ends when the agent says so: then done and interrupted (told by its transcript first; a pane still shown working 5 s after a stop rests when its transcript says so), and its prompt queue pauses |
+| `keys` | `{terminal, keys: [...], source}` | Presses keys in a terminal agent's own terminal, for a dialog a command opened there or its completion menu: the arrows, ⏎, ⎋, Tab, ⇧⇥, space, backspace, a digit or letter, `ctrl+` a letter (never ctrl+c, ctrl+d, ctrl+z). From a person only, on their own agent; refused for a driven session. For 3 s after, the chat reads that screen every half second |
+| `type` | `{terminal, text, source}` | Keeps a terminal agent's box showing `text` as the chat's box is typed into (a `/` command): the line cockpit typed last is extended, or emptied (the agent's `clear` keys, `ctrl+u` by default) and typed again, one key per character; empty `text` empties it. Refused while the box holds words cockpit did not type, while the agent waits on a question, and while a dialog is up (its completion menu is fine). From a person only |
 
 What a blocked terminal asks is read off its screen (`agents/src/prompt.rs`): a menu's choices, else the agent's last
 message (from its last "⏺"/"•" line, its last four lines) when it asks something or an empty input box waits for words.
@@ -1305,7 +1414,7 @@ effects, and only on this machine (refused off loopback):
                "fixes": [{"label": "Use it", "set": {"existing": true}}, {"label": "Rename", "set": {"branch": "me/eng-412-…-2"}}]}],
  "options": [{"label": "Use as a prompt", "set": {"source": "prompt"}}],
  "notes": ["Your checkout of api has 2 uncommitted changes: the worktree starts from origin without them"],
- "choices": {"repos": ["api", "web"], "agents": [{"id", "name", "icon", "installed", "models", "modes": [{"id", "label"}], "drives", "picks"}], "agent", "repo", "mode"}}
+ "choices": {"repos": ["api", "web"], "agents": [{"id", "name", "icon", "installed", "models", "modes": [{"id", "label", "icon", "loud", "unasked", …}] /* the offered ones of `picks.modes`, for an agent whose row takes a mode */, "drives", "picks"}], "agent", "repo", "mode"}}
 ```
 
 - **Source.** A PR by its URL; a ticket the inbox or `tickets.keys` knows by its key or URL, or one the tracker
@@ -1687,17 +1796,27 @@ stretch of skips: it keeps the first skip's id).
 - **`review`** (`{app: "review"}`, or `{repo, terminal, scope}`): the followed agent's repo (the focused terminal's, or
   the one a view hands over with `followInReview(handle, cwd)`, kept in shared `review.subject`), scope Uncommitted |
   Branch (against `origin/HEAD`, main or master, from the merge base) | PR (`gh pr view` + `gh pr diff`, kept a minute).
-  Hub view `review {repo, scope, since, load}` (polled every 3 s while shown) gives the files, `about` (branch, base,
-  commits, PR) and `walkthrough`; a file also carries `old_path` (a rename), `binary` with `size` (bytes, from the working
+  The header names the repo and, when the chat shares several (`where().repos`, projects.js), a pill per repo
+  (`review-repo-<path>`, `Pills` from `pills.js`) picks the one reviewed until the focus moves to another agent; the
+  branch chip (`review-branch`, `b`) opens a menu of the branches to review there: the one checked out, the ones the
+  chat lists per repo (`branches`), the followed agent's PR's, the one shown. A branch that is not checked out shows
+  its commits (Branch, `git diff <merge base> <branch>`, no working tree) or its PR, the header says "not checked out"
+  and the Uncommitted tab is muted; picking Uncommitted forgets the branch.
+  Hub view `review {repo, scope, branch, since, load, agents}` (polled every 3 s while shown; `branch` another branch than
+  the one checked out, else omitted) gives the files, `about` (`branch` the one shown, `head` the one checked out,
+  `checked_out`, `base`, `commits`, `pr`; an error answers `about: {branch, head, checked_out}` too, and `uncommitted` on
+  a branch not checked out is one: "<branch> is not checked out: pick Branch or PR") and `walkthrough`; a file also carries `old_path` (a rename), `binary` with `size` (bytes, from the working
   tree), and `large: true` with `total` when it has more than 1500 lines and `load` does not name it (its lines then
   come empty: "Large diff · N lines · Load it"). `review {prompt: {scope, comments}}` gives `{prompt}`, the review as an
   agent reads it. Actions `review send [handle, {scope, repo, comments, to}]` (one numbered message through `deliver`,
   to a terminal or a driven session, refused while it waits on a question; the note names `to`), `review walkthrough
-  [repo, scope, model]`, `review stop_walkthrough [repo, scope]`. The footer's To button (⇧T) picks who gets it among the
+  [repo, scope, model, branch?]`, `review stop_walkthrough [repo, scope, branch?]` (a branch not checked out has a
+  walkthrough place of its own, `<scope>@<branch>`). The footer's To button (⇧T) picks who gets it among the
   agents view's rows working in the repo (driven ones included) or a new agent, which `start work` opens in the repo's
   checkout (`{source: "prompt", text: <prompt>, repo, worktree: "here", dirty: true}`); the choice is kept per repo in
   shared `review.to`. Commands `cockpit.review:open:<path>` reviews that folder; `review:scope:<s>`,
-  `review:mode:diff|walk`, `review:submit`, `review:to` (the menu), `review:to:<handle|new>`, `review:follow:<handle>`
+  `review:mode:diff|walk`, `review:submit`, `review:to` (the menu), `review:to:<handle|new>`, `review:branch` (the
+  menu), `review:branch:<name>|<repo>` (taken by the copy reviewing that repo), `review:follow:<handle>`
   (empty: the focus again).
   The herdr TUI's review space (`cockpit review`, `prefix+shift+c`) reads the same scopes with `review::read` and
   sends through the same actions, to the agent it follows or the one `T` picks for the worktree (a driven session, or a

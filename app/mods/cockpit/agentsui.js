@@ -741,6 +741,95 @@ const ALLOWS_FIRST = 3;
  * choice, then Submit), the free-text choice opens a field, a question without choices takes words. `wide` draws the
  * popup's roomier card; `header` is drawn above; `focus` is a handle the card holds the keyboard with.
  */
+/**
+ * What the agent's terminal shows for a command it ran — a list to pick from, a yes or no, a settings table or a
+ * slider read as its lines — drawn as a card: its title, its lines, its rows (the one the cursor is on marked), and
+ * the keys its own hint names as buttons, with the arrows, ⏎ and ⎋ always there. `onOption(option, cx)` answers a
+ * row, `onKey(keys, cx)` presses keys in the terminal.
+ */
+export function DialogCard(id, dialog, { onOption, onKey } = {}) {
+  const k = tokens();
+  const list = dialog.kind === "select" || dialog.kind === "confirm";
+  const options = dialog.options ?? [];
+  const hinted = (dialog.keys ?? []).filter((h) => !["up", "down", "left", "right", "enter", "escape"].includes(h.key));
+  const keyButton = (key, label, tooltip) =>
+    Button(`${id}-key-${key.replace(/[^a-z0-9]/gi, "")}`, { label, variant: "ghost", size: "sm", tooltip, onClick: (_e, cx) => onKey?.([key], cx) });
+  const arrows = dialog.kind === "text" ? ["left", "right", "up", "down"] : ["up", "down"];
+  const glyph = { up: "↑", down: "↓", left: "←", right: "→" };
+  return v_flex()
+    .id(id)
+    .w_full()
+    .rounded(RADIUS.lg)
+    .bg(k.card)
+    .border_1()
+    .border_color(k.border)
+    .shadow_sm()
+    .overflow_hidden()
+    .child(
+      h_flex()
+        .px(14)
+        .pt(10)
+        .pb(dialog.body?.length ? 4 : 8)
+        .gap(8)
+        .items_center()
+        .child(Icon(list ? "list" : "terminal", { size: 14, color: k.dim }))
+        .child(div().flex_1().min_w(0).truncate().font_medium().text_size(TEXT.sm).child(dialog.title || "In its terminal")),
+    )
+    .when(Boolean(dialog.body?.length), (e) =>
+      e.child(
+        v_flex()
+          .px(14)
+          .pb(8)
+          .gap(1)
+          .text_size(TEXT.xs)
+          .text_color(k.dim)
+          .when(dialog.kind === "text", (e) => e.font_family("JetBrains Mono"))
+          .children(dialog.body.slice(0, 40).map((line) => div().w_full().min_w(0).truncate().child(line || " "))),
+      ),
+    )
+    .when(options.length > 0, (e) =>
+      e.child(
+        v_flex()
+          .px(6)
+          .pb(6)
+          .gap(1)
+          .children(
+            options.map((o, i) =>
+              h_flex()
+                .id(`${id}-opt-${i}`)
+                .h(28)
+                .px(8)
+                .gap(8)
+                .items_center()
+                .rounded(RADIUS.md)
+                .cursor_pointer()
+                .text_size(TEXT.sm)
+                .when(Boolean(o.selected), (e) => e.bg(k.selected))
+                .hover((s) => s.bg(k.accent))
+                .on_click((_e, cx) => onOption?.(o, cx))
+                .when(Boolean(dialog.numbered), (e) => e.child(div().flex_none().w(18).text_size(TEXT.xs).text_color(k.dim).child(`${o.n}.`)))
+                .child(div().flex_none().font_medium().text_color(k.foreground).child(o.label))
+                .when(Boolean(o.hint), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(o.hint))),
+            ),
+          ),
+      ),
+    )
+    .child(
+      h_flex()
+        .px(8)
+        .pb(8)
+        .pt(2)
+        .gap(4)
+        .items_center()
+        .flex_wrap()
+        .children(arrows.map((key) => keyButton(key, glyph[key], `${key} in its terminal`)))
+        .child(keyButton("enter", "⏎", "Enter in its terminal"))
+        .child(keyButton("escape", "⎋", "Escape in its terminal"))
+        .children(hinted.map((h) => keyButton(h.key, `${h.key.replace("ctrl+", "⌃")} ${h.does}`, `${h.key} in its terminal`)))
+        .when(Boolean(dialog.footer) && hinted.length === 0, (e) => e.child(div().flex_1().min_w(0).truncate().text_size(TEXT.xs).text_color(k.dim).child(dialog.footer))),
+    );
+}
+
 export function QuestionCard(id, row, model, { wide = false, header, footer, focus, dismiss = true } = {}) {
   if (!row.question && row.waits) return WaitsCard(id, row, model, { wide, header, footer, focus, dismiss });
   const k = tokens();

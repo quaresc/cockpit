@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { writeAtomic } from '../hooks/config'
 import type { Writer } from '../hooks/config'
-import { fitWork, fitWords } from '../hooks/sidebar'
+import { branchFacts, fitWork, fitWords } from '../hooks/sidebar'
 
 const cells = (text: string) => [...text].length
 
@@ -19,6 +19,16 @@ test('a topic drops whole words to fit', async () => {
   expect(fitWords('ops 4120 runbook step 11', 24)).toBe('ops 4120 runbook step 11')
   expect(fitWords('ops 4120 runbook step 11', 22)).toBe('ops 4120 runbook step')
   expect(fitWords('refactoring', 5)).toBe('refactoring')
+})
+
+const PR = { repo: 'api', number: 2198, title: 'Daily quotas', url: 'https://github.com/acme/api/pull/2198', author: 'me', updatedAt: '2026-11-20T10:00:00Z', isDraft: false, isDirect: false, review: null, ci: 'FAILURE', branch: 'me/eng-412-daily-quotas' }
+
+test('the ticket and PR of a branch are facts only when links come from the branch too', async () => {
+  expect(branchFacts(false, 'me/eng-412-daily-quotas', PR, undefined, null, ['ENG'])).toEqual({ ticket: null, pr: null })
+  expect(branchFacts(true, 'me/eng-412-daily-quotas', PR, undefined, null, ['ENG'])).toEqual({ ticket: 'ENG-412', pr: { number: 2198, url: PR.url, failing: true } })
+  const focus = { number: 7, url: 'https://github.com/acme/api/pull/7' }
+  expect(branchFacts(false, 'me/eng-412-daily-quotas', PR, focus, null, ['ENG']).pr).toEqual({ number: 7, url: focus.url, failing: false })
+  expect(branchFacts(true, undefined, undefined, undefined, null, ['ENG'])).toEqual({ ticket: null, pr: null })
 })
 
 const ran = (exitCode: number) => ({ exitCode, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
