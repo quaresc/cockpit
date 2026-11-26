@@ -18,7 +18,9 @@ const EVERY: Duration = Duration::from_secs(60);
 
 /// The label the fetcher's herdr space starts with, when there is no Herdr app to give it a terminal of its own. herdr
 /// renames a space after the agent in it, so the space is known by the id kept in `fetcher.space`, never by this.
-const SPACE: &str = "cockpit fetcher";
+/// The robot icon says what the space is for; two spaces follow it, as in the pinned spaces' "<icon>  <name>", so the
+/// wide glyph does not run into the text.
+const SPACE: &str = "\u{f06a9}  fetcher";
 
 /// Starts the watch once, beside the feed.
 pub fn start() {
