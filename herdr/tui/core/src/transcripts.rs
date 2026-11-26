@@ -916,6 +916,17 @@ struct ClaudeLine {
     message: Option<ClaudeMessage>,
     /// What a tool result says beside its text: the subagent or background job it started.
     tool_use_result: Option<ToolUseResult>,
+    /// What Claude Code hands its agent beside a turn, such as a task notification that came in while a tool ran.
+    attachment: Option<ClaudeAttachment>,
+}
+
+/// An attachment's kind and the prompt it carries, its other fields skipped unread.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ClaudeAttachment {
+    #[serde(rename = "type")]
+    kind: String,
+    prompt: Value,
 }
 
 /// The telling fields of a tool's result record; its output is skipped unread.
@@ -1337,6 +1348,13 @@ impl ClaudeFold {
             "summary" => self.summary = line.summary.or(self.summary.take()),
             "custom-title" => self.named = line.custom_title.or(self.named.take()),
             "ai-title" => self.ai_title = line.ai_title.or(self.ai_title.take()),
+            // A task that ends while a tool runs is told as a queued command, never as a user message.
+            "attachment" if self.detail == Detail::Tools => {
+                let Some(a) = line.attachment.filter(|a| a.kind == "queued_command") else { return };
+                if let Some(notice) = a.prompt.as_str().and_then(task_notification) {
+                    self.notified(&notice, &at);
+                }
+            }
             "user" | "assistant" if ![line.is_compact_summary, line.is_meta].contains(&Some(true)) && (self.child || line.is_sidechain != Some(true)) => {
                 let Some(m) = line.message else { return };
                 let result = line.tool_use_result;
@@ -2459,7 +2477,7 @@ mod tests {
             json!({"type": "user", "timestamp": "2026-11-03T10:00:10Z", "message": {"role": "user", "content": [{"tool_use_id": "toolu_ls", "type": "tool_result", "content": "daily_test.exs", "is_error": false}]}}),
             json!({"type": "assistant", "timestamp": "2026-11-03T10:00:11Z", "message": {"id": "m3", "content": [{"type": "text", "text": "Both run in the background; I will report when they finish."}]}}),
             json!({"type": "user", "timestamp": "2026-11-03T10:02:00Z", "message": {"role": "user", "content": "<task-notification>\n<task-id>a1f2e3d4</task-id>\n<status>completed</status>\n<summary>The slowest test is daily_test.exs:41, at 3.2 s.</summary>\n<output-file>/tmp/tasks/a1f2e3d4.output</output-file>\n</task-notification>"}}),
-            json!({"type": "user", "timestamp": "2026-11-03T10:02:30Z", "message": {"role": "user", "content": "<task-notification>\n<task-id>b7k2m9xq1</task-id>\n<status>failed</status>\n<summary>Background command \"Run the quota tests\" failed (exit code 1)</summary>\n</task-notification>"}}),
+            json!({"type": "attachment", "timestamp": "2026-11-03T10:02:30Z", "attachment": {"type": "queued_command", "commandMode": "task-notification", "prompt": "<task-notification>\n<task-id>b7k2m9xq1</task-id>\n<status>failed</status>\n<summary>Background command \"Run the quota tests\" failed (exit code 1)</summary>\n</task-notification>"}}),
         ]
     }
 
