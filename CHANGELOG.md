@@ -5,6 +5,14 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## 1.6.1 (2026-11-26)
+
+- New: pinned apps carry a pin in the monitor, and pinning or muting an app shows at once instead of after the next refresh (#107)
+- New: monitor.releaseDays sets how many days back releases show and an app stays watched after its last deploy, one by default (#106)
+- Fix: o on an inbox PR opens it in the browser on Linux again (#105)
+- Fix: with herdr alone and no Herdr app, the hub runs its fetcher session in a space of its own, so the monitor refreshes by itself (#108)
+- Fix: in Cockpit Chat, a background job or subagent that ends while the agent runs a tool leaves the strip instead of spinning on (#112)
+
 ## 1.6.0 (2026-11-26)
 
 - New: switching agents in Cockpit Chat is fast: the chat builds its one row, reads terminal screens between builds, pages the conversation with a cursor and sends the messages apart from what moves while a turn runs; the last conversation shows at once while the hub answers (#109)
