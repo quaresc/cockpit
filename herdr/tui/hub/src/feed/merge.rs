@@ -14,6 +14,9 @@ pub const CI_VERSION: i64 = 3;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InboxPart {
     pub github: Option<[Value; 5]>,
+    /// The review requests by bots, as PRs, when the hub reads GitHub itself: what the Review section folds away. A code
+    /// host's server gives none, and the section then only counts its bots (`botRepos`).
+    pub bots: Vec<Value>,
     pub tickets: Option<Vec<Value>>,
     /// The deploys of tickets waiting for production and my previews, when the hub reaches the platform itself.
     pub platform: Option<(Value, Value)>,
@@ -47,6 +50,7 @@ pub fn merge_inbox(file: &Value, part: &InboxPart, now: u64) -> Value {
         for (name, value) in GITHUB_FIELDS.iter().zip(fields) {
             inbox[*name] = value.clone();
         }
+        inbox["botPrs"] = json!(part.bots);
         hub["github"] = json!(now);
     }
     if let Some(tickets) = &part.tickets {
@@ -104,6 +108,7 @@ mod tests {
     fn part(errors: &[&str]) -> InboxPart {
         InboxPart {
             github: Some([json!([{"url": "d"}]), json!([]), json!(["api"]), json!([{"url": "m"}]), json!([])]),
+            bots: vec![json!({"repo": "api", "url": "b"})],
             tickets: None,
             platform: None,
             errors: errors.iter().map(|e| e.to_string()).collect(),
@@ -118,6 +123,7 @@ mod tests {
         let inbox = merge_inbox(&file, &part(&["GitHub: HTTP 502"]), 100);
         assert_eq!(inbox["direct"], json!([{"url": "d"}]));
         assert_eq!(inbox["botRepos"], json!(["api"]));
+        assert_eq!(inbox["botPrs"], json!([{"repo": "api", "url": "b"}]));
         assert_eq!((&inbox["tickets"], &inbox["deploys"], &inbox["modAt"]), (&file["tickets"], &file["deploys"], &json!(5)));
         assert_eq!(inbox["errors"], json!(["Previews failed", "GitHub: HTTP 502"]));
         assert_eq!(inbox["hub"], json!({"at": 100, "github": 100, "errors": ["GitHub: HTTP 502"]}));

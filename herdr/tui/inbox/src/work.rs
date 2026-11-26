@@ -530,7 +530,7 @@ mod tests {
     fn acts_of(pr: Value) -> Vec<(String, Option<char>, bool, &'static str, Value)> {
         let config = Config::from(json!({}));
         let (series, costs, secs) = (HashMap::new(), HashMap::new(), HashMap::new());
-        let ctx = Ctx { config: &config, by_status: false, compact: false, series: &series };
+        let ctx = Ctx { config: &config, by_status: false, review: Default::default(), compact: false, series: &series };
         let url = pr["url"].clone();
         let (work, other) = rows(&json!({"version": 1, "mine": [pr], "tickets": []}), &Value::Null, &ctx, &costs, &secs);
         fn find<'r>(row: &'r Row, url: &Value) -> Option<&'r Row> {

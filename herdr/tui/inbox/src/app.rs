@@ -33,7 +33,7 @@ use crate::details::{Details, Fetched};
 use crate::facts::{Config, is_failing, list, s};
 use crate::history::History;
 use crate::inputs::Inputs;
-use crate::model::{self, Ctx};
+use crate::model::{self, Ctx, Scope};
 use crate::panel;
 use crate::requests::Requests;
 use crate::row::{Call, Kind};
@@ -58,6 +58,7 @@ pub(crate) enum Command {
     GoTo(String),
     Refresh,
     Regroup,
+    ReviewScope,
     Filter,
     Start,
 }
@@ -89,6 +90,8 @@ pub struct App {
     pub(crate) tree: Tree,
     head: Vec<Line<'static>>,
     pub(crate) by_status: bool,
+    /// Which review requests the Review section lists (`f`).
+    pub(crate) review_scope: Scope,
     compact: bool,
     /// False for fixtures: no file is read or watched, nothing is fetched.
     live: bool,
@@ -141,6 +144,7 @@ impl App {
             tree,
             head: Vec::new(),
             by_status: false,
+            review_scope: Scope::default(),
             compact,
             live,
             inputs,
@@ -246,7 +250,7 @@ impl App {
 
     /// The rows from the inputs at hand; what changed since the last rebuild starts its effect.
     pub(crate) fn rebuild(&mut self) {
-        let ctx = Ctx { config: &self.config, by_status: self.by_status, compact: self.compact, series: self.history.series() };
+        let ctx = Ctx { config: &self.config, by_status: self.by_status, review: self.review_scope, compact: self.compact, series: self.history.series() };
         let (head, top) = model::model(&self.inputs, &ctx, &mut self.local);
         self.head = head;
         self.bare = top.iter().all(|row| row.children.is_empty());

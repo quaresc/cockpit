@@ -19,10 +19,45 @@ use crate::work;
 /// Team requests the compact layout shows before folding the rest away.
 const TEAM_SHOWN: usize = 5;
 
+/// Which review requests the Review section lists: every one, or only those asked of you, asked of your team, or made by
+/// bots. The heading's counts always cover all of them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Scope {
+    #[default]
+    All,
+    Me,
+    Team,
+    Bots,
+}
+
+impl Scope {
+    /// The one after this, all of them again after the last.
+    pub fn next(self) -> Self {
+        match self {
+            Scope::All => Scope::Me,
+            Scope::Me => Scope::Team,
+            Scope::Team => Scope::Bots,
+            Scope::Bots => Scope::All,
+        }
+    }
+
+    /// How the heading and the toasts say it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Scope::All => "all",
+            Scope::Me => "yours",
+            Scope::Team => "team",
+            Scope::Bots => "bots",
+        }
+    }
+}
+
 /// How a rebuild lays the rows out, beside what it reads.
 pub struct Ctx<'a> {
     pub config: &'a Config,
     pub by_status: bool,
+    /// The review requests listed, set with `f` in the inbox.
+    pub review: Scope,
     pub compact: bool,
     /// Each ticket's cost history, oldest first, for its sparkline.
     pub series: &'a HashMap<String, Vec<f64>>,
@@ -85,7 +120,7 @@ pub fn model(inputs: &Inputs, ctx: &Ctx, local: &mut Local) -> (Vec<Line<'static
     if !alerts.children.is_empty() {
         top.push(alerts);
     }
-    top.push(review(data, &inputs.muted, ctx.compact));
+    top.push(review(data, &inputs.muted, ctx.compact, ctx.review));
     let (work, other) = work::rows(data, &ci, ctx, &inputs.costs, &inputs.secs);
     top.push(work);
     top.push(other);
@@ -361,26 +396,46 @@ fn review_row(pr: &Value) -> Row {
         .item(pr)
 }
 
-/// Review requests: direct ones first, then team ones; old ones and muted repos folded away, and in the compact layout
-/// the team requests past the first few.
-fn review(data: &Value, muted: &[String], compact: bool) -> Row {
+/// Review requests: direct ones first, then team ones; old ones, bots' and muted repos folded away, and in the compact
+/// layout the team requests past the first few. With a scope, only that kind is listed (the bots' unfolded), and the
+/// heading says so.
+fn review(data: &Value, muted: &[String], compact: bool, scope: Scope) -> Row {
     let is_muted = |repo: &str| muted.iter().any(|m| m == repo);
+    let wants = |kind: Scope| scope == Scope::All || scope == kind;
     let is_old = |pr: &&Value| age_days(s(pr, "updatedAt")).unwrap_or(0.0) > OLD_REVIEW_DAYS;
     let shown: Vec<&Value> = list(data, "team").iter().filter(|pr| !is_muted(s(pr, "repo"))).collect();
     let direct: Vec<&Value> = list(data, "direct").iter().filter(|pr| !is_old(pr)).collect();
     let team: Vec<&Value> = shown.iter().copied().filter(|pr| !is_old(pr)).collect();
-    let old: Vec<&Value> = list(data, "direct").iter().chain(shown.iter().copied()).filter(is_old).collect();
+    let old: Vec<&Value> =
+        list(data, "direct").iter().filter(|_| wants(Scope::Me)).chain(shown.iter().copied().filter(|_| wants(Scope::Team))).filter(is_old).collect();
     let bot_repos = list(data, "botRepos");
-    let bots = bot_repos.iter().filter(|r| !is_muted(r.as_str().unwrap_or(""))).count();
+    // The hub keeps the bots' PRs (`botPrs`) to list them; another source only says which repos they are in.
+    let bot_prs: Vec<&Value> = list(data, "botPrs").iter().filter(|pr| !is_muted(s(pr, "repo"))).collect();
+    let bots = if list(data, "botPrs").is_empty() { bot_repos.iter().filter(|r| !is_muted(r.as_str().unwrap_or(""))).count() } else { bot_prs.len() };
     let hidden = (list(data, "team").len() + bot_repos.len()).saturating_sub(shown.len() + bots);
-    let extra =
-        format!("{} for you · {} team · {bots} bots", direct.len(), team.len()) + &if hidden > 0 { format!(" · {hidden} muted") } else { String::new() };
-    let mut reviews = Row::text("review", heading("review", "Review", &extra));
+    // The counts always cover every request; the kind `f` picked is bold, orange and underlined (the underline stays when
+    // a terminal shows no colour), the others dim.
+    let count = |kind: Scope, text: String| Span::styled(text, if scope == kind { bold(ORANGE).add_modifier(Modifier::UNDERLINED) } else { dim() });
+    let dot = || Span::styled(" · ", dim());
+    let mut spans = vec![
+        Span::styled(format!("{}  ", icon("review")), fg(ORANGE)),
+        Span::styled("Review", bold(ORANGE)),
+        Span::styled("   ", dim()),
+        count(Scope::Me, format!("{} for you", direct.len())),
+        dot(),
+        count(Scope::Team, format!("{} team", team.len())),
+        dot(),
+        count(Scope::Bots, format!("{bots} bots")),
+    ];
+    if hidden > 0 {
+        spans.push(Span::styled(format!(" · {hidden} muted"), dim()));
+    }
+    let mut reviews = Row::text("review", Line::from(spans));
     let cap = if compact { TEAM_SHOWN } else { usize::MAX };
-    for pr in direct.iter().chain(team.iter().take(cap)) {
+    for pr in direct.iter().filter(|_| wants(Scope::Me)).chain(team.iter().take(cap).filter(|_| wants(Scope::Team))) {
         reviews.add(review_row(pr));
     }
-    if team.len() > cap {
+    if wants(Scope::Team) && team.len() > cap {
         let more = Row::text("review:more", Line::styled(format!("{} {} more team requests", icon("fold"), team.len() - cap), dim())).folded();
         let group = reviews.add(more);
         for pr in &team[cap..] {
@@ -393,7 +448,17 @@ fn review(data: &Value, muted: &[String], compact: bool) -> Row {
             group.add(review_row(pr));
         }
     }
-    if !muted.is_empty() {
+    if scope == Scope::Bots {
+        for pr in &bot_prs {
+            reviews.add(review_row(pr));
+        }
+    } else if scope == Scope::All && !bot_prs.is_empty() {
+        let group = reviews.add(Row::text("review:bots", Line::styled(format!("{} {} requests by bots", icon("fold"), bot_prs.len()), dim())).folded());
+        for pr in &bot_prs {
+            group.add(review_row(pr));
+        }
+    }
+    if scope == Scope::All && !muted.is_empty() {
         let group = reviews.add(Row::text("review:muted", Line::styled(format!("{} {} muted repos", icon("mute"), muted.len()), dim())).folded());
         let mut repos = muted.to_vec();
         repos.sort();
@@ -424,5 +489,79 @@ mod tests {
         assert_eq!((dismiss.function, &dismiss.args), ("routines:read", &vec![json!("sweep"), json!("7")]));
         assert_eq!(section.children[1].acts.len(), 1, "a routine that cannot run has no run to mark read");
         assert!(today(None, Some(&json!({"version": 1, "routines": [], "runs": {}}))).is_none(), "nothing to look at: no Today");
+    }
+
+    fn pr(repo: &str, number: u64, author: &str) -> Value {
+        json!({"repo": repo, "number": number, "title": "chore(deps): update", "url": format!("https://github.com/acme/{repo}/pull/{number}"),
+            "author": author, "authorName": "", "updatedAt": "2026-11-26T10:00:00Z", "isDraft": false, "isDirect": false})
+    }
+
+    #[test]
+    fn the_requests_of_bots_fold_under_review_where_they_can_be_opened() {
+        let data = json!({"direct": [], "team": [pr("api", 1, "maya")], "botRepos": ["web", "web", "ui"],
+            "botPrs": [pr("web", 7, "app-bot"), pr("web", 8, "app-bot"), pr("ui", 9, "app-bot")]});
+        let section = review(&data, &[], false, Scope::All);
+        let keys: Vec<&str> = section.children.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys, ["https://github.com/acme/api/pull/1", "review:bots"], "a person's request stays a row of its own");
+        let group = &section.children[1];
+        assert!(!group.expand, "the bots start folded");
+        let listed: Vec<&str> = group.children.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(listed, ["https://github.com/acme/web/pull/7", "https://github.com/acme/web/pull/8", "https://github.com/acme/ui/pull/9"]);
+        let muted = review(&data, &["web".to_string()], false, Scope::All);
+        let group = muted.children.iter().find(|r| r.key == "review:bots").expect("the other repo's bot is still listed");
+        assert_eq!(group.children.len(), 1, "a muted repo's bots are left out");
+    }
+
+    #[test]
+    fn without_the_bots_prs_they_are_only_counted() {
+        let data = json!({"direct": [], "team": [pr("api", 1, "maya")], "botRepos": ["web", "web"]});
+        let section = review(&data, &[], false, Scope::All);
+        assert!(section.children.iter().all(|r| r.key != "review:bots"), "a source that gives repos only has nothing to list");
+    }
+
+    fn keys_of(section: &Row) -> Vec<String> {
+        section.children.iter().map(|r| r.key.rsplit('/').next().unwrap_or_default().to_string()).collect()
+    }
+
+    fn mixed() -> Value {
+        let mut direct = pr("api", 1, "maya");
+        direct["isDirect"] = json!(true);
+        json!({"direct": [direct], "team": [pr("api", 2, "lin"), pr("web", 3, "lin")], "botRepos": ["web", "ui"],
+            "botPrs": [pr("web", 7, "app-bot"), pr("ui", 9, "app-bot")]})
+    }
+
+    #[test]
+    fn a_review_scope_lists_only_that_kind_and_the_heading_still_counts_them_all() {
+        let data = mixed();
+        assert_eq!(keys_of(&review(&data, &[], false, Scope::Me)), ["1"], "asked of you");
+        assert_eq!(keys_of(&review(&data, &[], false, Scope::Team)), ["2", "3"], "asked of your team");
+        let bots = review(&data, &[], false, Scope::Bots);
+        assert_eq!(keys_of(&bots), ["7", "9"], "the bots' requests, unfolded, with no fold row to open first");
+        let all = review(&data, &[], false, Scope::All);
+        assert_eq!(keys_of(&all), ["1", "2", "3", "review:bots"]);
+        // The heading's counts cover every request, and only the kind shown is highlighted.
+        let lit = |row: &Row| -> (String, Vec<String>) {
+            let crate::row::Body::Text(line) = &row.body else { return Default::default() };
+            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let marked = line.spans.iter().filter(|s| s.style.add_modifier.contains(Modifier::UNDERLINED)).map(|s| s.content.to_string()).collect();
+            (text, marked)
+        };
+        let (text, marked) = lit(&bots);
+        assert!(text.contains("1 for you · 2 team · 2 bots"), "{text}");
+        assert_eq!(marked, ["2 bots"]);
+        assert_eq!(lit(&review(&data, &[], false, Scope::Me)).1, ["1 for you"]);
+        assert_eq!(lit(&review(&data, &[], false, Scope::Team)).1, ["2 team"]);
+        assert!(lit(&all).1.is_empty(), "all of them highlights nothing");
+    }
+
+    #[test]
+    fn a_review_scope_goes_round_and_leaves_the_muted_repos_to_all() {
+        let seen: Vec<Scope> = std::iter::successors(Some(Scope::All), |s| Some(s.next())).take(5).collect();
+        assert_eq!(seen, [Scope::All, Scope::Me, Scope::Team, Scope::Bots, Scope::All]);
+        let data = mixed();
+        let muted = ["web".to_string()];
+        assert!(review(&data, &muted, false, Scope::All).children.iter().any(|r| r.key == "review:muted"));
+        assert!(review(&data, &muted, false, Scope::Team).children.iter().all(|r| r.key != "review:muted"), "the mutes are managed from all");
+        assert_eq!(keys_of(&review(&data, &muted, false, Scope::Team)), ["2"], "a muted repo's request stays out of a scope too");
     }
 }

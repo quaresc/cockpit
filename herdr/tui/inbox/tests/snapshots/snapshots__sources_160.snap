@@ -7,4 +7,4 @@ expression: screen
  ▼   Today   morning brief, 09:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ▸ dismiss  x
- q quit  / filter  v pick  w group by  R refresh  space fold  enter main                                                                             ^p palette
+ q quit  / filter  v pick  w group by  f me/team/bots  R refresh  space fold  enter main                                                             ^p palette

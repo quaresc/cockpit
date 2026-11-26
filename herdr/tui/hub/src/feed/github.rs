@@ -1,5 +1,6 @@
-//! GitHub in one GraphQL query: my review requests (direct or through a team, bots apart), my open PRs with their review
-//! state and checks, and what I merged these 30 days; the inbox's GitHub fields read from it, as the mod writes them.
+//! GitHub in one GraphQL query: my review requests (direct or through a team, bots apart, every page of them), my open
+//! PRs with their review state and checks, and what I merged these 30 days; the inbox's GitHub fields read from it, as the
+//! mod writes them.
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -39,14 +40,32 @@ pub fn forget_token() {
 const PR_BASE: &str = "number title url isDraft updatedAt headRefName baseRefName headRefOid isCrossRepository \
   headRepositoryOwner { login } repository { name nameWithOwner } author { __typename login ... on User { name } } reviewDecision";
 
+/// How many review requests one page of the search holds. Small: the first page shares its query with my own PRs' checks,
+/// and a hundred requests there made GitHub answer HTTP 502 (a page of fifty is lighter than the sixty it replaces).
+const REVIEW_PAGE: usize = 50;
+
+/// The most pages of review requests followed: a thousand PRs, far past what one person reviews by hand.
+const REVIEW_PAGES: usize = 20;
+
+/// The search for my review requests, one page of it: the first, or the one after the cursor `after`. Bots' PRs are
+/// listed with the rest (they are told apart on reading), so they must all be fetched for the people's not to be cut off.
 /// Review requests only need the rollup: listing the checks of every one makes the query too heavy for GitHub (HTTP 502).
+fn review_search(after: Option<&str>) -> String {
+    let after = after.map(|c| c.chars().filter(|c| c.is_ascii_alphanumeric() || "=_-+/".contains(*c)).collect::<String>());
+    let after = after.map(|c| format!(", after: \"{c}\"")).unwrap_or_default();
+    format!(
+        r#"search(query: "is:pr is:open archived:false review-requested:@me", type: ISSUE, first: {REVIEW_PAGE}{after}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ __typename ... on PullRequest {{ {PR_BASE} commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }} }} }}"#
+    )
+}
+
 /// My own PRs list their checks, which give both the failing names and the CI runs.
 pub fn query(org: &str, merged_since: &str) -> String {
     let org: String = org.chars().filter(|c| c.is_ascii_alphanumeric() || "_.-".contains(*c)).collect();
     let scope = if org.is_empty() { String::new() } else { format!(" org:{org}") };
+    let review = review_search(None);
     format!(
         r#"query {{
-  review: search(query: "is:pr is:open archived:false review-requested:@me", type: ISSUE, first: 60) {{ nodes {{ __typename ... on PullRequest {{ {PR_BASE} commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }} }} }}
+  review: {review}
   direct: search(query: "is:pr is:open archived:false user-review-requested:@me", type: ISSUE, first: 50) {{ nodes {{ ... on PullRequest {{ url }} }} }}
   mine: search(query: "is:pr is:open archived:false author:@me{scope}", type: ISSUE, first: 30) {{ nodes {{ __typename ... on PullRequest {{ {PR_BASE} reviewThreads(first: 50) {{ nodes {{ isResolved }} }}
     commits(last: 1) {{ nodes {{ commit {{ oid committedDate statusCheckRollup {{ state contexts(first: 30) {{ nodes {{
@@ -64,16 +83,35 @@ pub struct Github {
     pub direct: Vec<Value>,
     pub team: Vec<Value>,
     pub bot_repos: Vec<String>,
+    /// The review requests whose author is a bot, as PRs: what the Review section folds away, not counts only.
+    pub bots: Vec<Value>,
     pub mine: Vec<Value>,
     pub merged: Vec<Value>,
     pub mine_nodes: Vec<Value>,
 }
 
-/// One query; the answer's data even beside errors (a repo behind SAML), unless it has none.
+/// `data` with the review requests of the pages after its first appended, as long as GitHub says there are more, up to
+/// REVIEW_PAGES. `more` is handed a page's cursor and gives that page's `review` search, or None when it cannot: what was
+/// read stays, as for any answer that is partly there.
+fn with_every_review_request(data: &mut Value, mut more: impl FnMut(&str) -> Option<Value>) {
+    for _ in 1..REVIEW_PAGES {
+        let next = &data["review"]["pageInfo"];
+        let Some(cursor) = next["endCursor"].as_str().filter(|_| next["hasNextPage"] == true).map(str::to_string) else { return };
+        let Some(page) = more(&cursor) else { return };
+        let mut nodes = list(&data["review"]["nodes"]).to_vec();
+        nodes.extend_from_slice(list(&page["nodes"]));
+        data["review"]["nodes"] = json!(nodes);
+        data["review"]["pageInfo"] = page["pageInfo"].clone();
+    }
+}
+
+/// One query, then the rest of the review requests a page at a time; the answer's data even beside errors (a repo behind
+/// SAML), unless it has none.
 pub fn fetch(token: &str, org: &str) -> Fetched<Github> {
     let since = (chrono::Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
     let auth = format!("bearer {token}");
-    let body = http::post(&format!("{}/graphql", api()), &[("Authorization", &auth)], &json!({"query": query(org, &since)}));
+    let url = format!("{}/graphql", api());
+    let body = http::post(&url, &[("Authorization", &auth)], &json!({"query": query(org, &since)}));
     if matches!(&body, Err(Failure::Other(m)) if m.contains("token refused")) {
         forget_token();
     }
@@ -81,7 +119,12 @@ pub fn fetch(token: &str, org: &str) -> Fetched<Github> {
     if body["data"].is_null() {
         return Err(Failure::Other(http::message(&body)));
     }
-    Ok(parse(&body["data"]))
+    let mut data = body["data"].clone();
+    with_every_review_request(&mut data, |cursor| {
+        let page = http::post(&url, &[("Authorization", &auth)], &json!({"query": format!("query {{ review: {} }}", review_search(Some(cursor)))})).ok()?;
+        Some(page["data"]["review"].clone()).filter(|r| !r.is_null())
+    });
+    Ok(parse(&data))
 }
 
 const FAILED: [&str; 5] = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"];
@@ -145,6 +188,7 @@ pub fn parse(data: &Value) -> Github {
         direct: humans.iter().filter(|p| p["isDirect"] == true).cloned().collect(),
         team: humans.iter().filter(|p| p["isDirect"] != true).cloned().collect(),
         bot_repos: prs.iter().filter(|n| is_bot(n)).map(|n| n["repository"]["name"].as_str().unwrap_or("?").to_string()).collect(),
+        bots: prs.iter().filter(|n| is_bot(n)).map(|n| to_pr(n, &direct)).collect(),
         mine: mine_nodes.iter().map(|n| to_pr(n, &direct)).collect(),
         merged: list(&data["merged"]["nodes"])
             .iter()
@@ -193,9 +237,60 @@ mod tests {
         assert_eq!(urls(&github.direct), ["https://github.com/acme/web/pull/9"]);
         assert_eq!(urls(&github.team), ["https://github.com/acme/docs/pull/3"]);
         assert_eq!(github.bot_repos, ["api"]);
+        assert_eq!(github.bots.len(), 1, "a bot's request is kept as a PR, not only counted");
+        assert_eq!(github.bots[0]["repo"], "api");
         assert_eq!(github.direct[0]["authorName"], "Maya Haddad");
         assert_eq!(github.direct[0]["ci"], "PENDING");
         assert_eq!(github.team[0]["isDirect"], false);
+    }
+
+    fn page(numbers: &[u64], next: Option<&str>) -> Value {
+        let nodes: Vec<Value> = numbers.iter().map(|n| json!({"__typename": "PullRequest", "number": n})).collect();
+        json!({"pageInfo": {"hasNextPage": next.is_some(), "endCursor": next}, "nodes": nodes})
+    }
+
+    fn numbers(review: &Value) -> Vec<u64> {
+        list(&review["nodes"]).iter().filter_map(|n| n["number"].as_u64()).collect()
+    }
+
+    #[test]
+    fn every_page_of_review_requests_is_read_so_bots_do_not_cut_the_people_off() {
+        let mut data = json!({"review": page(&[1, 2], Some("c2"))});
+        let mut asked = Vec::new();
+        with_every_review_request(&mut data, |cursor| {
+            asked.push(cursor.to_string());
+            Some(if cursor == "c2" { page(&[3, 4], Some("c4")) } else { page(&[5], None) })
+        });
+        assert_eq!(asked, ["c2", "c4"]);
+        assert_eq!(numbers(&data["review"]), [1, 2, 3, 4, 5]);
+        assert_eq!(data["review"]["pageInfo"]["hasNextPage"], false);
+    }
+
+    #[test]
+    fn a_page_that_cannot_be_read_leaves_the_pages_before_it() {
+        let mut data = json!({"review": page(&[1], Some("c1"))});
+        with_every_review_request(&mut data, |_| None);
+        assert_eq!(numbers(&data["review"]), [1]);
+        let mut whole = json!({"review": page(&[1], None)});
+        with_every_review_request(&mut whole, |_| panic!("no page is asked for after the last"));
+    }
+
+    #[test]
+    fn the_pages_followed_are_bounded() {
+        let mut data = json!({"review": page(&[0], Some("more"))});
+        let mut asked = 0;
+        with_every_review_request(&mut data, |_| {
+            asked += 1;
+            Some(page(&[asked], Some("more")))
+        });
+        assert_eq!(asked as usize, REVIEW_PAGES - 1);
+    }
+
+    #[test]
+    fn the_review_search_asks_for_a_page_after_a_cursor_that_is_only_cursor_characters() {
+        assert!(review_search(None).contains("first: 50) { pageInfo { hasNextPage endCursor } nodes"));
+        assert!(review_search(Some("Y3Vyc29yOjEwMA==")).contains(r#"first: 50, after: "Y3Vyc29yOjEwMA==")"#));
+        assert!(review_search(Some(r#"a"b) { x"#)).contains(r#"after: "abx")"#), "a quote or a brace never leaves the string");
     }
 
     #[test]

@@ -5,6 +5,10 @@ Each version is tagged `v<version>` and has a GitHub release with these notes, b
 plugin, share the version with the apps (`herdr/tui/Cargo.toml`), whose binaries the release builds; the section for it
 must be here first.
 
+## Unreleased
+
+- Fix: the inbox reads every review request instead of the first 60, so bots no longer cut the people's off; the bots' requests fold under Review, and f shows all, yours, the team's or the bots'
+
 ## 1.6.1 (2026-11-26)
 
 - New: pinned apps carry a pin in the monitor, and pinning or muting an app shows at once instead of after the next refresh (#107)

@@ -69,6 +69,7 @@ impl App {
             KeyCode::Char(c) if self.act_key(c) => {}
             KeyCode::Char('n') => self.open_start(&self.row_source()),
             KeyCode::Char('w') => self.regroup(),
+            KeyCode::Char('f') => self.cycle_review_scope(),
             KeyCode::Char('R') => self.refresh(),
             KeyCode::Char(' ') => {
                 if let Some(node) = self.tree.current() {
@@ -229,6 +230,13 @@ impl App {
         self.rebuild();
     }
 
+    /// Review requests: all of them, then only yours, your team's, the bots', and round again.
+    fn cycle_review_scope(&mut self) {
+        self.review_scope = self.review_scope.next();
+        self.rebuild();
+        self.toasts.push(format!("Review requests: {}", self.review_scope.word()), Toast::Note);
+    }
+
     fn refresh(&mut self) {
         self.call(crate::row::call("request_refresh", vec![]), None);
     }
@@ -253,6 +261,8 @@ impl App {
         push(&mut self.commands, "refresh the inbox".into(), "asks the mod for fresh data".into(), true, Command::Refresh);
         let regroup = format!("group work by {}", if self.by_status { "feature" } else { "status" });
         push(&mut self.commands, regroup, "w".into(), true, Command::Regroup);
+        let scope = format!("show review requests: {}", self.review_scope.next().word());
+        push(&mut self.commands, scope, "f".into(), true, Command::ReviewScope);
         push(&mut self.commands, "filter rows".into(), "/".into(), true, Command::Filter);
         push(&mut self.commands, "start work".into(), "n".into(), true, Command::Start);
         self.palette.open(entries);
@@ -276,6 +286,7 @@ impl App {
             }
             Some(Command::Refresh) => self.refresh(),
             Some(Command::Regroup) => self.regroup(),
+            Some(Command::ReviewScope) => self.cycle_review_scope(),
             Some(Command::Filter) => self.start_filter(),
             Some(Command::Start) => self.open_start(""),
             None => {}
