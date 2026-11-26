@@ -66,7 +66,7 @@
     "home/.cache/cockpit/actions.json": {
       "plan eng-401": "w9:p2",
       "plan eng-403": "wT:p1",
-      "review web#9": "w9:p1",
+      "  web#9": "w9:p1",
       "talk eng-403": "w9:p4"
     },
     "home/.cache/cockpit/prompts/plan-eng-403-<R>.prompt": "Pick up ENG-403 (https://linear.app/acme/issue/ENG-403/reset): read the ticket, find the repos involved, and propose a plan before coding.",

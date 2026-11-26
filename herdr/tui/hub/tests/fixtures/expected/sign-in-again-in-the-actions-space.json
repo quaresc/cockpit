@@ -73,7 +73,7 @@
   "files": {
     "home/.cache/cockpit/actions.json": {
       "plan eng-401": "w9:p2",
-      "review web#9": "w9:p1",
+      "  web#9": "w9:p1",
       "sign in · github": "wT:p1",
       "talk eng-403": "w9:p4"
     }
