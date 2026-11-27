@@ -7,7 +7,7 @@ use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
 use cockpit_core::agent::{self, Agent};
-use cockpit_core::{files, frontend};
+use cockpit_core::{accounts, files, frontend};
 use serde_json::{Map, Value, json};
 
 use super::{Ctx, arg, inbox, land, tickets};
@@ -70,6 +70,8 @@ pub struct Request {
     pub label: String,
     /// The next form's default repo, agent and mode stay as they were (`remember: false`).
     pub keep_defaults: bool,
+    /// The config folder of the account the agent runs on; empty for the default one.
+    pub account: String,
 }
 
 impl Request {
@@ -99,6 +101,7 @@ impl Request {
             last_repo: v["lastRepo"] != false,
             label: clean(&s("label")).replace('\n', " "),
             keep_defaults: v["remember"] == false,
+            account: s("account"),
         }
     }
 }
@@ -138,6 +141,8 @@ pub(crate) struct World<'a> {
     /// A ticket as the tracker has it, None without a token.
     pub tracker: &'a dyn Fn(&str) -> Res<Option<Value>>,
     pub take: Take,
+    /// The Claude Code accounts on this machine, the default first (`accounts::all`).
+    pub accounts: Vec<accounts::Account>,
 }
 
 struct RealDesk;
@@ -235,6 +240,7 @@ fn real<R>(f: impl FnOnce(&World) -> R) -> R {
         github: &github,
         tracker: &tickets::issue,
         take: tickets::take,
+        accounts: accounts::all(),
     };
     f(&world)
 }
@@ -564,6 +570,10 @@ pub(crate) struct Plan {
     pub fast: Option<bool>,
     /// The mode passed to the agent: empty when its table row takes none.
     pub mode: String,
+    /// The config folder of the account the agent runs on, set in its `account_env`: empty when it has one account.
+    pub account: String,
+    /// That account's name.
+    pub account_name: String,
     pub driven: bool,
     pub confirm: bool,
     pub prompt: String,
@@ -612,6 +622,7 @@ impl Plan {
             "branch": self.branch, "branchFrom": self.branch_from, "newBranch": self.new_branch, "path": self.path,
             "setup": self.setup.as_ref().map(|(c, h)| json!({"command": c, "hash": h})),
             "agent": agent.map(|a| a.id.clone()), "agentName": agent.map(|a| a.name.clone()), "model": self.model, "effort": self.effort, "fast": self.fast, "mode": self.mode,
+            "account": (!self.account.is_empty()).then_some(&self.account), "accountName": (!self.account.is_empty()).then_some(&self.account_name),
             "driven": self.driven, "session": self.session, "prompt": self.prompt, "cross": self.cross.is_some(),
             "steps": self.steps.iter().map(|(id, t)| json!({"id": id, "text": t})).collect::<Vec<_>>(),
             "blockers": self.blockers.iter().map(|b| json!({"step": b.step, "text": b.text, "fixes": pairs(&b.fixes)})).collect::<Vec<_>>(),
@@ -632,9 +643,11 @@ fn modes_of(agent: &Agent) -> Vec<Value> {
 }
 
 /// The choices a form offers: the repos, the installed agents (the default first) with the modes each takes and what a
-/// person picks for it beside the prompt (`picks`, its catalog's models once read), with what it would pick itself.
+/// person picks for it beside the prompt (`picks`, its catalog's models once read), with what it would pick itself, and
+/// the accounts it can run on when this machine has several (`accounts`, the default first).
 fn choices(world: &World) -> Value {
     let mut agents: Vec<&Agent> = world.agents.iter().filter(|a| a.installed() || a.id == world.default_agent).collect();
+    let accounts: Vec<Value> = if world.accounts.len() > 1 { world.accounts.iter().map(accounts::Account::json).collect() } else { Vec::new() };
     agents.sort_by_key(|a| a.id != world.default_agent);
     let last = files::load(&world.cache.join("start.json")).unwrap_or(Value::Null);
     json!({
@@ -642,7 +655,8 @@ fn choices(world: &World) -> Value {
         // `drives`: cockpit can run it as a session of its own (a form starts it so), else it runs in a terminal.
         "agents": agents
             .iter()
-            .map(|a| json!({"id": a.id, "name": a.name, "icon": agent::icon_in(&world.agents, &a.id), "installed": a.installed(), "models": !a.model.is_empty(), "modes": modes_of(a), "drives": a.stream.is_some(), "picks": a.catalog_picks(|| {})}))
+            .map(|a| json!({"id": a.id, "name": a.name, "icon": agent::icon_in(&world.agents, &a.id), "installed": a.installed(), "models": !a.model.is_empty(), "modes": modes_of(a), "drives": a.stream.is_some(), "picks": a.catalog_picks(|| {}),
+                "accounts": if a.account_env.is_some() { accounts.clone() } else { Vec::new() }}))
             .collect::<Vec<_>>(),
         "agent": world.default_agent, "repo": last["repo"], "mode": last["mode"].as_str().unwrap_or("default"),
     })
@@ -873,7 +887,8 @@ pub(crate) fn plan_in(world: &World, req: &Request) -> Plan {
         Some(false) => "standard speed".to_string(),
         None => String::new(),
     };
-    let with = [p.model.clone(), effort, fast, mode_word].into_iter().filter(|w| !w.is_empty() && w != "asks first").collect::<Vec<_>>();
+    let account = if p.account.is_empty() { String::new() } else { format!("{} account", p.account_name) };
+    let with = [account, p.model.clone(), effort, fast, mode_word].into_iter().filter(|w| !w.is_empty() && w != "asks first").collect::<Vec<_>>();
     let how = if with.is_empty() { String::new() } else { format!(" ({})", with.join(", ")) };
     if p.driven {
         p.steps.push(("agent", format!("start {agent_name}{how} as a session cockpit drives, on {}", p.what())));
@@ -937,6 +952,7 @@ fn agent_checks(world: &World, req: &Request, p: &mut Plan) -> Option<Agent> {
         p.notes.push(format!("{} has no fast mode: it starts at its own speed", found.name));
         p.fast = None;
     }
+    account_checks(world, req, p, &found);
     p.mode = if found.mode.is_some() { if req.mode.is_empty() { "default".into() } else { req.mode.clone() } } else { String::new() };
     let words = modes::words_of(&found);
     let known = modes::of(words, &p.mode);
@@ -950,6 +966,27 @@ fn agent_checks(world: &World, req: &Request, p: &mut Plan) -> Option<Agent> {
         p.block("agent", said, vec![(&format!("Allow {name}"), json!({"confirm": true}))]);
     }
     Some(found)
+}
+
+/// The account the agent runs on, when it takes one and this machine has several: the one asked for, else the default.
+fn account_checks(world: &World, req: &Request, p: &mut Plan, found: &Agent) {
+    if found.account_env.is_none() || world.accounts.len() < 2 {
+        if !req.account.is_empty() {
+            p.notes.push(format!("{} runs on one account here: it starts on its own", found.name));
+        }
+        return;
+    }
+    let wanted = if req.account.is_empty() { None } else { Some(accounts::key(&req.account)) };
+    let picked = match &wanted {
+        Some(dir) => world.accounts.iter().find(|a| a.dir == *dir),
+        None => world.accounts.iter().find(|a| a.default).or(world.accounts.first()),
+    };
+    let Some(account) = picked else {
+        let folder = accounts::shown(wanted.as_deref().unwrap_or_default());
+        p.block("agent", format!("No {} account in {folder}", found.name), vec![("Use the default account", json!({"account": ""}))]);
+        return;
+    };
+    (p.account, p.account_name) = (account.dir.clone(), account.name.clone());
 }
 
 /// Working in the repo's own checkout: on its current branch, refused among uncommitted changes unless asked.
@@ -1475,6 +1512,10 @@ fn script_for(plan: &Plan, marker: &Path, prompt_file: &Path) -> String {
         .map(|w| if w.contains(PROMPT_MARK) { format!("'{}'", w.replace('\'', "'\"'\"'")).replace(PROMPT_MARK, "'\"$(cat \"$P\")\"'") } else { quote(w) })
         .collect();
     let mut lines = vec!["# Start work: the setup, then the agent.".to_string(), format!("P={}", quote(&prompt_file.to_string_lossy()))];
+    // The account it runs on: its config folder, in the variable its table row names.
+    if let (Some(var), false) = (agent.account_env.as_deref(), plan.account.is_empty()) {
+        lines.push(format!("export {var}={}", quote(&plan.account)));
+    }
     if let Some((command, _)) = &plan.setup {
         lines.push(format!("{} setup-run /bin/sh -c {}", quote(&cockpit_bin()), quote(command)));
         lines.push("s=$?".into());
@@ -1862,7 +1903,8 @@ fn drive_steps(id: &str, plan: &Plan, cache: &Path) {
     set_step(id, "agent", "running", "");
     let agent = plan.agent.as_ref().map(|a| a.id.clone()).unwrap_or_default();
     let mode = if plan.mode.is_empty() { "default" } else { plan.mode.as_str() };
-    let picks = json!({"agent": agent, "cwd": plan.path, "mode": mode, "confirm": plan.confirm, "model": plan.model, "effort": plan.effort, "fast": plan.fast});
+    let picks = json!({"agent": agent, "cwd": plan.path, "mode": mode, "confirm": plan.confirm, "model": plan.model, "effort": plan.effort, "fast": plan.fast,
+        "account": plan.account});
     let started = crate::views::act("session", "start", &[picks]).unwrap_or_else(|| json!({"error": "no session view"}));
     if let Some(error) = started["error"].as_str() {
         return over("failed", Some(("agent", error.to_string())), Some(("agent", "failed")));

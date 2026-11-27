@@ -349,9 +349,9 @@ pub fn which(
     }
 }
 
-/// The session Claude Code notes for one of its processes: `~/.claude/sessions/<pid>.json`.
+/// The session Claude Code notes for one of its processes: `sessions/<pid>.json` in its account's folder.
 fn claude_session_of(pid: u64) -> Option<String> {
-    let v = files::load(&transcripts::claude_home().join(format!("sessions/{pid}.json")))?;
+    let v = files::load(&transcripts::claude_file(&format!("sessions/{pid}.json"))?)?;
     v["sessionId"].as_str().filter(|s| !s.is_empty()).map(str::to_string)
 }
 

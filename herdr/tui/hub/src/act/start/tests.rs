@@ -146,6 +146,7 @@ fn world<'a>(f: &Fixture, cfg: Config, desk: &'a Fake) -> World<'a> {
         github: &offline,
         tracker: &no_tracker,
         take: no_take,
+        accounts: Vec::new(),
     }
 }
 
@@ -755,4 +756,37 @@ fn an_agent_that_takes_no_prompt_as_it_starts_is_never_said_to_start_on_the_work
     assert!(step(&stub).starts_with("start Stub on "), "{}", step(&stub));
     assert_eq!(queue_first_prompt(&stub, "app:t9"), "", "an agent that took it on its command line queues nothing");
     assert_eq!(queue_first_prompt(&p, "app:t9"), " · the prompt was not queued: paste it once the agent is up", "no queue here: it says so");
+}
+
+#[test]
+fn an_agent_on_several_accounts_starts_on_the_one_picked_else_the_default() {
+    let f = Fixture::new();
+    let desk = Fake::default();
+    let mut w = world(&f, f.cfg(json!({})), &desk);
+    let account = |dir: &str, name: &str, default: bool| accounts::Account { dir: dir.into(), name: name.into(), default, signed_in: Value::Null };
+    w.accounts = vec![account("/home/me/.claude", "Personal", true), account("/home/me/.claude-work", "Work", false)];
+    w.agents[0].account_env = Some("CLAUDE_CONFIG_DIR".into());
+    w.agents[1].account_env = None;
+    let names: Vec<Value> = choices(&w)["agents"].as_array().unwrap().iter().map(|a| json!(a["accounts"].as_array().unwrap().len())).collect();
+    assert_eq!(names, [json!(2), json!(0)], "only an agent with an account variable offers the accounts");
+
+    let default = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api"})));
+    assert_eq!((default.account.as_str(), default.json()["accountName"].as_str()), ("/home/me/.claude", Some("Personal")));
+    let work = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "account": "/home/me/.claude-work/"})));
+    assert!(work.ok() && work.steps.iter().any(|(_, t)| t.contains("(Work account)")), "{:?}", work.steps);
+    let script = script_for(&work, Path::new("/m"), Path::new("/p"));
+    assert!(script.contains("\nexport CLAUDE_CONFIG_DIR=/home/me/.claude-work\n"), "{script}");
+
+    let gone = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "account": "/home/me/.claude-gone"})));
+    assert_eq!(blocker_steps(&gone), ["agent"]);
+    assert_eq!(gone.blockers[0].fixes[0], ("Use the default account".to_string(), json!({"account": ""})));
+    // A session cockpit drives runs on the account picked too.
+    let driven = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "account": "/home/me/.claude-work", "driven": true})));
+    assert!(driven.ok() && driven.account == "/home/me/.claude-work", "{:?}", driven.blockers.iter().map(|b| &b.step).collect::<Vec<_>>());
+
+    let other = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "agent": "moded", "account": "/home/me/.claude-work"})));
+    assert!(other.account.is_empty() && other.notes.iter().any(|n| n.contains("one account")), "{:?}", other.notes);
+    assert!(!script_for(&other, Path::new("/m"), Path::new("/p")).contains("export"));
+    w.accounts.truncate(1);
+    assert!(plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api"}))).account.is_empty(), "one account, nothing to pick");
 }

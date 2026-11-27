@@ -32,8 +32,8 @@ pub(crate) fn root(l: &Live, session: Option<&str>) -> Option<u32> {
         return got["pid"].as_u64().map(|p| p as u32);
     }
     let session = session.filter(|_| l.agent == "claude")?;
-    let dir = cockpit_core::transcripts::claude_home().join("sessions");
-    std::fs::read_dir(dir).into_iter().flatten().flatten().find_map(|e| {
+    let dirs = cockpit_core::transcripts::claude_homes().into_iter().map(|h| h.join("sessions"));
+    dirs.flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten()).find_map(|e| {
         let v = cockpit_core::files::load(&e.path())?;
         (v["sessionId"].as_str() == Some(session)).then(|| v["pid"].as_u64().map(|p| p as u32)).flatten()
     })

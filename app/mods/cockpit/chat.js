@@ -20,7 +20,7 @@ import { CHAT_SUBJECT, CHAT_PIN, CHAT_ASK, pinChat, frontAgent } from "./screens
 import { childTerminals } from "./fleet.js";
 import { followInReview } from "./review.js";
 import { showWhere } from "./projects.js";
-import { windowsWords } from "./usage.js";
+import { windowsWords, forAccount } from "./usage.js";
 import { Started } from "./doctor.js";
 import { ChatStart } from "./chatstart.js";
 import { modelName, pickChips, modeOf, modeChoices, unaskedModes, asksLess, nextMode } from "./picks.js";
@@ -2750,7 +2750,7 @@ export default class Chat {
       typeof seat.cost === "number" && seat.cost > 0 ? `~$${seat.cost.toFixed(2)} so far, estimated` : null,
     ].filter(Boolean).join(" · ");
     // What the model answers with, where it works, and how much of the agent's limits are used, as its agent reports them.
-    const limits = windowsWords(this.model.value?.quota, row?.agent || row?.program);
+    const limits = windowsWords(forAccount(this.model.value?.quota, row), row?.agent || row?.program);
     // The model, its effort level and fast mode, as its agent offers them; a terminal's from what its transcript says.
     const ran = live ? null : (this.value?.session ?? null);
     const subject = row ?? (live ? {} : null);

@@ -25,12 +25,13 @@ const WORKTREE: usize = 2;
 const BASE: usize = 3;
 const BRANCH: usize = 4;
 const AGENT: usize = 5;
-const MODEL: usize = 6;
-const EFFORT: usize = 7;
-const FAST: usize = 8;
-const MODE: usize = 9;
-const FIELDS: usize = 10;
-const LABELS: [&str; FIELDS] = ["Source", "Repo", "Worktree", "Base", "Branch", "Agent", "Model", "Effort", "Speed", "Mode"];
+const ACCOUNT: usize = 6;
+const MODEL: usize = 7;
+const EFFORT: usize = 8;
+const FAST: usize = 9;
+const MODE: usize = 10;
+const FIELDS: usize = 11;
+const LABELS: [&str; FIELDS] = ["Source", "Repo", "Worktree", "Base", "Branch", "Agent", "Account", "Model", "Effort", "Speed", "Mode"];
 /// How long the form waits after the last key before asking the hub for a new plan.
 const SETTLE: Duration = Duration::from_millis(250);
 const SPIN: [&str; 4] = ["◐", "◓", "◑", "◒"];
@@ -56,6 +57,8 @@ pub struct Form {
     /// What the person picked; None leaves it to the plan.
     repo: Option<String>,
     agent: Option<String>,
+    /// The config folder of the account picked, of the agent's `accounts`.
+    account: Option<String>,
     mode: Option<String>,
     /// The effort level picked; empty leaves it to the agent.
     effort: String,
@@ -100,6 +103,7 @@ impl Form {
             model: Input::default(),
             repo: None,
             agent: None,
+            account: None,
             mode: None,
             effort: String::new(),
             fast: String::new(),
@@ -156,7 +160,7 @@ impl Form {
             "id": self.id, "text": self.source.text.trim(), "worktree": if self.here { "here" } else { "new" },
             "base": self.base.text.trim(), "branch": self.branch.text.trim(), "model": self.model.text.trim(),
             "repo": self.repo.clone().unwrap_or_default(), "agent": self.agent.clone().unwrap_or_default(), "mode": self.mode.clone().unwrap_or_default(),
-            "effort": self.effort,
+            "effort": self.effort, "account": self.account.clone().unwrap_or_default(),
         });
         // Fast mode goes only once picked.
         match self.fast.as_str() {
@@ -196,14 +200,21 @@ impl Form {
         self.plan["choices"]["agents"].as_array().into_iter().flatten().find(|a| a["id"] == id.as_str()).cloned().unwrap_or(Value::Null)
     }
 
-    /// Whether the field shows: base and branch for a new worktree of anything but a PR, the model, effort level, fast
-    /// mode and mode for an agent that takes them at start, and the source alone when the start runs already.
+    /// The accounts the agent can start on, when this machine has several: `{dir, name, default}`, the default first.
+    fn accounts(&self) -> Vec<Value> {
+        self.agent_choice()["accounts"].as_array().cloned().unwrap_or_default()
+    }
+
+    /// Whether the field shows: base and branch for a new worktree of anything but a PR, the account on a machine with
+    /// several, the model, effort level, fast mode and mode for an agent that takes them at start, and the source alone
+    /// when the start runs already.
     fn shown(&self, field: usize) -> bool {
         if self.plan["place"] == "focus" {
             return field == SOURCE;
         }
         match field {
             BASE | BRANCH => !self.here && self.plan["kind"] != "pr",
+            ACCOUNT => self.accounts().len() > 1,
             MODEL => self.agent_choice()["models"] != false,
             EFFORT => self.offered(EFFORT).len() > 1,
             FAST => self.offered(FAST).len() > 1,
@@ -310,6 +321,11 @@ impl Form {
                 (self.model, self.effort, self.fast) = (Input::default(), String::new(), String::new());
                 self.edited();
             }
+            ACCOUNT => {
+                let now = self.account.clone().unwrap_or_else(|| self.plan["account"].as_str().unwrap_or_default().to_string());
+                self.account = pick(strings(&Value::Array(self.accounts()), "dir"), &now);
+                self.edited();
+            }
             MODEL | EFFORT | FAST => {
                 let values: Vec<String> = self.offered(self.at).into_iter().map(|(v, _)| v).collect();
                 let now = match self.at {
@@ -342,6 +358,7 @@ impl Form {
                 "base" => self.base = Input::new(v.as_str().unwrap_or_default()),
                 "repo" => self.repo = v.as_str().map(str::to_string),
                 "worktree" => self.here = v == "here",
+                "account" => self.account = v.as_str().filter(|a| !a.is_empty()).map(str::to_string),
                 _ => {
                     self.extra.insert(k.clone(), v.clone());
                 }
@@ -581,6 +598,14 @@ impl Form {
                 let found = self.agent_choice();
                 let name = found["name"].as_str().or(plan["agentName"].as_str()).unwrap_or_default().to_string();
                 (if found["installed"] == false { format!("{name} (not installed)") } else { name }, true)
+            }
+            ACCOUNT => {
+                let dir = self.account.clone().or_else(|| plan["account"].as_str().map(str::to_string)).unwrap_or_default();
+                let list = self.accounts();
+                let found = list.iter().find(|a| a["dir"] == dir.as_str()).or_else(|| list.iter().find(|a| a["default"] == true));
+                let name = found.and_then(|a| a["name"].as_str()).unwrap_or_default();
+                let default = found.is_some_and(|a| a["default"] == true);
+                (if default { format!("{name} (default)") } else { name.to_string() }, self.account.is_some())
             }
             MODE => {
                 let id = self.mode.clone().or_else(|| plan["mode"].as_str().filter(|m| !m.is_empty()).map(str::to_string)).unwrap_or_else(|| "default".into());

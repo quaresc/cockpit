@@ -62,9 +62,10 @@ pub fn search(query: &str) -> Vec<Value> {
     INDEX.get().map(|index| index.search(query, Local::now().date_naive())).unwrap_or_default()
 }
 
-/// Each format's folder of transcripts (Claude's projects, Codex's sessions, ...), where it is on this machine.
+/// Each format's folders of transcripts (each Claude Code account's projects, Codex's sessions, ...), where they are on
+/// this machine.
 pub fn sources() -> Vec<(Transcripts, PathBuf)> {
-    reader::KINDS.into_iter().filter_map(|k| Some((k, reader::root(k)?))).collect()
+    reader::KINDS.into_iter().flat_map(|k| reader::roots(k).into_iter().map(move |r| (k, r))).collect()
 }
 
 fn index_dir() -> PathBuf {

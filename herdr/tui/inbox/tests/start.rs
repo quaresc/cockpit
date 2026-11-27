@@ -216,6 +216,33 @@ fn the_model_effort_and_speed_cycle_among_what_the_agent_takes_at_start() {
 }
 
 #[test]
+fn the_account_shows_on_a_machine_with_several_and_cycles_among_them() {
+    let mut p = plan();
+    p["account"] = json!("/home/me/.claude");
+    p["accountName"] = json!("Personal");
+    p["choices"]["agents"][0]["accounts"] =
+        json!([{"dir": "/home/me/.claude", "name": "Personal", "default": true}, {"dir": "/home/me/.claude-work", "name": "Work", "default": false}]);
+    let mut form = Form::fixture("ENG-412", p.clone(), None);
+    let screen = render(&mut popup(Form::fixture("ENG-412", p.clone(), None)), 100, 36);
+    assert!(screen.contains("Account   ‹ Personal (default) ›"), "{screen}");
+    assert_eq!(form.request()["account"], "", "the plan's default until one is picked");
+    // Repo, Worktree, Base, Branch, Agent, then Account.
+    for _ in 0..6 {
+        press(&mut form, KeyCode::Tab);
+    }
+    press(&mut form, KeyCode::Right);
+    assert_eq!(form.request()["account"], "/home/me/.claude-work");
+    let screen = render(&mut popup(form), 100, 36);
+    assert!(screen.contains("Account   ‹ Work ›"), "{screen}");
+    insta::assert_snapshot!("start_account", screen);
+
+    // One account, or an agent that takes none: no row.
+    p["choices"]["agents"][0]["accounts"] = json!([]);
+    let plain = render(&mut popup(Form::fixture("ENG-412", p, None)), 100, 36);
+    assert!(!plain.contains("Account"), "{plain}");
+}
+
+#[test]
 fn a_run_shows_each_step_as_it_goes() {
     let started = Form::fixture("ENG-412", plan(), Some(run(["done", "done", "done", "running", "todo"], None)));
     let screen = render(&mut popup(started), 100, 34);

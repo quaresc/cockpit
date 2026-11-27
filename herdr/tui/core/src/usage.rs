@@ -23,7 +23,7 @@ use crate::agent::{self, Transcripts};
 use crate::fresh::{Freshness, State};
 use crate::keys::{self, Move};
 use crate::theme::{BG, DIM, FG, GREEN, ORANGE, PANEL, RED, bold, fg};
-use crate::{files, term, transcripts};
+use crate::{accounts, files, term, transcripts};
 
 pub const STATUSLINE: &str = "claude-statusline";
 pub const STREAM: &str = "claude-stream";
@@ -110,6 +110,8 @@ pub struct Window {
     /// When the source said so, in ms.
     pub as_of: u64,
     pub source: &'static str,
+    /// The Claude Code config folder it was read for (`accounts::key`), when the source names one.
+    pub account: Option<String>,
 }
 
 impl Window {
@@ -173,6 +175,7 @@ impl Window {
         let state = self.state(now);
         json!({
             "agent": self.agent, "provider": short, "icon": agent::icon_in(&[], &self.agent), "name": self.name, "label": format!("{short} {}", self.name),
+            "account": self.account,
             "percent": percent, "figure": self.figure(now), "floor": self.floor(now),
             "status": self.status, "status_words": self.status.as_deref().map(status_words),
             "resets_at": self.resets_at, "resets_words": self.resets_at.map(|r| resets_words(r, now)),
@@ -278,6 +281,7 @@ pub fn from_statusline(file: &Value) -> Vec<Window> {
                 resets_at: ms_of(&l["resetsAt"]),
                 as_of: at,
                 source: STATUSLINE,
+                account: None,
             })
         })
         .collect()
@@ -297,6 +301,7 @@ pub fn from_stream(info: &Value, as_of: u64) -> Vec<Window> {
             resets_at: ms_of(&w["resetsAt"]),
             as_of,
             source: STREAM,
+            account: None,
         }
     };
     if let Some(windows) = info["unifiedWindows"].as_object().filter(|w| !w.is_empty()) {
@@ -349,6 +354,7 @@ pub fn from_rollout(line: &Value) -> Option<Codex> {
                 length: minutes.map(|m| m * 60_000),
                 as_of,
                 source: ROLLOUT,
+                account: None,
             }
         })
         .collect();
@@ -386,7 +392,7 @@ pub fn codex_reading(path: &Path) -> Option<Codex> {
     None
 }
 
-/// The newest readings, one per window: a reading past its reset says nothing any more, and a verdict newer than the
+/// The newest readings, one per window of each account: a reading past its reset says nothing any more, and a verdict newer than the
 /// last percent goes beside that percent rather than replacing it.
 pub fn merge(mut readings: Vec<Window>, now: u64) -> Vec<Window> {
     readings.retain(|w| match w.resets_at {
@@ -396,10 +402,11 @@ pub fn merge(mut readings: Vec<Window>, now: u64) -> Vec<Window> {
     readings.sort_by_key(|w| std::cmp::Reverse(w.as_of));
     let mut out: Vec<Window> = Vec::new();
     for w in &readings {
-        if out.iter().any(|o| o.agent == w.agent && o.name == w.name) {
+        let alike = |o: &Window| o.agent == w.agent && o.account == w.account && o.name == w.name;
+        if out.iter().any(alike) {
             continue;
         }
-        let same: Vec<&Window> = readings.iter().filter(|o| o.agent == w.agent && o.name == w.name).collect();
+        let same: Vec<&Window> = readings.iter().filter(|o| alike(o)).collect();
         let mut best = same.iter().find(|o| o.percent.is_some()).copied().unwrap_or(w).clone();
         if let Some(status) = same.iter().filter(|o| o.as_of >= best.as_of).find_map(|o| o.status.clone()) {
             best.status = Some(status);
@@ -420,8 +427,10 @@ pub fn tightest_first(windows: &mut [Window]) {
 /// Everything the providers are built from, read at once; tests and the demo world fill it themselves.
 #[derive(Clone, Debug, Default)]
 pub struct Inputs {
-    /// limits.json as written, or null.
+    /// limits.json as written, or null: the status line of a session on `~/.claude`.
     pub statusline: Value,
+    /// Each Claude Code config folder's status line (`limits/<folder>.json`), by its folder.
+    pub statuslines: Vec<(String, Value)>,
     /// Why limits.json could not be read, when it is there.
     pub statusline_error: Option<String>,
     pub stream: Vec<Window>,
@@ -432,6 +441,8 @@ pub struct Inputs {
     pub commanded: Vec<Window>,
     /// Claude Code's `oauthAccount`: null when its file is missing, `false` when it holds no account.
     pub claude_account: Value,
+    /// Every Claude Code account on this machine, the default first; with fewer than two, Claude is one provider.
+    pub accounts: Vec<accounts::Account>,
     /// The agents installed here, by id.
     pub installed: Vec<String>,
 }
@@ -483,7 +494,9 @@ fn stream_of(session: &Value, now: u64, seen: &mut HashMap<String, (String, u64)
             }
         }
     };
-    from_stream(info, at)
+    // A session on another account than the hub's names its folder.
+    let account = session["account"].as_str().filter(|d| !d.is_empty()).map(accounts::key);
+    from_stream(info, at).into_iter().map(|w| Window { account: account.clone(), ..w }).collect()
 }
 
 fn stamp_of(meta: &std::fs::Metadata) -> Stamp {
@@ -493,76 +506,63 @@ fn stamp_of(meta: &std::fs::Metadata) -> Stamp {
 /// What limits.json says, read again only when it changed; a file caught half written keeps the last good value, and
 /// only a file never read whole is an error.
 fn statusline_file(path: &Path) -> (Value, Option<String>) {
-    static LAST: Kept<Option<(Stamp, Value)>> = OnceLock::new();
+    static LAST: Kept<HashMap<PathBuf, (Stamp, Value)>> = OnceLock::new();
     let Ok(meta) = std::fs::metadata(path) else { return (Value::Null, None) };
     let stamp = stamp_of(&meta);
     let mut last = lock(&LAST);
-    if let Some((was, value)) = last.as_ref()
+    if let Some((was, value)) = last.get(path)
         && *was == stamp
     {
         return (value.clone(), None);
     }
     match std::fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
         Some(value) => {
-            *last = Some((stamp, value.clone()));
+            last.insert(path.to_path_buf(), (stamp, value.clone()));
             (value, None)
         }
-        None => match last.as_ref() {
+        None => match last.get(path) {
             Some((_, value)) => (value.clone(), None),
             None => (Value::Null, Some("limits.json could not be read".to_string())),
         },
     }
 }
 
-/// Claude Code's own settings file, which names the account it is signed in with.
-fn claude_json() -> PathBuf {
-    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
-        Some(dir) => PathBuf::from(dir).join(".claude.json"),
-        None => files::home().join(".claude.json"),
-    }
+/// Each config folder's status line the plugin keeps under `limits/`, by the folder its `dir` names; a file that names
+/// none or cannot be read is passed over.
+fn statusline_files(dir: &Path) -> Vec<(String, Value)> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut out: Vec<(String, Value)> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .filter_map(|p| {
+            let (value, _) = statusline_file(&p);
+            let folder = value["dir"].as_str().filter(|d| !d.is_empty()).map(accounts::key)?;
+            Some((folder, value))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
 }
 
-/// Claude Code's settings file as far as cockpit keeps it: the account's address and organization, everything else
-/// passed over by the parser and dropped.
-#[derive(Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct ClaudeFile {
-    oauth_account: Option<OauthAccount>,
-}
-
-#[derive(Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct OauthAccount {
-    email_address: Option<String>,
-    organization_name: Option<String>,
-}
-
-/// Only the account's address and organization: nothing else of that file is kept, and it is read again only when it
-/// changed. Null without the file, false when it holds no account.
-fn claude_account() -> Value {
-    static LAST: Kept<Option<(Stamp, Value)>> = OnceLock::new();
-    let Ok(meta) = std::fs::metadata(claude_json()) else { return Value::Null };
+/// Only the default account's address and organization: nothing else of that file is kept, and it is read again only
+/// when it changed. Null without the file, false when it holds no account.
+fn claude_account(path: &Path) -> Value {
+    static LAST: Kept<Option<(PathBuf, Stamp, Value)>> = OnceLock::new();
+    let Ok(meta) = std::fs::metadata(path) else { return Value::Null };
     let stamp = stamp_of(&meta);
     let mut last = lock(&LAST);
-    if let Some((was, value)) = last.as_ref()
+    if let Some((was_path, was, value)) = last.as_ref()
+        && was_path == path
         && *was == stamp
     {
         return value.clone();
     }
-    let Some(value) = std::fs::read(claude_json()).ok().and_then(|b| account_of(&b)) else {
-        return last.as_ref().map(|(_, v)| v.clone()).unwrap_or(Value::Null);
+    let Some(value) = std::fs::read(path).ok().and_then(|b| accounts::account_of(&b)) else {
+        return last.as_ref().filter(|(p, _, _)| p == path).map(|(_, _, v)| v.clone()).unwrap_or(Value::Null);
     };
-    *last = Some((stamp, value.clone()));
+    *last = Some((path.to_path_buf(), stamp, value.clone()));
     value
-}
-
-/// `{emailAddress, organizationName}` from the file's text, false when it names no account, None when it is no JSON.
-fn account_of(bytes: &[u8]) -> Option<Value> {
-    let file = serde_json::from_slice::<ClaudeFile>(bytes).ok()?;
-    Some(match file.oauth_account {
-        Some(OauthAccount { email_address: Some(email), organization_name }) => json!({"emailAddress": email, "organizationName": organization_name}),
-        _ => Value::Bool(false),
-    })
 }
 
 /// The rollouts of the last 8 days' folders (`sessions/YYYY/MM/DD`), newest first: only those folders are listed.
@@ -681,6 +681,7 @@ pub fn from_copilot(user: &Value, now: u64) -> Option<Codex> {
                 length: Some(30 * DAY),
                 as_of: now,
                 source: COPILOT,
+                account: None,
             })
         })
         .collect();
@@ -752,6 +753,7 @@ pub fn from_command(agent: &str, printed: &Value, now: u64) -> Vec<Window> {
                 resets_at: ms_of(&w["resets_at"]),
                 as_of: now,
                 source: COMMAND,
+                account: None,
             })
         })
         .collect()
@@ -778,7 +780,7 @@ fn demo(now: u64) -> Option<Inputs> {
     let u = world.get("usage").filter(|u| u.is_object())?;
     let ago = |v: &Value| now.saturating_sub((v.as_f64().unwrap_or(0.0) * 60_000.0) as u64);
     let ahead = |v: &Value| now + (v.as_f64().unwrap_or(0.0) * 60_000.0) as u64;
-    let statusline = match u["statusline"].as_object() {
+    let file = |s: &Value| match s.as_object() {
         Some(s) => {
             let limits: Vec<Value> = s
                 .get("limits")
@@ -791,6 +793,17 @@ fn demo(now: u64) -> Option<Inputs> {
         }
         None => Value::Null,
     };
+    let statusline = file(&u["statusline"]);
+    // Other Claude Code accounts: `{dir, name, default, account, statusline}` each, the folder written from `~`.
+    let (mut accounts, mut statuslines) = (Vec::new(), Vec::new());
+    for a in u["claude_accounts"].as_array().into_iter().flatten() {
+        let Some(dir) = a["dir"].as_str().map(accounts::key) else { continue };
+        let name = a["name"].as_str().map(str::to_string).unwrap_or_else(|| accounts::shown(&dir));
+        accounts.push(accounts::Account { dir: dir.clone(), name, default: a["default"] == true, signed_in: a["account"].clone() });
+        if a["statusline"].is_object() {
+            statuslines.push((dir, file(&a["statusline"])));
+        }
+    }
     let codex = u["codex"].as_object().and_then(|c| {
         let window = |w: Option<&Value>| {
             w.filter(|w| w.is_object())
@@ -812,7 +825,7 @@ fn demo(now: u64) -> Option<Inputs> {
         None => Vec::new(),
     };
     let installed = u["installed"].as_array().into_iter().flatten().filter_map(|a| a.as_str().map(str::to_string)).collect();
-    Some(Inputs { statusline, statusline_error: None, stream, codex, claude_account: u["claude_account"].clone(), installed, ..Inputs::default() })
+    Some(Inputs { statusline, statuslines, stream, codex, claude_account: u["claude_account"].clone(), accounts, installed, ..Inputs::default() })
 }
 
 /// What the sources say: the demo world's when one is set, else the files, each read again only when it changed.
@@ -823,14 +836,18 @@ fn gather(now: u64) -> Inputs {
     let (statusline, statusline_error) = statusline_file(&files::cache().join("limits.json"));
     let installed = installed(now);
     let copilot = if installed.iter().any(|a| a == "copilot") { copilot_now(now) } else { None };
+    let accounts = accounts::all();
+    let default = accounts.iter().find(|a| a.default).map(|a| a.dir.clone()).unwrap_or_else(accounts::default_dir);
     Inputs {
         statusline,
         statusline_error,
+        statuslines: statusline_files(&files::cache().join("limits")),
         stream: Vec::new(),
         codex: codex_now(now),
         copilot,
         commanded: commanded_now(now),
-        claude_account: claude_account(),
+        claude_account: claude_account(&accounts::settings_file(&default)),
+        accounts,
         installed,
     }
 }
@@ -882,6 +899,8 @@ pub struct Provider {
     pub credits: Value,
     /// Why its source could not be read.
     pub error: Option<String>,
+    /// The Claude Code account it is, when this machine has several.
+    pub account: Option<accounts::Account>,
 }
 
 impl Provider {
@@ -925,9 +944,42 @@ impl Provider {
         json!({
             "agent": self.agent, "name": self.name, "icon": agent::icon_in(&[], &self.agent), "letter": self.letter, "reports": self.reports,
             "state": self.state(now), "words": self.words(now), "identity": self.identity, "credits": self.credits,
-            "error": self.error, "windows": self.windows.iter().map(|w| w.json(now)).collect::<Vec<_>>(),
-            "tightest": self.tightest().map(|w| w.json(now)),
+            "account": self.account.as_ref().map(accounts::Account::json),
+            "error": self.error, "windows": self.windows.iter().map(|w| self.window_json(w, now)).collect::<Vec<_>>(),
+            "tightest": self.tightest().map(|w| self.window_json(w, now)),
         })
+    }
+
+    /// A window as every surface draws it, with the account it belongs to named when there are several.
+    pub fn window_json(&self, w: &Window, now: u64) -> Value {
+        let mut out = w.json(now);
+        if let Some(a) = &self.account {
+            out["account_name"] = json!(a.name);
+            out["account_default"] = json!(a.default);
+        }
+        out
+    }
+}
+
+/// Claude Code's account line from its settings file's `oauthAccount`: `{signed_in, account, org, plan, words}`, with the
+/// folder it is in named when this machine has several.
+fn claude_identity(reports: agent::Reports, signed_in: &Value, folder: Option<&str>) -> Value {
+    match signed_in {
+        Value::Object(o) => {
+            let account = o.get("emailAddress").and_then(Value::as_str).unwrap_or_default();
+            let org = o.get("organizationName").and_then(Value::as_str).filter(|s| !s.is_empty());
+            let who = org.map(|org| format!("{account} · {org}")).unwrap_or_else(|| account.to_string());
+            let words = match folder {
+                Some(f) => reports.account_in.replace("{folder}", f).replace("{account}", &who),
+                None => reports.account.replace("{account}", &who),
+            };
+            json!({"signed_in": true, "account": account, "org": org, "plan": null, "words": words})
+        }
+        Value::Bool(false) => {
+            let words = folder.map(|f| reports.signed_out_in.replace("{folder}", f)).unwrap_or_else(|| reports.signed_out.to_string());
+            json!({"signed_in": false, "account": null, "org": null, "plan": null, "words": words})
+        }
+        _ => Value::Null,
     }
 }
 
@@ -936,16 +988,7 @@ impl Provider {
 fn identity_of(agent: &str, inputs: &Inputs) -> Value {
     let Some(reports) = agent::reports(agent) else { return Value::Null };
     if has_source(Some(reports), STATUSLINE) {
-        return match &inputs.claude_account {
-            Value::Object(o) => {
-                let account = o.get("emailAddress").and_then(Value::as_str).unwrap_or_default();
-                let org = o.get("organizationName").and_then(Value::as_str).filter(|s| !s.is_empty());
-                let who = org.map(|org| format!("{account} · {org}")).unwrap_or_else(|| account.to_string());
-                json!({"signed_in": true, "account": account, "org": org, "plan": null, "words": reports.account.replace("{account}", &who)})
-            }
-            Value::Bool(false) => json!({"signed_in": false, "account": null, "org": null, "plan": null, "words": reports.signed_out}),
-            _ => Value::Null,
-        };
+        return claude_identity(reports, &inputs.claude_account, None);
     }
     let reading = if has_source(Some(reports), ROLLOUT) {
         inputs.codex.as_ref()
@@ -965,11 +1008,40 @@ fn identity_of(agent: &str, inputs: &Inputs) -> Value {
     Value::Null
 }
 
+/// The Claude Code accounts the providers split Claude into: those on this machine, then any folder a reading names
+/// that none of them is. Fewer than two, and Claude stays one provider.
+fn accounts_of(inputs: &Inputs) -> Vec<accounts::Account> {
+    let mut out = inputs.accounts.clone();
+    for (dir, _) in &inputs.statuslines {
+        if !out.iter().any(|a| a.dir == *dir) {
+            out.push(accounts::Account { dir: dir.clone(), name: accounts::shown(dir), default: false, signed_in: accounts::signed_in(dir) });
+        }
+    }
+    if !out.iter().any(|a| a.default)
+        && let Some(first) = out.first_mut()
+    {
+        first.default = true;
+    }
+    out
+}
+
 /// Every agent worth listing, in the agents table's order: the ones with a reading or a source and installed, then the
 /// installed ones that report nothing.
 pub fn providers(inputs: &Inputs, now: u64) -> Vec<Provider> {
-    let mut readings = from_statusline(&inputs.statusline);
-    readings.extend(inputs.stream.iter().cloned());
+    let several = accounts_of(inputs);
+    let several = if several.len() > 1 { several } else { Vec::new() };
+    // limits.json is a session's on `~/.claude`, and a session cockpit drives runs on the hub's own folder unless it
+    // names another.
+    let (home, hub) = (accounts::home_dir(), accounts::key(&transcripts::claude_home().to_string_lossy()));
+    let mut readings: Vec<Window> = from_statusline(&inputs.statusline).into_iter().map(|w| Window { account: Some(home.clone()), ..w }).collect();
+    for (dir, file) in &inputs.statuslines {
+        readings.extend(from_statusline(file).into_iter().map(|w| Window { account: Some(dir.clone()), ..w }));
+    }
+    readings.extend(inputs.stream.iter().cloned().map(|w| Window { account: w.account.clone().or(Some(hub.clone())), ..w }));
+    // One account: its readings are one agent's, wherever they were written.
+    for w in readings.iter_mut().filter(|_| several.is_empty()) {
+        w.account = None;
+    }
     for reading in [&inputs.codex, &inputs.copilot].into_iter().flatten() {
         readings.extend(reading.windows.iter().cloned());
     }
@@ -985,6 +1057,25 @@ pub fn providers(inputs: &Inputs, now: u64) -> Vec<Provider> {
         mine.sort_by(|x, y| x.length.unwrap_or(u64::MAX).cmp(&y.length.unwrap_or(u64::MAX)).then(x.name.cmp(&y.name)));
         let error = if has_source(reports, STATUSLINE) { inputs.statusline_error.clone() } else { None };
         let credits = if has_source(reports, ROLLOUT) { inputs.codex.as_ref().map(|c| c.credits.clone()).unwrap_or_default() } else { Value::Null };
+        // Claude Code on several accounts: one provider each, the default first, every reading under its own.
+        if let (Some(r), false) = (reports.filter(|_| has_source(reports, STATUSLINE)), several.is_empty()) {
+            for account in &several {
+                let windows: Vec<Window> = mine.iter().filter(|w| w.account.as_deref() == Some(account.dir.as_str())).cloned().collect();
+                out.push(Provider {
+                    agent: a.id.clone(),
+                    name: r.short.to_string(),
+                    letter: r.letter.to_string(),
+                    reports: true,
+                    unlimited: false,
+                    identity: claude_identity(r, &account.signed_in, Some(&accounts::shown(&account.dir))),
+                    windows,
+                    credits: Value::Null,
+                    error: if account.default { error.clone() } else { None },
+                    account: Some(account.clone()),
+                });
+            }
+            continue;
+        }
         // GitHub answers through `gh`: missing or signed out, Copilot reports nothing here.
         let copilot = has_source(reports, COPILOT);
         out.push(Provider {
@@ -997,6 +1088,7 @@ pub fn providers(inputs: &Inputs, now: u64) -> Vec<Provider> {
             windows: mine,
             credits,
             error,
+            account: None,
         });
     }
     // Those with a reading first, then those that could report, then the rest; the table's order within each.
@@ -1028,12 +1120,12 @@ const TOKEN_ROOM: usize = 28;
 
 /// The `$limits` text on the herdr sidebar, grouped by agent: its letter, then each window as its figure reads,
 /// `C 64%·5h 38%·7d  X ≥12%·7d` (`C full·5h` once a limit is reached); each agent's tightest window alone when that runs
-/// past the sidebar's room; none when no agent reports a window.
+/// past the sidebar's room; none when no agent reports a window. Of several Claude Code accounts, the default's alone.
 pub fn token(providers: &[Provider], now: u64) -> Option<String> {
     let line = |every: bool| {
         let parts: Vec<String> = providers
             .iter()
-            .filter(|p| !p.windows.is_empty())
+            .filter(|p| !p.windows.is_empty() && p.account.as_ref().is_none_or(|a| a.default))
             .map(|p| {
                 let shown: Vec<&Window> = if every { p.windows.iter().collect() } else { p.tightest().into_iter().collect() };
                 let figures: Vec<String> =
@@ -1048,22 +1140,22 @@ pub fn token(providers: &[Provider], now: u64) -> Option<String> {
     (!text.is_empty()).then(|| format!("\u{f029a}  {text}"))
 }
 
-/// The agents view's `quota`: every window as a bar, agent by agent, shortest window first.
+/// The agents view's `quota`: every window as a bar, agent by agent (account by account), shortest window first.
 pub fn quota(providers: &[Provider], now: u64) -> Value {
-    Value::Array(providers.iter().flat_map(|p| p.windows.iter().map(|w| w.json(now))).collect())
+    Value::Array(providers.iter().flat_map(|p| p.windows.iter().map(|w| p.window_json(w, now))).collect())
 }
 
 /// The `usage` view: the agents with their windows and accounts, every window tightest first, the sidebar token, and
 /// the last days' tokens and estimated spend (null while the first count runs).
 pub fn view_of(inputs: &Inputs, days: Option<&Days>, now: u64) -> Value {
     let list = providers(inputs, now);
-    let mut all: Vec<Window> = list.iter().flat_map(|p| p.windows.iter().cloned()).collect();
-    tightest_first(&mut all);
+    let mut all: Vec<(&Provider, &Window)> = list.iter().flat_map(|p| p.windows.iter().map(move |w| (p, w))).collect();
+    all.sort_by(|(_, a), (_, b)| b.tightness().total_cmp(&a.tightness()).then(a.resets_at.unwrap_or(u64::MAX).cmp(&b.resets_at.unwrap_or(u64::MAX))));
     json!({
         "at": now,
         "providers": list.iter().map(|p| p.json(now)).collect::<Vec<_>>(),
-        "windows": all.iter().map(|w| w.json(now)).collect::<Vec<_>>(),
-        "tightest": all.first().map(|w| w.json(now)),
+        "windows": all.iter().map(|(p, w)| p.window_json(w, now)).collect::<Vec<_>>(),
+        "tightest": all.first().map(|(p, w)| p.window_json(w, now)),
         "token": token(&list, now),
         "sources": crate::header::json(&sources(&list, now), now),
         "loading": days.is_none(),
@@ -1077,15 +1169,19 @@ pub fn view_of(inputs: &Inputs, days: Option<&Days>, now: u64) -> Value {
 pub fn sources(providers: &[Provider], now: u64) -> Vec<crate::header::Source> {
     let mut out = Vec::new();
     for p in providers {
+        let (id, name) = match p.account.as_ref().filter(|a| !a.default) {
+            Some(a) => (format!("usage-{}-{}", p.agent, a.name), format!("{} {}", p.name, a.name)),
+            None => (format!("usage-{}", p.agent), p.name.clone()),
+        };
         if let Some(oldest) = p.windows.iter().min_by_key(|w| w.as_of) {
             let names: Vec<&str> = p.windows.iter().map(|w| w.name.as_str()).collect();
-            let fresh = Freshness { source: format!("usage-{}", p.agent), ..oldest.freshness() };
-            out.push(crate::header::Source { fresh, label: format!("{} {}", p.name, names.join(" ")), login: None, elsewhere: None });
+            let fresh = Freshness { source: id.clone(), ..oldest.freshness() };
+            out.push(crate::header::Source { fresh, label: format!("{name} {}", names.join(" ")), login: None, elsewhere: None });
         }
         if let (true, Some(error)) = (p.windows.is_empty(), &p.error) {
-            let mut fresh = Freshness { every: Some(EVERY), ..Freshness::new(&format!("usage-{}", p.agent)) };
+            let mut fresh = Freshness { every: Some(EVERY), ..Freshness::new(&id) };
             fresh.failed(now, crate::fresh::Kind::Other, error);
-            out.push(crate::header::Source { fresh, label: p.name.clone(), login: None, elsewhere: None });
+            out.push(crate::header::Source { fresh, label: name, login: None, elsewhere: None });
         }
     }
     out
@@ -1514,7 +1610,7 @@ pub fn rescan(now: u64) -> Days {
     let roots: Vec<(String, Transcripts, PathBuf)> = agent::all()
         .into_iter()
         .filter(|a| counts_tokens(a.transcripts))
-        .filter_map(|a| Some((a.id.clone(), a.transcripts, transcripts::root(a.transcripts)?)))
+        .flat_map(|a| transcripts::roots(a.transcripts).into_iter().map(move |r| (a.id.clone(), a.transcripts, r)))
         .collect();
     let priced: Vec<String> = roots.iter().filter(|(_, kind, _)| *kind == Transcripts::Claude).map(|(id, _, _)| id.clone()).collect();
     let books = files::cache().join("costs");
@@ -1609,8 +1705,10 @@ type Start = (i64, u128, String);
 fn scan_into(s: &mut Scanner, roots: &[(String, Transcripts, PathBuf)], now: u64, keep: &HashSet<String>) -> bool {
     let since = now.saturating_sub((DAYS as u64 + 1) * DAY);
     let mut wanted: Vec<Wanted> = Vec::new();
+    let mut walked: HashSet<&PathBuf> = HashSet::new();
     for (agent, kind, root) in roots {
-        if wanted.iter().any(|(_, _, k)| k == kind) {
+        // Agents that share a format share its folders: each is read once.
+        if !walked.insert(root) {
             continue;
         }
         let (depth, session_file) = layout(*kind);
@@ -2503,6 +2601,7 @@ mod tests {
             length: length_of(name),
             as_of,
             source: STATUSLINE,
+            account: None,
         };
         let merged = merge(
             vec![
@@ -2550,6 +2649,7 @@ mod tests {
             length: Some(7 * DAY),
             as_of: NOW - 3 * HOUR,
             source: ROLLOUT,
+            account: None,
         };
         assert_eq!((stale.floor(NOW), stale.figure(NOW)), (true, "≥12%".to_string()));
         let unknown = Window { resets_at: None, ..stale.clone() };
@@ -2569,6 +2669,9 @@ mod tests {
         assert_eq!(stream_of(&bare, NOW, &mut seen)[0].as_of, NOW);
         assert_eq!(stream_of(&bare, NOW + 60_000, &mut seen)[0].as_of, NOW, "without its time, as of when cockpit first saw it");
         assert!(stream_of(&json!({"key": "s3"}), NOW, &mut seen).is_empty());
+        let elsewhere = json!({"key": "s4", "account": "/home/me/.claude-work/", "rate_limit": {"status": "allowed", "rateLimitType": "five_hour", "utilization": 0.4, "resetsAt": (NOW + HOUR) / 1000}, "rate_limit_at": NOW});
+        assert_eq!(stream_of(&elsewhere, NOW, &mut seen)[0].account.as_deref(), Some("/home/me/.claude-work"), "a session on another account names it");
+        assert_eq!(stream_of(&session(NOW), NOW, &mut seen)[0].account, None, "else it is the hub's");
     }
 
     #[test]
@@ -2602,9 +2705,9 @@ mod tests {
     fn only_the_account_address_and_organization_are_kept() {
         let file = br#"{"numStartups": 9, "userID": "u-1", "oauthAccount": {"accountUuid": "a-1", "emailAddress": "me@acme.example",
             "organizationUuid": "o-1", "organizationName": "Acme", "organizationRole": "admin"}, "projects": {"/code/api": {}}}"#;
-        assert_eq!(account_of(file), Some(json!({"emailAddress": "me@acme.example", "organizationName": "Acme"})));
-        assert_eq!(account_of(br#"{"numStartups": 9}"#), Some(Value::Bool(false)));
-        assert_eq!(account_of(b"{\"oauthAcc"), None, "a file caught half written says nothing");
+        assert_eq!(accounts::account_of(file), Some(json!({"emailAddress": "me@acme.example", "organizationName": "Acme"})));
+        assert_eq!(accounts::account_of(br#"{"numStartups": 9}"#), Some(Value::Bool(false)));
+        assert_eq!(accounts::account_of(b"{\"oauthAcc"), None, "a file caught half written says nothing");
     }
 
     #[test]
@@ -2663,6 +2766,62 @@ mod tests {
             (&json!(false), &json!("This machine's Claude Code is not signed in to a Claude account"))
         );
         assert_eq!(providers(&inputs(), NOW)[0].identity, Value::Null, "nothing says, nothing shown");
+    }
+
+    /// Two accounts: `~/.claude` (the default) and `~/.claude-work`, named Work.
+    fn two_accounts() -> (String, String, Inputs) {
+        let (home, work) = (accounts::home_dir(), accounts::key("~/.claude-work"));
+        let account = |dir: &str, name: &str, default: bool, email: &str| accounts::Account {
+            dir: dir.to_string(),
+            name: name.to_string(),
+            default,
+            signed_in: json!({"emailAddress": email, "organizationName": "Acme"}),
+        };
+        let i = Inputs {
+            accounts: vec![account(&home, "Personal", true, "me@example.com"), account(&work, "Work", false, "me@acme.example")],
+            statusline: json!({"at": NOW - 60_000, "limits": [{"name": "5h", "percent": 64, "resetsAt": (NOW + HOUR) / 1000}]}),
+            statuslines: vec![(work.clone(), json!({"at": NOW, "dir": work, "limits": [{"name": "5h", "percent": 3, "resetsAt": (NOW + 4 * HOUR) / 1000}]}))],
+            ..inputs()
+        };
+        (home, work, i)
+    }
+
+    #[test]
+    fn several_claude_accounts_are_a_provider_each_with_their_own_readings() {
+        let (home, work, i) = two_accounts();
+        let list = providers(&i, NOW);
+        let claude: Vec<&Provider> = list.iter().filter(|p| p.agent == "claude").collect();
+        let seen: Vec<(&str, Option<f64>, &Value)> =
+            claude.iter().map(|p| (p.account.as_ref().unwrap().name.as_str(), p.windows[0].percent, &p.identity["words"])).collect();
+        assert_eq!(
+            seen,
+            [
+                ("Personal", Some(64.0), &json!("Claude Code in ~/.claude: me@example.com · Acme")),
+                ("Work", Some(3.0), &json!("Claude Code in ~/.claude-work: me@acme.example · Acme"))
+            ],
+            "the newer Work reading never covers the default's"
+        );
+        let q = quota(&list, NOW);
+        let rows: Vec<(&Value, &Value, &Value)> = q.as_array().unwrap().iter().map(|r| (&r["account"], &r["account_name"], &r["account_default"])).collect();
+        assert_eq!(rows, [(&json!(home), &json!("Personal"), &json!(true)), (&json!(work), &json!("Work"), &json!(false))]);
+        assert_eq!(token(&list, NOW).as_deref(), Some("\u{f029a}  C 64%·5h"), "the sidebar token is the default account's");
+        let labels: Vec<(String, String)> = sources(&list, NOW).into_iter().map(|s| (s.fresh.source, s.label)).collect();
+        assert_eq!(labels, [("usage-claude".into(), "Claude 5h".into()), ("usage-claude-Work".into(), "Claude Work 5h".into())]);
+    }
+
+    #[test]
+    fn a_folder_a_reading_names_is_an_account_and_one_account_stays_one_provider() {
+        let (_, _, mut i) = two_accounts();
+        i.accounts.truncate(1);
+        let list = providers(&i, NOW);
+        let names: Vec<String> = list.iter().filter_map(|p| p.account.as_ref()).map(|a| a.name.clone()).collect();
+        assert_eq!(names, ["Personal", "~/.claude-work"], "a session on a folder nobody listed still gets its own card");
+
+        i.statuslines.clear();
+        let single = providers(&i, NOW);
+        let claude = single.iter().find(|p| p.agent == "claude").unwrap();
+        assert_eq!((claude.account.as_ref(), claude.windows[0].account.as_ref()), (None, None));
+        assert_eq!(quota(&single, NOW)[0].get("account_name"), None);
     }
 
     #[test]
@@ -3293,6 +3452,7 @@ mod tests {
             length: Some(week),
             as_of: start,
             source: STATUSLINE,
+            account: None,
         };
         let (wed, thu, fri, mon) = (noon(11), noon(12), noon(13), noon(16));
         assert!((seven(wed).elapsed_with(thu, true).unwrap() - 0.2).abs() < 1e-9);

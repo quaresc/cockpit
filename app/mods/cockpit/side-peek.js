@@ -14,7 +14,7 @@ import { statusMark } from "./chat-top.js";
 import { hint, lend } from "./commands.js";
 import { tokens, TEXT, RADIUS, Icon, CountPill, dur, AgentLogo } from "./ui.js";
 import { SettingsLink } from "./doctor.js";
-import { QuotaGroups } from "./usage.js";
+import { QuotaGroups, forAccount, rowInFront } from "./usage.js";
 import { UpdateTag, pending as pendingUpdate } from "./update.js";
 
 // The agents, Home and queue views, followed once per window whichever copies ask (feed.js).
@@ -285,9 +285,7 @@ export default class SidePeek {
     // The row the chat reads is the one marked: its subject, else the agent in front.
     const f = focused();
     const subject = shared(CHAT_SUBJECT);
-    const terminal = f?.shown ?? f?.terminal;
-    const inView = rows.find((r) => r.address === terminal || r.terminal === terminal || r.terminal === `app:${terminal}`)
-      ?? rows.find((r) => f?.tab && (r.tab?.id ?? r.tab) === f.tab);
+    const inView = rowInFront(rows, f);
     const here = String(subject ?? inView?.address ?? inView?.terminal ?? "").replace(/^app:/, "") || null;
     const groups = STAGES.map((s) => [s, rows.filter((r) => r.stage === s.id)]).filter(([, list]) => list.length > 0);
     // Places stay under the list, outside its scroll, which gives up their height so the drawer keeps its own.
@@ -308,7 +306,7 @@ export default class SidePeek {
       // Each provider's tightest limit beside its logo, in the drawer's text tint, its windows in the tooltip; a click
       // opens the Usage sheet.
       .when(Boolean(this.rows?.quota?.length || rows.length), (e) =>
-        e.child(div().px(8).pt(2).pb(6).child(QuotaGroups(this.rows?.quota, { id: "peek-quota", rows, compact: true, mono: true, tightest: true }))),
+        e.child(div().px(8).pt(2).pb(6).child(QuotaGroups(forAccount(this.rows?.quota, inView), { id: "peek-quota", rows, compact: true, mono: true, tightest: true }) ?? div())),
       )
       .child(
         v_flex()

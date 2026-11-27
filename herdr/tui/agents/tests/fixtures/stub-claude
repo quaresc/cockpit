@@ -34,7 +34,7 @@ if os.environ.get("STUB_ARGS"):
         f.write(json.dumps(args) + "\n")
 if os.environ.get("STUB_ENV"):
     with open(os.environ["STUB_ENV"], "w") as f:
-        json.dump({k: os.environ.get(k) for k in ["COCKPIT_SESSION_KEY", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_TOKEN"]}, f)
+        json.dump({k: os.environ.get(k) for k in ["COCKPIT_SESSION_KEY", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CONFIG_DIR"]}, f)
 # Its catalog as `list_models` answers it: the models it offers, their effort levels, which have a fast mode.
 LEVELS = ["low", "medium", "high", "xhigh", "max"]
 CATALOG = [

@@ -8,6 +8,7 @@ import { h_flex, v_flex, InputState } from "gpui-base";
 import { props, closeOverlay, notify } from "herdr";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, Chip, CountPill, StageHeading, SearchField, KeyHints, Table, Empty, Spinner, Toaster, dur, AgentLogo } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours, dismissable } from "./agentsui.js";
+import { forAccount } from "./usage.js";
 
 export default class Recap {
   init(_props, cx) {
@@ -309,7 +310,7 @@ export default class Recap {
               })
               .child(SearchField(this.filter, { active: this.filtering, kbd: "/" })),
           )
-          .when(Boolean(this.agents.value?.quota?.length || this.agents.rows.length), (e) => e.child(div().w(220).flex_none().child(QuotaBars(this.agents.value?.quota, { id: "recap-quota", compact: true, tightest: true, rows: this.agents.rows }))))
+          .when(Boolean(this.agents.value?.quota?.length || this.agents.rows.length), (e) => e.child(div().w(220).flex_none().child(QuotaBars(forAccount(this.agents.value?.quota, null), { id: "recap-quota", compact: true, tightest: true, rows: this.agents.rows }) ?? div())))
           .child(Button("recap-close", { icon: "x", variant: "ghost", size: "icon-sm", tooltip: "Close  esc", onClick: () => this.dismiss() })),
       )
       .child(

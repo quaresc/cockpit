@@ -53,7 +53,10 @@ fn an_answer_reaches_the_ask_it_names_and_a_stale_one_is_refused() {
         std::thread::sleep(Duration::from_millis(20));
     }
     let told = cockpit_core::files::load(&env).expect("the stub noted its environment");
-    assert_eq!(told, serde_json::json!({"COCKPIT_SESSION_KEY": key, "CLAUDE_CODE_SESSION_ID": null, "CLAUDE_CODE_MESSAGING_TOKEN": null}));
+    assert_eq!(
+        told,
+        serde_json::json!({"COCKPIT_SESSION_KEY": key, "CLAUDE_CODE_SESSION_ID": null, "CLAUDE_CODE_MESSAGING_TOKEN": null, "CLAUDE_CONFIG_DIR": null})
+    );
     // The views it shows are its own: its row lists them as a terminal's does.
     let show = home.path().join(".cache/cockpit/show");
     std::fs::create_dir_all(&show).unwrap();
