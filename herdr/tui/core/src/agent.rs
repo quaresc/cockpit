@@ -1953,6 +1953,10 @@ pub struct Reports {
     pub account: &'static str,
     /// The account line when those files say it is signed out.
     pub signed_out: &'static str,
+    /// The account line of one of several accounts on this machine, `{folder}` its config folder.
+    pub account_in: &'static str,
+    /// That line when the folder's files say it is signed out.
+    pub signed_out_in: &'static str,
 }
 
 const REPORTS: &[(&str, Reports)] = &[
@@ -1964,13 +1968,34 @@ const REPORTS: &[(&str, Reports)] = &[
             sources: &[("claude-statusline", "Claude Code's status line"), ("claude-stream", "a session cockpit drives")],
             account: "This machine's Claude Code: {account}",
             signed_out: "This machine's Claude Code is not signed in to a Claude account",
+            account_in: "Claude Code in {folder}: {account}",
+            signed_out_in: "Claude Code in {folder} is not signed in to a Claude account",
         },
     ),
-    ("codex", Reports { short: "Codex", letter: "X", sources: &[("codex-rollout", "Codex's session log")], account: "ChatGPT {plan} plan", signed_out: "" }),
+    (
+        "codex",
+        Reports {
+            short: "Codex",
+            letter: "X",
+            sources: &[("codex-rollout", "Codex's session log")],
+            account: "ChatGPT {plan} plan",
+            signed_out: "",
+            account_in: "",
+            signed_out_in: "",
+        },
+    ),
     // GitHub's own quota of the Copilot plan, read through `gh` with the sign-in it already has.
     (
         "copilot",
-        Reports { short: "Copilot", letter: "G", sources: &[("copilot-gh", "GitHub, through gh")], account: "GitHub Copilot {plan} plan", signed_out: "" },
+        Reports {
+            short: "Copilot",
+            letter: "G",
+            sources: &[("copilot-gh", "GitHub, through gh")],
+            account: "GitHub Copilot {plan} plan",
+            signed_out: "",
+            account_in: "",
+            signed_out_in: "",
+        },
     ),
 ];
 

@@ -4,6 +4,7 @@
 //! routines' files, and the palette, dialogs, toasts, text field, shared keys, a row pointed at from outside, widgets,
 //! animations and screen snapshots.
 
+pub mod accounts;
 pub mod actions;
 pub mod acts;
 pub mod agent;

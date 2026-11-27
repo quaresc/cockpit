@@ -15,7 +15,7 @@ import { togglePalette, openRecap, hint, keyFor, keyText, lend } from "./command
 import { inFront, windowHidden } from "./front.js";
 import { UpdateTag, pending as pendingUpdate } from "./update.js";
 import { SettingsLink } from "./doctor.js";
-import { openUsage } from "./usage.js";
+import { openUsage, forAccount, rowInFront } from "./usage.js";
 import { tokens, alpha, TEXT, RADIUS, Icon, Kbd, Button, SectionHeader, StageHeading, HoverCard, Hover, Flashes, CornerCount, HubDown, dur, AgentLogo, providersOf } from "./ui.js";
 import { AgentsModel, QuestionCard, QuotaBars, StageMark, Chips, STAGES, stageColor, stageAge, hours, statusColor, UndoRow } from "./agentsui.js";
 
@@ -298,7 +298,7 @@ export default class Sidebar {
         ),
       )
       .when(!rail && Boolean(model.value?.quota?.length || rows.length), (e) =>
-        e.child(div().id("quota-box").mb(8).px(4).child(QuotaBars(model.value?.quota, { compact: true, rows }))),
+        e.child(div().id("quota-box").mb(8).px(4).child(QuotaBars(forAccount(model.value?.quota, rowInFront(rows, f)), { compact: true, rows }) ?? div())),
       )
       .when(rail, (e) =>
         e

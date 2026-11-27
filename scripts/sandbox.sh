@@ -27,6 +27,8 @@
 # the real HOME, so a line typed into one of its terminals runs on the real machine: the sandbox's hc refuses `send`
 # (a fix's command, a runbook step, an inbox run, a prompt typed to an agent) unless SANDBOX_ALLOW_SEND=1.
 set -eu
+# A Claude Code config folder outside the fake HOME would show the person's own account in the window: none is passed on.
+unset CLAUDE_CONFIG_DIR
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 tmp=${TMPDIR:-/tmp}

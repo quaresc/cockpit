@@ -1013,6 +1013,7 @@ question, the herdr TUI runs or the events are not followed), when the `inbox`/`
     "context": 41,                           // the plugin's figure (percent), or null
     "cost": 1.84,                            // the session's estimate from its transcript (USD, view `usage`), or null
     "page": "https://…",                     // the page beside it, or null
+    "account": "/Users/me/.claude-work",     // the Claude Code config folder it runs on (facts' configDir), or null
     "time": {"agent_today": 3120, "ticket_today": 4800, "ticket_week": 18000},             // seconds, from the ledger
     "snoozed": {"until": 1793640000000, "label": "until 18:00"},                          // or null ("till done": until null)
     "dismissed": null,                       // {"at": ms} once the person dismissed what it waits on: `stage` is then
@@ -1154,7 +1155,8 @@ ticket, PR and CI come from git in its folder and the inbox, as a terminal's do.
 ## View `usage` (every agent's limits and tokens, both halves)
 
 Built by `cockpit_core::usage` in the hub from what already exists on the machine: Claude Code's status line
-(`~/.cache/cockpit/limits.json`, `{at, limits: [{name, percent, resetsAt}]}`, which the plugin writes), the
+(`~/.cache/cockpit/limits/<folder>.json`, `{at, dir, limits: [{name, percent, resetsAt}]}`, one per Claude Code config
+folder, which the plugin writes; a session on `~/.claude` also writes `limits.json`, the same without `dir`), the
 `rate_limit_event`s of the sessions cockpit drives (`claude-stream`, as of the session's `rate_limit_at`, which may carry
 a verdict and no percent), and the last `token_count` of each limit bucket (`limit_id`) in the newest Codex rollout of
 the last 8 days' folders (`codex-rollout`: `rate_limits.primary/secondary`, plan and credits), Copilot's quotas as
@@ -1181,6 +1183,7 @@ did, and `usage` each time; the views only read what that thread keeps.
     "agent": "codex", "name": "Codex", "icon": "codex", "letter": "X", "reports": true,
     "state": "stale",                        // fresh | stale | none ("No recent reading") | unreported | unavailable
     "words": "as of 11:52 · stale",          // "Not reported by this agent", "Usage unavailable: …"
+    "account": null,                         // of several Claude Code accounts, the one this card is: {dir, name, default}
     "identity": {"signed_in": true, "account": null, "org": null, "plan": "Plus", "words": "ChatGPT Plus plan"},
                                              // this machine's account, shown beside the windows and never as theirs:
                                              // Claude's is oauthAccount's emailAddress and organizationName of
@@ -1206,6 +1209,18 @@ did, and `usage` each time; the views only read what that thread keeps.
   }
 }
 ```
+
+**Several Claude Code accounts.** Each account is a config folder (`CLAUDE_CONFIG_DIR`): the folders under the home
+folder named like Claude Code's (`.claude`, `.claude-work`, `.claude_lab`) whose `.claude.json` names an account, those
+`claude.accounts` lists in the config (`[{dir, name}]`), and any folder a `limits/` file names
+(`cockpit_core::accounts`). With two or more, Claude is one provider per account, the default first (`claude.default`,
+else the hub's own folder): its `account` is `{dir, name, default}`, its identity reads "Claude Code in ~/.claude-work:
+…", and each of its windows (in `providers`, `windows` and the agents view's `quota`) carries `account` (the folder),
+`account_name` and `account_default`. Readings never mix across accounts: limits.json counts as `~/.claude`'s, a session
+cockpit drives as the hub's folder. The herdr sidebar's `$limits` is the default account's; Home's bars and the drawer
+show the account of the agent in front (the agents row's `account`), else the default's (`forAccount` in
+`mods/cockpit/usage.js`); its header chips are `usage-claude` and `usage-claude-<name>`. With one account nothing of
+this shows and every field above is absent.
 
 The hub alone writes the herdr TUI's `$limits` token, source `cockpit` on the inbox space's row: on its first pass
 whatever it is, then when it changes and every 5 minutes, each write lasting 11 minutes (`--ttl-ms`), so a hub that
@@ -1241,7 +1256,8 @@ Herdr app. In the app it writes no herdr tokens: what the TUI's sidebar rows sho
 - **Agent facts** (both frontends): each interactive session patches the store document `agents` with
   `{"<handle>": facts}` when a fact changes, and `{"<handle>": null}` when it ends. `facts`: `session`, `transcript`,
   `cwd`, `repo`, `branch`, `ticket`, `task` (the TUI pane's topic, else null), `page` (URL beside it), `pageTitle`,
-  `context` (%), `cost` (USD, this session), `account`, `at`, plus `frontend`, `terminal` (`t3`, null in the TUI),
+  `context` (%), `cost` (USD, this session), `account`, `configDir` (its Claude Code config folder: `CLAUDE_CONFIG_DIR`,
+  else `~/.claude`; the transcript is under it), `at`, plus `frontend`, `terminal` (`t3`, null in the TUI),
   `space`, `tab`, `version`, `pr` (`{number, url, failing}`), `ci` (`{running, done, total}`), `clash` (`{label,
   space, tab}`: another session on the same branch), `views` (`[{name, open}]`, its show panes) and `last` (`{at,
   durationMs, text}`: its last answer's first line). Unknown is null.

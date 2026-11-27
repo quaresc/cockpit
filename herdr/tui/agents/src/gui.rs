@@ -959,6 +959,8 @@ fn terminal_row(a: &Agent, s: &Snap, st: &State, cx: &Context) -> Value {
         "context": f["context"].as_f64().or(l.context),
         "cost": session.as_deref().and_then(cockpit_core::usage::session_estimate).or(mock["cost"].as_f64()),
         "page": f["page"].as_str().or(mock["page"].as_str()),
+        // The Claude Code config folder the session runs on, which picks the account whose limits go with it.
+        "account": f["configDir"].as_str().or(mock["configDir"].as_str()).filter(|d| !d.is_empty()).map(cockpit_core::accounts::key),
         "time": time(cx.totals.agents.get(&l.handle).copied().unwrap_or(0), ticket_secs),
         "snoozed": snoozed, "dismissed": Value::Null, "seen": seen, "unread": unread, "session": session, "interrupted": interrupted,
         "stoppable": stop_keys(agent, &l.status).is_ok(), "interrupt": agent.and_then(|a| a.interrupt.as_ref()).map_or(Value::Null, |keys| json!(keys)),
@@ -2360,6 +2362,7 @@ mod tests {
             length: None,
             as_of: now,
             source: "statusline",
+            account: None,
         };
         let provider = |windows: Vec<cockpit_core::usage::Window>| cockpit_core::usage::Provider {
             agent: "claude".into(),
@@ -2371,6 +2374,7 @@ mod tests {
             identity: Value::Null,
             credits: Value::Null,
             error: None,
+            account: None,
         };
         assert_eq!(limit_says(&[provider(vec![window("5h", 100.0, 60), window("7d", 38.0, 5000)])], "claude", now), Says::Full("16:00".into()));
         assert_eq!(limit_says(&[provider(vec![window("5h", 100.0, 60), window("7d", 100.0, 17 * 60)])], "claude", now), Says::Full("3 Nov 08:00".into()));
