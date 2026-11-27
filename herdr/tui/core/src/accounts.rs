@@ -136,21 +136,23 @@ pub fn listed(config: &Value, found: &[String], running: &str) -> Vec<(String, S
 
 /// The accounts on this machine, the default first; looked for again every 30 seconds.
 pub fn all() -> Vec<Account> {
-    type Kept = OnceLock<Mutex<Option<(Instant, Vec<Account>)>>>;
+    type Kept = OnceLock<Mutex<Option<(Instant, PathBuf, Vec<Account>)>>>;
     static LAST: Kept = OnceLock::new();
+    let home = files::home();
     let mut last = LAST.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((at, list)) = last.as_ref()
+    if let Some((at, of, list)) = last.as_ref()
         && at.elapsed() < Duration::from_secs(30)
+        && *of == home
     {
         return list.clone();
     }
     let running = key(&transcripts::claude_home().to_string_lossy());
-    let mut list: Vec<Account> = listed(&files::config(), &found(&files::home()), &running)
+    let mut list: Vec<Account> = listed(&files::config(), &found(&home), &running)
         .into_iter()
         .map(|(dir, name, default)| Account { signed_in: signed_in(&dir), dir, name, default })
         .collect();
     list.sort_by_key(|a| !a.default);
-    *last = Some((Instant::now(), list.clone()));
+    *last = Some((Instant::now(), home, list.clone()));
     list
 }
 

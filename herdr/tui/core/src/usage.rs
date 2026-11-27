@@ -494,7 +494,9 @@ fn stream_of(session: &Value, now: u64, seen: &mut HashMap<String, (String, u64)
             }
         }
     };
-    from_stream(info, at)
+    // A session on another account than the hub's names its folder.
+    let account = session["account"].as_str().filter(|d| !d.is_empty()).map(accounts::key);
+    from_stream(info, at).into_iter().map(|w| Window { account: account.clone(), ..w }).collect()
 }
 
 fn stamp_of(meta: &std::fs::Metadata) -> Stamp {
@@ -1028,7 +1030,8 @@ fn accounts_of(inputs: &Inputs) -> Vec<accounts::Account> {
 pub fn providers(inputs: &Inputs, now: u64) -> Vec<Provider> {
     let several = accounts_of(inputs);
     let several = if several.len() > 1 { several } else { Vec::new() };
-    // limits.json is a session's on `~/.claude`, and a session cockpit drives runs on the hub's own folder.
+    // limits.json is a session's on `~/.claude`, and a session cockpit drives runs on the hub's own folder unless it
+    // names another.
     let (home, hub) = (accounts::home_dir(), accounts::key(&transcripts::claude_home().to_string_lossy()));
     let mut readings: Vec<Window> = from_statusline(&inputs.statusline).into_iter().map(|w| Window { account: Some(home.clone()), ..w }).collect();
     for (dir, file) in &inputs.statuslines {
@@ -1607,7 +1610,7 @@ pub fn rescan(now: u64) -> Days {
     let roots: Vec<(String, Transcripts, PathBuf)> = agent::all()
         .into_iter()
         .filter(|a| counts_tokens(a.transcripts))
-        .filter_map(|a| Some((a.id.clone(), a.transcripts, transcripts::root(a.transcripts)?)))
+        .flat_map(|a| transcripts::roots(a.transcripts).into_iter().map(move |r| (a.id.clone(), a.transcripts, r)))
         .collect();
     let priced: Vec<String> = roots.iter().filter(|(_, kind, _)| *kind == Transcripts::Claude).map(|(id, _, _)| id.clone()).collect();
     let books = files::cache().join("costs");
@@ -1702,8 +1705,10 @@ type Start = (i64, u128, String);
 fn scan_into(s: &mut Scanner, roots: &[(String, Transcripts, PathBuf)], now: u64, keep: &HashSet<String>) -> bool {
     let since = now.saturating_sub((DAYS as u64 + 1) * DAY);
     let mut wanted: Vec<Wanted> = Vec::new();
+    let mut walked: HashSet<&PathBuf> = HashSet::new();
     for (agent, kind, root) in roots {
-        if wanted.iter().any(|(_, _, k)| k == kind) {
+        // Agents that share a format share its folders: each is read once.
+        if !walked.insert(root) {
             continue;
         }
         let (depth, session_file) = layout(*kind);
@@ -2664,6 +2669,9 @@ mod tests {
         assert_eq!(stream_of(&bare, NOW, &mut seen)[0].as_of, NOW);
         assert_eq!(stream_of(&bare, NOW + 60_000, &mut seen)[0].as_of, NOW, "without its time, as of when cockpit first saw it");
         assert!(stream_of(&json!({"key": "s3"}), NOW, &mut seen).is_empty());
+        let elsewhere = json!({"key": "s4", "account": "/home/me/.claude-work/", "rate_limit": {"status": "allowed", "rateLimitType": "five_hour", "utilization": 0.4, "resetsAt": (NOW + HOUR) / 1000}, "rate_limit_at": NOW});
+        assert_eq!(stream_of(&elsewhere, NOW, &mut seen)[0].account.as_deref(), Some("/home/me/.claude-work"), "a session on another account names it");
+        assert_eq!(stream_of(&session(NOW), NOW, &mut seen)[0].account, None, "else it is the hub's");
     }
 
     #[test]

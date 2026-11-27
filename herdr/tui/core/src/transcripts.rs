@@ -219,6 +219,22 @@ pub fn claude_home() -> PathBuf {
     std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()).map(PathBuf::from).unwrap_or_else(|| files::home().join(".claude"))
 }
 
+/// Claude Code's folders on this machine: the one this process runs with first, then each account's (`accounts`).
+pub fn claude_homes() -> Vec<PathBuf> {
+    let mut out = vec![claude_home()];
+    for account in crate::accounts::all() {
+        if !out.iter().any(|h| crate::accounts::key(&h.to_string_lossy()) == account.dir) {
+            out.push(PathBuf::from(account.dir));
+        }
+    }
+    out
+}
+
+/// A file Claude Code keeps under its folder (`sessions/<pid>.json`), from whichever account's folder holds it.
+pub fn claude_file(relative: &str) -> Option<PathBuf> {
+    claude_homes().into_iter().map(|h| h.join(relative)).find(|p| p.is_file())
+}
+
 fn env_dir(var: &str) -> Option<PathBuf> {
     std::env::var_os(var).filter(|d| !d.is_empty()).map(PathBuf::from)
 }
@@ -246,6 +262,14 @@ pub fn root(kind: Transcripts) -> Option<PathBuf> {
         Transcripts::Copilot => Some(env_dir("COPILOT_HOME").unwrap_or_else(|| files::home().join(".copilot")).join("session-state")),
         // `GEMINI_CLI_HOME` stands for the home folder (gemini-cli `utils/paths.ts`).
         Transcripts::Gemini => Some(env_dir("GEMINI_CLI_HOME").unwrap_or_else(files::home).join(".gemini/tmp")),
+    }
+}
+
+/// Every folder holding a format's transcripts: Claude Code keeps one per account, the others one.
+pub fn roots(kind: Transcripts) -> Vec<PathBuf> {
+    match kind {
+        Transcripts::Claude => claude_homes().into_iter().map(|h| h.join("projects")).collect(),
+        _ => root(kind).into_iter().collect(),
     }
 }
 
@@ -287,7 +311,7 @@ fn header_cwd(kind: Transcripts, path: &Path) -> Option<String> {
 
 /// The format a transcript file is in, from the folder it sits under.
 pub fn kind_of(path: &Path) -> Option<Transcripts> {
-    KINDS.into_iter().find(|k| root(*k).is_some_and(|r| path.starts_with(&r)))
+    KINDS.into_iter().find(|k| roots(*k).iter().any(|r| path.starts_with(r)))
 }
 
 fn stamp(meta: &std::fs::Metadata) -> Stamp {
@@ -299,9 +323,9 @@ fn modified_ms(path: &Path) -> u64 {
     std::fs::metadata(path).map(|m| (stamp(&m).1 / 1_000_000) as u64).unwrap_or(0)
 }
 
-/// Every session transcript of a format under its root, with its stamp; subagents' are left out.
+/// Every session transcript of a format under its roots, with its stamp; subagents' are left out.
 pub fn all(kind: Transcripts) -> BTreeMap<String, Stamp> {
-    root(kind).map(|r| all_in(kind, &r)).unwrap_or_default()
+    roots(kind).iter().flat_map(|r| all_in(kind, r)).collect()
 }
 
 /// Every session transcript of a format under this folder (its root, or a copy of one).
@@ -342,12 +366,20 @@ fn children(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// A session's transcript by its id: under its folder first (where the format files by folder), else anywhere.
+/// A session's transcript by its id: under its folder first (where the format files by folder), else anywhere, in each
+/// of the format's roots.
 pub fn find(kind: Transcripts, session: &str, cwd: &str) -> Option<PathBuf> {
     if session.is_empty() || session.contains(['/', '\\']) {
         return None;
     }
-    let root = root(kind)?;
+    find_among(kind, &roots(kind), session, cwd)
+}
+
+fn find_among(kind: Transcripts, roots: &[PathBuf], session: &str, cwd: &str) -> Option<PathBuf> {
+    roots.iter().find_map(|root| find_in(kind, root, session, cwd))
+}
+
+fn find_in(kind: Transcripts, root: &Path, session: &str, cwd: &str) -> Option<PathBuf> {
     match kind {
         Transcripts::None => None,
         Transcripts::Claude => {
@@ -356,13 +388,13 @@ pub fn find(kind: Transcripts, session: &str, cwd: &str) -> Option<PathBuf> {
             if direct.is_file() {
                 return Some(direct);
             }
-            children(&root).into_iter().map(|d| d.join(&name)).find(|p| p.is_file())
+            children(root).into_iter().map(|d| d.join(&name)).find(|p| p.is_file())
         }
         Transcripts::Codex => {
             let tail = format!("-{session}.jsonl");
-            codex_days(&root, 0).into_iter().rev().flat_map(|d| children(&d)).find(|f| f.to_string_lossy().ends_with(&tail))
+            codex_days(root, 0).into_iter().rev().flat_map(|d| children(&d)).find(|f| f.to_string_lossy().ends_with(&tail))
         }
-        _ => layered(kind, &root).into_iter().find(|p| id_of(kind, p).as_deref() == Some(session)),
+        _ => layered(kind, root).into_iter().find(|p| id_of(kind, p).as_deref() == Some(session)),
     }
 }
 
@@ -377,7 +409,14 @@ pub fn latest(kind: Transcripts, cwd: &str, since_ms: u64) -> Option<PathBuf> {
     if cwd.is_empty() {
         return None;
     }
-    let root = root(kind)?;
+    latest_among(kind, &roots(kind), cwd, since_ms)
+}
+
+fn latest_among(kind: Transcripts, roots: &[PathBuf], cwd: &str, since_ms: u64) -> Option<PathBuf> {
+    roots.iter().filter_map(|root| latest_in(kind, root, cwd, since_ms)).max_by_key(|p| modified_ms(p))
+}
+
+fn latest_in(kind: Transcripts, root: &Path, cwd: &str, since_ms: u64) -> Option<PathBuf> {
     let fresh = |p: &PathBuf| modified_ms(p) + 2_000 >= since_ms;
     let newest = |files: Vec<PathBuf>| files.into_iter().max_by_key(|p| modified_ms(p));
     match kind {
@@ -388,7 +427,7 @@ pub fn latest(kind: Transcripts, cwd: &str, since_ms: u64) -> Option<PathBuf> {
         }
         Transcripts::Codex => {
             let here = canonical(cwd);
-            let files = codex_days(&root, since_ms.saturating_sub(86_400_000))
+            let files = codex_days(root, since_ms.saturating_sub(86_400_000))
                 .iter()
                 .flat_map(|d| children(d))
                 .filter(|p| is_rollout(p) && fresh(p))
@@ -400,7 +439,7 @@ pub fn latest(kind: Transcripts, cwd: &str, since_ms: u64) -> Option<PathBuf> {
         }
         _ => {
             let here = canonical(cwd);
-            let files = layered(kind, &root).into_iter().filter(|p| fresh(p) && header_cwd(kind, p).is_some_and(|c| canonical(&c) == here)).collect();
+            let files = layered(kind, root).into_iter().filter(|p| fresh(p) && header_cwd(kind, p).is_some_and(|c| canonical(&c) == here)).collect();
             newest(files)
         }
     }
@@ -2290,6 +2329,23 @@ mod tests {
     }
 
     use serde_json::json;
+
+    #[test]
+    fn a_claude_session_is_found_in_whichever_account_s_folder_holds_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (own, work) = (dir.path().join(".claude/projects"), dir.path().join(".claude-work/projects"));
+        let line = json!({"type": "user", "cwd": "/r/api", "message": {"content": "Fix the quota check"}});
+        let older = write(&own, "-r-api/s-1.jsonl", std::slice::from_ref(&line));
+        let file = std::fs::File::options().write(true).open(&older).unwrap();
+        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60)).unwrap();
+        let newer = write(&work, "-r-api/s-2.jsonl", &[line]);
+        let roots = [own, work];
+        assert_eq!(find_among(Transcripts::Claude, &roots, "s-2", "/r/api"), Some(newer.clone()), "in the second account's folder");
+        assert_eq!(find_among(Transcripts::Claude, &roots, "s-2", "/elsewhere"), Some(newer.clone()), "under any folder of it");
+        assert_eq!(find_among(Transcripts::Claude, &roots, "s-1", "/r/api"), Some(older));
+        assert_eq!(latest_among(Transcripts::Claude, &roots, "/r/api", 0), Some(newer), "the newest across the accounts");
+        assert_eq!(find_among(Transcripts::Claude, &roots, "s-3", "/r/api"), None);
+    }
 
     #[test]
     fn typed_text_is_told_from_what_the_agent_put_there() {

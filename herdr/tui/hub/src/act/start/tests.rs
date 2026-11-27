@@ -147,7 +147,6 @@ fn world<'a>(f: &Fixture, cfg: Config, desk: &'a Fake) -> World<'a> {
         tracker: &no_tracker,
         take: no_take,
         accounts: Vec::new(),
-        own_account: String::new(),
     }
 }
 
@@ -766,7 +765,6 @@ fn an_agent_on_several_accounts_starts_on_the_one_picked_else_the_default() {
     let mut w = world(&f, f.cfg(json!({})), &desk);
     let account = |dir: &str, name: &str, default: bool| accounts::Account { dir: dir.into(), name: name.into(), default, signed_in: Value::Null };
     w.accounts = vec![account("/home/me/.claude", "Personal", true), account("/home/me/.claude-work", "Work", false)];
-    w.own_account = "/home/me/.claude".into();
     w.agents[0].account_env = Some("CLAUDE_CONFIG_DIR".into());
     w.agents[1].account_env = None;
     let names: Vec<Value> = choices(&w)["agents"].as_array().unwrap().iter().map(|a| json!(a["accounts"].as_array().unwrap().len())).collect();
@@ -782,10 +780,9 @@ fn an_agent_on_several_accounts_starts_on_the_one_picked_else_the_default() {
     let gone = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "account": "/home/me/.claude-gone"})));
     assert_eq!(blocker_steps(&gone), ["agent"]);
     assert_eq!(gone.blockers[0].fixes[0], ("Use the default account".to_string(), json!({"account": ""})));
-    // A session cockpit drives runs on the hub's own account: another one goes to a terminal.
+    // A session cockpit drives runs on the account picked too.
     let driven = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "account": "/home/me/.claude-work", "driven": true})));
-    assert_eq!(driven.blockers.iter().map(|b| (b.step, b.fixes[0].0.as_str())).collect::<Vec<_>>(), [("agent", "Start it in a terminal")]);
-    assert!(plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "driven": true}))).ok());
+    assert!(driven.ok() && driven.account == "/home/me/.claude-work", "{:?}", driven.blockers.iter().map(|b| &b.step).collect::<Vec<_>>());
 
     let other = plan_in(&w, &request(json!({"text": "Tidy the logs", "repo": "api", "agent": "moded", "account": "/home/me/.claude-work"})));
     assert!(other.account.is_empty() && other.notes.iter().any(|n| n.contains("one account")), "{:?}", other.notes);

@@ -1066,12 +1066,12 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
 }
 
 /// The account a session cockpit drives runs on, folder and name, for an agent that picks its account by folder on a
-/// machine with several.
-fn driven_account(agent: &str) -> Option<(String, String)> {
-    cockpit_core::agent::get(agent)?.account_env?;
-    let own = cockpit_core::accounts::own();
-    let name = cockpit_core::accounts::name_of(&own)?;
-    Some((own, name))
+/// machine with several: the one it was started on, else the hub's own.
+fn driven_account(s: &Value) -> Option<(String, String)> {
+    cockpit_core::agent::get(s["agent"].as_str().unwrap_or_default())?.account_env?;
+    let dir = s["account"].as_str().filter(|d| !d.is_empty()).map(str::to_string).unwrap_or_else(cockpit_core::accounts::own);
+    let name = cockpit_core::accounts::name_of(&dir)?;
+    Some((dir, name))
 }
 
 /// Whether an agent's last turn was stopped by the person, from its transcript; read again only when the file changed.
@@ -1205,9 +1205,8 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
         "said": "", "recap": recap, "paused": s["paused"], "cwd": cwd, "branch": branch, "repo": repo,
         "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
         "cost": s["session"].as_str().and_then(cockpit_core::usage::session_estimate), "session": s["session"].clone(), "seen": true,
-        // A session cockpit drives runs on the hub's own account.
-        "account": driven_account(s["agent"].as_str().unwrap_or_default()).map(|(dir, _)| dir),
-        "account_name": driven_account(s["agent"].as_str().unwrap_or_default()).map(|(_, name)| name),
+        "account": driven_account(s).map(|(dir, _)| dir),
+        "account_name": driven_account(s).map(|(_, name)| name),
         "transcript": transcript.as_deref().map(|p| p.to_string_lossy().into_owned()),
         "unread": asking_unread(s) || status == "failed",
         "links": links, "documents": crate::links::documents(&crate::links::shown(), &[s["key"].as_str().unwrap_or_default()]), "snoozed": Value::Null,

@@ -143,8 +143,6 @@ pub(crate) struct World<'a> {
     pub take: Take,
     /// The Claude Code accounts on this machine, the default first (`accounts::all`).
     pub accounts: Vec<accounts::Account>,
-    /// The config folder the hub runs with, which a session it drives runs on.
-    pub own_account: String,
 }
 
 struct RealDesk;
@@ -243,7 +241,6 @@ fn real<R>(f: impl FnOnce(&World) -> R) -> R {
         tracker: &tickets::issue,
         take: tickets::take,
         accounts: accounts::all(),
-        own_account: accounts::own(),
     };
     f(&world)
 }
@@ -972,7 +969,6 @@ fn agent_checks(world: &World, req: &Request, p: &mut Plan) -> Option<Agent> {
 }
 
 /// The account the agent runs on, when it takes one and this machine has several: the one asked for, else the default.
-/// A session cockpit drives runs on the hub's own account only.
 fn account_checks(world: &World, req: &Request, p: &mut Plan, found: &Agent) {
     if found.account_env.is_none() || world.accounts.len() < 2 {
         if !req.account.is_empty() {
@@ -991,13 +987,6 @@ fn account_checks(world: &World, req: &Request, p: &mut Plan, found: &Agent) {
         return;
     };
     (p.account, p.account_name) = (account.dir.clone(), account.name.clone());
-    if req.driven && account.dir != world.own_account {
-        p.block(
-            "agent",
-            format!("cockpit drives {} only on the account it runs with, not {}", found.name, account.name),
-            vec![("Start it in a terminal", json!({"driven": false}))],
-        );
-    }
 }
 
 /// Working in the repo's own checkout: on its current branch, refused among uncommitted changes unless asked.
@@ -1914,7 +1903,8 @@ fn drive_steps(id: &str, plan: &Plan, cache: &Path) {
     set_step(id, "agent", "running", "");
     let agent = plan.agent.as_ref().map(|a| a.id.clone()).unwrap_or_default();
     let mode = if plan.mode.is_empty() { "default" } else { plan.mode.as_str() };
-    let picks = json!({"agent": agent, "cwd": plan.path, "mode": mode, "confirm": plan.confirm, "model": plan.model, "effort": plan.effort, "fast": plan.fast});
+    let picks = json!({"agent": agent, "cwd": plan.path, "mode": mode, "confirm": plan.confirm, "model": plan.model, "effort": plan.effort, "fast": plan.fast,
+        "account": plan.account});
     let started = crate::views::act("session", "start", &[picks]).unwrap_or_else(|| json!({"error": "no session view"}));
     if let Some(error) = started["error"].as_str() {
         return over("failed", Some(("agent", error.to_string())), Some(("agent", "failed")));

@@ -22,10 +22,6 @@ fn muted_path() -> PathBuf {
     files::config_dir().join("muted.json")
 }
 
-fn projects_dir() -> PathBuf {
-    cockpit_core::transcripts::claude_home().join("projects")
-}
-
 fn is_dir(path: &str) -> bool {
     Path::new(path).is_dir()
 }
@@ -801,7 +797,8 @@ pub fn continue_ticket(ctx: &mut Ctx, args: &[Value]) -> Res {
 
 /// The folder a Claude Code session started in, read from its transcript; None once the transcript is gone.
 fn session_cwd(session: &str) -> Option<String> {
-    let mut projects: Vec<PathBuf> = std::fs::read_dir(projects_dir()).ok()?.flatten().map(|e| e.path()).collect();
+    let roots = cockpit_core::transcripts::roots(cockpit_core::transcripts::Transcripts::Claude);
+    let mut projects: Vec<PathBuf> = roots.iter().flat_map(|r| std::fs::read_dir(r).into_iter().flatten().flatten().map(|e| e.path())).collect();
     projects.sort();
     for project in projects {
         let Ok(transcript) = std::fs::read_to_string(project.join(format!("{session}.jsonl"))) else {

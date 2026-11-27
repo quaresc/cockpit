@@ -12,9 +12,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use cockpit_core::agent::{self, Agent, Offer, Picked, Setting};
-use cockpit_core::modes;
 use cockpit_core::seen::now_ms;
 use cockpit_core::transcripts::{self, Detail, TaskState, Transcripts, arg_line, background_id, call_task};
+use cockpit_core::{accounts, modes};
 use serde_json::{Value, json};
 
 /// What an answer is told when the question it names is not the one asked now.
@@ -30,6 +30,9 @@ pub struct State {
     pub session_id: String,
     pub agent: String,
     pub cwd: String,
+    /// The config folder of the account it runs on (`accounts`), set in the agent's `account_env`; empty for the hub's
+    /// own.
+    pub account: String,
     /// The conversation in the shape the chat draws: `{role, at, text, tool}`.
     pub messages: Vec<Value>,
     /// The slash commands the agent published, and republishes when they change.
@@ -105,7 +108,7 @@ impl State {
     pub fn json(&self) -> Value {
         let title = self.messages.iter().find(|m| m["role"] == "user").and_then(|m| m["text"].as_str()).map(|t| t.lines().next().unwrap_or(t));
         json!({
-            "session": self.session_id, "agent": self.agent, "cwd": self.cwd, "mode": self.mode, "model": self.model,
+            "session": self.session_id, "agent": self.agent, "cwd": self.cwd, "account": self.account, "mode": self.mode, "model": self.model,
             "commands": self.commands, "cost": self.cost, "started": self.started,
             "usage": self.usage, "rate_limit": self.rate_limit, "rate_limit_at": self.rate_limit_at, "working": self.working, "ended": self.ended,
             "failed": self.failed, "interrupted": self.stopped, "since": self.since, "pending": self.pending,
@@ -224,13 +227,21 @@ pub struct Picks {
     pub model: String,
     pub effort: String,
     pub fast: Option<bool>,
+    /// The config folder of the account to run on; empty for the hub's own.
+    pub account: String,
 }
 
 impl Picks {
-    /// The picks a `start` act names: `model`, `effort` and `fast`.
+    /// The picks a `start` act names: `model`, `effort`, `fast` and `account`.
     pub fn from(arg: &Value) -> Picks {
         let text = |k: &str| arg[k].as_str().unwrap_or_default().trim().to_string();
-        Picks { model: text("model"), effort: text("effort"), fast: arg["fast"].as_bool() }
+        Picks { model: text("model"), effort: text("effort"), fast: arg["fast"].as_bool(), account: text("account") }
+    }
+
+    /// The account's folder as the session keeps it: empty for the hub's own.
+    fn account(&self) -> String {
+        let dir = accounts::key(&self.account);
+        if self.account.is_empty() || dir == accounts::own() { String::new() } else { dir }
     }
 
     /// Refused when the agent takes one of them not: a model another agent claims, a level it does not list, fast mode
@@ -244,6 +255,15 @@ impl Picks {
         }
         if self.fast.is_some() && found.fast.is_none() {
             return Err(format!("{} has no fast mode", found.name));
+        }
+        let account = self.account();
+        if !account.is_empty() {
+            if found.account_env.is_none() {
+                return Err(format!("{} runs on one account here", found.name));
+            }
+            if !accounts::all().iter().any(|a| a.dir == account) {
+                return Err(format!("no {} account in {}", found.name, accounts::shown(&account)));
+            }
         }
         Ok(())
     }
@@ -261,6 +281,7 @@ pub fn start(agent_id: &str, cwd: &str, mode: &str, picks: &Picks) -> Result<Str
     let state = State {
         agent: found.id.clone(),
         cwd: cwd.to_string(),
+        account: picks.account(),
         mode: mode.to_string(),
         started: now_ms(),
         session_id: new_session_id(),
@@ -283,9 +304,9 @@ pub fn start(agent_id: &str, cwd: &str, mode: &str, picks: &Picks) -> Result<Str
 /// already has: a new session, or one `resume`d from its transcript. A reader thread folds what the agent says into the
 /// state; called with the session's launch lock held.
 fn launch(found: &Agent, key: &str, session: &Arc<Session>, resume: bool) -> Result<(), String> {
-    let (session_id, cwd, mode, model, effort, fast) = {
+    let (session_id, cwd, mode, model, effort, fast, account) = {
         let s = session.state.lock().unwrap_or_else(|e| e.into_inner());
-        (s.session_id.clone(), s.cwd.clone(), s.mode.clone(), s.model.clone(), s.effort.clone(), s.fast)
+        (s.session_id.clone(), s.cwd.clone(), s.mode.clone(), s.model.clone(), s.effort.clone(), s.fast, s.account.clone())
     };
     let picked = Picked { model: Some(model.as_str()), effort: Some(effort.as_str()), fast };
     let argv = found.stream_argv(&session_id, &mode, resume, &picked).ok_or_else(|| format!("{} cannot run in chat in mode {mode}", found.name))?;
@@ -295,6 +316,10 @@ fn launch(found: &Agent, key: &str, session: &Arc<Session>, resume: bool) -> Res
     // A hub started from inside an agent's terminal must not make the session think it is nested in it or that terminal's;
     // its key says whose the views it shows are.
     cockpit_core::run::untie(&mut command).env(cockpit_core::run::DRIVEN_KEY, key);
+    // Another account than the hub's: its config folder, in the variable the agent's table row names.
+    if let (Some(var), false) = (found.account_env.as_deref(), account.is_empty()) {
+        command.env(var, &account);
+    }
     let mut child = command.spawn().map_err(|e| format!("{}: {e}", found.path()))?;
     let pid = child.id();
     // An End while it started wins: the session is gone, and so is this process.
@@ -1611,7 +1636,7 @@ fn remember() {
             let pid = s.child.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(Child::id);
             let st = s.state.lock().unwrap_or_else(|e| e.into_inner());
             json!({"key": key, "agent": st.agent, "session_id": st.session_id, "cwd": st.cwd, "mode": st.mode, "model": st.model,
-                   "effort": st.effort, "fast": st.fast,
+                   "effort": st.effort, "fast": st.fast, "account": st.account,
                    "pid": pid, "hub": std::process::id(), "prompted": !st.messages.is_empty(), "started": st.started})
         })
         .collect();
@@ -1657,6 +1682,7 @@ pub fn restore() {
             session_id: id.to_string(),
             agent: text("agent"),
             cwd: cwd.to_string(),
+            account: text("account"),
             mode,
             model: text("model"),
             effort: text("effort"),

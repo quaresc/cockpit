@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cockpit_core::accounts::{self, Account};
 use cockpit_core::{agent, files, transcripts};
 use serde_json::{Value, json};
 
@@ -178,6 +179,7 @@ pub fn main(args: &[String]) {
     let is_default = cockpit_core::agent::default().id == "claude";
     if is_default || claude.is_some_and(|c| c.installed()) {
         let installed = doctor.claude_plugin(is_default);
+        doctor.claude_accounts(&installed);
         doctor.sessions(&installed);
         doctor.app_sessions(&installed);
     }
@@ -764,6 +766,26 @@ impl Doctor {
         installed
     }
 
+    /// The machine's other Claude Code accounts, one config folder each: signed in, and with the plugin their sessions
+    /// need, on the version the hub's own account runs.
+    fn claude_accounts(&self, installed: &str) {
+        let list = accounts::all();
+        if list.len() < 2 {
+            return;
+        }
+        let own = accounts::own();
+        for account in list.iter().filter(|a| a.dir != own) {
+            let registry = load(&Path::new(&account.dir).join("plugins/installed_plugins.json"));
+            let (pass, line, command) = account_check(account, registry.as_ref(), installed);
+            let id = format!("claude.account.{}", slug(&account.name));
+            match (pass, command) {
+                (true, _) => ok(&id, &line),
+                (false, Some(command)) => warn(&id, &line).run(command),
+                (false, None) => warn(&id, &line),
+            };
+        }
+    }
+
     // -----------------------------------------------------------------------------------------------------------------
     // Claude sessions: each one in herdr should beat with the installed version
 
@@ -1300,6 +1322,34 @@ fn load(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
+/// How one more Claude Code account stands: whether it passes, its line, and the command that fixes it.
+fn account_check(account: &Account, registry: Option<&Value>, installed: &str) -> (bool, String, Option<String>) {
+    let (name, env) = (&account.name, format!("CLAUDE_CONFIG_DIR={}", quote(&account.dir)));
+    if !account.signed_in.is_object() {
+        let line =
+            format!("Claude Code account {name} ({}) is signed out: its sessions can't start → {env} claude, then /login", accounts::shown(&account.dir));
+        return (false, line, None);
+    }
+    let version = registry.and_then(|r| values(&r["plugins"]["cockpit@cockpit"]).find_map(|p| p["version"].as_str())).map(str::to_string);
+    match version {
+        None => {
+            let command = format!("{env} claude plugin marketplace add quaresc/cockpit && {env} claude plugin install cockpit@cockpit");
+            (false, format!("no cockpit plugin in Claude Code account {name}: its sessions don't report to cockpit → {command}"), Some(command))
+        }
+        Some(v) if !installed.is_empty() && v != installed && newest(installed, &v) == installed => {
+            let command = format!("{env} claude plugin update cockpit@cockpit");
+            (false, format!("Claude Code account {name} has cockpit {v}, {installed} is installed → {command}"), Some(command))
+        }
+        Some(v) => (true, format!("Claude Code account {name} with cockpit {v}"), None),
+    }
+}
+
+/// A name as a check's id holds it: lowercase letters and digits, dashes between.
+fn slug(name: &str) -> String {
+    let words: Vec<String> = name.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    words.join("-")
+}
+
 /// A word as a shell reads it: quoted when it holds anything but letters, digits and `_@%+=:,./-`.
 fn quote(word: &str) -> String {
     if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c)) {
@@ -1588,6 +1638,24 @@ mod tests {
         assert!(!glob("*:1.3.[2-9]*", "stable:1.3.1"));
         assert!(glob("tip:*", "tip:1.2.0"));
         assert!(glob("*:[2-9].*", "stable:2.0.0"));
+    }
+
+    #[test]
+    fn each_other_claude_code_account_needs_a_sign_in_and_the_plugin() {
+        let signed = json!({"emailAddress": "me@acme.example"});
+        let work = Account { dir: "/home/me/.claude-work".into(), name: "Acme work".into(), default: false, signed_in: signed };
+        let registry = |v: &str| json!({"version": 2, "plugins": {"cockpit@cockpit": [{"scope": "user", "version": v}]}});
+        assert_eq!(account_check(&work, Some(&registry("1.6.1")), "1.6.1"), (true, "Claude Code account Acme work with cockpit 1.6.1".into(), None));
+        let (pass, line, command) = account_check(&work, Some(&registry("1.5.0")), "1.6.1");
+        assert!(!pass && line.contains("has cockpit 1.5.0, 1.6.1 is installed"), "{line}");
+        assert_eq!(command.as_deref(), Some("CLAUDE_CONFIG_DIR=/home/me/.claude-work claude plugin update cockpit@cockpit"));
+        let (pass, line, command) = account_check(&work, None, "1.6.1");
+        assert!(!pass && line.starts_with("no cockpit plugin in Claude Code account Acme work"), "{line}");
+        assert!(command.is_some_and(|c| c.ends_with("claude plugin install cockpit@cockpit")));
+        let out = Account { signed_in: json!(false), ..work };
+        let (pass, line, command) = account_check(&out, Some(&registry("1.6.1")), "1.6.1");
+        assert!(!pass && line.contains("is signed out") && command.is_none(), "{line}");
+        assert_eq!(slug("Acme work"), "acme-work");
     }
 
     #[test]

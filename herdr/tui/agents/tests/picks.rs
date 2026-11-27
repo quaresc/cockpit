@@ -48,7 +48,7 @@ fn a_session_starts_with_what_was_picked_and_changes_it_live() {
     cockpit_core::peer::trusted();
     let refused = session::start("claude", &work.to_string_lossy(), "default", &Picks { effort: "ultra".into(), ..Picks::default() });
     assert_eq!(refused.unwrap_err(), "Claude Code takes no effort level ultra");
-    let picks = Picks { model: "opus".into(), effort: "high".into(), fast: Some(true) };
+    let picks = Picks { model: "opus".into(), effort: "high".into(), fast: Some(true), ..Picks::default() };
     let key = session::start("claude", &work.to_string_lossy(), "default", &picks).expect("the stub starts");
 
     let catalog = wait_for(&key, "its catalog", |s| s["models"].as_array().is_some_and(|m| !m.is_empty()));

@@ -667,7 +667,7 @@ cursor.from` and put that page in front.
 **Surviving a restart.** The command line comes from the agent table: its `stream` switches, the permission mode, the
 model, effort level (`effort`) and fast mode (`fast`) when set, then a new session under the id cockpit picks (`new_session`: `--session-id <id>`) or the table's
 `resume` (`--resume <id>`). `~/.cache/cockpit/driven/registry.json` (`{sessions: [{key, agent, session_id, cwd, mode,
-model, effort, fast, pid, hub, prompted, started}]}`, `hub` the pid of the hub its process hangs off, written atomically when one
+model, effort, fast, account, pid, hub, prompted, started}]}`, `hub` the pid of the hub its process hangs off, written atomically when one
 changes and never after the hub handed over) knows it from the start. A hub that starts (after a restart or an update's
 hand-over) reads it and puts every session back `paused` first, its history read from its transcript and a mode that
 runs tools or edits unasked set back to `default`; then a process its last hub left running is ended (its group, or
@@ -1014,7 +1014,7 @@ question, the herdr TUI runs or the events are not followed), when the `inbox`/`
     "cost": 1.84,                            // the session's estimate from its transcript (USD, view `usage`), or null
     "page": "https://…",                     // the page beside it, or null
     "account": "/Users/me/.claude-work",     // the Claude Code config folder it runs on (facts' configDir; a driven session's
-                                             // is the hub's), or null
+                                             // is the one it started on, else the hub's), or null
     "account_name": "Work",                  // that account's name when the machine has several, else null: a chip on the row
     "time": {"agent_today": 3120, "ticket_today": 4800, "ticket_week": 18000},             // seconds, from the ledger
     "snoozed": {"until": 1793640000000, "label": "until 18:00"},                          // or null ("till done": until null)
@@ -1219,10 +1219,15 @@ folder named like Claude Code's (`.claude`, `.claude-work`, `.claude_lab`) whose
 else the hub's own folder): its `account` is `{dir, name, default}`, its identity reads "Claude Code in ~/.claude-work:
 …", and each of its windows (in `providers`, `windows` and the agents view's `quota`) carries `account` (the folder),
 `account_name` and `account_default`. Readings never mix across accounts: limits.json counts as `~/.claude`'s, a session
-cockpit drives as the hub's folder. The herdr sidebar's `$limits` is the default account's; Home's bars and the drawer
+cockpit drives as the folder it started on, else the hub's. The herdr sidebar's `$limits` is the default account's; Home's bars and the drawer
 show the account of the agent in front (the agents row's `account`), else the default's (`forAccount` in
 `mods/cockpit/usage.js`); its header chips are `usage-claude` and `usage-claude-<name>`. With one account nothing of
 this shows and every field above is absent.
+
+Past sessions are read from every account's folder: transcripts (`transcripts::roots`, which the session search, the
+token counts and the rows' lookups use), Claude Code's `sessions/<pid>.json` registry, and a palette terminal's latest
+session. `cockpit doctor` checks each account other than its own: signed in, and with the cockpit plugin on the
+installed version (`claude.account.<name>`, from `plugins/installed_plugins.json` in its folder).
 
 The hub alone writes the herdr TUI's `$limits` token, source `cockpit` on the inbox space's row: on its first pass
 whatever it is, then when it changes and every 5 minutes, each write lasting 11 minutes (`--ttl-ms`), so a hub that
@@ -1445,12 +1450,11 @@ effects, and only on this machine (refused off loopback):
   branch, a typed base the remote lacks), `branch` (exists: Use it / Rename; not a branch name; nothing to name it
   after), `worktree` (a folder in the way: Use another folder; uncommitted changes when working in the checkout),
   `setup` (new or changed: Run it / Skip it this time), `agent` (not installed; Full access not confirmed; an account
-  that is none of the machine's: Use the default account; a driven start on another account than the hub's: Start it
-  in a terminal).
+  that is none of the machine's: Use the default account).
 - **Accounts.** An agent whose table row names an `account_env` (Claude Code's `CLAUDE_CONFIG_DIR`) starts, on a machine
   with several accounts, on the one picked, else the default (`claude.default`): the start's script exports that
-  variable before the setup and the agent. A session cockpit drives runs on the hub's own account only, since its
-  transcript is looked for there.
+  variable before the setup and the agent. A session cockpit drives gets the same variable (the session view's
+  `start` takes `account`, a folder of `accounts`), keeps it in its state and registry, and resumes on it.
 - **Forks.** A fork's PR is fetched into `<remote>/pr/<n>` and checked out as the branch `pr/<n>`, never onto a branch
   of yours; a local `pr/<n>` that is not its head blocks. Setup stays off for a fork's code unless asked
   ("Run setup from the fork's tree"), and your checkout's git hooks run on it when its worktree is added.

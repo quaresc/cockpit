@@ -88,11 +88,11 @@ pub fn seen_now() -> (Option<Vec<Seen>>, Option<Vec<Seen>>) {
 /// The name of the terminal where the hub keeps a Claude Code session for the MCP-only sources (`cockpit-hub`'s fetcher).
 pub const FETCHER: &str = "cockpit-fetch";
 
-/// Claude Code's registry of running sessions: pid → {sessionId, cwd, name}.
+/// Claude Code's registries of running sessions, one per account's folder: pid → {sessionId, cwd, name}.
 fn claude_sessions() -> Map<String, Value> {
-    let dir = crate::transcripts::claude_home().join("sessions");
+    let dirs = crate::transcripts::claude_homes().into_iter().map(|h| h.join("sessions"));
     let mut out = Map::new();
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+    for entry in dirs.flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten()) {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "json")
             && let Some(v) = files::load(&path)

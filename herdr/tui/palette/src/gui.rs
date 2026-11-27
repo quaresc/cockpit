@@ -116,13 +116,27 @@ fn text(v: &Value) -> String {
 pub fn over_of(over: &Value) -> Over {
     let cwd = text(&over["cwd"]);
     let agent = cockpit_core::agent::of_program(over["agent"].as_str().unwrap_or("claude")).map(|a| a.id);
-    let latest = || latest_session(&projects_dir(), &cwd).filter(|_| agent.as_deref() == Some("claude"));
+    let latest = || latest_of_all(&cwd).filter(|_| agent.as_deref() == Some("claude"));
     let session = over["session"].as_str().filter(|s| !s.is_empty()).map(str::to_string).or_else(latest);
     Over { pane: format!("{APP}{}", text(&over["terminal"])), agent, session, cwd, title: text(&over["title"]) }
 }
 
-fn projects_dir() -> PathBuf {
-    cockpit_core::transcripts::claude_home().join("projects")
+/// The newest session Claude Code keeps for this folder, across every account's folder.
+fn latest_of_all(cwd: &str) -> Option<String> {
+    let newest = |projects: &std::path::Path| latest_session(projects, cwd);
+    cockpit_core::transcripts::roots(cockpit_core::transcripts::Transcripts::Claude)
+        .iter()
+        .filter_map(|projects| {
+            let id = newest(projects)?;
+            let at = std::fs::metadata(projects.join(claude_folder(cwd)).join(format!("{id}.jsonl"))).and_then(|m| m.modified()).ok()?;
+            Some((at, id))
+        })
+        .max_by_key(|(at, _)| *at)
+        .map(|(_, id)| id)
+}
+
+fn claude_folder(cwd: &str) -> String {
+    cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }
 
 /// The id of the newest transcript Claude keeps for this folder (`<projects>/<folder, each other character a dash>/`).
@@ -130,8 +144,7 @@ pub fn latest_session(projects: &std::path::Path, cwd: &str) -> Option<String> {
     if cwd.is_empty() {
         return None;
     }
-    let folder: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-    let entries = std::fs::read_dir(projects.join(folder)).ok()?;
+    let entries = std::fs::read_dir(projects.join(claude_folder(cwd))).ok()?;
     entries
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
