@@ -20,7 +20,10 @@ async function roots($: $) {
   const dir = await home($)
   const tilde = (path: string) => (path.startsWith(`${dir}/`) ? `~${path.slice(dir.length)}` : path)
   const reposDir = (await loadConfig($)).reposDir
-  const pattern = [reposDir, `${dir}/.herdr/worktrees`].flatMap(f => [f, tilde(f)]).map(escape).join('|')
+  // The session's own folder too, so one started outside the repos folder can come back to it after a visit to another repo.
+  const own = (await Promise.resolve($.session.cwd()).catch(() => null)) ?? undefined
+  const folders = [reposDir, `${dir}/.herdr/worktrees`, ...(own && own !== dir && own !== reposDir ? [own] : [])]
+  const pattern = folders.flatMap(f => [f, tilde(f)]).map(escape).join('|')
   return { reposDir, pattern, dir }
 }
 
