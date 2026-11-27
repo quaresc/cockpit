@@ -154,6 +154,21 @@ pub fn all() -> Vec<Account> {
     list
 }
 
+/// The name of the account on this folder, when this machine has several: what a session's row shows beside it.
+pub fn name_of(dir: &str) -> Option<String> {
+    let list = all();
+    if list.len() < 2 {
+        return None;
+    }
+    let dir = key(dir);
+    list.into_iter().find(|a| a.dir == dir).map(|a| a.name).or_else(|| Some(shown(&dir)))
+}
+
+/// The folder the hub runs with, which a session it drives runs on.
+pub fn own() -> String {
+    key(&transcripts::claude_home().to_string_lossy())
+}
+
 /// The default account's folder.
 pub fn default_dir() -> String {
     all().into_iter().find(|a| a.default).map(|a| a.dir).unwrap_or_else(|| key(&transcripts::claude_home().to_string_lossy()))

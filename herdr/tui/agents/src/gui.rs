@@ -961,6 +961,8 @@ fn terminal_row(a: &Agent, s: &Snap, st: &State, cx: &Context) -> Value {
         "page": f["page"].as_str().or(mock["page"].as_str()),
         // The Claude Code config folder the session runs on, which picks the account whose limits go with it.
         "account": f["configDir"].as_str().or(mock["configDir"].as_str()).filter(|d| !d.is_empty()).map(cockpit_core::accounts::key),
+        // Its account's name, when this machine has several.
+        "account_name": f["configDir"].as_str().or(mock["configDir"].as_str()).filter(|d| !d.is_empty()).and_then(cockpit_core::accounts::name_of),
         "time": time(cx.totals.agents.get(&l.handle).copied().unwrap_or(0), ticket_secs),
         "snoozed": snoozed, "dismissed": Value::Null, "seen": seen, "unread": unread, "session": session, "interrupted": interrupted,
         "stoppable": stop_keys(agent, &l.status).is_ok(), "interrupt": agent.and_then(|a| a.interrupt.as_ref()).map_or(Value::Null, |keys| json!(keys)),
@@ -1061,6 +1063,15 @@ pub fn view(args: &Value, doc: &dyn Fn(&str) -> Value) -> Value {
         "tickets": tickets,
         "week": {"days": totals.days, "rows": week_rows},
     })
+}
+
+/// The account a session cockpit drives runs on, folder and name, for an agent that picks its account by folder on a
+/// machine with several.
+fn driven_account(agent: &str) -> Option<(String, String)> {
+    cockpit_core::agent::get(agent)?.account_env?;
+    let own = cockpit_core::accounts::own();
+    let name = cockpit_core::accounts::name_of(&own)?;
+    Some((own, name))
 }
 
 /// Whether an agent's last turn was stopped by the person, from its transcript; read again only when the file changed.
@@ -1194,6 +1205,9 @@ pub fn driven_row(s: &Value, git: Option<&Git>, inbox: &Value, ci: &Value, patte
         "said": "", "recap": recap, "paused": s["paused"], "cwd": cwd, "branch": branch, "repo": repo,
         "ticket": ticket, "pr": pr, "ci": ci, "changes": changes,
         "cost": s["session"].as_str().and_then(cockpit_core::usage::session_estimate), "session": s["session"].clone(), "seen": true,
+        // A session cockpit drives runs on the hub's own account.
+        "account": driven_account(s["agent"].as_str().unwrap_or_default()).map(|(dir, _)| dir),
+        "account_name": driven_account(s["agent"].as_str().unwrap_or_default()).map(|(_, name)| name),
         "transcript": transcript.as_deref().map(|p| p.to_string_lossy().into_owned()),
         "unread": asking_unread(s) || status == "failed",
         "links": links, "documents": crate::links::documents(&crate::links::shown(), &[s["key"].as_str().unwrap_or_default()]), "snoozed": Value::Null,

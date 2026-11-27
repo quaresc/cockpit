@@ -3,7 +3,7 @@
 
 /** A new form's state; `source` is a ticket's key, a PR's URL, a prompt or nothing, `id` a run it shows. */
 export function emptyState(source = "", id = `g${Date.now()}`) {
-  return { id, source: String(source ?? ""), repo: null, agent: null, mode: null, here: false, base: "", branch: "", model: "", effort: "", fast: "", extra: {} };
+  return { id, source: String(source ?? ""), repo: null, agent: null, mode: null, account: null, here: false, base: "", branch: "", model: "", effort: "", fast: "", extra: {} };
 }
 
 /** The request as the hub's `start_work` fetch and `start work` act take it; fast mode is left out unless picked. */
@@ -11,17 +11,19 @@ export function requestOf(s) {
   const fast = { on: true, off: false }[s.fast ?? ""];
   return {
     id: s.id, text: s.source.trim(), worktree: s.here ? "here" : "new", base: s.base.trim(), branch: s.branch.trim(), model: s.model.trim(),
-    effort: s.effort ?? "", ...(fast === undefined ? {} : { fast }), repo: s.repo ?? "", agent: s.agent ?? "", mode: s.mode ?? "", ...s.extra,
+    effort: s.effort ?? "", ...(fast === undefined ? {} : { fast }), repo: s.repo ?? "", agent: s.agent ?? "", mode: s.mode ?? "", account: s.account ?? "", ...s.extra,
   };
 }
 
-/** The state once a blocker's fix is applied: a branch, a repo or the worktree go to their fields, the rest are flags. */
+/** The state once a blocker's fix is applied: a branch, a repo, the worktree or the account go to their fields, the rest
+ *  are flags. */
 export function applyFix(s, set = {}) {
   const next = { ...s, extra: { ...s.extra } };
   for (const [k, v] of Object.entries(set)) {
     if (k === "branch") next.branch = String(v ?? "");
     else if (k === "repo") next.repo = v;
     else if (k === "worktree") next.here = v === "here";
+    else if (k === "account") next.account = v || null;
     else next.extra[k] = v;
   }
   return next;
@@ -79,6 +81,12 @@ export function choicesOf(plan) {
 export function agentOf(plan, s) {
   const id = s?.agent ?? plan?.agent ?? plan?.choices?.agent;
   return (plan?.choices?.agents ?? []).find((a) => a.id === id) ?? null;
+}
+
+/** The accounts the agent can start on, as pills `[dir, label]`, the default one marked; none when it has one. */
+export function accountsOf(agent) {
+  const list = agent?.accounts ?? [];
+  return list.length > 1 ? list.map((a) => [a.dir, a.default ? `${a.name} (default)` : a.name]) : [];
 }
 
 /** Whether the form asks for a model: the agent's table row takes one (or the hub did not say). */

@@ -1013,7 +1013,9 @@ question, the herdr TUI runs or the events are not followed), when the `inbox`/`
     "context": 41,                           // the plugin's figure (percent), or null
     "cost": 1.84,                            // the session's estimate from its transcript (USD, view `usage`), or null
     "page": "https://…",                     // the page beside it, or null
-    "account": "/Users/me/.claude-work",     // the Claude Code config folder it runs on (facts' configDir), or null
+    "account": "/Users/me/.claude-work",     // the Claude Code config folder it runs on (facts' configDir; a driven session's
+                                             // is the hub's), or null
+    "account_name": "Work",                  // that account's name when the machine has several, else null: a chip on the row
     "time": {"agent_today": 3120, "ticket_today": 4800, "ticket_week": 18000},             // seconds, from the ledger
     "snoozed": {"until": 1793640000000, "label": "until 18:00"},                          // or null ("till done": until null)
     "dismissed": null,                       // {"at": ms} once the person dismissed what it waits on: `stage` is then
@@ -1418,19 +1420,21 @@ effects, and only on this machine (refused off loopback):
  "repo": "api" /* a checkout of the repos folder */, "base": "main", "worktree": "new" /* or "here" */, "branch": "",
  "agent": "claude", "model": "", "effort": "high", "fast": true /* left out: the agent's own */, "mode": "plan",
  "existing": true, "dirty": true, "trust": "<setup hash>", "setup": false, "confirm": true, "path": "<folder>",
- "forkSetup": true, "driven": false, "lastRepo": false}             // set by fixes and options; lastRepo: no fallback repo
+ "forkSetup": true, "driven": false, "lastRepo": false,             // set by fixes and options; lastRepo: no fallback repo
+ "account": "~/.claude-work"}                                      // the config folder of the account it runs on; "" the default
 // → the plan
 {"ok": false, "kind": "ticket" /* prompt | pr */, "title": "ENG-412 Store and enforce daily quotas", "label": "eng-412",
  "place": "worktree" /* checkout | here | space | focus */, "repo": "api", "remote": "origin", "base": "main",
  "branch": "me/eng-412-…", "branchFrom": "template" /* typed | tracker | pr | current */, "path": "/…/.herdr/worktrees/api/me-eng-412-…",
  "cross": false, "setup": {"command": "npm ci", "hash": "…"}, "agent": "claude", "agentName": "Claude Code", "model": "",
  "effort": "high", "fast": true, "mode": "plan" /* "" for an agent whose table row takes none */, "prompt": "…",
+ "account": "/Users/me/.claude-work", "accountName": "Work" /* null with one account, or for an agent that picks none */,
  "steps": [{"id": "fetch" /* worktree | space | setup | agent | ticket, in the order they run */, "text": "fetch origin/main"}],
  "blockers": [{"step": "branch", "text": "The branch me/eng-412-… exists already",
                "fixes": [{"label": "Use it", "set": {"existing": true}}, {"label": "Rename", "set": {"branch": "me/eng-412-…-2"}}]}],
  "options": [{"label": "Use as a prompt", "set": {"source": "prompt"}}],
  "notes": ["Your checkout of api has 2 uncommitted changes: the worktree starts from origin without them"],
- "choices": {"repos": ["api", "web"], "agents": [{"id", "name", "icon", "installed", "models", "modes": [{"id", "label", "icon", "loud", "unasked", …}] /* the offered ones of `picks.modes`, for an agent whose row takes a mode */, "drives", "picks"}], "agent", "repo", "mode"}}
+ "choices": {"repos": ["api", "web"], "agents": [{"id", "name", "icon", "installed", "models", "modes": [{"id", "label", "icon", "loud", "unasked", …}] /* the offered ones of `picks.modes`, for an agent whose row takes a mode */, "drives", "picks", "accounts": [{"dir", "name", "default"}] /* with several accounts, for an agent whose row has `account_env` */}], "agent", "repo", "mode"}}
 ```
 
 - **Source.** A PR by its URL; a ticket the inbox or `tickets.keys` knows by its key or URL, or one the tracker
@@ -1440,7 +1444,13 @@ effects, and only on this machine (refused off loopback):
   `source` (a closed or merged PR or ticket, a ticket someone else holds), `repo`, `github`, `base` (unknown default
   branch, a typed base the remote lacks), `branch` (exists: Use it / Rename; not a branch name; nothing to name it
   after), `worktree` (a folder in the way: Use another folder; uncommitted changes when working in the checkout),
-  `setup` (new or changed: Run it / Skip it this time), `agent` (not installed; Full access not confirmed).
+  `setup` (new or changed: Run it / Skip it this time), `agent` (not installed; Full access not confirmed; an account
+  that is none of the machine's: Use the default account; a driven start on another account than the hub's: Start it
+  in a terminal).
+- **Accounts.** An agent whose table row names an `account_env` (Claude Code's `CLAUDE_CONFIG_DIR`) starts, on a machine
+  with several accounts, on the one picked, else the default (`claude.default`): the start's script exports that
+  variable before the setup and the agent. A session cockpit drives runs on the hub's own account only, since its
+  transcript is looked for there.
 - **Forks.** A fork's PR is fetched into `<remote>/pr/<n>` and checked out as the branch `pr/<n>`, never onto a branch
   of yours; a local `pr/<n>` that is not its head blocks. Setup stays off for a fork's code unless asked
   ("Run setup from the fork's tree"), and your checkout's git hooks run on it when its worktree is added.

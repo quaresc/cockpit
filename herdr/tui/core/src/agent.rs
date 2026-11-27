@@ -113,6 +113,9 @@ pub struct Agent {
     pub typing: Typing,
     /// The tools that start a subagent, a background job or a workflow, where measured. None where it has none known.
     pub tasks: Option<Tasks>,
+    /// The environment variable that names the config folder it runs on, which picks its account (Claude Code's
+    /// `CLAUDE_CONFIG_DIR`). None where it has none known.
+    pub account_env: Option<String>,
 }
 
 /// The tools of an agent that start work beside its turn: a subagent, a background job, a workflow. Each list names
@@ -313,6 +316,7 @@ impl Row<'_> {
             live: vec![],
             typing: Typing::default(),
             tasks: None,
+            account_env: None,
         }
     }
 }
@@ -645,6 +649,9 @@ fn control(list: &[&str]) -> Option<Vec<String>> {
 }
 
 /// The built-in table, before the config's overrides. Agents Herdr integrates; see `herdr integration --help`.
+/// The variable each agent reads its config folder from, which picks the account it runs on.
+const ACCOUNT_ENV: &[(&str, &str)] = &[("claude", "CLAUDE_CONFIG_DIR")];
+
 pub fn builtin() -> Vec<Agent> {
     ROWS.iter()
         .map(|row| {
@@ -673,6 +680,7 @@ pub fn builtin() -> Vec<Agent> {
                 background: v(background),
                 workflow: v(workflow),
             });
+            agent.account_env = ACCOUNT_ENV.iter().find(|(id, _)| *id == row.id).map(|(_, var)| var.to_string());
             agent
         })
         .collect()
@@ -1174,6 +1182,7 @@ fn laid_over(mut list: Vec<Agent>, overrides: &serde_json::Map<String, Value>) -
             live: vec![],
             typing: Typing::default(),
             tasks: None,
+            account_env: None,
         });
         let strs = |x: &Value| x.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect::<Vec<_>>());
         if let Some(s) = o["name"].as_str() {
