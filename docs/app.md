@@ -1505,7 +1505,8 @@ they are drawn, ↑/↓ move between them, ⏎ applies one and Esc goes back to 
 dialog the keyboard, never while a field types. None of these act while the plan is being checked, and a new plan keeps
 a lit choice on its label (the source takes the keyboard back when it is gone). ⌃R ⌃T ⌃G ⌃O turn the repo, worktree,
 agent and mode; ⏎ in a field starts, `r` retries, `c` cancels and Esc leaves. The TUI form numbers the same choices
-the same way, its digits working away from a text field. Cockpit Chat shows the keys in tooltips.
+the same way, its digits working away from a text field; its Account row, after Agent, shows on a machine with several
+accounts and turns with ←/→ like the other choices. Cockpit Chat shows the keys in tooltips.
 
 ## How fresh each source is (`hub.fresh`, `sources`, both halves)
 

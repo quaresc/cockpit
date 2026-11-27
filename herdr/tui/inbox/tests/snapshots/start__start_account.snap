@@ -1,0 +1,35 @@
+---
+source: inbox/tests/start.rs
+expression: screen
+---
+
+
+
+
+           ╭────────────────────────────────────────────────────────────────────────────╮
+           │                                                                            │
+           │  Start work                                                                │
+           │                                                                            │
+           │  Source    ENG-412                                                         │
+           │            → ticket · ENG-412 Store and enforce daily quotas               │
+           │             Use as a prompt 1                                              │
+           │  Repo      ‹ api ›                                                         │
+           │  Worktree  ‹ a new worktree ›                                              │
+           │  Base      main                                                            │
+           │  Branch    me/eng-412-store-enforce-daily-quotas                           │
+           │  Agent     ‹ Claude Code ›                                                 │
+           │  Account   ‹ Work ›                                                        │
+           │  Model     its default                                                     │
+           │  Mode      ‹ Plan only ›                                                   │
+           │                                                                            │
+           │  · fetch origin/main                                                       │
+           │  · add a worktree at                                                       │
+           │    /home/me/.herdr/worktrees/api/me-eng-412-store-enforce-daily-quotas on  │
+           │    a new branch me/eng-412-store-enforce-daily-quotas from origin/main     │
+           │  · open a space “eng-412” there                                            │
+           │  · run “npm ci” in it, then the agent once it succeeds                     │
+           │  · start Claude Code (plan only) on the ticket                             │
+           │                                                                            │
+           │  checking…   esc cancel                                                    │
+           │                                                                            │
+           ╰────────────────────────────────────────────────────────────────────────────╯
