@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::{agent, files, jsonedit};
+use crate::{accounts, agent, files, jsonedit};
 
 /// The version the options below arrive in: the one number to change at release.
 pub const NEXT: &str = "1.5.0";
@@ -25,6 +25,8 @@ pub enum Choices {
     Fixed(&'static [(&'static str, &'static str)]),
     /// The installed agents by id, and "" for the first one installed.
     Agents,
+    /// The Claude Code config folders with an account, written from `~`, and "" for the one cockpit runs with.
+    ClaudeAccounts,
 }
 
 /// What a text field takes.
@@ -148,6 +150,16 @@ pub const ALL: &[Setting] = &[
         description: "Start work, the inbox and one-off jobs start this agent when nothing else says which.",
         default: Def::Word(""),
         kind: Kind::Choice(Choices::Agents),
+    },
+    Setting {
+        key: "claude.default",
+        section: "Agents",
+        since: None,
+        title: "The default Claude Code account",
+        description: "Its limits show when no Claude session is in focus, and on the herdr sidebar. Each account is a Claude Code config \
+                      folder (CLAUDE_CONFIG_DIR); `claude.accounts` in the config names them.",
+        default: Def::Word(""),
+        kind: Kind::Choice(Choices::ClaudeAccounts),
     },
     toggle(
         "names",
@@ -450,6 +462,13 @@ fn offered(setting: &Setting, chromium: bool) -> Vec<(String, String)> {
         Kind::Choice(Choices::Agents) => std::iter::once((String::new(), "The first installed".to_string()))
             .chain(agent::all().into_iter().filter(agent::Agent::installed).map(|a| (a.id, a.name)))
             .collect(),
+        Kind::Choice(Choices::ClaudeAccounts) => std::iter::once((String::new(), "The one cockpit runs with".to_string()))
+            .chain(accounts::all().into_iter().map(|a| {
+                let folder = accounts::shown(&a.dir);
+                let label = if a.name == folder { folder.clone() } else { format!("{} ({folder})", a.name) };
+                (folder, label)
+            }))
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -689,9 +708,9 @@ fn set_value(value: &mut Value, key: &str, to: &Value) {
 }
 
 /// Whether saving this value takes the key out of config.json rather than writing it: the agent "the first
-/// installed" is no agent's id, so the file says nothing.
+/// installed" is no agent's id, nor "the one cockpit runs with" a folder, so the file says nothing.
 fn removes(setting: &Setting, value: &Value) -> bool {
-    matches!(setting.kind, Kind::Choice(Choices::Agents)) && value == ""
+    matches!(setting.kind, Kind::Choice(Choices::Agents | Choices::ClaudeAccounts)) && value == ""
 }
 
 /// The config's text with the option at `key` taken out, every other byte kept.

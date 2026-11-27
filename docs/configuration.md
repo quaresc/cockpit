@@ -59,6 +59,8 @@ itself and need no `tools`.
 | `chat.nextStepsModel` | the agent's lightest model | The model next steps run on, at the agent's lowest effort: a name, or one per agent id (`{"claude": "haiku"}`). By default the agent's lightest (`agents.commands.<id>.light`, Haiku for Claude Code), else the session's own. |
 | `ci.tellAgents` | `true` | A CI run that ends red is told to the agent working on its PR, and green after it; `false` tells no agent. |
 | `github.reviewBots` | `false` | `address review` hands bots' review threads over too, after people's. |
+| `claude.accounts` | the folders found | Claude Code accounts by config folder (`CLAUDE_CONFIG_DIR`), named: `[{"dir": "~/.claude-work", "name": "Work"}]`. Folders under the home named like `.claude-*` with a sign-in are found on their own, named after the folder. Each account gets its own limits in Cockpit settings. |
+| `claude.default` | the folder cockpit runs with | The account whose limits show when no Claude session is in front, and on the herdr sidebar: a folder from `claude.accounts` or found. |
 | `agents.pace` | `week` | `weekdays` moves the 7d quota bar's pace tick 20% per weekday and holds it over the weekend. |
 | `recap` | `{enabled: true, awayMinutes: 10}` | The recap shown when you come back to a space. |
 | `brief` | `{enabled, at: "08:30", weekends: false}` | The morning brief. |

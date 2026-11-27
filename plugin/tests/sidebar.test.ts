@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { writeAtomic } from '../hooks/config'
+import { claudeDir, limitsFile, writeAtomic } from '../hooks/config'
 import type { Writer } from '../hooks/config'
 import { branchFacts, fitWork, fitWords } from '../hooks/sidebar'
 
@@ -59,4 +59,12 @@ test('a move that fails leaves the last good limits.json and no stray file', asy
   expect(failed).toBe(true)
   expect(steps.includes('write /home/me/.cache/cockpit/limits.json')).toBe(false)
   expect(steps[2]?.startsWith('rm -f /home/me/.cache/cockpit/limits.json.')).toBe(true)
+})
+
+test("each config folder's limits go to a file of their own", async () => {
+  const env = (vars: Record<string, string>) => ({ env: { get: async (name: string) => vars[name] } }) as unknown as Parameters<typeof claudeDir>[0]
+  expect(await claudeDir(env({ HOME: '/home/me' }))).toBe('/home/me/.claude')
+  expect(await claudeDir(env({ HOME: '/home/me', CLAUDE_CONFIG_DIR: '/home/me/.claude-work/' }))).toBe('/home/me/.claude-work')
+  expect(limitsFile('/home/me/.claude-work')).toBe('limits/-home-me--claude-work.json')
+  expect(limitsFile('/home/me/.claude')).not.toBe(limitsFile('/home/me/.claude-work'))
 })

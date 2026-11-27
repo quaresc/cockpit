@@ -109,7 +109,8 @@ test('facts reach the agents document under the handle, once per change, and go 
   expect(facts.terminal).toBe('t3')
   expect(facts.context).toBe(42)
   expect(facts.page).toBe('http://localhost:3000/')
-  expect(facts.transcript).toBe(transcriptPath(HOME, '/repos/api', 's1'))
+  expect(facts.transcript).toBe(transcriptPath(`${HOME}/.claude`, '/repos/api', 's1'))
+  expect(facts.configDir).toBe(`${HOME}/.claude`)
   expect(facts.version).toBe('0.26.0')
   // A session whose terminal moved leaves its old row.
   await reportFacts($, { ...here, pane: 'app:t7', terminal: 't7' }, { context: 50 })
@@ -119,5 +120,14 @@ test('facts reach the agents document under the handle, once per change, and go 
 })
 
 test("a conversation's transcript is in Claude's folder for its working directory", async () => {
-  expect(transcriptPath('/home/me', '/repos/my_api.v2', 'abc')).toBe('/home/me/.claude/projects/-repos-my-api-v2/abc.jsonl')
+  expect(transcriptPath('/home/me/.claude', '/repos/my_api.v2', 'abc')).toBe('/home/me/.claude/projects/-repos-my-api-v2/abc.jsonl')
+})
+
+test('a session on another account names its config folder, and its transcript is under it', async () => {
+  const { $, patches } = fake({ HC_TERMINAL_ID: 't4', CLAUDE_CONFIG_DIR: '/home/me/.claude-work/' })
+  const here = { pane: 'app:t4', tab: 'tb1', space: 'sp1', frontend: 'app' as const, terminal: 't4', paneId: 'p4' }
+  await reportFacts($, here, { cwd: '/repos/api' })
+  const facts = patches.at(-1)!['app:t4'] as Record<string, unknown>
+  expect(facts.configDir).toBe('/home/me/.claude-work')
+  expect(facts.transcript).toBe('/home/me/.claude-work/projects/-repos-api/s1.jsonl')
 })

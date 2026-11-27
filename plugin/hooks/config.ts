@@ -370,6 +370,16 @@ export async function cacheDir($: $) {
   return `${await home($)}/.cache/cockpit`
 }
 
+// The Claude Code config folder this session runs on: CLAUDE_CONFIG_DIR, else ~/.claude, with no trailing slash.
+export async function claudeDir($: Pick<$, 'env'>) {
+  const set = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? '').trim()
+  const dir = set || `${(await $.env.get('HOME')) ?? ''}/.claude`
+  return dir.length > 1 ? dir.replace(/\/+$/, '') : dir
+}
+
+// Where a config folder's status line goes under the cache's limits/: the folder's path, every other character a dash.
+export const limitsFile = (dir: string) => `limits/${dir.replace(/[^A-Za-z0-9]/g, '-')}.json`
+
 // The cockpit command: the herdr plugin's cockpit.sh through its link, else the binary `cockpit app install` noted in
 // the Herdr app's home, else the copy of the herdr folder the Claude plugin's marketplace holds.
 export async function cockpitCommand($: $): Promise<string[] | undefined> {
