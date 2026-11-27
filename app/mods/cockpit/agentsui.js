@@ -118,6 +118,8 @@ export function Chips(row, { few = false, id = row.terminal } = {}) {
   }
   if (!few && row.ticket) out.push(Chip(row.ticket.status ? `${row.ticket.key} ${row.ticket.status}` : row.ticket.key, { id: `${id}-ticket`, icon: "ticket", color: k.info, tooltip: row.ticket.title ?? row.ticket.key, onClick: row.ticket.url ? () => run("cockpit.target:" + row.ticket.url) : undefined }));
   if (!few && row.branch) out.push(Chip(row.branch, { id: `${id}-branch`, mono: true, icon: "git-branch" }));
+  // The account it runs on, when this machine has several.
+  if (row.account_name) out.push(Chip(row.account_name, { id: `${id}-account`, icon: "user", tooltip: `Runs on the Claude Code account ${row.account_name}${row.account ? ` (${row.account})` : ""}` }));
   if (c && (c.files || c.ahead)) {
     out.push(
       h_flex()

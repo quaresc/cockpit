@@ -3,7 +3,7 @@ import type { EngineInterface, SessionMeasureInput } from 'claude-code'
 
 import { clashWith } from './activity'
 import { ciMark, notify, readCi } from './ci'
-import { cacheDir, home, loadConfig, writeAtomic } from './config'
+import { cacheDir, claudeDir, home, limitsFile, loadConfig, writeAtomic } from './config'
 import { reportFacts } from './facts'
 import { appDo, appSpaces, browsersBeside, findTerminal, herdr, hereSoon, inboxSpace, placeHere, placeOf } from './herdr'
 import type { Here } from './herdr'
@@ -97,6 +97,21 @@ let ctxCells = 8
 
 const glyph = (percent: number) => (percent < 12.5 ? '○' : percent < 37.5 ? '◔' : percent < 62.5 ? '◑' : percent < 87.5 ? '◕' : '●')
 
+let limitsDir = ''
+
+// The limits of this session's account, under its config folder's own file, so two accounts never write over each other;
+// limits.json too on `~/.claude`, which a hub that knows one account reads.
+export async function writeLimits($: $, limits: Limit[]) {
+  const [cache, dir] = [await cacheDir($), await claudeDir($)]
+  if (limitsDir !== cache) {
+    await $.process.run(['mkdir', '-p', `${cache}/limits`])
+    limitsDir = cache
+  }
+  const at = Date.now()
+  await writeAtomic($, `${cache}/${limitsFile(dir)}`, JSON.stringify({ at, dir, limits }))
+  if (dir === `${await home($)}/.claude`) await writeAtomic($, `${cache}/limits.json`, JSON.stringify({ at, limits }))
+}
+
 // Context, limits and current work: status line, agent rows, shared limits file.
 export async function reportUsage($: $, e: SessionMeasureInput) {
   const { context, rateLimits } = e
@@ -110,7 +125,7 @@ export async function reportUsage($: $, e: SessionMeasureInput) {
 
   // The hub reads it for every surface: the herdr sidebar's `$limits`, the Herdr app's bars and the Usage sheet.
   // A write that fails leaves the last reading, which the hub keeps reading.
-  if (limits.length > 0) await writeAtomic($, `${await cacheDir($)}/limits.json`, JSON.stringify({ at: Date.now(), limits })).catch(() => undefined)
+  if (limits.length > 0) await writeLimits($, limits).catch(() => undefined)
 
   const here = await hereSoon($)
   if (!here) return

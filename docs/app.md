@@ -1013,6 +1013,9 @@ question, the herdr TUI runs or the events are not followed), when the `inbox`/`
     "context": 41,                           // the plugin's figure (percent), or null
     "cost": 1.84,                            // the session's estimate from its transcript (USD, view `usage`), or null
     "page": "https://…",                     // the page beside it, or null
+    "account": "/Users/me/.claude-work",     // the Claude Code config folder it runs on (facts' configDir; a driven session's
+                                             // is the hub's), or null
+    "account_name": "Work",                  // that account's name when the machine has several, else null: a chip on the row
     "time": {"agent_today": 3120, "ticket_today": 4800, "ticket_week": 18000},             // seconds, from the ledger
     "snoozed": {"until": 1793640000000, "label": "until 18:00"},                          // or null ("till done": until null)
     "dismissed": null,                       // {"at": ms} once the person dismissed what it waits on: `stage` is then
@@ -1154,7 +1157,8 @@ ticket, PR and CI come from git in its folder and the inbox, as a terminal's do.
 ## View `usage` (every agent's limits and tokens, both halves)
 
 Built by `cockpit_core::usage` in the hub from what already exists on the machine: Claude Code's status line
-(`~/.cache/cockpit/limits.json`, `{at, limits: [{name, percent, resetsAt}]}`, which the plugin writes), the
+(`~/.cache/cockpit/limits/<folder>.json`, `{at, dir, limits: [{name, percent, resetsAt}]}`, one per Claude Code config
+folder, which the plugin writes; a session on `~/.claude` also writes `limits.json`, the same without `dir`), the
 `rate_limit_event`s of the sessions cockpit drives (`claude-stream`, as of the session's `rate_limit_at`, which may carry
 a verdict and no percent), and the last `token_count` of each limit bucket (`limit_id`) in the newest Codex rollout of
 the last 8 days' folders (`codex-rollout`: `rate_limits.primary/secondary`, plan and credits), Copilot's quotas as
@@ -1181,6 +1185,7 @@ did, and `usage` each time; the views only read what that thread keeps.
     "agent": "codex", "name": "Codex", "icon": "codex", "letter": "X", "reports": true,
     "state": "stale",                        // fresh | stale | none ("No recent reading") | unreported | unavailable
     "words": "as of 11:52 · stale",          // "Not reported by this agent", "Usage unavailable: …"
+    "account": null,                         // of several Claude Code accounts, the one this card is: {dir, name, default}
     "identity": {"signed_in": true, "account": null, "org": null, "plan": "Plus", "words": "ChatGPT Plus plan"},
                                              // this machine's account, shown beside the windows and never as theirs:
                                              // Claude's is oauthAccount's emailAddress and organizationName of
@@ -1206,6 +1211,18 @@ did, and `usage` each time; the views only read what that thread keeps.
   }
 }
 ```
+
+**Several Claude Code accounts.** Each account is a config folder (`CLAUDE_CONFIG_DIR`): the folders under the home
+folder named like Claude Code's (`.claude`, `.claude-work`, `.claude_lab`) whose `.claude.json` names an account, those
+`claude.accounts` lists in the config (`[{dir, name}]`), and any folder a `limits/` file names
+(`cockpit_core::accounts`). With two or more, Claude is one provider per account, the default first (`claude.default`,
+else the hub's own folder): its `account` is `{dir, name, default}`, its identity reads "Claude Code in ~/.claude-work:
+…", and each of its windows (in `providers`, `windows` and the agents view's `quota`) carries `account` (the folder),
+`account_name` and `account_default`. Readings never mix across accounts: limits.json counts as `~/.claude`'s, a session
+cockpit drives as the hub's folder. The herdr sidebar's `$limits` is the default account's; Home's bars and the drawer
+show the account of the agent in front (the agents row's `account`), else the default's (`forAccount` in
+`mods/cockpit/usage.js`); its header chips are `usage-claude` and `usage-claude-<name>`. With one account nothing of
+this shows and every field above is absent.
 
 The hub alone writes the herdr TUI's `$limits` token, source `cockpit` on the inbox space's row: on its first pass
 whatever it is, then when it changes and every 5 minutes, each write lasting 11 minutes (`--ttl-ms`), so a hub that
@@ -1241,7 +1258,8 @@ Herdr app. In the app it writes no herdr tokens: what the TUI's sidebar rows sho
 - **Agent facts** (both frontends): each interactive session patches the store document `agents` with
   `{"<handle>": facts}` when a fact changes, and `{"<handle>": null}` when it ends. `facts`: `session`, `transcript`,
   `cwd`, `repo`, `branch`, `ticket`, `task` (the TUI pane's topic, else null), `page` (URL beside it), `pageTitle`,
-  `context` (%), `cost` (USD, this session), `account`, `at`, plus `frontend`, `terminal` (`t3`, null in the TUI),
+  `context` (%), `cost` (USD, this session), `account`, `configDir` (its Claude Code config folder: `CLAUDE_CONFIG_DIR`,
+  else `~/.claude`; the transcript is under it), `at`, plus `frontend`, `terminal` (`t3`, null in the TUI),
   `space`, `tab`, `version`, `pr` (`{number, url, failing}`), `ci` (`{running, done, total}`), `clash` (`{label,
   space, tab}`: another session on the same branch), `views` (`[{name, open}]`, its show panes) and `last` (`{at,
   durationMs, text}`: its last answer's first line). Unknown is null.
@@ -1402,19 +1420,21 @@ effects, and only on this machine (refused off loopback):
  "repo": "api" /* a checkout of the repos folder */, "base": "main", "worktree": "new" /* or "here" */, "branch": "",
  "agent": "claude", "model": "", "effort": "high", "fast": true /* left out: the agent's own */, "mode": "plan",
  "existing": true, "dirty": true, "trust": "<setup hash>", "setup": false, "confirm": true, "path": "<folder>",
- "forkSetup": true, "driven": false, "lastRepo": false}             // set by fixes and options; lastRepo: no fallback repo
+ "forkSetup": true, "driven": false, "lastRepo": false,             // set by fixes and options; lastRepo: no fallback repo
+ "account": "~/.claude-work"}                                      // the config folder of the account it runs on; "" the default
 // → the plan
 {"ok": false, "kind": "ticket" /* prompt | pr */, "title": "ENG-412 Store and enforce daily quotas", "label": "eng-412",
  "place": "worktree" /* checkout | here | space | focus */, "repo": "api", "remote": "origin", "base": "main",
  "branch": "me/eng-412-…", "branchFrom": "template" /* typed | tracker | pr | current */, "path": "/…/.herdr/worktrees/api/me-eng-412-…",
  "cross": false, "setup": {"command": "npm ci", "hash": "…"}, "agent": "claude", "agentName": "Claude Code", "model": "",
  "effort": "high", "fast": true, "mode": "plan" /* "" for an agent whose table row takes none */, "prompt": "…",
+ "account": "/Users/me/.claude-work", "accountName": "Work" /* null with one account, or for an agent that picks none */,
  "steps": [{"id": "fetch" /* worktree | space | setup | agent | ticket, in the order they run */, "text": "fetch origin/main"}],
  "blockers": [{"step": "branch", "text": "The branch me/eng-412-… exists already",
                "fixes": [{"label": "Use it", "set": {"existing": true}}, {"label": "Rename", "set": {"branch": "me/eng-412-…-2"}}]}],
  "options": [{"label": "Use as a prompt", "set": {"source": "prompt"}}],
  "notes": ["Your checkout of api has 2 uncommitted changes: the worktree starts from origin without them"],
- "choices": {"repos": ["api", "web"], "agents": [{"id", "name", "icon", "installed", "models", "modes": [{"id", "label", "icon", "loud", "unasked", …}] /* the offered ones of `picks.modes`, for an agent whose row takes a mode */, "drives", "picks"}], "agent", "repo", "mode"}}
+ "choices": {"repos": ["api", "web"], "agents": [{"id", "name", "icon", "installed", "models", "modes": [{"id", "label", "icon", "loud", "unasked", …}] /* the offered ones of `picks.modes`, for an agent whose row takes a mode */, "drives", "picks", "accounts": [{"dir", "name", "default"}] /* with several accounts, for an agent whose row has `account_env` */}], "agent", "repo", "mode"}}
 ```
 
 - **Source.** A PR by its URL; a ticket the inbox or `tickets.keys` knows by its key or URL, or one the tracker
@@ -1424,7 +1444,13 @@ effects, and only on this machine (refused off loopback):
   `source` (a closed or merged PR or ticket, a ticket someone else holds), `repo`, `github`, `base` (unknown default
   branch, a typed base the remote lacks), `branch` (exists: Use it / Rename; not a branch name; nothing to name it
   after), `worktree` (a folder in the way: Use another folder; uncommitted changes when working in the checkout),
-  `setup` (new or changed: Run it / Skip it this time), `agent` (not installed; Full access not confirmed).
+  `setup` (new or changed: Run it / Skip it this time), `agent` (not installed; Full access not confirmed; an account
+  that is none of the machine's: Use the default account; a driven start on another account than the hub's: Start it
+  in a terminal).
+- **Accounts.** An agent whose table row names an `account_env` (Claude Code's `CLAUDE_CONFIG_DIR`) starts, on a machine
+  with several accounts, on the one picked, else the default (`claude.default`): the start's script exports that
+  variable before the setup and the agent. A session cockpit drives runs on the hub's own account only, since its
+  transcript is looked for there.
 - **Forks.** A fork's PR is fetched into `<remote>/pr/<n>` and checked out as the branch `pr/<n>`, never onto a branch
   of yours; a local `pr/<n>` that is not its head blocks. Setup stays off for a fork's code unless asked
   ("Run setup from the fork's tree"), and your checkout's git hooks run on it when its worktree is added.

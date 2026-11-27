@@ -58,19 +58,45 @@ export function barTone(q) {
   return fullness(q) >= 80 || q?.warn || q?.ahead ? "warning" : "success";
 }
 
+/**
+ * The windows the account in front goes with: of an agent on several accounts (rows that carry `account_name`), only
+ * those of the account the `focused` agents row runs on, else the default account's; every other window as it is.
+ */
+export function forAccount(quota, focused) {
+  const list = quota ?? [];
+  const several = new Set(list.filter((q) => q.account_name).map((q) => q.agent));
+  if (!several.size) return list;
+  // A session on an account with no reading yet shows none, rather than another account's.
+  const agent = focused?.agent || (typeof focused?.program === "string" ? focused.program : focused?.program?.key);
+  return list.filter((q) => {
+    if (!several.has(q.agent)) return true;
+    return focused?.account && agent === q.agent ? q.account === focused.account : Boolean(q.account_default);
+  });
+}
+
+/** The agents row in front: the focused terminal's, else one in the focused tab; null when none is. */
+export function rowInFront(rows, f) {
+  const terminal = f?.shown ?? f?.terminal;
+  return (rows ?? []).find((r) => r.address === terminal || r.terminal === terminal || r.terminal === `app:${terminal}`)
+    ?? (rows ?? []).find((r) => f?.tab && (r.tab?.id ?? r.tab) === f.tab)
+    ?? null;
+}
+
 /** The window nearest its limit, or null. */
 export function tightestOf(quota) {
   return [...(quota ?? [])].sort((a, b) => fullness(b) - fullness(a) || (a.resets_at ?? Infinity) - (b.resets_at ?? Infinity))[0] ?? null;
 }
 
-/** The windows grouped by provider, with source capability kept separate from a missing reading. */
+/** The windows grouped by provider (by account, for an agent on several), with source capability kept separate from a
+ *  missing reading. */
 export function byProvider(quota, running = []) {
   const groups = [];
   for (const q of quota ?? []) {
     const agent = q.agent ?? q.provider ?? "";
     if (!agent || agent === "agent") continue;
-    let g = groups.find((x) => x.agent === agent);
-    if (!g) groups.push((g = { agent, icon: iconOf(q.icon ?? "agent"), name: q.provider ?? agent, windows: [] }));
+    const account = q.account_name ? q.account : null;
+    let g = groups.find((x) => x.agent === agent && x.account === account);
+    if (!g) groups.push((g = { agent, account, icon: iconOf(q.icon ?? "agent"), name: q.account_name ? `${q.provider ?? agent} · ${q.account_name}` : (q.provider ?? agent), windows: [] }));
     g.windows.push(q);
   }
   for (const r of running ?? []) {
@@ -288,12 +314,20 @@ export default class Usage {
    */
   providers(k, providers) {
     if (!providers.length) return [div().text_size(TEXT.sm).text_color(k.mutedFg).child("No agent is installed here.")];
-    return providers.map((p) => {
+    return providers.map((p, n) => {
       const tone = { fresh: "success", stale: "secondary", unavailable: "destructive" }[p.state] ?? "outline";
       const credits = p.credits?.unlimited ? "Credits: unlimited" : p.credits?.has_credits ? `Credits: ${p.credits.balance}` : null;
       const windows = p.windows ?? [];
+      // One of several Claude Code accounts: its card is named after the account, the default one marked.
+      const key = p.account ? `${p.agent}-${n}` : p.agent;
+      const title = h_flex()
+        .gap(8)
+        .items_center()
+        .child(div().text_size(TEXT.base).font_medium().child(p.account ? `${p.name} · ${p.account.name}` : p.name))
+        .child(Badge(STATE_WORDS[p.state] ?? p.state, tone))
+        .when(Boolean(p.account?.default), (e) => e.child(Badge("Default", "outline")));
       return v_flex()
-        .id(`usage-agent-${p.agent}`)
+        .id(`usage-agent-${key}`)
         .gap(10)
         .px(12)
         .py(10)
@@ -310,7 +344,7 @@ export default class Usage {
                 .flex_1()
                 .min_w(0)
                 .gap(2)
-                .child(h_flex().gap(8).items_center().child(div().text_size(TEXT.base).font_medium().child(p.name)).child(Badge(STATE_WORDS[p.state] ?? p.state, tone)))
+                .child(title)
                 .child(div().truncate().text_size(TEXT.xs).text_color(k.mutedFg).child(p.words))
                 .when(Boolean(p.identity?.words), (e) =>
                   e.child(h_flex().gap(5).items_center().text_size(TEXT.xs).text_color(k.dim).child(Icon("user", { size: 12 })).child(p.identity.words)),
@@ -318,7 +352,7 @@ export default class Usage {
                 .when(Boolean(credits), (e) => e.child(div().text_size(TEXT.xs).text_color(k.dim).child(credits))),
             ),
         )
-        .when(windows.length > 0, (e) => e.child(v_flex().pl(38).gap(8).children(windows.map((q, i) => this.window(k, q, `usage-w-${p.agent}-${i}`)))));
+        .when(windows.length > 0, (e) => e.child(v_flex().pl(38).gap(8).children(windows.map((q, i) => this.window(k, q, `usage-w-${key}-${i}`)))));
     });
   }
 

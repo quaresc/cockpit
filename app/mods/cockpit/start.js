@@ -9,7 +9,7 @@ import { closeOverlay, openOverlay, props, shared } from "herdr";
 import * as hub from "./hub.js";
 import { readInChat } from "./screens.js";
 import { tokens, TEXT, RADIUS, Icon, Spinner, Button, Kbd, TextField, Pills, AlertDialog, HubDown, alpha, AgentLogo } from "./ui.js";
-import { emptyState, requestOf, applyFix, edited, phase, resolved, stepMark, shortPath, choicesOf, agentOf, takesModel } from "./startform.js";
+import { emptyState, requestOf, applyFix, edited, phase, resolved, stepMark, shortPath, choicesOf, agentOf, takesModel, accountsOf } from "./startform.js";
 import { startPicks, keptPicks } from "./picks.js";
 
 const PLAN_AFTER_MS = 250;
@@ -410,6 +410,9 @@ export default class Start {
       if (shown) out.push(div().pl(82).text_size(TEXT.xs).text_color(k.dim).child(shown));
     } else if (pr && p.branch) out.push(this.row("Branch", div().text_size(TEXT.sm).text_color(k.mutedFg).child(`${p.branch} (the PR's)`), k));
     out.push(this.row("Agent", Pills("start-agent", agents, agent?.id ?? "", (v, cx) => this.pick(cx, "agent", v)), k, "⌃G"));
+    // The Claude Code account it runs on, when this machine has several: the one picked, else the plan's (the default).
+    const accounts = accountsOf(agent);
+    if (accounts.length) out.push(this.row("Account", Pills("start-account", accounts, this.s.account || p.account || accounts[0][0], (v, cx) => this.pick(cx, "account", v)), k));
     // The model, effort level and fast mode it starts with, as its agent takes them: a model it lists none of is typed.
     const offered = startPicks(agent, this.s.model);
     const pills = (id, list, key) => Pills(id, list, this.s[key] ?? "", (v, cx) => this.pick(cx, key, v));

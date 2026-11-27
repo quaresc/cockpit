@@ -3,11 +3,11 @@ import { readFile } from "node:fs/promises";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 import { test } from "node:test";
 
-import { emptyState, requestOf, applyFix, edited, sourceOf, phase, resolved, stepMark, shortPath, choicesOf, agentOf, takesModel } from "../mods/cockpit/startform.js";
+import { emptyState, requestOf, applyFix, edited, sourceOf, phase, resolved, stepMark, shortPath, choicesOf, agentOf, takesModel, accountsOf } from "../mods/cockpit/startform.js";
 
 test("the form becomes the request the hub plans", () => {
   const s = edited(edited(emptyState("ENG-412  ", "g1"), "mode", "plan"), "model", " opus ");
-  assert.deepEqual(requestOf(s), { id: "g1", text: "ENG-412", worktree: "new", base: "", branch: "", model: "opus", effort: "", repo: "", agent: "", mode: "plan" });
+  assert.deepEqual(requestOf(s), { id: "g1", text: "ENG-412", worktree: "new", base: "", branch: "", model: "opus", effort: "", repo: "", agent: "", mode: "plan", account: "" });
   const picked = edited(edited(s, "effort", "high"), "fast", "off");
   assert.deepEqual([requestOf(picked).effort, requestOf(picked).fast], ["high", false], "fast mode goes only once picked");
   const other = edited(picked, "agent", "codex");
@@ -25,6 +25,17 @@ test("a fix fills its field or sets its flag, and a new source drops the old fix
   assert.equal(requestOf(applyFix(s, { worktree: "new" })).worktree, "new");
   assert.equal(requestOf(edited(s, "source", "ENG-415")).trust, undefined, "another source asks again");
   assert.equal(requestOf(edited(applyFix(s, { dirty: true }), "here", false)).dirty, undefined, "the worktree changed: the checkout's state no longer counts");
+});
+
+test("the account goes with the request, and its fix sets it back to the default", () => {
+  const work = edited(emptyState("ENG-412", "g4"), "account", "/home/me/.claude-work");
+  assert.equal(requestOf(work).account, "/home/me/.claude-work");
+  const back = applyFix(work, { account: "" });
+  assert.deepEqual([back.account, requestOf(back).account], [null, ""]);
+  const claude = { id: "claude", accounts: [{ dir: "/home/me/.claude", name: "Personal", default: true }, { dir: "/home/me/.claude-work", name: "Work", default: false }] };
+  assert.deepEqual(accountsOf(claude), [["/home/me/.claude", "Personal (default)"], ["/home/me/.claude-work", "Work"]]);
+  assert.deepEqual(accountsOf({ id: "codex", accounts: [] }), []);
+  assert.deepEqual(accountsOf(null), []);
 });
 
 test("an inbox row starts work on its ticket's key or its PR's URL", () => {

@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-import { home } from './config'
+import { claudeDir } from './config'
 import type { Here } from './herdr'
 import { writeDoc } from './store'
 import { ownVersion } from './upkeep'
@@ -22,6 +22,8 @@ export type Facts = {
   context: number | null
   cost: number | null
   account: string | null
+  // The Claude Code config folder it runs on, which says whose limits go with it.
+  configDir: string
   frontend: 'tui' | 'app'
   terminal: string | null
   space: string
@@ -39,9 +41,10 @@ const STALE_MS = 60_000
 let known: Partial<Facts> = {}
 let sent = { handle: '', body: '', at: 0 }
 
-// Where Claude keeps a conversation: its folder named after the working directory, every other character a dash.
-export function transcriptPath(homeDir: string, cwd: string, session: string) {
-  return `${homeDir}/.claude/projects/${cwd.replace(/[^A-Za-z0-9]/g, '-')}/${session}.jsonl`
+// Where Claude keeps a conversation: under its config folder, in a folder named after the working directory, every
+// other character a dash.
+export function transcriptPath(configDir: string, cwd: string, session: string) {
+  return `${configDir}/projects/${cwd.replace(/[^A-Za-z0-9]/g, '-')}/${session}.jsonl`
 }
 
 // Merges what changed into this session's facts and sends them when they differ from the last sent, or a minute on.
@@ -50,13 +53,15 @@ export async function reportFacts($: $, here: Here | undefined, change: Partial<
   if (!here) return
   const session = await $.session.id()
   const cwd = known.cwd ?? (await $.session.cwd()) ?? null
+  const configDir = await claudeDir($)
   const facts: Facts = {
-    transcript: cwd ? transcriptPath(await home($), cwd, session) : null,
+    transcript: cwd ? transcriptPath(configDir, cwd, session) : null,
     repo: null, branch: null, ticket: null, page: null, pageTitle: null, context: null, cost: null, account: null,
     pr: null, ci: null, clash: null, views: [], last: null,
     ...known,
     session,
     cwd,
+    configDir,
     frontend: here.frontend ?? 'tui',
     terminal: here.terminal ?? null,
     space: here.space,
