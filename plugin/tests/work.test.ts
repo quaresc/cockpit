@@ -53,3 +53,42 @@ test('a session follows the checkout its tools touch, worktrees included', async
   await $.tool.call({ tool: 'Bash', command: `cd ~/.herdr/worktrees/api/me-eng-4/src && ls` })
   expect(await work()).toEqual({ repo: 'api', dir: HERDR_TREE })
 })
+
+test('a session started outside the repos folder follows its own folder again after a visit to another repo', async ($, on) => {
+  const OWN = `${HOME}/dotfiles`
+  const own = (args: readonly string[]) => {
+    const dir = args[args.indexOf('-C') + 1] ?? ''
+    if (!(dir === OWN || dir.startsWith(`${OWN}/`))) return git(args)
+    if (args.includes('--show-toplevel')) return ran(0, `${OWN}\n`)
+    if (args.includes('get-url')) return ran(0, 'git@github.com:o/dotfiles.git\n')
+    return ran(0, 'main\n')
+  }
+  on('env.get', (_, e) => ({ value: (e as { name?: string }).name === 'HOME' ? HOME : undefined }))
+  on('session.cwd', () => ({ value: OWN }))
+  on('fs.read', (_, e) => {
+    const path = (e as { path?: string }).path ?? ''
+    if (path.endsWith('/.config/cockpit/config.json')) return { value: JSON.stringify({ reposDir: '~/code', tickets: { enabled: false } }) }
+    throw new Error('ENOENT')
+  })
+  on('fs.write', () => ({ value: undefined }))
+  on('fs.list', () => ({ value: [] }))
+  on('fs.stat', (_, e) => {
+    const path = (e as { path?: string }).path ?? ''
+    if ([...FOLDERS, OWN, `${OWN}/herdr`].includes(path)) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+    throw new Error('ENOENT')
+  })
+  on('process.run', (_, e) => ({ value: e.argv[0] === 'git' ? own(e.argv) : ran(0) }))
+  on('tool.call', () => ({ result: {} }))
+  let seen: unknown = null
+  on('state.set', ($, e, next) => {
+    const set = e as unknown as { key?: string; value?: unknown }
+    if (set.key === 'work') seen = set.value
+    return next(e)
+  })
+
+  await $.tool.call({ tool: 'Read', file_path: `${REPO}/src/a.ts` })
+  expect(seen).toEqual({ repo: 'api', dir: REPO })
+
+  await $.tool.call({ tool: 'Bash', command: `cd ~/dotfiles/herdr && ls` })
+  expect(seen).toEqual({ repo: 'dotfiles', dir: OWN })
+})
